@@ -1,25 +1,31 @@
-Phase 0
+# BroTracker Roadmap
 
-Repository
-Documentation
-Architecture
+## Phase 0
 
-Phase 1
+- Repository structure and documentation cleanup
+- Define architecture boundaries between core, firmware, UI and tools
 
-Timing Engine
+## Phase 1
 
-Phase 2
+- Timing engine foundation
+- Deterministic playback and scheduling primitives
 
-Basic Sample Player
+## Phase 2
 
-Phase 3
+- Basic sample player
+- Simple instrument and sample loading workflow
 
-Pattern Editor
+## Phase 3
 
-Phase 4
+- Pattern editor
+- Basic pattern editing and transport controls
 
-MIDI
+## Phase 4
 
-Phase 5
+- MIDI support
+- External clock and device integration
 
-MOD Import
+## Phase 5
+
+- MOD/XM import support
+- Additional playback engines

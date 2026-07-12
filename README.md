@@ -13,6 +13,28 @@ The project targets **Teensy 4.1** as the realtime engine and Linux-based handhe
 * MOD/XM import
 * Simple, modular and community-friendly architecture
 
+## Repository Structure
+
+The repository is organized around a simple separation of responsibilities:
+
+* core for shared engine logic and reusable data structures
+* firmware for Teensy 4.1-specific runtime code
+* ui for host-side editing and interface logic
+* tools for utilities and import/export helpers
+* docs and assets for project documentation and resources
+
+## Documentation
+
+Project documentation is available in the `docs` directory.
+
+Important documents include:
+
+- Project goals
+- Core design principles
+- Repository structure
+- Development roadmap
+- Design decisions
+
 ## Project Status
 
 This project is currently in its early proof-of-concept stage.
