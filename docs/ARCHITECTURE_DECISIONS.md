@@ -56,3 +56,28 @@ Future engines may include FM synthesis, wavetable synthesis or other technologi
 Development should proceed in small, self-contained milestones.
 
 Every completed milestone should leave the repository in a usable and buildable state.
+
+
+---
+
+## D0006 — Native Import Philosophy
+
+BroTracker prioritizes its own internal architecture over external file format compatibility.
+
+Importers should convert supported external formats into BroTracker's internal representation whenever practical.
+
+The playback engine should operate only on BroTracker's internal data structures and should not contain format-specific logic.
+
+The importer should be permissive, while the playback engine should remain deterministic, simple and predictable.
+
+---
+
+## D0007 — WAV Import
+
+WAV is considered a first-class import format.
+
+BroTracker should support importing the most common PCM WAV variants used in music production, within the practical limits of the reference platform.
+
+When possible, incompatible but convertible WAV formats should be automatically converted during import into BroTracker's internal sample representation.
+
+Engine limitations should be defined by the capabilities of the reference hardware, not by the WAV container itself.
