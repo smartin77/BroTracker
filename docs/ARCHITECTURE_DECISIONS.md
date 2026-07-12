@@ -81,3 +81,24 @@ BroTracker should support importing the most common PCM WAV variants used in mus
 When possible, incompatible but convertible WAV formats should be automatically converted during import into BroTracker's internal sample representation.
 
 Engine limitations should be defined by the capabilities of the reference hardware, not by the WAV container itself.
+
+---
+
+## D0008 — Project and Sample Storage
+
+BroTracker projects must never depend on external file locations.
+
+All samples required by a project must remain part of the project itself, either as individual BroTracker sample files or as part of a future project container.
+
+The exact storage format is intentionally left open for future evaluation.
+
+The storage system must be designed with the limitations of the reference platform in mind.
+
+Particular attention should be given to:
+
+* Fast sequential access from SD storage.
+* Efficient streaming with limited RAM.
+* Predictable realtime performance.
+* Independence from the original source file locations.
+
+The internal sample representation may differ from the imported file format if it provides advantages for playback performance or storage efficiency.
