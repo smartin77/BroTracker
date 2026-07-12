@@ -102,3 +102,18 @@ Particular attention should be given to:
 * Independence from the original source file locations.
 
 The internal sample representation may differ from the imported file format if it provides advantages for playback performance or storage efficiency.
+
+---
+
+## D0009 — Project Memory
+
+The GitHub repository is the primary source of truth for the BroTracker project.
+
+Important architectural decisions, design principles and project ideas must be recorded in the project documentation instead of remaining only in discussions.
+
+Documentation is expected to evolve together with the project.
+
+Recording a decision does not make it permanent; decisions may be revised or replaced as better solutions are discovered through implementation and testing.
+
+The purpose of the documentation is to preserve project knowledge, provide continuity and allow both humans and AI collaborators to understand the project's evolution.
+
