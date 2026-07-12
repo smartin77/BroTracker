@@ -1,0 +1,10 @@
+.vscode/
+build/
+out/
+.cache/
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
