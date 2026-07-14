@@ -117,3 +117,20 @@ Recording a decision does not make it permanent; decisions may be revised or rep
 
 The purpose of the documentation is to preserve project knowledge, provide continuity and allow both humans and AI collaborators to understand the project's evolution.
 
+---
+
+## D00010 - Sample Format Baseline
+
+BroTracker currently standardizes on the following minimum sample capabilities:
+
+- PCM
+- 16-bit
+- Mono
+- 44.1 kHz (48 kHz may be added later)
+- Loop start/end
+- Loop types: None, Forward, Ping-Pong, Backward
+- Root note
+- Fine tune
+
+The storage format (standard WAV vs. internal format) remains an implementation decision. The detailed specification is maintained in `docs/SAMPLE_FORMAT.md`.
+
