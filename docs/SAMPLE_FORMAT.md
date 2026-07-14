@@ -28,8 +28,6 @@ BroTracker samples must support:
 * root note
 * fine tune
 
-When importing WAV files, the standard `smpl` loop definitions shall be mapped to the corresponding BroTracker loop types.
-
 ## Notes
 
 * Sample slices are not stored in the sample itself. Slices belong to the instrument layer.

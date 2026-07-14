@@ -59,6 +59,7 @@ BroTracker should interoperate with existing MIDI routing solutions whenever pos
 Examples include:
 
 - MIDI-OX
+- loopMIDI
 - Pocket MIDI
 - TXL MIDI Router
 - CME H4MIDI
