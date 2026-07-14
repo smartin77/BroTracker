@@ -134,3 +134,26 @@ BroTracker currently standardizes on the following minimum sample capabilities:
 
 The storage format (standard WAV vs. internal format) remains an implementation decision. The detailed specification is maintained in `docs/SAMPLE_FORMAT.md`.
 
+---
+
+## D00011 - MIDI Routing Philosophy
+
+BroTracker is primarily a tracker and sequencer.
+
+The project shall provide reliable MIDI input and output across all supported MIDI interfaces.
+
+A simple internal MIDI port routing mechanism between supported interfaces is considered part of the core system. Its purpose is to connect available MIDI inputs and outputs in a straightforward and predictable manner.
+
+BroTracker is not intended to become a general-purpose MIDI processing application.
+
+Advanced functionality such as:
+
+- event filtering
+- event transformation
+- channel remapping
+- scripting
+- complex routing graphs
+
+is outside the current project scope and should be handled by dedicated external software or hardware when required.
+
+This decision keeps the MIDI subsystem focused on reliable sequencing while still allowing practical MIDI connectivity between supported interfaces.
