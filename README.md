@@ -25,15 +25,11 @@ The repository is organized around a simple separation of responsibilities:
 
 ## Documentation
 
-Project documentation is available in the `docs` directory.
+Complete project documentation is available in the [`docs`](docs/) directory.
 
-Important documents include:
+Start here:
 
-- Project goals
-- Core design principles
-- Repository structure
-- Development roadmap
-- Design decisions
+- [Documentation Index](docs/README.md)
 
 ## Project Status
 
@@ -50,4 +46,3 @@ BroTracker is developed as an open-source community project. Contributions, idea
 BroTracker is licensed under the GNU General Public License v3.0 (or later).
 
 See the `LICENSE` file for details.
-
