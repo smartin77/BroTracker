@@ -157,3 +157,22 @@ Advanced functionality such as:
 is outside the current project scope and should be handled by dedicated external software or hardware when required.
 
 This decision keeps the MIDI subsystem focused on reliable sequencing while still allowing practical MIDI connectivity between supported interfaces.
+
+---
+
+## D0012 — External Inspiration
+
+BroTracker may draw inspiration from existing open-source projects and proven software architectures and audio libraries (juce.com).
+
+However, external projects should serve only as references for design ideas, workflows and architectural concepts.
+
+BroTracker must remain an independent implementation built around its own goals and the constraints of the reference platform.
+
+In particular:
+
+- The realtime engine must remain optimized for Teensy 4.1.
+- External frameworks should not become mandatory dependencies for the core engine.
+- Ideas may be adopted, but implementations should remain native to BroTracker whenever practical.
+- Proven concepts are preferred over unnecessary reinvention, provided they fit the project's architecture and philosophy.
+
+The goal is to learn from successful projects without becoming constrained by them.
