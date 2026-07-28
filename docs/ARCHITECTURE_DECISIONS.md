@@ -229,3 +229,19 @@ This behavior applies only to accented characters. Standard ASCII uppercase and 
 
 ---
 
+# D0016 - Pattern Row Numbering
+
+The first column of the Pattern View displays row numbers.
+
+The numbering format is configurable:
+
+- H0 - hexadecimal, starting from 0
+- H1 - hexadecimal, starting from 1
+- D0 - decimal, starting from 0
+- D1 - decimal, starting from 1
+
+Internally, row numbering always starts at 0. The selected mode affects only the displayed values and user interaction. All internal processing remains zero-based.
+
+Pattern View may optionally highlight bar start rows using a brighter color. The bar interval is configurable (for example every 4, 8 or 16 rows).
+
+---
