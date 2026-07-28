@@ -176,3 +176,17 @@ In particular:
 - Proven concepts are preferred over unnecessary reinvention, provided they fit the project's architecture and philosophy.
 
 The goal is to learn from successful projects without becoming constrained by them.
+
+---
+
+# D0013 - UI Base Resolution
+
+The canonical UI resolution is **640×480**.
+
+Future versions may support higher resolutions (e.g. **800×600**) while remaining fully backward compatible with the 640×480 layout.
+
+Higher resolutions may display additional content (primarily more tracker channels), but all functionality must remain accessible at 640×480 through scrolling or page navigation.
+
+If content extends beyond the visible 640×480 area, the UI must provide a clear visual indicator that additional content is available.
+
+---
