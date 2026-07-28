@@ -190,3 +190,42 @@ Higher resolutions may display additional content (primarily more tracker channe
 If content extends beyond the visible 640×480 area, the UI must provide a clear visual indicator that additional content is available.
 
 ---
+
+# D0014 - UI Bitmap Font
+
+The primary BroTracker UI font is a fixed-width bitmap font.
+
+Character bitmap size is **5×7 pixels**.
+
+Default spacing:
+- Top spacing: **1 px**
+- Right spacing: **1 px**
+
+This results in a default character cell size of **6×8 pixels**.
+
+Word spacing and other text layout rules may be adjusted separately while preserving the character cell alignment.
+
+The bitmap font is considered part of the BroTracker visual identity and should remain consistent across all supported platforms.
+
+---
+
+# D0015 - UI Character Set
+
+The primary UI character set is ASCII.
+
+Optional extended character support may be added for localized text.
+
+To preserve the retro appearance and minimize font size, accented characters are provided only as lowercase glyphs. Uppercase accented letters reuse the corresponding lowercase accented glyph.
+
+Example:
+
+Á → á
+
+Č → č
+
+Š → š
+
+This behavior applies only to accented characters. Standard ASCII uppercase and lowercase letters remain unchanged.
+
+---
+
