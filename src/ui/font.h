@@ -1,3 +1,13 @@
+/*
+ * BroTracker
+ *
+  * Description: BroTracker font interface.
+ *
+ * Copyright (C) smARTin and BroTracker contributors
+ * License: GPL-3.0
+ */
+
+
 #pragma once
 
 #include <stdint.h>
