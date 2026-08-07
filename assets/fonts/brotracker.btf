@@ -1,0 +1,7 @@
+BTF1
+NAME=BroTracker
+WIDTH=5
+HEIGHT=7
+SPACING_X=1
+SPACING_Y=1
+SOURCE=brotracker.bfm
