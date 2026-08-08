@@ -18,5 +18,7 @@ struct Pattern
 {
     std::uint16_t number = 0;
 
+    std::uint8_t length = 16;
+
     std::vector<Channel> channels;
 };

@@ -10,11 +10,12 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
+
+#include "note.h"
 
 struct Event
 {
-    std::string note = "---";
+    Note note = NOTE_EMPTY;
 
-    std::uint8_t instrument = 0;
+    std::uint8_t instrument = 0xFF;
 };

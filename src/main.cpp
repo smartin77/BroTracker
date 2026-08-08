@@ -1,2 +1,23 @@
+/*
+ * BroTracker
+ *
+ * Description: Application entry point.
+ *
+ * Copyright (C) smARTin and BroTracker contributors
+ * License: GPL-3.0
+ */
+
 #include <iostream>
-int main(){std::cout<<"BroTracker UI stub\n";return 0;}
+
+#include "core/logger.h"
+
+int main()
+{
+    LogInfo("BroTracker starting.");
+
+    LogDebug("Debug mode is enabled.");
+
+    LogInfo("Initialization complete.");
+
+    return 0;
+}
