@@ -1,0 +1,202 @@
+{
+  "tune": {
+    "name": "my_tune",
+    "tempo": 140,
+    "patterns": [
+      {
+        "number": 5,
+        "length": 16,
+        "channels": [
+          {
+            "number": 1,
+            "name": "kick",
+            "rows": [
+              {
+                "note": "C-5",
+                "instrument": 1
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "C-5",
+                "instrument": 1
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "C-5",
+                "instrument": 1
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "C-5",
+                "instrument": 1
+              },
+              {},
+              {},
+              {}
+            ]
+          },
+          {
+            "number": 2,
+            "name": "closed_hat",
+            "rows": [
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 2
+              },
+              {}
+            ]
+          },
+          {
+            "number": 3,
+            "name": "snare",
+            "rows": [
+              {},
+              {},
+              {},
+              {},
+              {
+                "note": "C-5",
+                "instrument": 3
+              },
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {
+                "note": "C-5",
+                "instrument": 3
+              },
+              {},
+              {},
+              {}
+            ]
+          },
+          {
+            "number": 4,
+            "name": "bass",
+            "rows": [
+              {},
+              {},
+              {
+                "note": "D#4",
+                "instrument": 4
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "D#4",
+                "instrument": 4
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "D#4",
+                "instrument": 4
+              },
+              {},
+              {},
+              {},
+              {
+                "note": "D#4",
+                "instrument": 4
+              },
+              {}
+            ]
+          },
+          {
+            "number": 5,
+            "name": "piano",
+            "rows": [
+              {
+                "note": "C-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "D-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "E-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "G-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "E-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "D-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "C-5",
+                "instrument": 5
+              },
+              {},
+              {
+                "note": "G-4",
+                "instrument": 5
+              },
+              {}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,4 +1,6 @@
-.vscode/
+.vscode/browse.vc.db
+.vscode/ipch/
+.vscode/c_cpp_properties.json
 _backyard/
 build/
 out/
