@@ -8,6 +8,7 @@
  */
 
 #include "font.h"
+#include <cctype>
 
 #include <fstream>
 #include <sstream>
@@ -138,6 +139,14 @@ bool Font::LoadBFM(
             continue;
         }
 
+        // BFM contains both numeric glyph keys and
+        // string metadata keys such as "name" and "copy".
+        if (!std::isdigit(
+                static_cast<unsigned char>(key[0])))
+        {
+            continue;
+        }
+
         const int codepoint =
             std::stoi(key);
 
@@ -170,9 +179,7 @@ bool Font::LoadBFM(
 
         std::stringstream values(bitmap_data);
 
-        Glyph glyph;
-        glyph.codepoint =
-            static_cast<std::uint16_t>(codepoint);
+        std::uint8_t source_bitmap[16] = {};
 
         std::string value;
         int index = 0;
@@ -181,24 +188,21 @@ bool Font::LoadBFM(
             std::getline(values, value, ',') &&
             index < 16)
         {
-            glyph.bitmap[index] =
+            source_bitmap[index] =
                 static_cast<std::uint8_t>(
                     std::stoi(value));
 
             ++index;
         }
 
-        // The BFM data contains a 16-row bitmap.
-        // BroTracker BTF defines a 7-row glyph.
-        // The useful glyph rows are 5..11.
         Glyph cropped;
         cropped.codepoint =
-            glyph.codepoint;
+            static_cast<std::uint16_t>(codepoint);
 
         for (int row = 0; row < 7; ++row)
         {
             cropped.bitmap[row] =
-                glyph.bitmap[row + 5];
+                source_bitmap[row + 5];
         }
 
         glyphs.push_back(cropped);
