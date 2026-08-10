@@ -7,6 +7,7 @@
  * License: GPL-3.0
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -21,12 +22,8 @@
 namespace
 {
 
-constexpr int SCREEN_WIDTH  = 640;
+constexpr int SCREEN_WIDTH = 640;
 constexpr int SCREEN_HEIGHT = 480;
-
-// -----------------------------------------------------------------------------
-// Colors
-// -----------------------------------------------------------------------------
 
 struct Color
 {
@@ -35,25 +32,21 @@ struct Color
     std::uint8_t b;
 };
 
-constexpr Color BLACK       { 0,   0,   0   };
-constexpr Color LINE        { 90,  90,  105 };
-constexpr Color LINE_DIM    { 55,  55,  70  };
-constexpr Color CYAN        { 0,   210, 210 };
-constexpr Color TEXT        { 185, 180, 220 };
-constexpr Color WHITE       { 215, 215, 215 };
-constexpr Color INSTRUMENT  { 125, 85,  55  };
-constexpr Color INVERSE_BG  { 150, 150, 165 };
-constexpr Color INVERSE_FG  { 35,  35,  45  };
-
-// -----------------------------------------------------------------------------
-// Simple framebuffer
-// -----------------------------------------------------------------------------
+constexpr Color background        { 16,  16,  16  };
+constexpr Color border            { 128, 128, 128 };
+constexpr Color header_name       { 130, 130, 196 };
+constexpr Color header_value      { 255, 255, 255 };
+constexpr Color row_header        { 76, 195, 201 };
+constexpr Color row_number        { 130, 130, 196 };
+constexpr Color channel_number    { 130, 130, 196 };
+constexpr Color note              { 255, 255, 255 };
+constexpr Color instrument_number { 130, 130, 196 };
 
 class Framebuffer
 {
 public:
     Framebuffer()
-        : pixels(SCREEN_WIDTH * SCREEN_HEIGHT, BLACK)
+        : pixels(SCREEN_WIDTH * SCREEN_HEIGHT, background)
     {
     }
 
@@ -78,11 +71,6 @@ public:
 
     void HorizontalLine(int x1, int x2, int y, Color color)
     {
-        if (x2 < x1)
-        {
-            return;
-        }
-
         for (int x = x1; x <= x2; ++x)
         {
             SetPixel(x, y, color);
@@ -91,53 +79,32 @@ public:
 
     void VerticalLine(int x, int y1, int y2, Color color)
     {
-        if (y2 < y1)
-        {
-            return;
-        }
-
         for (int y = y1; y <= y2; ++y)
         {
             SetPixel(x, y, color);
         }
     }
 
-    void Rectangle(int x, int y, int width, int height, Color color)
-    {
-        HorizontalLine(x, x + width - 1, y, color);
-        HorizontalLine(x, x + width - 1, y + height - 1, color);
-
-        VerticalLine(x, y, y + height - 1, color);
-        VerticalLine(x + width - 1, y, y + height - 1, color);
-    }
-
-    void FilledRectangle(
+    void Rectangle(
         int x,
         int y,
         int width,
         int height,
         Color color)
     {
-        for (int py = y; py < y + height; ++py)
-        {
-            HorizontalLine(
-                x,
-                x + width - 1,
-                py,
-                color);
-        }
-    }
+        HorizontalLine(x, x + width - 1, y, color);
+        HorizontalLine(
+            x,
+            x + width - 1,
+            y + height - 1,
+            color);
 
-    void DottedVerticalLine(
-        int x,
-        int y1,
-        int y2,
-        Color color)
-    {
-        for (int y = y1; y <= y2; y += 3)
-        {
-            SetPixel(x, y, color);
-        }
+        VerticalLine(x, y, y + height - 1, color);
+        VerticalLine(
+            x + width - 1,
+            y,
+            y + height - 1,
+            color);
     }
 
     bool SaveBMP(const std::filesystem::path& path) const
@@ -145,10 +112,8 @@ public:
         constexpr std::uint32_t HEADER_SIZE = 54;
         constexpr std::uint32_t ROW_SIZE =
             SCREEN_WIDTH * 3;
-
         constexpr std::uint32_t FILE_SIZE =
-            HEADER_SIZE +
-            ROW_SIZE * SCREEN_HEIGHT;
+            HEADER_SIZE + ROW_SIZE * SCREEN_HEIGHT;
 
         std::ofstream file(path, std::ios::binary);
 
@@ -157,29 +122,24 @@ public:
             return false;
         }
 
-        std::uint8_t header[54] = {};
+        std::uint8_t header[HEADER_SIZE] = {};
 
         header[0] = 'B';
         header[1] = 'M';
 
         Write32(header + 2, FILE_SIZE);
         Write32(header + 10, HEADER_SIZE);
-
         Write32(header + 14, 40);
         Write32(header + 18, SCREEN_WIDTH);
         Write32(header + 22, SCREEN_HEIGHT);
-
         Write16(header + 26, 1);
         Write16(header + 28, 24);
-
-        Write32(header + 34,
-                ROW_SIZE * SCREEN_HEIGHT);
+        Write32(header + 34, ROW_SIZE * SCREEN_HEIGHT);
 
         file.write(
             reinterpret_cast<const char*>(header),
             sizeof(header));
 
-        // BMP is stored bottom-to-top.
         for (int y = SCREEN_HEIGHT - 1; y >= 0; --y)
         {
             for (int x = 0; x < SCREEN_WIDTH; ++x)
@@ -187,14 +147,9 @@ public:
                 const Color& pixel =
                     pixels[y * SCREEN_WIDTH + x];
 
-                file.put(
-                    static_cast<char>(pixel.b));
-
-                file.put(
-                    static_cast<char>(pixel.g));
-
-                file.put(
-                    static_cast<char>(pixel.r));
+                file.put(static_cast<char>(pixel.b));
+                file.put(static_cast<char>(pixel.g));
+                file.put(static_cast<char>(pixel.r));
             }
         }
 
@@ -208,7 +163,6 @@ private:
     {
         destination[0] =
             static_cast<std::uint8_t>(value & 0xFF);
-
         destination[1] =
             static_cast<std::uint8_t>((value >> 8) & 0xFF);
     }
@@ -219,23 +173,16 @@ private:
     {
         destination[0] =
             static_cast<std::uint8_t>(value & 0xFF);
-
         destination[1] =
             static_cast<std::uint8_t>((value >> 8) & 0xFF);
-
         destination[2] =
             static_cast<std::uint8_t>((value >> 16) & 0xFF);
-
         destination[3] =
             static_cast<std::uint8_t>((value >> 24) & 0xFF);
     }
 
     std::vector<Color> pixels;
 };
-
-// -----------------------------------------------------------------------------
-// BroTracker font
-// -----------------------------------------------------------------------------
 
 Font brotracker_font;
 
@@ -245,6 +192,34 @@ bool LoadBroTrackerFont()
         "assets/fonts/brotracker.btf");
 }
 
+int GlyphAdvance(const Glyph* glyph)
+{
+    if (glyph == nullptr)
+        return 6;
+
+    int min_x = 5;
+    int max_x = -1;
+
+    for (int row = 0; row < 7; ++row)
+    {
+        const std::uint8_t bitmap = glyph->bitmap[row];
+
+        for (int column = 0; column < 5; ++column)
+        {
+            if (bitmap & (1u << (column + 2)))
+            {
+                min_x = std::min(min_x, column);
+                max_x = std::max(max_x, column);
+            }
+        }
+    }
+
+    if (max_x < min_x)
+        return 3;
+
+    return (max_x - min_x + 1) + 1;
+}
+
 void DrawText(
     Framebuffer& framebuffer,
     int x,
@@ -252,8 +227,6 @@ void DrawText(
     const std::string& text,
     Color color)
 {
-    int cursor_x = x;
-
     for (char character : text)
     {
         const Glyph* glyph =
@@ -263,454 +236,365 @@ void DrawText(
 
         if (glyph == nullptr)
         {
-            cursor_x += 6;
+            x += 6;
             continue;
         }
 
         for (int row = 0; row < 7; ++row)
         {
-            const std::uint8_t bitmap =
-                glyph->bitmap[row];
+            const std::uint8_t bitmap = glyph->bitmap[row];
 
             for (int column = 0; column < 5; ++column)
             {
-                if (bitmap & (1u << column))
+                if (bitmap & (1u << (column + 2)))
                 {
                     framebuffer.SetPixel(
-                        cursor_x + column,
-                        y + row,
+                        x + column,
+                        y + row + 1,
                         color);
                 }
             }
         }
 
-        cursor_x += 6;
+        x += GlyphAdvance(glyph);
     }
 }
 
-// -----------------------------------------------------------------------------
-// Note formatting
-// -----------------------------------------------------------------------------
+// UI fields use a fixed six-pixel character cell even though the
+// glyphs themselves are drawn proportionally.
+void DrawFixedText(
+    Framebuffer& framebuffer,
+    int x,
+    int y,
+    const std::string& text,
+    Color color)
+{
+    for (char character : text)
+    {
+        const Glyph* glyph =
+            brotracker_font.Find(
+                static_cast<std::uint16_t>(
+                    static_cast<unsigned char>(character)));
+
+        if (glyph != nullptr)
+        {
+            for (int row = 0; row < 7; ++row)
+            {
+                const std::uint8_t bitmap = glyph->bitmap[row];
+
+                for (int column = 0; column < 5; ++column)
+                {
+                    if (bitmap & (1u << (column + 2)))
+                    {
+                        framebuffer.SetPixel(
+                            x + column,
+                            y + row + 1,
+                            color);
+                    }
+                }
+            }
+        }
+
+        x += 6;
+    }
+}
+
+void DrawCenteredFixedText(
+    Framebuffer& framebuffer,
+    int cell_x,
+    int cell_width,
+    int y,
+    const std::string& text,
+    Color color)
+{
+    constexpr int CELL_WIDTH = 6;
+
+    const int text_width =
+        static_cast<int>(text.length()) * CELL_WIDTH;
+
+    const int x =
+        cell_x + (cell_width - text_width) / 2;
+
+    DrawFixedText(
+        framebuffer,
+        x,
+        y,
+        text,
+        color);
+}
 
 std::string NoteToString(std::uint8_t note)
 {
-    if (note == NOTE_EMPTY)
-    {
+    if (note == 0xFF)
         return "---";
-    }
 
-    static constexpr const char* note_names[] =
+    static constexpr const char* names[] =
     {
-        "C-",
-        "C#",
-        "D-",
-        "D#",
-        "E-",
-        "F-",
-        "F#",
-        "G-",
-        "G#",
-        "A-",
-        "A#",
-        "B-"
+        "C-", "C#", "D-", "D#", "E-", "F-",
+        "F#", "G-", "G#", "A-", "A#", "B-"
     };
 
-    const int octave = note / 12;
-    const int note_index = note % 12;
-
-    std::string result =
-        note_names[note_index];
-
-    result +=
-        static_cast<char>('0' + octave);
-
-    return result;
+    return std::string(names[note % 12]) +
+        static_cast<char>('0' + note / 12);
 }
 
 std::string InstrumentToString(std::uint8_t instrument)
 {
     if (instrument == 0xFF)
-    {
         return "--";
-    }
 
-    const int value = instrument;
-
-    std::string result;
-
-    result +=
-        static_cast<char>('0' + (value / 10));
-
-    result +=
-        static_cast<char>('0' + (value % 10));
-
-    return result;
+    return std::string{
+        static_cast<char>('0' + instrument / 10),
+        static_cast<char>('0' + instrument % 10)
+    };
 }
 
-// -----------------------------------------------------------------------------
-// UI rendering
-// -----------------------------------------------------------------------------
-
-void DrawHeader(
+void DrawMainHeader(
     Framebuffer& framebuffer,
     const Tune& tune,
     const Pattern& pattern)
 {
     framebuffer.Rectangle(
-        8,
-        8,
-        624,
-        58,
-        LINE);
+        0, 0, 454, 26, border);
 
     DrawText(
         framebuffer,
-        18,
-        28,
-        "TUNE",
-        CYAN);
+        7, 9,
+        "TUNE:",
+        header_name);
 
     DrawText(
         framebuffer,
-        66,
-        28,
+        43, 9,
         tune.title,
-        TEXT);
+        header_value);
 
-    DrawText(
-        framebuffer,
-        255,
-        28,
-        "PATTERN",
-        TEXT);
+    constexpr int CHANNEL_START_X = 30;
+    constexpr int CHANNEL_WIDTH = 53;
 
-    DrawText(
-        framebuffer,
-        315,
-        28,
-        "05",
-        WHITE);
+    const std::string labels[] =
+    {
+        "PAT:",
+        "POS:",
+        "BPM:",
+        "LBP:",
+        "CPU:"
+    };
 
-    DrawText(
-        framebuffer,
-        390,
-        28,
-        "BPM",
-        TEXT);
-
-    DrawText(
-        framebuffer,
-        420,
-        28,
+    const std::string values[] =
+    {
+        pattern.number < 10
+            ? "0" + std::to_string(pattern.number)
+            : std::to_string(pattern.number),
+        "06",
         std::to_string(tune.tempo),
-        WHITE);
+        "04",
+        "03%"
+    };
 
-    DrawText(
-        framebuffer,
-        500,
-        28,
-        "ROW",
-        TEXT);
+    for (int index = 0; index < 5; ++index)
+    {
+        const int cell_x =
+            CHANNEL_START_X +
+            (index + 3) * CHANNEL_WIDTH;
 
-    DrawText(
-        framebuffer,
-        536,
-        28,
-        "08",
-        WHITE);
+        const int group_cells =
+            static_cast<int>(
+                labels[index].length() +
+                values[index].length());
+
+        const int group_width =
+            group_cells * 6;
+
+        const int x =
+            cell_x +
+            (CHANNEL_WIDTH - group_width) / 2;
+
+        DrawFixedText(
+            framebuffer,
+            x, 9,
+            labels[index],
+            header_name);
+
+        DrawFixedText(
+            framebuffer,
+            x + static_cast<int>(
+                    labels[index].length()) * 6,
+            9,
+            values[index],
+            header_value);
+    }
 }
 
-void DrawPattern(
-    Framebuffer& framebuffer,
-    const Pattern& pattern)
+void DrawPatternFrame(
+    Framebuffer& framebuffer)
 {
-    constexpr int panel_x = 8;
-    constexpr int panel_y = 74;
-    constexpr int panel_w = 444;
-    constexpr int panel_h = 346;
-
-    constexpr int row_x = 18;
-    constexpr int row_separator_x = 56;
-
-    constexpr int channel_start_x = 58;
-    constexpr int channel_width = 48;
-
-    constexpr int header_y = 92;
-    constexpr int grid_y = 116;
-    constexpr int row_height = 19;
-
     framebuffer.Rectangle(
-        panel_x,
-        panel_y,
-        panel_w,
-        panel_h,
-        LINE);
+        0, 29, 454, 451, border);
 
-    // -------------------------------------------------------------------------
-    // Row-number column
-    // -------------------------------------------------------------------------
+    framebuffer.HorizontalLine(
+        1, 452, 54, border);
 
-    framebuffer.Rectangle(
-        16,
-        82,
-        38,
-        28,
-        CYAN);
+    // Row-number separator: one pixel shorter at both ends
+    // than the 13-pixel row cell.
+    for (int row = 0; row < 31; ++row)
+    {
+        const int row_top =
+            67 + row * 13;
 
-    DrawText(
+        if (row_top > 464)
+            break;
+
+        framebuffer.VerticalLine(
+            29,
+            row_top,
+            std::min(row_top + 11, 464),
+            border);
+    }
+
+    constexpr int CHANNEL_SEPARATORS[] =
+    {
+        82, 135, 188, 241, 294, 347, 400
+    };
+
+    for (const int x : CHANNEL_SEPARATORS)
+    {
+        for (int y = 39; y <= 464; y += 4)
+        {
+            framebuffer.VerticalLine(
+                x,
+                y,
+                std::min(y + 1, 464),
+                border);
+        }
+    }
+}
+
+void DrawRowHeader(
+    Framebuffer& framebuffer)
+{
+    constexpr int CHANNEL_START_X = 30;
+    constexpr int CHANNEL_WIDTH = 53;
+
+    DrawFixedText(
         framebuffer,
-        27,
-        92,
+        5, 38,
         "d0",
-        CYAN);
-
-    // One-pixel separator after row number column.
-    framebuffer.VerticalLine(
-        row_separator_x,
-        grid_y,
-        panel_y + panel_h - 1,
-        LINE);
-
-    // -------------------------------------------------------------------------
-    // Channel headers
-    // -------------------------------------------------------------------------
+        row_header);
 
     for (int channel = 0; channel < 8; ++channel)
     {
-        const int x =
-            channel_start_x +
-            channel * channel_width;
+        const int cell_x =
+            CHANNEL_START_X +
+            channel * CHANNEL_WIDTH;
 
-        DrawText(
+        DrawCenteredFixedText(
             framebuffer,
-            x + 18,
-            header_y,
+            cell_x,
+            CHANNEL_WIDTH,
+            38,
             std::to_string(channel + 1),
-            CYAN);
-
-        // Deliberately start below the header.
-        if (channel < 7)
-        {
-            framebuffer.DottedVerticalLine(
-                x + channel_width - 1,
-                grid_y,
-                panel_y + panel_h - 1,
-                LINE);
-        }
+            channel_number);
     }
+}
 
-    // Header baseline.
-    framebuffer.HorizontalLine(
-        row_separator_x,
-        panel_x + panel_w - 10,
-        112,
-        LINE);
-    
-    // -------------------------------------------------------------------------
-    // Pattern rows
-    // -------------------------------------------------------------------------
+void DrawRowNumbers(
+    Framebuffer& framebuffer)
+{
+    constexpr int FIRST_ROW_Y = 67;
+    constexpr int ROW_HEIGHT = 13;
 
-    constexpr int current_row = 8;
-
-    for (int row = 0; row < 16; ++row)
+    for (int row = 0; row < 31; ++row)
     {
         const int y =
-            grid_y +
-            row * row_height;
+            FIRST_ROW_Y +
+            row * ROW_HEIGHT;
 
-        // Current row frame spans the entire pattern.
-        if (row == current_row)
-        {
-            framebuffer.Rectangle(
-                16,
-                y - 2,
-                420,
-                row_height,
-                WHITE);
-        }
+        std::string row_text =
+            std::to_string(row);
 
-        std::string row_number;
+        if (row < 10)
+            row_text.insert(0, "0");
 
-        row_number +=
-            "0123456789ABCDEF"[row >> 4];
-
-        row_number +=
-            "0123456789ABCDEF"[row & 0x0F];
-
-        DrawText(
+        DrawCenteredFixedText(
             framebuffer,
-            row_x,
+            0,
+            29,
             y,
-            row_number,
-            row == current_row
-                ? WHITE
-                : TEXT);
+            row_text,
+            row_number);
+    }
+}
 
-        if (row == current_row)
+void DrawPatternChannels(
+    Framebuffer& framebuffer,
+    const Pattern& pattern)
+{
+    constexpr int FIRST_ROW_Y = 67;
+    constexpr int ROW_HEIGHT = 13;
+
+    constexpr int CHANNEL_START_X = 30;
+    constexpr int CHANNEL_WIDTH = 53;
+
+    constexpr int FIELD_WIDTH = 6 * 6;
+
+    for (int channel = 0; channel < 8; ++channel)
+    {
+        const int cell_x =
+            CHANNEL_START_X +
+            channel * CHANNEL_WIDTH;
+
+        const int field_x =
+            cell_x +
+            (CHANNEL_WIDTH - FIELD_WIDTH) / 2;
+
+        for (int row = 0; row < 31; ++row)
         {
-            DrawText(
-                framebuffer,
-                45,
-                y,
-                ">",
-                WHITE);
-        }
+            const int y =
+                FIRST_ROW_Y +
+                row * ROW_HEIGHT;
 
-        for (int channel = 0; channel < 8; ++channel)
-        {
-            const int x =
-                channel_start_x +
-                channel * channel_width;
+            std::uint8_t note_value = 0xFF;
+            std::uint8_t instrument_value = 0xFF;
 
-            std::uint8_t note = NOTE_EMPTY;
-            std::uint8_t instrument = 0xFF;
-
-            if (channel < static_cast<int>(pattern.channels.size()))
+            if (channel <
+                static_cast<int>(pattern.channels.size()))
             {
                 const auto& rows =
                     pattern.channels[channel].rows;
 
                 if (row < static_cast<int>(rows.size()))
                 {
-                    note = rows[row].note;
-                    instrument = rows[row].instrument;
+                    note_value = rows[row].note;
+                    instrument_value = rows[row].instrument;
                 }
             }
 
-            const std::string note_text =
-                NoteToString(note);
+            DrawFixedText(
+                framebuffer,
+                field_x,
+                y,
+                NoteToString(note_value),
+                note);
 
-            const std::string instrument_text =
-                InstrumentToString(instrument);
-
-            // The first event of the current row is shown
-            // in inverse, representing the future event editor
-            // preview on the right side.
-            if (row == current_row && channel == 0)
-            {
-                framebuffer.FilledRectangle(
-                    x,
-                    y - 2,
-                    46,
-                    row_height,
-                    INVERSE_BG);
-
-                DrawText(
-                    framebuffer,
-                    x + 5,
-                    y,
-                    note_text,
-                    INVERSE_FG);
-
-                DrawText(
-                    framebuffer,
-                    x + 29,
-                    y,
-                    instrument_text,
-                    INSTRUMENT);
-            }
-            else
-            {
-                DrawText(
-                    framebuffer,
-                    x + 5,
-                    y,
-                    note_text,
-                    row == current_row
-                        ? WHITE
-                        : TEXT);
-
-                DrawText(
-                    framebuffer,
-                    x + 29,
-                    y,
-                    instrument_text,
-                    INSTRUMENT);
-            }
+            DrawFixedText(
+                framebuffer,
+                field_x + 4 * 6,
+                y,
+                InstrumentToString(instrument_value),
+                instrument_number);
         }
     }
 }
 
-void DrawRightPanel(
-    Framebuffer& framebuffer)
+void DrawPattern(
+    Framebuffer& framebuffer,
+    const Pattern& pattern)
 {
-    // Reserved for the future event/instrument panel.
-    // The geometry is already reserved so the left side
-    // can be designed against the final 640x480 layout.
-
-    framebuffer.Rectangle(
-        460,
-        74,
-        172,
-        346,
-        LINE);
-}
-
-void DrawFooter(
-    Framebuffer& framebuffer)
-{
-    framebuffer.Rectangle(
-        8,
-        432,
-        624,
-        40,
-        LINE);
-
-    DrawText(
-        framebuffer,
-        18,
-        448,
-        "CH 1-8",
-        CYAN);
-
-    // Channel indicators.
-    for (int channel = 0; channel < 8; ++channel)
-    {
-        const int x =
-            180 +
-            channel * 18;
-
-        if (channel == 0)
-        {
-            framebuffer.FilledRectangle(
-                x,
-                447,
-                8,
-                8,
-                CYAN);
-        }
-        else
-        {
-            framebuffer.Rectangle(
-                x,
-                447,
-                8,
-                8,
-                CYAN);
-        }
-    }
-
-    // Future right-side controls.
-    DrawText(
-        framebuffer,
-        560,
-        448,
-        "INS",
-        TEXT);
-
-    DrawText(
-        framebuffer,
-        590,
-        448,
-        "MIX",
-        TEXT);
-
-    DrawText(
-        framebuffer,
-        620,
-        448,
-        "OPT",
-        TEXT);
+    DrawPatternFrame(framebuffer);
+    DrawRowHeader(framebuffer);
+    DrawRowNumbers(framebuffer);
+    DrawPatternChannels(framebuffer, pattern);
 }
 
 void RenderMainScreen(
@@ -718,9 +602,9 @@ void RenderMainScreen(
     const Tune& tune,
     const Pattern& pattern)
 {
-    framebuffer.Clear(BLACK);
+    framebuffer.Clear(background);
 
-    DrawHeader(
+    DrawMainHeader(
         framebuffer,
         tune,
         pattern);
@@ -728,12 +612,6 @@ void RenderMainScreen(
     DrawPattern(
         framebuffer,
         pattern);
-
-    DrawRightPanel(
-        framebuffer);
-
-    DrawFooter(
-        framebuffer);
 }
 
 } // namespace
@@ -747,8 +625,6 @@ int main()
         LogError("Failed to load BroTracker font.");
         return 1;
     }
-
-    LogInfo("BroTracker font loaded.");
 
     Tune tune = CreateDummyTune();
 
