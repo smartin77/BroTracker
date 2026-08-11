@@ -13,7 +13,7 @@ Tune CreateDummyTune()
 {
     Tune tune;
 
-    tune.title = "my_tune";
+    tune.title = "My epic tune";
     tune.tempo = 140;
 
     Pattern pattern;

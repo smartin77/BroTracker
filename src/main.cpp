@@ -33,7 +33,7 @@ struct Color
 };
 
 constexpr Color background        { 16,  16,  16  };
-constexpr Color border            { 128, 128, 128 };
+constexpr Color border            { 64, 64, 64 };
 constexpr Color header_name       { 130, 130, 196 };
 constexpr Color header_value      { 255, 255, 255 };
 constexpr Color row_header        { 76, 195, 201 };
@@ -377,7 +377,7 @@ void DrawMainHeader(
         "PAT:",
         "POS:",
         "BPM:",
-        "LBP:",
+        "LPB:",
         "CPU:"
     };
 
