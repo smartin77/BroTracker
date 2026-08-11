@@ -179,7 +179,7 @@ The goal is to learn from successful projects without becoming constrained by th
 
 ---
 
-# D0013 - UI Base Resolution
+## D0013 - UI Base Resolution
 
 The canonical UI resolution is **640×480**.
 
@@ -191,13 +191,14 @@ If content extends beyond the visible 640×480 area, the UI must provide a clear
 
 ---
 
-# D0014 - UI Bitmap Font
+## D0014 - UI Bitmap Font
 
 The primary BroTracker UI font is a fixed-width bitmap font.
 
 Character bitmap size is **5×7 pixels**.
 
 Default spacing:
+
 - Top spacing: **1 px**
 - Right spacing: **1 px**
 
@@ -209,7 +210,7 @@ The bitmap font is considered part of the BroTracker visual identity and should 
 
 ---
 
-# D0015 - UI Character Set
+## D0015 - UI Character Set
 
 The primary UI character set is ASCII.
 
@@ -220,16 +221,14 @@ To preserve the retro appearance and minimize font size, accented characters are
 Example:
 
 Á → á
-
 Č → č
-
 Š → š
 
 This behavior applies only to accented characters. Standard ASCII uppercase and lowercase letters remain unchanged.
 
 ---
 
-# D0016 - Pattern Row Numbering
+## D0016 - Pattern Row Numbering
 
 The first column of the Pattern View displays row numbers.
 
@@ -246,7 +245,7 @@ Pattern View may optionally highlight bar start rows using a brighter color. The
 
 ---
 
-# D0017 – BroTracker Font Format (BTF)
+## D0017 – BroTracker Font Format (BTF)
 
 BroTracker uses a custom 5×7 bitmap font with fixed spacing.
 
@@ -266,3 +265,18 @@ BitFontMaker was selected because it provides several advantages:
 BroTracker does not rely on TrueType (TTF), OpenType (OTF) or other scalable font formats at runtime.
 
 ---
+
+## D0018 - Note Nnumbering and Octave_Cconvention
+
+Internal:
+0–127 MIDI note number
+
+Display:
+Yamaha convention
+C3 = MIDI 60
+
+Transport:
+MIDI value unchanged
+
+Compatibility:
+Alternative display conventions may be supported

@@ -14,11 +14,28 @@ All UI geometry should use configurable layout parameters rather than hard-coded
 
 BroTracker is designed as a headless tracker from the beginning.
 
-The core/brain target is the **Teensy 4.1**. The Teensy is responsible for the tracker engine, sequencing, audio/MIDI processing, storage and UI rendering data.
+The core/brain target is the **Teensy 4.1**. It is responsible for the realtime tracker engine, sequencing, audio processing, MIDI processing, synchronization, storage and other core functions.
+
+The graphical/text-based UI is **not part of the Teensy core engine**.
 
 The display and user-control device is an **ArkOS handheld gaming console**, such as an **RGV or R36S/H**, with a minimum target resolution of 640 × 480 pixels.
 
-The UI architecture must therefore remain suitable for a simple raster framebuffer and a console-side display client. BroTracker does not depend on a GPU, HDMI output, or a desktop graphical environment.
+A dedicated ArkOS application will be responsible for presenting the BroTracker UI and handling display-side interaction. Its architecture is expected to be similar in principle to M8C, with communication between the console application and the Teensy through an appropriate transport protocol.
+
+The separation between the realtime core and the display application is intentional. The Teensy core must remain independent of the graphical representation of the tracker state.
+
+The highest priorities of the Teensy core are:
+
+- accurate timing;
+- reliable synchronization;
+- audio processing;
+- MIDI processing and timing;
+- deterministic sequencing;
+- storage and data handling.
+
+The UI application is responsible for translating the core state into the BroTracker visual interface.
+
+BroTracker does not depend on a GPU, HDMI output, or a desktop graphical environment.
 
 ## Visual Language
 
@@ -209,6 +226,39 @@ The actual rendered glyph is supplied by the BroTracker font.
 
 The program's normal UI text uses basic Latin uppercase and lowercase characters.
 
+## Note Numbering and Octave Convention
+
+BroTracker uses a MIDI-compatible internal note number from 0 to 127.
+
+The internal note number is independent of the textual octave naming convention.
+
+The BroTracker default display convention follows the Yamaha-style octave numbering:
+
+```text
+MIDI 0    = C-2
+MIDI 12   = C-1
+MIDI 24   = C0
+MIDI 36   = C1
+MIDI 48   = C2
+MIDI 60   = C3
+MIDI 72   = C4
+MIDI 84   = C5
+MIDI 96   = C6
+MIDI 108  = C7
+MIDI 120  = C8
+```
+
+Therefore:
+C3 = MIDI note 60
+
+This convention is a BroTracker display convention and does not alter the MIDI note value transmitted to external devices.
+
+MIDI note 60 remains MIDI note 60 regardless of how an external device or application labels the octave.
+
+The purpose of this convention is to provide a consistent internal and user-facing representation without depending on the differing octave conventions used by individual DAWs, trackers or hardware manufacturers.
+
+Future compatibility options may provide alternative display conventions such as Roland or FL Studio numbering without changing the underlying note number.
+
 ## Empty Pattern Events
 
 A completely empty event is displayed as:
@@ -345,12 +395,37 @@ The exact controls and presentation remain subject to UI prototyping.
 
 The main screen should provide direct access to frequently used areas without unnecessary navigation depth.
 
-Current candidates are:
+The primary quick-access menu is ordered as:
 
-- Instrument Editor;
-- Options;
-- Mixer;
-- Pattern/Tune navigation where required.
+1. **OPT** — Options
+2. **INS** — Instrument Editor
+3. **MIX** — Mixer
+
+This order reflects the intended workflow of the tracker.
+
+### OPT — Options
+
+Options are divided into two logical areas:
+
+- **Program / Interface Options**
+- **Project Options**
+
+Program / Interface Options contain tracker-wide settings such as:
+
+- row numbering mode (`d0`, `d1`, `h0`, `h1`);
+- note notation and display conventions;
+- interface settings;
+- other tracker-wide configuration.
+
+Project Options contain project-specific operations and settings, including:
+
+- Create;
+- Save;
+- Load;
+- project main settings;
+- project description.
+
+### INS — Instrument Editor
 
 Instrument editing is intentionally a first-class function.
 
@@ -364,20 +439,11 @@ The Instrument Editor will eventually support different instrument types, includ
 
 Further instrument-specific editing may be nested below the Instrument Editor.
 
-## Options
-
-Options will contain project and tracker settings, including:
-
-- project load/save;
-- tracker configuration;
-- row numbering mode (`d0`, `d1`, `h0`, `h1`);
-- other global UI settings.
-
-The exact options list is not final.
-
-## Mixer
+### MIX — Mixer
 
 The Mixer area is intended to provide master/channel mixing controls, including at minimum channel levels and related master mix information.
+
+Export to Windows PCM WAV primarily, later maybe to other other audio (compression formats).
 
 The exact mixer feature set remains under development.
 
@@ -389,14 +455,16 @@ This is intended as useful development and performance feedback without becoming
 
 ## Position and Navigation Glyphs
 
-The BroTracker bitmap font contains dedicated glyphs for future navigation functions.
+The BroTracker bitmap font already contains dedicated glyphs for position and navigation.
 
-Current reserved glyphs include:
+Current glyph assignments are:
 
 - `¦` — filled position marker;
-- `¨` — possible channel navigation marker.
+- `¨` — channel navigation marker.
 
-These glyphs are not currently assigned to a final navigation behaviour.
+The glyphs are already part of the BroTracker font and are available to the UI renderer.
+
+Their exact interaction semantics and navigation behaviour may still evolve during UI development.
 
 ## Colour System
 
