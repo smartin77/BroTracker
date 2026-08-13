@@ -18,11 +18,11 @@ Tune CreateDummyTune()
 
     Pattern pattern;
     pattern.number = 5;
-    pattern.length = 16;
+    pattern.length = 64;
 
     // Channel 1 - Kick, every fourth row.
     Channel kick;
-    kick.rows.resize(16);
+    kick.rows.resize(64);
 
     kick.rows[0].note = 60;
     kick.rows[0].instrument = 1;
@@ -38,7 +38,7 @@ Tune CreateDummyTune()
 
     // Channel 2 - Closed hat, every second row.
     Channel closed_hat;
-    closed_hat.rows.resize(16);
+    closed_hat.rows.resize(64);
 
     for (int row = 0; row < 16; row += 2)
     {

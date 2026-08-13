@@ -14,6 +14,7 @@
 using Note = std::uint8_t;
 
 constexpr Note NOTE_EMPTY = 0xFF;
+constexpr Note NOTE_OFF = 0xFE;
 
 enum class AccidentalMode : std::uint8_t
 {

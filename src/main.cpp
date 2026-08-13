@@ -341,6 +341,36 @@ int GlyphAdvance(const Glyph* glyph)
     return (max_x - min_x + 1) + 1;
 }
 
+std::uint16_t DecodeUtf8(
+    const std::string& text,
+    std::size_t& index)
+{
+    const std::uint8_t first =
+        static_cast<std::uint8_t>(text[index]);
+
+    if (first < 0x80)
+    {
+        ++index;
+        return first;
+    }
+
+    if ((first & 0xE0) == 0xC0 &&
+        index + 1 < text.size())
+    {
+        const std::uint16_t codepoint =
+            static_cast<std::uint16_t>(
+                ((first & 0x1F) << 6) |
+                (static_cast<std::uint8_t>(
+                    text[index + 1]) & 0x3F));
+
+        index += 2;
+        return codepoint;
+    }
+
+    ++index;
+    return 0;
+}
+
 void DrawText(
     Framebuffer& framebuffer,
     int x,
@@ -348,13 +378,14 @@ void DrawText(
     const std::string& text,
     Color color)
 {
-    for (char character : text)
+    for (std::size_t index = 0;
+     index < text.size();)
     {
+        const std::uint16_t codepoint =
+            DecodeUtf8(text, index);
+
         const Glyph* glyph =
-            brotracker_font.Find(
-                static_cast<std::uint16_t>(
-                    static_cast<unsigned char>(
-                        character)));
+            brotracker_font.Find(codepoint);
 
         if (glyph == nullptr)
         {
@@ -395,13 +426,14 @@ void DrawFixedText(
     const std::string& text,
     Color color)
 {
-    for (char character : text)
+    for (std::size_t index = 0;
+     index < text.size();)
     {
+        const std::uint16_t codepoint =
+            DecodeUtf8(text, index);
+
         const Glyph* glyph =
-            brotracker_font.Find(
-                static_cast<std::uint16_t>(
-                    static_cast<unsigned char>(
-                        character)));
+            brotracker_font.Find(codepoint);
 
         if (glyph != nullptr)
         {
@@ -460,7 +492,12 @@ void DrawCenteredFixedText(
 std::string NoteToString(
     std::uint8_t note)
 {
-    if (note == 0xFF)
+    if (note == NOTE_OFF)
+    {
+        return "OFF";
+    }
+
+    if (note == NOTE_EMPTY)
     {
         return "---";
     }
@@ -774,7 +811,7 @@ void DrawPatternChannels(
                 row * layout.row_height +
                 2;
 
-            std::uint8_t note_value = 0xFF;
+            std::uint8_t note_value = NOTE_EMPTY;
             std::uint8_t instrument_value = 0xFF;
 
             if (channel <
@@ -796,20 +833,39 @@ void DrawPatternChannels(
                 }
             }
 
-            DrawFixedText(
-                framebuffer,
-                field_x,
-                y,
-                NoteToString(note_value),
-                note);
+            if (note_value == NOTE_OFF)
+            {
+                DrawFixedText(
+                    framebuffer,
+                    field_x,
+                    y,
+                    "OFF",
+                    note);
 
-            DrawFixedText(
-                framebuffer,
-                field_x + 4 * 6,
-                y,
-                InstrumentToString(
-                    instrument_value),
-                instrument_number);
+                DrawFixedText(
+                    framebuffer,
+                    field_x + 4 * 6,
+                    y,
+                    "¯",
+                    instrument_number);
+            }
+            else
+            {
+                DrawFixedText(
+                    framebuffer,
+                    field_x,
+                    y,
+                    NoteToString(note_value),
+                    note);
+
+                DrawFixedText(
+                    framebuffer,
+                    field_x + 4 * 6,
+                    y,
+                    InstrumentToString(
+                        instrument_value),
+                    instrument_number);
+            }
         }
     }
 }

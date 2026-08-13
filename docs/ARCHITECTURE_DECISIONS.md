@@ -57,7 +57,6 @@ Development should proceed in small, self-contained milestones.
 
 Every completed milestone should leave the repository in a usable and buildable state.
 
-
 ---
 
 ## D0006 — Native Import Philosophy
@@ -96,10 +95,10 @@ The storage system must be designed with the limitations of the reference platfo
 
 Particular attention should be given to:
 
-* Fast sequential access from SD storage.
-* Efficient streaming with limited RAM.
-* Predictable realtime performance.
-* Independence from the original source file locations.
+- Fast sequential access from SD storage.
+- Efficient streaming with limited RAM.
+- Predictable realtime performance.
+- Independence from the original source file locations.
 
 The internal sample representation may differ from the imported file format if it provides advantages for playback performance or storage efficiency.
 
