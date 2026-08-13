@@ -70,6 +70,7 @@ struct Layout
     int marker_padding = 1;
     int section_padding = 3;
     int frame_gap = 3;
+    int right_navigation_height = 26;
 };
 
 constexpr Layout layout{};
@@ -872,18 +873,86 @@ void DrawRightWorkspace(
     constexpr int RIGHT_SECTION_WIDTH =
         SCREEN_WIDTH - RIGHT_SECTION_X;
 
-    // This is a separate frame from the menu.
-    // The 3 px gap is rows 26, 27 and 28.
     constexpr int WORKSPACE_Y =
         layout.header_height +
+        layout.frame_gap;
+
+    constexpr int NAVIGATION_Y =
+        SCREEN_HEIGHT -
+        layout.right_navigation_height;
+
+    constexpr int WORKSPACE_HEIGHT =
+        NAVIGATION_Y -
+        WORKSPACE_Y -
         layout.frame_gap;
 
     framebuffer.Rectangle(
         RIGHT_SECTION_X,
         WORKSPACE_Y,
         RIGHT_SECTION_WIDTH,
-        SCREEN_HEIGHT - WORKSPACE_Y,
+        WORKSPACE_HEIGHT,
         border);
+}
+
+void DrawRightChannelNavigation(
+    Framebuffer& framebuffer)
+{
+    constexpr int RIGHT_SECTION_X = 457;
+    constexpr int RIGHT_SECTION_WIDTH =
+        SCREEN_WIDTH - RIGHT_SECTION_X;
+
+    constexpr int NAVIGATION_Y =
+        SCREEN_HEIGHT -
+        layout.right_navigation_height;
+
+    framebuffer.Rectangle(
+        RIGHT_SECTION_X,
+        NAVIGATION_Y,
+        RIGHT_SECTION_WIDTH,
+        layout.right_navigation_height,
+        border);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 8,
+        NAVIGATION_Y + 9,
+        "CH 1-8",
+        row_header_bright);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 64,
+        NAVIGATION_Y + 9,
+        "<",
+        row_header_bright);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 80,
+        NAVIGATION_Y + 9,
+        "01",
+        header_value);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 98,
+        NAVIGATION_Y + 9,
+        "/",
+        header_name);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 110,
+        NAVIGATION_Y + 9,
+        "08",
+        header_name);
+
+    DrawFixedText(
+        framebuffer,
+        RIGHT_SECTION_X + 132,
+        NAVIGATION_Y + 9,
+        ">",
+        row_header_bright);
 }
 
 void RenderMainScreen(
@@ -904,6 +973,7 @@ void RenderMainScreen(
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
+    DrawRightChannelNavigation(framebuffer);
 }
 
 } // namespace
