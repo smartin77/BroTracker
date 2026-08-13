@@ -224,44 +224,6 @@ bool LoadBroTrackerFont()
         "assets/fonts/brotracker.btf");
 }
 
-int GlyphAdvance(const Glyph* glyph)
-{
-    if (glyph == nullptr)
-    {
-        return 6;
-    }
-
-    int min_x = 5;
-    int max_x = -1;
-
-    for (int row = 0; row < 7; ++row)
-    {
-        const std::uint8_t bitmap =
-            glyph->bitmap[row];
-
-        for (int column = 0;
-             column < 5;
-             ++column)
-        {
-            if (bitmap & (1u << (column + 2)))
-            {
-                min_x =
-                    std::min(min_x, column);
-
-                max_x =
-                    std::max(max_x, column);
-            }
-        }
-    }
-
-    if (max_x < min_x)
-    {
-        return 3;
-    }
-
-    return (max_x - min_x + 1) + 1;
-}
-
 std::uint16_t DecodeUtf8(
     const std::string& text,
     std::size_t& index)
@@ -334,7 +296,33 @@ void DrawText(
             }
         }
 
-        x += GlyphAdvance(glyph);
+        // Preserve the proportional glyph width.
+        // The bitmap keeps its original left-side spacing; the
+        // advance is based on the rightmost used pixel plus the
+        // BTF-defined 1 px right spacing.
+        int max_x = -1;
+
+        for (int row = 0; row < 7; ++row)
+        {
+            const std::uint8_t bitmap =
+                glyph->bitmap[row];
+
+            for (int column = 0;
+                 column < 5;
+                 ++column)
+            {
+                if (bitmap &
+                    (1u << (column + 2)))
+                {
+                    max_x =
+                        std::max(max_x, column);
+                }
+            }
+        }
+
+        x += (max_x >= 0)
+            ? max_x + 2
+            : 3;
     }
 }
 
@@ -635,7 +623,7 @@ void DrawRowHeader(
         row_header_normal);
 
     framebuffer.HorizontalLine(
-        1,
+        2,
         layout.row_number_width - 1,
         layout.pattern_y +
             layout.pattern_header_height - 1,
