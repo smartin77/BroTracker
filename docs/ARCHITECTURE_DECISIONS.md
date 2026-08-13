@@ -296,3 +296,9 @@ For tracker UI representation, the instrument field of a `NOTE_OFF` event uses o
 The exact runtime event representation for distinguishing these two note-off timings is intentionally deferred until the playback/scheduler implementation.
 
 The glyphs are UI representation only and are not stored as part of the musical event data.
+
+---
+
+## D0020 - Future export
+
+Most likely, we won't support exporting our module to other module formats. For the audio part, we’ll only support a mixdown audio file based on the internal MIX system parameters. As for MIDI, it will be a standalone MIDI file, regardless of how the user manages to connect or use it meaningfully with third-party tools. Since these involve different platforms and hardware synths controlled via MIDI, users will need their own hardware mixer or separate processing for the final audio.

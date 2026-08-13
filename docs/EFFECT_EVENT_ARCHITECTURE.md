@@ -147,8 +147,59 @@ Native BroTracker pattern data may use Layer 1 for any supported effect event.
 
 In other words:
 
-- Native BroTracker data: Layer 1 may contain any supported effect event.
-- Imported module data: Layer 1 is used for mapped volume events where required by the source format.
+    Native BroTracker data
+              │
+              └── Layer 1 → any supported effect
+
+    Imported module data
+              │
+              └── Layer 1 → mapped volume event(s), where required
+
+## Common Effect Semantics and Engine Mapping
+
+Effect events should be defined by their semantic meaning rather than by the playback technology used to realize them.
+
+The same BroTracker effect event may therefore be handled differently by different playback engines while retaining the same logical meaning.
+
+Conceptually:
+
+                    Effect Event
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+       Sample Engine             MIDI Engine
+             │                       │
+       native mechanism        MIDI equivalent
+
+For example:
+
+    Set Volume
+         │
+         ├── Sample Engine → set the volume of the sample voice
+         │
+         └── MIDI Engine   → use the appropriate MIDI volume control
+
+Another example may be:
+
+    Pitch Slide
+         │
+         ├── Sample Engine → change playback pitch over time
+         │
+         └── MIDI Engine   → use MIDI Pitch Bend or another appropriate mechanism
+
+An effect that has no meaningful MIDI equivalent may be implemented by the Sample Engine while being ignored or otherwise treated as unsupported by the MIDI Engine.
+
+    Sample Reverse
+         │
+         ├── Sample Engine → reverse playback
+         │
+         └── MIDI Engine   → no direct equivalent
+
+This model avoids maintaining completely separate sets of sample effects and MIDI effects. Each playback engine instead maps common BroTracker effect semantics to the mechanisms available to it.
+
+The exact mapping for individual effects will be defined as each effect is researched and specified.
+
+**Please keep in mind that the MIDI part with a separate HW layer in particular might have different representations—especially for volume and potentially some events for the HW section—considering that it is a logically and audibly completely separate representation.**
 
 ## Event Representation
 
@@ -173,6 +224,21 @@ Each effect type should eventually define:
 - playback behavior
 - interaction with an active note
 - interaction with other effect layers
+- mapping to supported playback engines, where applicable
 - import mapping, where applicable
+
+### Volume Events
+
+The initial Volume event group is expected to include both absolute and relative volume operations:
+
+- **Set Volume** — sets the current volume to an explicit value.
+- **Volume Slide Up** — increases the current volume by a specified amount.
+- **Volume Slide Down** — decreases the current volume by a specified amount.
+
+These entries are currently a working draft and may be renamed, changed, expanded, or removed as the supported tracker formats and BroTracker playback model are researched.
+
+For imported module formats, volume-related events are mapped to Effect Layer 1 where applicable.
+
+The exact parameter ranges and the interaction between sample/instrument volume, event volume, channel volume, and MIDI volume control remain subject to further research.
 
 This section will evolve as the BroTracker effect system is defined.
