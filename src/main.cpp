@@ -32,13 +32,6 @@ struct Color
     std::uint8_t b;
 };
 
-/*
- * Main screen colours.
- *
- * These remain unchanged in Commit 1.
- * Semantic normal/bright colour states will be introduced
- * in the following UI colour commit.
- */
 constexpr Color background        { 16,  16,  16  };
 constexpr Color border            { 64,  64,  64 };
 constexpr Color header_name       { 130, 130, 196 };
@@ -50,12 +43,6 @@ constexpr Color channel_number    { 130, 130, 196 };
 constexpr Color note              { 255, 255, 255 };
 constexpr Color instrument_number { 130, 130, 196 };
 
-/*
- * Main screen layout.
- *
- * Keep all UI geometry here so that the preview can be adjusted
- * without searching through individual rendering functions.
- */
 struct Layout
 {
     // Pattern/header area.
@@ -114,11 +101,7 @@ public:
         pixels[y * SCREEN_WIDTH + x] = color;
     }
 
-    void HorizontalLine(
-        int x1,
-        int x2,
-        int y,
-        Color color)
+    void HorizontalLine(int x1, int x2, int y, Color color)
     {
         for (int x = x1; x <= x2; ++x)
         {
@@ -126,11 +109,7 @@ public:
         }
     }
 
-    void VerticalLine(
-        int x,
-        int y1,
-        int y2,
-        Color color)
+    void VerticalLine(int x, int y1, int y2, Color color)
     {
         for (int y = y1; y <= y2; ++y)
         {
@@ -145,24 +124,14 @@ public:
         int height,
         Color color)
     {
-        HorizontalLine(
-            x,
-            x + width - 1,
-            y,
-            color);
-
+        HorizontalLine(x, x + width - 1, y, color);
         HorizontalLine(
             x,
             x + width - 1,
             y + height - 1,
             color);
 
-        VerticalLine(
-            x,
-            y,
-            y + height - 1,
-            color);
-
+        VerticalLine(x, y, y + height - 1, color);
         VerticalLine(
             x + width - 1,
             y,
@@ -170,21 +139,15 @@ public:
             color);
     }
 
-    bool SaveBMP(
-        const std::filesystem::path& path) const
+    bool SaveBMP(const std::filesystem::path& path) const
     {
         constexpr std::uint32_t HEADER_SIZE = 54;
-
         constexpr std::uint32_t ROW_SIZE =
             SCREEN_WIDTH * 3;
-
         constexpr std::uint32_t FILE_SIZE =
-            HEADER_SIZE +
-            ROW_SIZE * SCREEN_HEIGHT;
+            HEADER_SIZE + ROW_SIZE * SCREEN_HEIGHT;
 
-        std::ofstream file(
-            path,
-            std::ios::binary);
+        std::ofstream file(path, std::ios::binary);
 
         if (!file)
         {
@@ -196,61 +159,29 @@ public:
         header[0] = 'B';
         header[1] = 'M';
 
-        Write32(
-            header + 2,
-            FILE_SIZE);
-
-        Write32(
-            header + 10,
-            HEADER_SIZE);
-
-        Write32(
-            header + 14,
-            40);
-
-        Write32(
-            header + 18,
-            SCREEN_WIDTH);
-
-        Write32(
-            header + 22,
-            SCREEN_HEIGHT);
-
-        Write16(
-            header + 26,
-            1);
-
-        Write16(
-            header + 28,
-            24);
-
-        Write32(
-            header + 34,
-            ROW_SIZE * SCREEN_HEIGHT);
+        Write32(header + 2, FILE_SIZE);
+        Write32(header + 10, HEADER_SIZE);
+        Write32(header + 14, 40);
+        Write32(header + 18, SCREEN_WIDTH);
+        Write32(header + 22, SCREEN_HEIGHT);
+        Write16(header + 26, 1);
+        Write16(header + 28, 24);
+        Write32(header + 34, ROW_SIZE * SCREEN_HEIGHT);
 
         file.write(
             reinterpret_cast<const char*>(header),
             sizeof(header));
 
-        for (int y = SCREEN_HEIGHT - 1;
-             y >= 0;
-             --y)
+        for (int y = SCREEN_HEIGHT - 1; y >= 0; --y)
         {
-            for (int x = 0;
-                 x < SCREEN_WIDTH;
-                 ++x)
+            for (int x = 0; x < SCREEN_WIDTH; ++x)
             {
                 const Color& pixel =
                     pixels[y * SCREEN_WIDTH + x];
 
-                file.put(
-                    static_cast<char>(pixel.b));
-
-                file.put(
-                    static_cast<char>(pixel.g));
-
-                file.put(
-                    static_cast<char>(pixel.r));
+                file.put(static_cast<char>(pixel.b));
+                file.put(static_cast<char>(pixel.g));
+                file.put(static_cast<char>(pixel.r));
             }
         }
 
@@ -263,12 +194,9 @@ private:
         std::uint16_t value)
     {
         destination[0] =
-            static_cast<std::uint8_t>(
-                value & 0xFF);
-
+            static_cast<std::uint8_t>(value & 0xFF);
         destination[1] =
-            static_cast<std::uint8_t>(
-                (value >> 8) & 0xFF);
+            static_cast<std::uint8_t>((value >> 8) & 0xFF);
     }
 
     static void Write32(
@@ -276,20 +204,13 @@ private:
         std::uint32_t value)
     {
         destination[0] =
-            static_cast<std::uint8_t>(
-                value & 0xFF);
-
+            static_cast<std::uint8_t>(value & 0xFF);
         destination[1] =
-            static_cast<std::uint8_t>(
-                (value >> 8) & 0xFF);
-
+            static_cast<std::uint8_t>((value >> 8) & 0xFF);
         destination[2] =
-            static_cast<std::uint8_t>(
-                (value >> 16) & 0xFF);
-
+            static_cast<std::uint8_t>((value >> 16) & 0xFF);
         destination[3] =
-            static_cast<std::uint8_t>(
-                (value >> 24) & 0xFF);
+            static_cast<std::uint8_t>((value >> 24) & 0xFF);
     }
 
     std::vector<Color> pixels;
@@ -692,17 +613,6 @@ void DrawPatternFrame(
         }
     }
 
-    constexpr int RIGHT_SECTION_X = 457;
-    constexpr int RIGHT_SECTION_Y = layout.pattern_y;
-    constexpr int RIGHT_SECTION_WIDTH = SCREEN_WIDTH - RIGHT_SECTION_X;
-    constexpr int RIGHT_SECTION_HEIGHT = SCREEN_HEIGHT;
-
-    framebuffer.Rectangle(
-        RIGHT_SECTION_X,
-        0,
-        RIGHT_SECTION_WIDTH,
-        RIGHT_SECTION_HEIGHT,
-        border);
 }
 
 void DrawRowHeader(
@@ -882,6 +792,112 @@ void DrawPattern(
         pattern);
 }
 
+enum class RightMenuId
+{
+    Options,
+    Instrument,
+    Mixer
+};
+
+struct RightMenuItem
+{
+    const char* label;
+    RightMenuId id;
+};
+
+constexpr RightMenuItem RIGHT_MENU[] =
+{
+    { "OPT", RightMenuId::Options },
+    { "INS", RightMenuId::Instrument },
+    { "MIX", RightMenuId::Mixer }
+};
+
+constexpr int RIGHT_MENU_ACTIVE = 0;
+
+void DrawRightMenu(
+    Framebuffer& framebuffer)
+{
+    constexpr int RIGHT_SECTION_X = 457;
+    constexpr int RIGHT_SECTION_WIDTH =
+        SCREEN_WIDTH - RIGHT_SECTION_X;
+    constexpr int RIGHT_MENU_HEIGHT =
+        layout.header_height;
+
+    const int item_count =
+        static_cast<int>(
+            sizeof(RIGHT_MENU) /
+            sizeof(RIGHT_MENU[0]));
+
+    const int item_width =
+        RIGHT_SECTION_WIDTH /
+        item_count;
+
+    // The menu is a completely independent frame.
+    // It mirrors the left main header in height and Y position.
+    framebuffer.Rectangle(
+        RIGHT_SECTION_X,
+        0,
+        RIGHT_SECTION_WIDTH,
+        RIGHT_MENU_HEIGHT,
+        border);
+
+    for (int index = 0;
+         index < item_count;
+         ++index)
+    {
+        const int x =
+            RIGHT_SECTION_X +
+            index * item_width;
+
+        DrawCenteredFixedText(
+            framebuffer,
+            x,
+            item_width,
+            9,
+            RIGHT_MENU[index].label,
+            channel_number);
+    }
+
+    // Solid separators between menu items.
+    // Leave one full pixel of background between each separator
+    // and both the top and bottom frame edges.
+    for (int index = 1;
+         index < item_count;
+         ++index)
+    {
+        const int x =
+            RIGHT_SECTION_X +
+            index * item_width;
+
+        framebuffer.VerticalLine(
+            x,
+            2,
+            RIGHT_MENU_HEIGHT - 3,
+            border);
+    }
+}
+
+void DrawRightWorkspace(
+    Framebuffer& framebuffer)
+{
+    constexpr int RIGHT_SECTION_X = 457;
+    constexpr int RIGHT_SECTION_WIDTH =
+        SCREEN_WIDTH - RIGHT_SECTION_X;
+
+    // This is a separate frame from the menu.
+    // The 3 px gap is rows 26, 27 and 28.
+    constexpr int WORKSPACE_Y =
+        layout.header_height +
+        layout.frame_gap;
+
+    framebuffer.Rectangle(
+        RIGHT_SECTION_X,
+        WORKSPACE_Y,
+        RIGHT_SECTION_WIDTH,
+        SCREEN_HEIGHT - WORKSPACE_Y,
+        border);
+}
+
 void RenderMainScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
@@ -897,39 +913,35 @@ void RenderMainScreen(
     DrawPattern(
         framebuffer,
         pattern);
+
+    DrawRightMenu(framebuffer);
+    DrawRightWorkspace(framebuffer);
 }
 
 } // namespace
 
 int main()
 {
-    LogInfo(
-        "BroTracker UI starting.");
+    LogInfo("BroTracker UI starting.");
 
     if (!LoadBroTrackerFont())
     {
-        LogError(
-            "Failed to load BroTracker font.");
-
+        LogError("Failed to load BroTracker font.");
         return 1;
     }
 
-    Tune tune =
-        CreateDummyTune();
+    Tune tune = CreateDummyTune();
 
     if (tune.patterns.empty())
     {
-        LogError(
-            "No patterns available.");
-
+        LogError("No patterns available.");
         return 1;
     }
 
     const Pattern& pattern =
         tune.patterns.front();
 
-    LogInfo(
-        "Creating main screen mockup.");
+    LogInfo("Creating main screen mockup.");
 
     Framebuffer framebuffer;
 
@@ -941,17 +953,13 @@ int main()
     const std::filesystem::path output_path =
         "assets/ui_main_screen.bmp";
 
-    if (!framebuffer.SaveBMP(
-        output_path))
+    if (!framebuffer.SaveBMP(output_path))
     {
-        LogError(
-            "Failed to save BMP.");
-
+        LogError("Failed to save BMP.");
         return 1;
     }
 
-    LogInfo(
-        "Main screen BMP created.");
+    LogInfo("Main screen BMP created.");
 
     std::cout
         << "Output: "
