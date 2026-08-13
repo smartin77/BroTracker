@@ -279,3 +279,20 @@ MIDI value unchanged
 
 Compatibility:
 Alternative display conventions may be supported
+
+---
+
+## D0019 - Note-Off Events
+
+BroTracker supports an explicit `NOTE_OFF` event in pattern data.
+
+`NOTE_OFF` is distinct from an empty pattern position. It represents an explicit note termination event at the current pattern position.
+
+For tracker UI representation, the instrument field of a `NOTE_OFF` event uses one of two dedicated glyphs:
+
+- `¯` — upper dash: note is terminated immediately at the beginning of the current pattern row.
+- `_` — lower underscore: note remains active for the current pattern row and is terminated at the end of the row, immediately before the next pattern position is processed.
+
+The exact runtime event representation for distinguishing these two note-off timings is intentionally deferred until the playback/scheduler implementation.
+
+The glyphs are UI representation only and are not stored as part of the musical event data.
