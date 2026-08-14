@@ -711,6 +711,7 @@ void DrawPatternChannels(
     const Pattern& pattern)
 {
     constexpr int FIELD_WIDTH = 6 * 6;
+    constexpr int current_row = 16;
 
     for (int channel = 0;
          channel < layout.channel_count;
@@ -756,6 +757,20 @@ void DrawPatternChannels(
                 }
             }
 
+            const bool is_current_position =
+                channel == 0 &&
+                row == current_row - 1;
+
+            const Color note_color =
+                is_current_position
+                    ? current_position_note
+                    : note;
+
+            const Color instrument_color =
+                is_current_position
+                    ? current_position_instrument
+                    : instrument_number;
+
             if (note_value == NOTE_OFF)
             {
                 DrawFixedText(
@@ -763,14 +778,14 @@ void DrawPatternChannels(
                     field_x,
                     y,
                     "OFF",
-                    note);
+                    note_color);
 
                 DrawFixedText(
                     framebuffer,
                     field_x + 4 * 6,
                     y,
                     "¯",
-                    instrument_number);
+                    instrument_color);
             }
             else
             {
@@ -779,7 +794,7 @@ void DrawPatternChannels(
                     field_x,
                     y,
                     NoteToString(note_value),
-                    note);
+                    note_color);
 
                 DrawFixedText(
                     framebuffer,
@@ -787,7 +802,7 @@ void DrawPatternChannels(
                     y,
                     InstrumentToString(
                         instrument_value),
-                    instrument_number);
+                    instrument_color);
             }
         }
     }
