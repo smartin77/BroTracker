@@ -273,6 +273,55 @@ The exact mapping for individual effects will be defined as each effect is resea
 
 **Please keep in mind that the MIDI part with a separate HW layer in particular might have different representations—especially for volume and potentially some events for the HW section—considering that it is a logically and audibly completely separate representation.**
 
+## Engine-Agnostic Event Semantics
+
+BroTracker events should represent a musical or playback intent rather than a specific underlying implementation.
+
+The same event may therefore be realized differently by different playback engines.
+
+For example:
+
+    BroTracker Event
+           │
+           ├── Sample Engine
+           │      └── native sample realization
+           │
+           ├── MIDI Engine
+           │      └── appropriate MIDI realization
+           │
+           └── Other Engine
+                  └── engine-specific realization
+
+The MIDI Engine should support the same BroTracker events whenever a meaningful MIDI representation exists.
+
+For example:
+
+    Pitch Event
+         │
+         ├── Sample Engine → sample playback pitch
+         │
+         └── MIDI Engine   → MIDI Pitch Bend
+
+    Volume Event
+         │
+         ├── Sample Engine → voice volume
+         │
+         └── MIDI Engine   → appropriate MIDI volume control
+
+    Sample Offset
+         │
+         ├── Sample Engine → sample playback offset
+         │
+         └── MIDI Engine   → no direct equivalent
+
+This principle does not require every event to have a MIDI implementation.
+
+Events that have no meaningful MIDI equivalent may remain specific to the playback engines that can realize them.
+
+MIDI control and MIDI mapping are separate concepts from BroTracker effect events. MIDI mapping may be used to control parameters remotely, while effect events represent playback intent originating from the BroTracker pattern or sequencer.
+
+The exact MIDI realization of each event will be defined together with the specification of that event.
+
 ## Event Representation
 
 Effect events are logical playback events and must not depend on their visual representation.
@@ -433,6 +482,52 @@ Examples:
 The exact names, abbreviations, parameter formats, and display notation will be defined during UX and event-system research.
 
 The naming should prioritize readability and intuitive editing while preserving compatibility with the semantics of established tracker effects.
+
+## Global Events
+
+Some events may affect the entire pattern, sequencer, or transport rather than an individual note, instrument, or channel.
+
+These events are not inherently associated with a particular playback voice.
+
+As a practical editing convention, global events may be placed in an otherwise unused pattern channel. Their scope remains global regardless of the channel in which they are stored.
+
+Conceptually:
+
+    Pattern Position
+          │
+          ├── Channel Events
+          │      └── affect individual playback state
+          │
+          └── Global Events
+                 └── affect pattern, sequencer, or transport state
+
+For example, a tempo or playback-speed event may be placed in an unused channel:
+
+    Channel 8    --- --    BPM 140
+
+The event does not affect Channel 8. It changes the global playback state at that pattern position.
+
+Global events should follow the same semantic event model as other BroTracker events and should not depend on their visual or storage location.
+
+### MIDI Compatibility
+
+Global events must also be evaluated for MIDI compatibility.
+
+A global event may have different realizations depending on the current MIDI synchronization role of BroTracker.
+
+For example:
+
+    Tempo Event
+         │
+         ├── Internal playback → changes sequencer tempo
+         │
+         ├── MIDI Master       → changes outgoing MIDI Clock timing
+         │
+         └── MIDI Slave        → may be constrained by external MIDI Clock
+
+The exact behavior of individual global events will be defined as they are specified.
+
+Not every global event is expected to have a direct MIDI equivalent.
 
 ## MIDI Compatibility
 
