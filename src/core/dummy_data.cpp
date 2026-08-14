@@ -5,6 +5,9 @@
  *
  * Copyright (C) smARTin and BroTracker contributors
  * License: GPL-3.0
+ * 
+ * This file can be removed!!!
+ * 
  */
 
 #include "dummy_data.h"

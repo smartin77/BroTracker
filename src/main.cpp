@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "core/dummy_data.h"
+#include "core/tune_loader.h"
 #include "core/logger.h"
 #include "ui/font.h"
 
@@ -703,11 +703,9 @@ namespace
                 (row + 1) == current_row_position;
 
             const Color row_number_color =
-                is_current_row
-                    ? row_number_normal
-                    : is_lpb_row
-                        ? row_number_bright
-                        : row_number_normal;
+                is_lpb_row
+                    ? row_number_bright
+                    : row_number_normal;
 
             DrawCenteredFixedText(
                 framebuffer,
@@ -1089,41 +1087,55 @@ int main()
         return 1;
     }
 
-    Tune tune = CreateDummyTune();
-
-    if (tune.patterns.empty())
+    try
     {
-        LogError("No patterns available.");
+        Tune tune = LoadTuneFromJson(
+            "assets/dummy_my_tune.json"
+        );
+
+        if (tune.patterns.empty())
+        {
+            LogError("No patterns available.");
+            return 1;
+        }
+
+        const Pattern& pattern =
+            tune.patterns.front();
+
+        LogInfo("Creating main screen mockup.");
+
+        Framebuffer framebuffer;
+
+        RenderMainScreen(
+            framebuffer,
+            tune,
+            pattern);
+
+            const std::filesystem::path output_path = "assets/ui_main_screen.bmp";
+
+        if (!framebuffer.SaveBMP(output_path))
+        {
+            LogError("Failed to save BMP.");
+            return 1;
+        }
+
+        LogInfo("Main screen BMP created.");
+
+        std::cout
+            << "Output: "
+            << output_path.string()
+            << '\n';
+
+        return 0;
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr
+            << "Failed to load tune: "
+            << error.what()
+            << '\n';
+
         return 1;
     }
 
-    const Pattern& pattern =
-        tune.patterns.front();
-
-    LogInfo("Creating main screen mockup.");
-
-    Framebuffer framebuffer;
-
-    RenderMainScreen(
-        framebuffer,
-        tune,
-        pattern);
-
-    const std::filesystem::path output_path =
-        "assets/ui_main_screen.bmp";
-
-    if (!framebuffer.SaveBMP(output_path))
-    {
-        LogError("Failed to save BMP.");
-        return 1;
-    }
-
-    LogInfo("Main screen BMP created.");
-
-    std::cout
-        << "Output: "
-        << output_path.string()
-        << '\n';
-
-    return 0;
 }
