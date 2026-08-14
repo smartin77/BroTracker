@@ -45,6 +45,8 @@ namespace
     constexpr Color channel_number              { 130, 130, 196 };
     constexpr Color note                        { 255, 255, 255 };
     constexpr Color instrument_number           { 130, 130, 196 };
+    constexpr Color empty_note                  { 192, 192, 192 };
+    constexpr Color empty_instrument            { 78, 78, 118 };
     constexpr Color current_position_note       { 16,  16,  16  };
     constexpr Color current_position_instrument { 78, 78, 118 };
 
@@ -771,16 +773,24 @@ namespace
                     channel == 0 &&
                     row == current_row_position - 1;
 
+                const bool is_empty_event =
+                    note_value == NOTE_EMPTY &&
+                    instrument_value == 0xFF;
+
                 const Color note_color =
-                    is_current_position
-                        ? current_position_note
-                        : note;
+                    is_empty_event
+                        ? empty_note
+                        : is_current_position
+                            ? current_position_note
+                            : note;
 
                 const Color instrument_color =
-                    is_current_position
-                        ? current_position_instrument
-                        : instrument_number;
-
+                    is_empty_event
+                        ? empty_instrument
+                        : is_current_position
+                            ? current_position_instrument
+                            : instrument_number;
+                    
                 if (note_value == NOTE_OFF)
                 {
                     DrawFixedText(
