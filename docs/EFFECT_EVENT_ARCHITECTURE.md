@@ -314,3 +314,165 @@ For imported module formats, volume-related events are mapped to Effect Layer 1 
 The exact parameter ranges and the interaction between sample/instrument volume, event volume, channel volume, and MIDI volume control remain subject to further research.
 
 This section will evolve as the BroTracker effect system is defined.
+
+## Candidate Effect Set
+
+BroTracker will consider support for the effect semantics found in ProTracker and compatible Amiga tracker formats.
+
+The ProTracker command set is used as a reference for:
+
+- module import compatibility
+- identifying commonly used tracker effect semantics
+- defining the minimum capabilities expected from the BroTracker effect system
+
+The original ProTracker command letters and numbers are not currently part of the BroTracker event format.
+
+BroTracker may use different event names, codes, or visual representations.
+
+For example:
+
+    ProTracker command
+        B01
+            │
+            ▼
+    BroTracker event
+        HOP 01
+
+or:
+
+    ProTracker command
+        ED3
+            │
+            ▼
+    BroTracker event
+        DEL 03
+
+The internal event model should preserve the semantic meaning of the source command while allowing BroTracker to use terminology and notation that are more suitable for its own user interface.
+
+## ProTracker Reference Events
+
+The following commands are currently considered candidates for MOD import support and for comparison when defining native BroTracker events.
+
+### Standard Commands
+
+| ProTracker | Meaning | Candidate BroTracker semantic |
+|------------|---------|--------------------------------|
+| `0xy` | Arpeggio | Arpeggio |
+| `1xx` | Portamento Up | Pitch Slide Up |
+| `2xx` | Portamento Down | Pitch Slide Down |
+| `3xx` | Tone Portamento | Tone Portamento |
+| `4xy` | Vibrato | Vibrato |
+| `5xy` | Tone Portamento + Volume Slide | Tone Portamento + Volume Slide |
+| `6xy` | Vibrato + Volume Slide | Vibrato + Volume Slide |
+| `7xy` | Tremolo | Tremolo |
+| `9xx` | Sample Offset | Sample Offset |
+| `Axy` | Volume Slide | Volume Slide |
+| `Bxx` | Position Jump | Pattern/Position Jump |
+| `Cxx` | Set Volume | Set Volume |
+| `Dxx` | Pattern Break | Pattern Break |
+| `Fxx` | Set Speed / BPM | Speed / Tempo |
+
+### Extended Commands (`E`)
+
+| ProTracker | Meaning | Candidate BroTracker semantic |
+|------------|---------|--------------------------------|
+| `E0x` | Set Filter | Filter |
+| `E1x` | Fine Slide Up | Fine Pitch Slide Up |
+| `E2x` | Fine Slide Down | Fine Pitch Slide Down |
+| `E3x` | Glissando Control | Glissando |
+| `E4x` | Vibrato Waveform | Vibrato Waveform |
+| `E5x` | Set Fine Tune | Fine Tune |
+| `E6x` | Pattern Loop | Pattern Loop |
+| `E7x` | Tremolo Waveform | Tremolo Waveform |
+| `E9x` | Retrigger Note | Note Retrigger |
+| `EAx` | Fine Volume Slide Up | Fine Volume Slide Up |
+| `EBx` | Fine Volume Slide Down | Fine Volume Slide Down |
+| `ECx` | Note Cut | Note Cut |
+| `EDx` | Note Delay | Note Delay |
+| `EEx` | Pattern Delay | Pattern Delay |
+| `EFx` | Invert Loop | Loop Invert |
+
+This list is a reference and is not yet a commitment to support every command.
+
+## MOD Import Compatibility
+
+When importing MOD and related Amiga tracker formats, BroTracker will consider mapping the source effects represented by the ProTracker command set into its own effect model.
+
+The importer should preserve the musical intent of a supported command whenever practical.
+
+The source command code does not need to be preserved as the BroTracker representation.
+
+Conceptually:
+
+    External module
+          │
+          ▼
+    ProTracker-style command
+          │
+          ▼
+    BroTracker semantic event
+          │
+       ┌──┴──┐
+       ▼     ▼
+    Sample  MIDI
+     Engine Engine
+
+This allows BroTracker to remain compatible with important tracker concepts without forcing its native event notation to reproduce the historical MOD command layout.
+
+## Native Event Naming
+
+BroTracker event names may use descriptive names instead of traditional tracker command letters.
+
+Examples:
+
+    DEL 03     → Note Delay
+    HOP 01     → Position Jump
+    VOL 20     → Set Volume
+    PUP 04     → Pitch Slide Up
+
+The exact names, abbreviations, parameter formats, and display notation will be defined during UX and event-system research.
+
+The naming should prioritize readability and intuitive editing while preserving compatibility with the semantics of established tracker effects.
+
+## MIDI Compatibility
+
+Each supported BroTracker event should be evaluated for compatibility with the MIDI playback engine.
+
+Where a meaningful MIDI equivalent exists, the MIDI engine should implement the same logical event semantics using the appropriate MIDI mechanism.
+
+Where no meaningful equivalent exists, the event may remain available to the Sample Engine without requiring an artificial MIDI implementation.
+
+Examples:
+
+    Set Volume
+         │
+         ├── Sample Engine → voice volume
+         └── MIDI Engine   → MIDI volume control
+
+    Pitch Slide
+         │
+         ├── Sample Engine → playback pitch change
+         └── MIDI Engine   → Pitch Bend
+
+    Sample Offset
+         │
+         ├── Sample Engine → start playback at offset
+         └── MIDI Engine   → no direct equivalent
+
+The exact MIDI mapping is part of the individual event specification and should not be assumed from the source tracker command alone.
+
+## Future Refinement
+
+This section is intentionally a working list.
+
+Individual events may be:
+
+- added
+- removed
+- renamed
+- merged
+- split into multiple semantic events
+- assigned to different effect layers
+- given different native BroTracker parameters
+
+The ProTracker command set is therefore a compatibility and research reference, not a fixed BroTracker command specification.
