@@ -509,6 +509,29 @@ The event does not affect Channel 8. It changes the global playback state at tha
 
 Global events should follow the same semantic event model as other BroTracker events and should not depend on their visual or storage location.
 
+## Event Scope
+
+BroTracker events may have different scopes.
+
+Conceptually:
+
+    Event
+      │
+      ├── Voice / Channel
+      │      └── affects a specific playback voice or channel
+      │
+      ├── Pattern / Sequencer
+      │      └── affects pattern or sequencer behavior
+      │
+      └── Transport / Global
+             └── affects global playback or transport behavior
+
+The scope of an event is part of its semantic definition and is independent of its visual representation or storage location.
+
+A global event may be stored in an otherwise unused pattern channel as a practical editing convention. Its scope remains global and it does not affect the channel in which it is stored.
+
+Each event should also be evaluated for compatibility with the available playback engines, including the MIDI Engine where a meaningful MIDI realization exists.
+
 ### MIDI Compatibility
 
 Global events must also be evaluated for MIDI compatibility.
