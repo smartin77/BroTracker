@@ -32,18 +32,21 @@ struct Color
     std::uint8_t b;
 };
 
-constexpr Color background              { 16,  16,  16  };
-constexpr Color border                  { 64,  64,  64 };
-constexpr Color current_row_background  { 30,  30,  30 };
-constexpr Color header_name             { 130, 130, 196 };
-constexpr Color header_value            { 255, 255, 255 };
-constexpr Color row_header_normal       { 38, 120, 124 };
-constexpr Color row_header_bright       { 76, 195, 201 };
-constexpr Color row_number              { 130, 130, 196 };
-constexpr Color row_marker              { 212, 212, 212 };
-constexpr Color channel_number          { 130, 130, 196 };
-constexpr Color note                    { 255, 255, 255 };
-constexpr Color instrument_number       { 130, 130, 196 };
+constexpr Color background                  { 16,  16,  16  };
+constexpr Color border                      { 64,  64,  64 };
+constexpr Color current_row_background      { 30,  30,  30 };
+constexpr Color current_position_background { 192, 192, 192 };
+constexpr Color header_name                 { 130, 130, 196 };
+constexpr Color header_value                { 255, 255, 255 };
+constexpr Color row_header_normal           { 38, 120, 124 };
+constexpr Color row_header_bright           { 76, 195, 201 };
+constexpr Color row_number                  { 130, 130, 196 };
+constexpr Color row_marker                  { 212, 212, 212 };
+constexpr Color channel_number              { 130, 130, 196 };
+constexpr Color note                        { 255, 255, 255 };
+constexpr Color instrument_number           { 130, 130, 196 };
+constexpr Color current_position_note       { 16,  16,  16  };
+constexpr Color current_position_instrument { 130, 130, 196 };
 
 struct Layout
 {
@@ -503,7 +506,7 @@ void DrawMainHeader(
             ? "0" + std::to_string(pattern.number)
             : std::to_string(pattern.number),
 
-        "06",
+        "16",
 
         std::to_string(tune.tempo),
 
@@ -815,6 +818,30 @@ void DrawCurrentRow(
         row_marker);
 }
 
+void DrawCurrentPosition(
+    Framebuffer& framebuffer)
+{
+    constexpr int current_row = 16;
+    constexpr int current_channel = 0;
+
+    const int row_y =
+        layout.first_row_y +
+        (current_row - 1) *
+            layout.row_height;
+
+    const int channel_x =
+        layout.channel_start_x +
+        current_channel *
+            layout.channel_width;
+
+    framebuffer.FilledRectangle(
+        channel_x + 2,
+        row_y,
+        layout.channel_width - 4,
+        layout.row_height,
+        current_position_background);
+}
+
 void DrawPattern(
     Framebuffer& framebuffer,
     const Pattern& pattern)
@@ -1014,6 +1041,9 @@ void RenderMainScreen(
         pattern);
     
     DrawCurrentRow(
+        framebuffer);
+
+    DrawCurrentPosition(
         framebuffer);
 
     DrawPattern(
