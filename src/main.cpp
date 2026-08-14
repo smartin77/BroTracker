@@ -32,16 +32,18 @@ struct Color
     std::uint8_t b;
 };
 
-constexpr Color background        { 16,  16,  16  };
-constexpr Color border            { 64,  64,  64 };
-constexpr Color header_name       { 130, 130, 196 };
-constexpr Color header_value      { 255, 255, 255 };
-constexpr Color row_header_normal { 38, 120, 124 };
-constexpr Color row_header_bright { 76, 195, 201 };
-constexpr Color row_number        { 130, 130, 196 };
-constexpr Color channel_number    { 130, 130, 196 };
-constexpr Color note              { 255, 255, 255 };
-constexpr Color instrument_number { 130, 130, 196 };
+constexpr Color background              { 16,  16,  16  };
+constexpr Color border                  { 64,  64,  64 };
+constexpr Color current_row_background  { 30,  30,  30 };
+constexpr Color header_name             { 130, 130, 196 };
+constexpr Color header_value            { 255, 255, 255 };
+constexpr Color row_header_normal       { 38, 120, 124 };
+constexpr Color row_header_bright       { 76, 195, 201 };
+constexpr Color row_number              { 130, 130, 196 };
+constexpr Color row_marker              { 212, 212, 212 };
+constexpr Color channel_number          { 130, 130, 196 };
+constexpr Color note                    { 255, 255, 255 };
+constexpr Color instrument_number       { 130, 130, 196 };
 
 struct Layout
 {
@@ -138,6 +140,25 @@ public:
             y,
             y + height - 1,
             color);
+    }
+
+    void FilledRectangle(
+    int x,
+    int y,
+    int width,
+    int height,
+    Color color)
+    {
+        for (int current_y = y;
+            current_y < y + height;
+            ++current_y)
+        {
+            HorizontalLine(
+                x,
+                x + width - 1,
+                current_y,
+                color);
+        }
     }
 
     bool SaveBMP(const std::filesystem::path& path) const
@@ -769,6 +790,31 @@ void DrawPatternChannels(
     }
 }
 
+void DrawCurrentRow(
+    Framebuffer& framebuffer)
+{
+    constexpr int current_row = 16;
+
+    const int row_y =
+        layout.first_row_y +
+        (current_row - 1) *
+            layout.row_height;
+
+    framebuffer.FilledRectangle(
+        layout.pattern_x + 2,
+        row_y,
+        layout.pattern_width - 4,
+        layout.row_height,
+        current_row_background);
+
+    DrawFixedText(
+        framebuffer,
+        layout.row_number_width - 6,
+        row_y + 2,
+        "¦",
+        row_marker);
+}
+
 void DrawPattern(
     Framebuffer& framebuffer,
     const Pattern& pattern)
@@ -965,6 +1011,13 @@ void RenderMainScreen(
     DrawMainHeader(
         framebuffer,
         tune,
+        pattern);
+    
+    DrawCurrentRow(
+        framebuffer);
+
+    DrawPattern(
+        framebuffer,
         pattern);
 
     DrawPattern(
