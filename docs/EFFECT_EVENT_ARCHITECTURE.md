@@ -30,6 +30,78 @@ Effect events may also exist at the same position, but their values are not disp
 
 The Pattern View only indicates the presence of additional events through its visual state.
 
+## Event State Continuation
+
+Pattern positions are processed as a continuous sequence of events.
+
+A missing note, instrument, or effect event does not clear the corresponding previous state.
+
+Each event type updates only the part of the playback state that it represents.
+
+Conceptually:
+
+    Pattern Position
+          │
+          ├── Note
+          │     └── updates current note
+          │
+          ├── Instrument
+          │     └── updates current instrument
+          │
+          └── Effect
+                └── updates effect state
+
+An empty field leaves the corresponding state unchanged.
+
+For example:
+
+    Row    Note    Instrument    Effect
+    -------------------------------------
+    00     C-4     01             ---
+    01     ---     ---            ---
+    02     ---     02             ---
+    03     ---     ---            E01
+    04     ---     ---            ---
+    05     OFF     ---            ---
+
+The resulting playback state can be understood as:
+
+    Row 00
+        note = C-4
+        instrument = 01
+
+    Row 01
+        note = C-4
+        instrument = 01
+
+    Row 02
+        note = C-4
+        instrument = 02
+
+    Row 03
+        note = C-4
+        instrument = 02
+        effect = E01
+
+    Row 04
+        note = C-4
+        instrument = 02
+        effect = E01
+
+    Row 05
+        note = OFF
+        active note terminated
+
+A note event therefore does not require an instrument event, and an instrument event does not require a note event.
+
+If an instrument is specified without a new note, the previous active note is retained and is associated with the newly specified instrument according to the playback semantics of the instrument.
+
+Similarly, an effect event may exist without a note or instrument event. In that case, the effect modifies the currently active playback state rather than creating a new note.
+
+An explicit `NOTE_OFF` event terminates the active note. Empty note fields do not terminate it.
+
+This state-continuation model is fundamental to the BroTracker event architecture and is intended to support tracker-style pattern authoring and compatibility with traditional tracker formats.
+
 ## Independent Effect Events
 
 An effect event may exist without a note or instrument at the same pattern position.
