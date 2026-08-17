@@ -109,26 +109,6 @@ The UI client must never be required to maintain realtime timing.
 
 The same remote execution model should be usable by other supported UI client platforms.
 
-## Remote Teensy execution
-
-The UI may run on a separate host device while the realtime BroTracker core runs on Teensy 4.1.
-
-The initial reference example is:
-
-ArkOS handheld
-      |
-     USB
-      |
-Teensy 4.1
-
-The UI communicates with the Teensy using commands and tracker state.
-
-The Teensy remains responsible for realtime sequencing, audio, MIDI and synchronization.
-
-The UI remains responsible for presentation and user interaction.
-
-The UI must never be required to maintain realtime timing.
-
 ## Audio on Host Platforms
 
 Host runtimes may provide their own audio output backend.
@@ -143,7 +123,7 @@ The shared tracker scheduling model must remain independent of the host audio AP
 
 BroTracker is primarily a **text-based user interface**.
 
-The visual appearance should be based on the BroTracker bitmap font and its fixed pixel grid. The current target font uses an **8 × 6 pixel character cell**.
+The visual appearance should be based on the BroTracker bitmap font and its fixed pixel grid. The current target font uses a **6 × 8 pixel** character cell.
 
 The apparent graphical elements of the interface are intentionally limited.
 
@@ -664,4 +644,4 @@ The guiding principle is:
 
 UI/UX decisions should favour direct access, stable visual focus, predictable navigation and high information density without sacrificing readability.
 
-The primary visual language should remain text-based, using the BroTracker 8 × 6 bitmap font as its foundation. Apparent graphical complexity should be achieved through carefully designed frames, special glyphs, margins, padding and spacing rather than through conventional graphical widgets.
+The primary visual language should remain text-based, using the BroTracker 6 × 8 bitmap font as its foundation. Apparent graphical complexity should be achieved through carefully designed frames, special glyphs, margins, padding and spacing rather than through conventional graphical widgets.
