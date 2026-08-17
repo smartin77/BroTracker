@@ -1097,55 +1097,43 @@ int main()
         return 1;
     }
 
-    try
+    Tune tune = LoadTuneFromJson(
+        "assets/dummy_my_tune.json"
+    );
+
+    if (tune.patterns.empty())
     {
-        Tune tune = LoadTuneFromJson(
-            "assets/dummy_my_tune.json"
-        );
-
-        if (tune.patterns.empty())
-        {
-            LogError("No patterns available.");
-            return 1;
-        }
-
-        const Pattern& pattern =
-            tune.patterns.front();
-
-        LogInfo("Creating main screen mockup.");
-
-        Framebuffer framebuffer;
-
-        RenderMainScreen(
-            framebuffer,
-            tune,
-            pattern);
-
-            const std::filesystem::path output_path = "assets/ui_main_screen.bmp";
-
-        if (!framebuffer.SaveBMP(output_path))
-        {
-            LogError("Failed to save BMP.");
-            return 1;
-        }
-
-        LogInfo("Main screen BMP created.");
-
-        std::cout
-            << "Output: "
-            << output_path.string()
-            << '\n';
-
-        return 0;
-    }
-    catch (const std::exception& error)
-    {
-        std::cerr
-            << "Failed to load tune: "
-            << error.what()
-            << '\n';
-
+        LogError("No patterns available.");
         return 1;
     }
+
+    const Pattern& pattern =
+        tune.patterns.front();
+
+    LogInfo("Creating main screen mockup.");
+
+    Framebuffer framebuffer;
+
+    RenderMainScreen(
+        framebuffer,
+        tune,
+        pattern);
+
+        const std::filesystem::path output_path = "assets/ui_main_screen.bmp";
+
+    if (!framebuffer.SaveBMP(output_path))
+    {
+        LogError("Failed to save BMP.");
+        return 1;
+    }
+
+    LogInfo("Main screen BMP created.");
+
+    std::cout
+        << "Output: "
+        << output_path.string()
+        << '\n';
+
+    return 0;
 
 }
