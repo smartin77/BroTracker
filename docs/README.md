@@ -24,4 +24,6 @@ Project documentation is located in the `docs` directory.
 
 * [MIDI Support](./MIDI_SUPPORT.md)
 
+* [Teensy 4.1 Memory Architecture](./TEENSY_MEMORY_ARCHITECTURE.md)
+
 * [Roadmap](./ROADMAP.md)

@@ -96,6 +96,26 @@ The Teensy runtime must not depend on a UI client being connected.
 
 The realtime core must remain fully operational when no UI client is present.
 
+## Teensy Memory Architecture
+
+The Teensy 4.1 realtime implementation uses the platform's distinct memory regions according to realtime requirements.
+
+The current working model separates:
+
+- ITCM for time-critical instruction paths;
+- DTCM for frequently accessed realtime state;
+- RAM2 / DMAMEM for DMA-capable buffers and larger working data;
+- Flash for non-realtime application code and static resources;
+- PSRAM / EXTMEM for large data such as samples and wavetables.
+
+The detailed memory allocation policy is maintained separately in `TEENSY_MEMORY_ARCHITECTURE.md` and remains subject to hardware and toolchain verification.
+
+The realtime kernel must avoid runtime dynamic memory allocation. Memory required by realtime processing should be statically allocated or obtained from explicitly controlled fixed-size pools established before realtime operation begins.
+
+C++ exceptions are not part of the realtime kernel error-handling model.
+
+Memory placement must not be treated as an implementation detail when it can affect realtime determinism, DMA operation, cache coherency or available realtime resources.
+
 ## Realtime Scheduling
 
 Internal audio and external MIDI events must originate from the same realtime scheduling model.
