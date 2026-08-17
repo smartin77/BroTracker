@@ -2,22 +2,26 @@
 
 Project documentation is located in the `docs` directory.
 
-* [Vision](./docs/VISION.md)
+* [Vision](./VISION.md)
 
-* [Project Goals](./docs/PROJECT_GOALS.md)
+* [Project Goals](./PROJECT_GOALS.md)
 
-* [Project Structure](./docs/PROJECT_STRUCTURE.md)
+* [Project Structure](./PROJECT_STRUCTURE.md)
 
-* [Core Design Principles](./docs/CORE_DESIGN_PRINCIPLES.md)
+* [Core Design Principles](./CORE_DESIGN_PRINCIPLES.md)
 
-* [Architecture Decisions](./docs/ARCHITECTURE_DECISIONS.md)
+* [Architecture Decisions](./ARCHITECTURE_DECISIONS.md)
 
-* [Core Architecture](./docs/CORE_ARCHITECTURE.md)
+* [Core Architecture](./CORE_ARCHITECTURE.md)
 
-* [Scheduler](./docs/SCHEDULER.md)
+* [UI / UX Architecture](./UI_UX_ARCHITECTURE.md)
 
-* [Sample Format](./docs/SAMPLE_FORMAT.md)
+* [Effect Event Architecture](./EFFECT_EVENT_ARCHITECTURE.md)
 
-* [MIDI Support](./docs/MIDI_SUPPORT.md)
+* [Scheduler](./SCHEDULER.md)
 
-* [Roadmap](./docs/ROADMAP.md)
+* [Sample Format](./SAMPLE_FORMAT.md)
+
+* [MIDI Support](./MIDI_SUPPORT.md)
+
+* [Roadmap](./ROADMAP.md)

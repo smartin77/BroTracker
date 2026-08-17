@@ -29,7 +29,7 @@ Complete project documentation is available in the [`docs`](docs/) directory.
 
 Start here:
 
-- [Documentation Index](./docs/README.md)
+[Documentation Index](./docs/README.md)
 
 ## Project Status
 
