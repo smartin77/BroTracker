@@ -41,6 +41,8 @@ The primary realtime performance goals are:
 
 The exact latency characteristics of each host platform or transport are implementation and measurement concerns.
 
+---
+
 ## Initial Development Configuration
 
 During initial hardware development, BroTracker will use USB connectivity.
@@ -63,6 +65,8 @@ This configuration avoids requiring direct DIN MIDI circuitry on the Teensy duri
 
 Direct physical DIN MIDI IN/OUT on Teensy hardware is deferred until a later stage.
 
+---
+
 ## MIDI Input
 
 MIDI input is supported through platform-specific MIDI backends.
@@ -75,6 +79,8 @@ Host platforms may support additional MIDI input devices through their native or
 
 Specific host MIDI devices are not part of the core architecture.
 
+---
+
 ## Host MIDI
 
 Windows, macOS and Linux host implementations may provide MIDI input and output through platform-specific backends.
@@ -84,6 +90,8 @@ The host MIDI implementation must translate platform-specific MIDI APIs into the
 The shared core must not depend on a specific operating-system MIDI API.
 
 Android MIDI support may be added in a future platform implementation.
+
+---
 
 ## DIN MIDI
 
