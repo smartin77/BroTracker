@@ -524,8 +524,9 @@ namespace
                     "Invalid note octave.");
             }
 
+            // Matches the Yamaha display convention used by FormatNote (D0018).
             return static_cast<Note>(
-                (octave + 1) * 12 +
+                (octave + 2) * 12 +
                 semitone);
         }
     };

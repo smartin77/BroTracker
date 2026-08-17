@@ -12,8 +12,15 @@ std::string FormatNote(
         return "---";
     }
 
-    std::uint8_t octave = note / 12;
-    std::uint8_t semitone = note % 12;
+    if (note == NOTE_OFF)
+    {
+        return "OFF";
+    }
+
+    const std::uint8_t semitone = note % 12;
+
+    // Yamaha display convention: MIDI note 60 = C3 (see D0018).
+    const int octave = static_cast<int>(note / 12) - 2;
 
     const char* name;
 
