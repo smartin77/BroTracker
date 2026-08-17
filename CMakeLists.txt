@@ -8,6 +8,5 @@ add_executable(BroTrackerUI
     src/main.cpp
     src/ui/font.cpp
     src/core/logger.cpp
-    #src/core/dummy_data.cpp
     src/core/tune_loader.cpp
 )
