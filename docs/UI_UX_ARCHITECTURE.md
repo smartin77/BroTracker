@@ -37,6 +37,80 @@ The UI application is responsible for translating the core state into the BroTra
 
 BroTracker does not depend on a GPU, HDMI output, or a desktop graphical environment.
 
+## Host UI Platforms
+
+Although ArkOS handhelds are the primary reference UI platform, BroTracker UI is not limited to handheld hardware.
+
+The same UI renderer should be usable on host platforms including:
+
+- Windows;
+- macOS;
+- Linux.
+
+Android may be supported in a future implementation.
+
+The UI uses a canonical logical resolution of 640 × 480 pixels.
+
+Host platforms should not require a separate desktop-oriented UI design. Instead, they should render the same BroTracker logical framebuffer.
+
+Desktop applications may use integer framebuffer scaling, such as 2×, to provide a larger physical display while preserving the original pixel-based visual language.
+
+For example:
+
+640 × 480 logical framebuffer
+            |
+           2×
+            |
+1280 × 960 physical display
+
+The scaling method should preserve hard pixel edges and must not introduce filtering or anti-aliasing.
+
+## Local and Remote Core Operation
+
+The UI architecture should support two related execution environments.
+
+Host-local execution
+
+The UI and BroTracker core may run on the same host system.
+
+This mode is primarily useful for:
+
+development;
+testing;
+UI development;
+MIDI testing;
+audio engine development.
+
+## Remote Teensy execution
+
+The UI may run on a separate host device while the realtime BroTracker core runs on Teensy 4.1.
+
+The initial reference example is:
+
+ArkOS handheld
+      |
+     USB
+      |
+Teensy 4.1
+
+The UI communicates with the Teensy using commands and tracker state.
+
+The Teensy remains responsible for realtime sequencing, audio, MIDI and synchronization.
+
+The UI remains responsible for presentation and user interaction.
+
+The UI must never be required to maintain realtime timing.
+
+## Audio on Host Platforms
+
+Host platforms may provide their own audio output backend.
+
+Host audio is intended primarily for development, testing and convenient desktop use.
+
+Host audio latency may differ from the Teensy hardware implementation and must not be treated as a direct representation of Teensy audio latency.
+
+The shared tracker scheduling model must remain independent of the host audio API.
+
 ## Visual Language
 
 BroTracker is primarily a **text-based user interface**.

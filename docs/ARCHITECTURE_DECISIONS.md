@@ -302,3 +302,116 @@ The glyphs are UI representation only and are not stored as part of the musical 
 ## D0020 - Future export
 
 Most likely, we won't support exporting our module to other module formats. For the audio part, we’ll only support a mixdown audio file based on the internal MIX system parameters. As for MIDI, it will be a standalone MIDI file, regardless of how the user manages to connect or use it meaningfully with third-party tools. Since these involve different platforms and hardware synths controlled via MIDI, users will need their own hardware mixer or separate processing for the final audio.
+
+---
+
+## D0021 - One Core, Multiple Platforms
+
+BroTracker shall use a shared platform-independent tracker core.
+
+The same core logic should be reusable by:
+
+- the Teensy 4.1 realtime implementation;
+- host development builds;
+- host UI applications.
+
+Host platforms are not replacements for the Teensy reference platform. They provide development, testing and convenient UI environments.
+
+The core must not depend directly on operating-system, display, audio or MIDI APIs.
+
+---
+
+## D0022 - Supported Host Platforms
+
+In addition to the Teensy 4.1 reference platform, BroTracker shall support host implementations where practical.
+
+The primary host targets are:
+
+- ArkOS;
+- Linux;
+- Windows;
+- macOS;
+
+The primary handheld UI target is an ArkOS-based gaming handheld, including R36S/H and related RGV-family devices.
+
+Android may be supported in a future implementation.
+
+Host platform support must not compromise the Teensy 4.1 realtime architecture.
+
+---
+
+## D0023 - Host Development Runtime
+
+The shared BroTracker core shall be testable on a host computer without requiring Teensy hardware.
+
+A host runtime may provide platform-specific implementations for:
+
+- audio output;
+- MIDI input/output;
+- display;
+- keyboard;
+- mouse;
+- gamepad;
+- file storage.
+
+The host runtime must preserve the same tracker semantics and scheduling model as the Teensy implementation.
+
+---
+
+## D0024 - Logical UI Resolution
+
+The canonical BroTracker UI resolution is 640 × 480.
+
+The UI renderer shall use this logical resolution independently of the physical display platform.
+
+ArkOS handhelds may display the framebuffer at native resolution.
+
+Desktop frontends may display the same framebuffer using integer scaling, such as 2×, without changing the logical UI layout.
+
+This allows desktop systems to provide a larger physical display while maintaining a single canonical BroTracker interface.
+
+---
+
+## D0025 - Shared Realtime Event Scheduling
+
+Internal audio events and external MIDI events shall originate from the same realtime scheduling model.
+
+MIDI OUT timing is a primary realtime performance requirement.
+
+The scheduler architecture must therefore avoid treating MIDI output as an asynchronous secondary process that can introduce unnecessary timing differences relative to internal audio.
+
+The actual latency and jitter characteristics of each hardware and host transport must be measured during implementation.
+
+---
+
+## D0026 - Initial USB MIDI Hardware Configuration
+
+Initial hardware development shall use USB connectivity.
+
+The CME H4MIDI is the initial external MIDI routing device for physical DIN MIDI connectivity.
+
+The initial development path is:
+
+Teensy 4.1
+    |
+   USB
+    |
+CME H4MIDI
+    |
+ DIN MIDI
+    |
+External MIDI hardware
+
+Direct physical DIN MIDI IN/OUT connections on the Teensy are intentionally deferred because they require additional hardware work.
+
+The core MIDI architecture must remain independent of this temporary hardware configuration.
+
+---
+
+## D0027 - Physical Teensy MIDI Connections Deferred
+
+Direct physical DIN MIDI IN/OUT hardware on Teensy is deferred until a later development stage.
+
+The initial implementation shall prioritize USB MIDI and reliable MIDI timing through the common MIDI event architecture.
+
+Adding physical DIN MIDI hardware later must not require changes to the tracker, sequencer or core event model.

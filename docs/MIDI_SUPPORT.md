@@ -14,12 +14,84 @@ The implementation is intentionally conservative and focused on reliable sequenc
 
 ## Supported Interfaces
 
-BroTracker is expected to support:
+BroTracker is designed to support MIDI through platform-specific interfaces.
 
-- USB MIDI
-- DIN MIDI
+The initial implementation prioritizes USB MIDI.
 
-Additional interfaces may be added in future revisions.
+Direct physical DIN MIDI connections on the Teensy are planned but intentionally deferred.
+
+The MIDI subsystem must remain independent of the physical transport. The core generates MIDI events, while platform-specific MIDI backends are responsible for transmitting them through the available hardware or operating-system interface.
+
+---
+
+## MIDI OUT Priority
+
+MIDI OUT is a primary BroTracker feature.
+
+MIDI sequencing is not treated as a secondary or optional extension of the internal audio engine.
+
+Internal audio events and MIDI OUT events should originate from the same realtime scheduling model.
+
+The primary realtime performance goals are:
+
+- low MIDI OUT latency;
+- low MIDI jitter;
+- deterministic event ordering;
+- close timing alignment between internal audio and external MIDI devices.
+
+The exact latency characteristics of each host platform or transport are implementation and measurement concerns.
+
+## Initial Development Configuration
+
+During initial hardware development, BroTracker will use USB connectivity.
+
+The primary external MIDI routing hardware is the CME H4MIDI.
+
+The initial development path is:
+
+Teensy 4.1
+    |
+   USB
+    |
+CME H4MIDI
+    |
+ DIN MIDI
+    |
+External MIDI hardware
+
+This configuration avoids requiring direct DIN MIDI circuitry on the Teensy during the initial development phase.
+
+Direct physical DIN MIDI IN/OUT on Teensy hardware is deferred until a later stage.
+
+## MIDI Input
+
+MIDI input is supported through platform-specific MIDI backends.
+
+The shared core should consume a common internal MIDI event representation rather than depending on a specific MIDI device or driver.
+
+On Teensy, the initial MIDI input implementation will use the available USB MIDI path.
+
+Host platforms may support additional MIDI input devices through their native or common MIDI APIs.
+
+Specific host MIDI devices are not part of the core architecture.
+
+## Host MIDI
+
+Windows, macOS and Linux host implementations may provide MIDI input and output through platform-specific backends.
+
+The host MIDI implementation must translate platform-specific MIDI APIs into the common BroTracker MIDI event model.
+
+The shared core must not depend on a specific operating-system MIDI API.
+
+Android MIDI support may be added in a future platform implementation.
+
+## DIN MIDI
+
+Direct Teensy DIN MIDI IN/OUT hardware is planned for a future development stage.
+
+It is intentionally not required for the initial realtime engine implementation.
+
+The MIDI core and scheduler must nevertheless be designed so that a future DIN MIDI backend can be added without changing tracker or sequencing logic.
 
 ---
 
