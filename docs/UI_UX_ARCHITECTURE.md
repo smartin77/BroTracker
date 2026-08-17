@@ -131,9 +131,9 @@ The UI must never be required to maintain realtime timing.
 
 ## Audio on Host Platforms
 
-Host platforms may provide their own audio output backend.
+Host runtimes may provide their own audio output backend.
 
-Host audio is intended primarily for development, testing and convenient desktop use.
+Host audio is intended primarily for development, testing and convenient standalone use.
 
 Host audio latency may differ from the Teensy hardware implementation and must not be treated as a direct representation of Teensy audio latency.
 
