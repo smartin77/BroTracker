@@ -8,6 +8,8 @@ Project documentation is located in the `docs` directory.
 
 * [Project Structure](./PROJECT_STRUCTURE.md)
 
+* [Testing](./TESTING.md)
+
 * [Core Design Principles](./CORE_DESIGN_PRINCIPLES.md)
 
 * [Architecture Decisions](./ARCHITECTURE_DECISIONS.md)
