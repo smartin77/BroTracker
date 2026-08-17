@@ -305,38 +305,40 @@ Most likely, we won't support exporting our module to other module formats. For 
 
 ---
 
-## D0021 - One Core, Multiple Platforms
+---
+
+## D0021 - One Core, Multiple Runtimes
 
 BroTracker shall use a shared platform-independent tracker core.
 
 The same core logic should be reusable by:
 
-- the Teensy 4.1 realtime implementation;
-- host development builds;
-- host UI applications.
+- the Teensy 4.1 realtime runtime;
+- optional host development runtimes.
 
-Host platforms are not replacements for the Teensy reference platform. They provide development, testing and convenient UI environments.
+The Teensy 4.1 runtime remains the reference realtime implementation.
+
+A host runtime is an optional environment for executing the shared core outside the Teensy hardware, primarily for development, testing and convenient standalone use.
 
 The core must not depend directly on operating-system, display, audio or MIDI APIs.
 
 ---
 
-## D0022 - Supported Host Platforms
+## D0022 - Supported UI Client Platforms
 
-In addition to the Teensy 4.1 reference platform, BroTracker shall support host implementations where practical.
+BroTracker shall support multiple UI client platforms while maintaining a single logical UI design.
 
-The primary host targets are:
+The primary UI client platform is an ArkOS-based gaming handheld, including R36S/H and related RGV-family devices.
 
-- ArkOS;
-- Linux;
+Additional UI client targets are:
+
 - Windows;
 - macOS;
-
-The primary handheld UI target is an ArkOS-based gaming handheld, including R36S/H and related RGV-family devices.
+- Linux.
 
 Android may be supported in a future implementation.
 
-Host platform support must not compromise the Teensy 4.1 realtime architecture.
+UI client platform support must not compromise the Teensy 4.1 realtime architecture.
 
 ---
 
@@ -344,7 +346,7 @@ Host platform support must not compromise the Teensy 4.1 realtime architecture.
 
 The shared BroTracker core shall be testable on a host computer without requiring Teensy hardware.
 
-A host runtime may provide platform-specific implementations for:
+A host development runtime may provide platform-specific implementations for:
 
 - audio output;
 - MIDI input/output;
@@ -352,9 +354,12 @@ A host runtime may provide platform-specific implementations for:
 - keyboard;
 - mouse;
 - gamepad;
-- file storage.
+- file storage;
+- timing.
 
-The host runtime must preserve the same tracker semantics and scheduling model as the Teensy implementation.
+The host development runtime must preserve the same tracker semantics and scheduling model as the Teensy implementation.
+
+Host runtime implementations are development and convenience environments. They do not replace Teensy 4.1 as the reference realtime platform.
 
 ---
 

@@ -63,30 +63,25 @@ The shared BroTracker core must not depend directly on:
 
 Platform-specific functionality must be isolated behind interfaces or adapters.
 
-The core should be testable on a host platform without requiring Teensy hardware.
+The core should be testable on a host computer without requiring Teensy hardware.
 
-## 5. One Core, Multiple Frontends
+## 5. One Core, Multiple Runtimes
 
-BroTracker should implement tracker logic once and reuse it across the reference Teensy implementation and supported host platforms.
+BroTracker tracker logic should be implemented once and reused across the Teensy realtime implementation and optional host development runtimes.
 
-The same core concepts and tracker semantics must be preserved across platforms.
+The same core concepts and tracker semantics must be preserved across runtimes.
 
-Host platforms may provide:
+The Teensy 4.1 implementation remains the reference realtime runtime.
 
-- a graphical/text UI;
-- keyboard and mouse input;
-- gamepad input;
-- host audio output;
-- host MIDI input/output;
-- development and testing facilities.
+A host runtime may execute the same core on a computer or other supported platform for development, testing and convenient standalone use.
 
-Host execution is primarily intended to accelerate development and provide convenient desktop use. It does not replace Teensy as the reference realtime platform.
+A host runtime is not a replacement for the Teensy realtime platform.
 
-## 6. Supported UI Platforms
+## 6. UI Client Platforms
 
-The primary UI platform is an ArkOS-based handheld gaming console, including devices such as the R36S/H and related RGV-family devices.
+The primary UI client platform is an ArkOS-based handheld gaming console, including devices such as the R36S/H and related RGV-family devices.
 
-Desktop UI support is also intended for:
+Additional UI client platforms are intended to include:
 
 - Windows;
 - macOS;
@@ -94,7 +89,16 @@ Desktop UI support is also intended for:
 
 Android may be supported in the future.
 
-The desktop and other host frontends should use the same logical BroTracker UI design rather than introducing a separate desktop-oriented tracker interface.
+UI client platforms are responsible for:
+
+- presentation;
+- user input;
+- editing;
+- communication with the realtime core.
+
+A UI client must not become responsible for realtime playback timing.
+
+The same logical BroTracker UI design should be used across supported UI client platforms rather than introducing a separate desktop-oriented tracker interface.
 
 ## 7. Fixed Logical UI Resolution
 
@@ -104,7 +108,7 @@ The UI renderer should operate on this logical resolution independently of the p
 
 ArkOS handhelds may display the UI at native resolution.
 
-Desktop frontends may display the same framebuffer at an integer scale, such as 2×, to provide a larger working area without changing the logical UI layout.
+Desktop UI clients may display the same framebuffer at an integer scale, such as 2×, to provide a larger working area without changing the logical UI layout.
 
 Higher physical display resolution must not require a different tracker interface.
 

@@ -55,11 +55,11 @@ The communication interface must transport tracker state and commands rather tha
 
 This separation allows the realtime engine to remain independent of display resolution, font rendering and UI implementation.
 
-## Host Runtime
+## Host Development Runtime
 
-A host runtime may execute the same tracker core on Windows, macOS or Linux without requiring Teensy hardware.
+The shared BroTracker core may be executed on a host computer without requiring Teensy hardware.
 
-The host runtime is primarily intended for:
+This host runtime is primarily intended for:
 
 - development;
 - automated testing;
@@ -69,15 +69,17 @@ The host runtime is primarily intended for:
 - audio engine development;
 - desktop use on larger displays.
 
-Android may be supported by a future host implementation.
+The host development runtime may provide platform-specific implementations for audio, MIDI, storage, timing and other services required to execute the core outside the Teensy environment.
 
 Host execution must preserve the same tracker semantics and scheduling model as the Teensy implementation.
 
 Host audio and MIDI backends may differ from the Teensy hardware implementations. Such differences must remain outside the shared core.
 
+A host development runtime does not replace the Teensy 4.1 realtime implementation.
+
 ## Teensy Runtime
 
-The Teensy runtime provides the reference implementation of the realtime platform.
+The Teensy 4.1 runtime is the reference realtime implementation of BroTracker.
 
 It is responsible for integrating the shared core with Teensy-specific hardware capabilities, including:
 
@@ -88,7 +90,11 @@ It is responsible for integrating the shared core with Teensy-specific hardware 
 - hardware timing facilities;
 - DMA and other realtime hardware resources where appropriate.
 
-The Teensy runtime must not depend on the UI being connected.
+The Teensy runtime must not contain the graphical or text-based UI.
+
+The Teensy runtime must not depend on a UI client being connected.
+
+The realtime core must remain fully operational when no UI client is present.
 
 ## Realtime Scheduling
 
@@ -116,7 +122,7 @@ A host frontend may scale the framebuffer using integer scaling without changing
 
 ## Communication Between UI and Teensy
 
-When the UI runs on a separate device, such as an ArkOS handheld, communication with the Teensy is performed through a platform transport.
+When the UI runs on a separate device, such as an ArkOS handheld, the UI client communicates with the Teensy realtime runtime through a platform transport.
 
 The initial transport is USB.
 
@@ -124,9 +130,13 @@ The communication protocol must carry commands and tracker state.
 
 The protocol must not require the Teensy realtime core to render or transmit graphical output.
 
+The UI client must not be responsible for realtime playback timing.
+
 UI communication must never compromise realtime playback.
 
 The realtime core must continue operating if communication is delayed, interrupted or temporarily unavailable.
+
+The same communication model should be usable by other UI client platforms, including Windows, macOS and Linux.
 
 ## Initial Hardware MIDI Routing
 

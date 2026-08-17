@@ -37,12 +37,13 @@ The UI application is responsible for translating the core state into the BroTra
 
 BroTracker does not depend on a GPU, HDMI output, or a desktop graphical environment.
 
-## Host UI Platforms
+## UI Client Platforms
 
 Although ArkOS handhelds are the primary reference UI platform, BroTracker UI is not limited to handheld hardware.
 
-The same UI renderer should be usable on host platforms including:
+The same UI renderer should be usable on UI client platforms including:
 
+- ArkOS-based handhelds;
 - Windows;
 - macOS;
 - Linux.
@@ -51,7 +52,7 @@ Android may be supported in a future implementation.
 
 The UI uses a canonical logical resolution of 640 × 480 pixels.
 
-Host platforms should not require a separate desktop-oriented UI design. Instead, they should render the same BroTracker logical framebuffer.
+UI client platforms should not require a separate desktop-oriented UI design. Instead, they should render the same BroTracker logical framebuffer.
 
 Desktop applications may use integer framebuffer scaling, such as 2×, to provide a larger physical display while preserving the original pixel-based visual language.
 
@@ -69,17 +70,44 @@ The scaling method should preserve hard pixel edges and must not introduce filte
 
 The UI architecture should support two related execution environments.
 
-Host-local execution
+### Standalone Host Execution
 
-The UI and BroTracker core may run on the same host system.
+The UI and BroTracker core may run on the same host computer.
 
 This mode is primarily useful for:
 
-development;
-testing;
-UI development;
-MIDI testing;
-audio engine development.
+- development;
+- testing;
+- UI development;
+- MIDI testing;
+- audio engine development;
+- convenient desktop use.
+
+In this mode, the host provides the platform-specific services required by the core.
+
+This mode does not change the Teensy 4.1 reference architecture.
+
+### Remote Teensy Execution
+
+The UI may run on a separate UI client device while the realtime BroTracker core runs on Teensy 4.1.
+
+The initial reference example is:
+
+ArkOS handheld
+      |
+     USB
+      |
+Teensy 4.1
+
+The UI client communicates with the Teensy using commands and tracker state.
+
+The Teensy remains responsible for realtime sequencing, audio, MIDI and synchronization.
+
+The UI client remains responsible for presentation and user interaction.
+
+The UI client must never be required to maintain realtime timing.
+
+The same remote execution model should be usable by other supported UI client platforms.
 
 ## Remote Teensy execution
 
