@@ -1,4 +1,4 @@
-## Documentation
+# Documentation
 
 Project documentation is located in the `docs` directory.
 
