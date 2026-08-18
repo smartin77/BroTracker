@@ -20,6 +20,8 @@ Project documentation is located in the `docs` directory.
 
 * [Effect Event Architecture](./EFFECT_EVENT_ARCHITECTURE.md)
 
+* [Teensy Audio Architecture](./TEENSY_AUDIO_ARCHITECTURE.md)
+
 * [Scheduler](./SCHEDULER.md)
 
 * [Sample Format](./SAMPLE_FORMAT.md)
