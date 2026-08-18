@@ -50,6 +50,8 @@ Native Teensy audio output and USB Audio may have different buffering, latency a
 
 Host-side audio routing must therefore be treated as an output path, not as the source of the BroTracker realtime clock.
 
+For platform-specific audio transport behaviour, see [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md).
+
 ---
 
 ## Deterministic Timing

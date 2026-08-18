@@ -242,16 +242,6 @@ This does not mean that USB Audio is inherently unsuitable.
 
 It means that host-routed USB Audio must not be treated as equivalent to a direct Teensy audio output when evaluating realtime synchronization.
 
-## Architectural Implication
-
-The M8 Headless experience reinforces the separation between realtime audio generation and host audio monitoring.
-
-When audio is routed through a host system while MIDI synchronization follows a separate transport path, the two paths may have different buffering, latency and clock characteristics.
-
-Therefore, host-routed audio must not be used as the timing reference for BroTracker playback.
-
-The Teensy realtime scheduler and audio engine remain authoritative regardless of the selected physical audio output path.
-
 ## Preferred Architecture
 
 The preferred BroTracker architecture is:

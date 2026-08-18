@@ -165,3 +165,6 @@ This remains a future design consideration and is not part of the current specif
 MIDI timing follows the common realtime scheduling model defined in [SCHEDULER.md](SCHEDULER.md).
 
 Platform-specific MIDI transport characteristics, including latency and buffering, are implementation and measurement concerns and must not change the logical timing model.
+The realtime timing model is defined in [SCHEDULER.md](SCHEDULER.md).
+
+MIDI-specific behaviour is defined in [MIDI_SUPPORT.md](MIDI_SUPPORT.md).
