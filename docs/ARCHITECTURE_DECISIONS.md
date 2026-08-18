@@ -420,3 +420,17 @@ Direct physical DIN MIDI IN/OUT hardware on Teensy is deferred until a later dev
 The initial implementation shall prioritize USB MIDI and reliable MIDI timing through the common MIDI event architecture.
 
 Adding physical DIN MIDI hardware later must not require changes to the tracker, sequencer or core event model.
+
+---
+
+## D0028 - Candidate Ideas Under Consideration (External Inspiration)
+
+Per the D0012 external inspiration policy, the following ideas are under consideration as potential future benefits for BroTracker. None of these are committed yet; each must be revisited and evaluated concretely during its practical implementation phase.
+
+- **Module loader registry pattern** — a loader interface (identify + load) combined with a registry/manager that iterates registered loaders. Candidate pattern for a BroTracker MOD/XM importer that converts external formats into the internal representation (consistent with D0006).
+- **Tick-based effect semantics reference** — documented `.MOD`/`.XM` tick-based effect behavior (arpeggio, portamento, vibrato, volume slide, pattern break, pattern loop, note delay/cut, retrigger) as a possible reference when interpreting imported MOD/XM pattern data into BroTracker's own event model. BroTracker's own effect/event set would not need to match legacy numbering or reproduce legacy quirks.
+- **Interpolation formulas** — compact, fixed-point-friendly linear/cubic Lagrange/cubic spline resampling formulas, as a possible reference for Teensy-side sample playback interpolation given the hardware's constraints (D0003).
+- **Volume ramping to avoid clicks** — ramping at sample start/end/cut as a possible technique for BroTracker's own sample engine, regardless of import format.
+- **Padded sample buffers** — allocating small guard padding around sample memory to avoid per-sample bounds checks during interpolation, as a possible low-level technique for a resource-constrained realtime engine.
+
+These remain open considerations, not adopted decisions. BroTracker continues to prefer independent, native implementations per D0012.
