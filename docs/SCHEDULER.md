@@ -92,14 +92,4 @@ The scheduler should prioritize:
 
 Implementation details remain subject to future profiling and hardware testing.
 
-## Output Transport Independence
-
-The scheduler is the authoritative timing source for BroTracker realtime playback.
-
-Audio output transports must not become the realtime timing authority.
-
-Native Teensy audio output and USB Audio may have different buffering, latency and clock characteristics.
-
-These differences must not change the logical timing of scheduled tracker events.
-
-Host-side audio routing is therefore treated as an output path, not as the source of the BroTracker realtime clock.
+For platform-specific audio transport behaviour, see [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md).

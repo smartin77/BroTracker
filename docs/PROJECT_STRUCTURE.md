@@ -37,3 +37,10 @@ Platform-specific host implementations should be kept separate from the shared c
 The architecture should allow the same core to be built for Teensy and for a host development environment without duplicating tracker logic.
 
 The primary UI target is an ArkOS handheld. Desktop host platforms such as Windows, macOS and Linux are supported development and UI targets. Android may be supported later.
+
+Detailed platform architecture is documented separately in:
+
+- [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md)
+- [TEENSY_MEMORY_ARCHITECTURE.md](TEENSY_MEMORY_ARCHITECTURE.md)
+- [SCHEDULER.md](SCHEDULER.md)
+- [MIDI_SUPPORT.md](MIDI_SUPPORT.md)

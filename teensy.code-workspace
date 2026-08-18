@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "firmware/teensy"
+		},
+		{
+			"name": "teensy_diagnostics",
+			"path": "tools/teensy_diagnostics"
+		}
+	],
+	"settings": {}
+}

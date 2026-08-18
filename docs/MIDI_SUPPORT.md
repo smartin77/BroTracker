@@ -162,12 +162,6 @@ The intention would be to provide straightforward routing between supported MIDI
 
 This remains a future design consideration and is not part of the current specification.
 
----
+MIDI timing follows the common realtime scheduling model defined in [SCHEDULER.md](SCHEDULER.md).
 
-## Audio Transport Independence
-
-MIDI timing must remain independent of the audio transport used by the host platform.
-
-USB Audio and USB MIDI may have different transport, buffering and clock characteristics when a host system is involved.
-
-The Teensy realtime scheduler remains the authoritative timing source for both internal audio events and MIDI events.
+Platform-specific MIDI transport characteristics, including latency and buffering, are implementation and measurement concerns and must not change the logical timing model.
