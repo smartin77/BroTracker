@@ -96,6 +96,14 @@ The Teensy runtime must not depend on a UI client being connected.
 
 The realtime core must remain fully operational when no UI client is present.
 
+Audio generation, realtime scheduling and synchronization remain under the control of the Teensy runtime.
+
+The preferred physical audio output path is a native Teensy audio interface using an appropriate DAC or audio codec.
+
+USB Audio may be provided as an additional host-facing interface, but the host audio subsystem must not become the authoritative realtime clock for BroTracker.
+
+Detailed Teensy audio architecture is documented separately in `TEENSY_AUDIO_ARCHITECTURE.md`.
+
 ## Teensy Memory Architecture
 
 The Teensy 4.1 realtime implementation uses the platform's distinct memory regions according to realtime requirements.

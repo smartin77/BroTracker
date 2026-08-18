@@ -41,6 +41,12 @@ The primary realtime performance goals are:
 
 The exact latency characteristics of each host platform or transport are implementation and measurement concerns.
 
+MIDI timing must remain independent of the audio transport used by the host platform.
+
+In particular, USB Audio and USB MIDI may pass through different buffering and clock domains when a host system is involved.
+
+The Teensy realtime scheduler remains the authoritative timing source for both internal audio events and MIDI events.
+
 ---
 
 ## Initial Development Configuration
@@ -155,3 +161,13 @@ A simple internal MIDI Patchbay may be considered in a future revision.
 The intention would be to provide straightforward routing between supported MIDI interfaces (for example USB and DIN) without implementing a full-featured MIDI router.
 
 This remains a future design consideration and is not part of the current specification.
+
+---
+
+## Audio Transport Independence
+
+MIDI timing must remain independent of the audio transport used by the host platform.
+
+USB Audio and USB MIDI may have different transport, buffering and clock characteristics when a host system is involved.
+
+The Teensy realtime scheduler remains the authoritative timing source for both internal audio events and MIDI events.

@@ -171,3 +171,5 @@ The following must be verified before finalizing the kernel memory architecture:
 12. Which operations must remain outside the realtime execution path.
 
 These questions will be analyzed before committing to the final low-level kernel memory layout.
+
+The Teensy diagnostics tool under `tools/teensy_diagnostics/` is used to experimentally verify memory placement and relative access characteristics before the final memory allocation policy is defined.
