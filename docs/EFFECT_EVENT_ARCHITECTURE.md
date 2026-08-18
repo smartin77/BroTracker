@@ -227,6 +227,20 @@ In other words:
               │
               └── Layer 1 → mapped volume event(s), where required
 
+## Relative and Absolute Effect Values
+
+Some effect events act as absolute values, while others act as relative offsets applied to the current value of the parameter they control.
+
+An absolute value sets the parameter directly. For example, a Set Volume event with value `20` sets the volume to `0x20` regardless of its previous value.
+
+A relative value is added to (or subtracted from) the current value of the parameter each time the event is processed. Repeating the same relative event on subsequent rows therefore continues to move the parameter away from its previous value rather than resetting it, allowing finer, less step-wise changes than an absolute-only value.
+
+Relative effect state is expected to reset to the instrument's assigned default whenever the associated note or instrument is retriggered.
+
+This distinction is inspired by the Dirtywave M8's relative/absolute command model.
+
+Whether a given BroTracker event is absolute or relative is part of its semantic definition, to be defined individually as each effect type is specified.
+
 ## Common Effect Semantics and Engine Mapping
 
 Effect events should be defined by their semantic meaning rather than by the playback technology used to realize them.
