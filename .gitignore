@@ -1,6 +1,7 @@
 .vscode/browse.vc.db
 .vscode/ipch/
 .vscode/c_cpp_properties.json
+.vscode/*.code-workspace
 _backyard/
 build/
 out/
