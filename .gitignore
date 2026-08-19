@@ -6,7 +6,6 @@ _backyard/
 build/
 out/
 .cache/
-.pio/
 *.o
 *.obj
 *.elf
