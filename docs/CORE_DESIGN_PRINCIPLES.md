@@ -160,8 +160,17 @@ Potential uses include:
 
 - triplets and other non-grid rhythmic divisions;
 - microtiming and note placement between regular tracker rows;
-- future tracker features inspired by table or sub-step based sequencing.
+- future tracker features inspired by table or sub-step based sequencing;
+- finer realtime scheduling and synchronization without requiring additional visible pattern rows.
 
-The exact implementation, resolution and user interface representation of such timing positions are not yet defined.
+The internal realtime scheduling resolution may be higher than the timing resolution exposed directly to the user. For example, several internal scheduler ticks could represent a smaller number of user-editable micro positions within a pattern row.
 
-They should be analysed and evaluated against timing accuracy, deterministic playback, MIDI synchronization, memory usage and the simplicity of the tracker workflow before becoming part of the core design.
+This separation should allow BroTracker to maintain a readable, sequencer-like pattern editor while retaining sufficient timing resolution for accurate audio playback, MIDI output, synchronization and future microtiming features.
+
+LPB (Lines Per Beat) should represent musical timing rather than being treated only as a visual row-highlighting interval. Pattern highlighting should be derived from the musical timing model.
+
+The exact relationship between BPM, LPB, pattern rows, scheduler ticks and possible microticks is not yet defined.
+
+Existing tracker implementations and related sequencing approaches should be analysed and evaluated before choosing the final model. The evaluation should consider timing accuracy, deterministic playback, MIDI synchronization, memory usage, implementation complexity and the simplicity of the tracker workflow.
+
+No specific microtick resolution, editable micro-position count or user interface representation is currently committed.
