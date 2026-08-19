@@ -24,27 +24,32 @@ namespace
     constexpr int SCREEN_HEIGHT = static_cast<int>(::SCREEN_HEIGHT);
 
     constexpr Color background                  { 16,  16,  16  };
-    constexpr Color border                      { 64,  64,  64 };
-    constexpr Color current_row_background      { 30,  30,  30 };
+    constexpr Color border                      { 64,  64,  64  };
+    constexpr Color current_row_background      { 30,  30,  30  };
     constexpr Color current_position_background { 153, 153, 153 };
     constexpr Color header_name                 { 130, 130, 196 };
     constexpr Color header_value                { 255, 255, 255 };
-    constexpr Color row_header_normal           { 38, 120, 124 };
-    constexpr Color row_header_bright           { 76, 195, 201 };
-    constexpr Color row_number_normal           { 78, 78, 118 };
+    constexpr Color row_header_normal           { 38,  120, 124 };
+    constexpr Color row_header_bright           { 76,  195, 201 };
+    constexpr Color row_number_normal           { 78,  78,  118 };
     constexpr Color row_number_bright           { 130, 130, 196 };
     constexpr Color row_marker                  { 192, 192, 192 };
     constexpr Color channel_number              { 130, 130, 196 };
     constexpr Color note_color_default          { 255, 255, 255 };
     constexpr Color instrument_number           { 130, 130, 196 };
     constexpr Color empty_note                  { 192, 192, 192 };
-    constexpr Color empty_instrument            { 78, 78, 118 };
+    constexpr Color empty_instrument            { 78,  78,  118 };
     constexpr Color current_position_note       { 16,  16,  16  };
-    constexpr Color current_position_instrument { 78, 78, 118 };
+    constexpr Color current_position_instrument { 78,  78,  118 };
+    constexpr Color current_event_edit_border   { 134, 32,  32  };
 
     constexpr int pattern_position_highlight_interval = 4;
-    constexpr int current_row_position = 13;
-    constexpr int current_channel = 0;
+
+    constexpr int current_pattern_row = 13;
+    constexpr int current_pattern_channel = 0;
+
+    constexpr int current_event_edit_border_thickness = 1;
+    constexpr int current_event_edit_padding = 1;
 
     struct Layout
     {
@@ -394,8 +399,8 @@ namespace
                 }
 
                 const bool is_current_position =
-                    channel == 0 &&
-                    row == current_row_position - 1;
+                    channel == current_pattern_channel &&
+                    row == current_pattern_row - 1;
 
                 const bool is_empty_event =
                     note_value == NOTE_EMPTY &&
@@ -447,12 +452,12 @@ namespace
         }
     }
 
-    void DrawCurrentRow(
-        Framebuffer& framebuffer)
+    void DrawCurrentPatternRow(
+    Framebuffer& framebuffer)
     {
         const int row_y =
             layout.first_row_y +
-            (current_row_position - 1) *
+            (current_pattern_row - 1) *
                 layout.row_height;
 
         framebuffer.FilledRectangle(
@@ -475,12 +480,12 @@ namespace
     {
         const int row_y =
             layout.first_row_y +
-            (current_row_position - 1) *
+            (current_pattern_row - 1) *
                 layout.row_height;
 
         const int channel_x =
             layout.channel_start_x +
-            current_channel *
+            current_pattern_channel *
                 layout.channel_width;
 
         framebuffer.FilledRectangle(
@@ -491,11 +496,79 @@ namespace
             current_position_background);
     }
 
+    void DrawCurrentEventEdit(
+        Framebuffer& framebuffer)
+    {
+        constexpr int NOTE_WIDTH = 3 * 6;
+
+        const int row_y =
+            layout.first_row_y +
+            (current_pattern_row - 1) *
+                layout.row_height;
+
+        const int channel_x =
+            layout.channel_start_x +
+            current_pattern_channel *
+                layout.channel_width;
+
+        const int field_x =
+            channel_x +
+            (layout.channel_width -
+                6 * 6) / 2;
+
+        const int text_y =
+            row_y + 2;
+
+        const int padding =
+            current_event_edit_padding + 1;
+
+        const int thickness =
+            current_event_edit_border_thickness;
+
+        // The edit frame matches the full current-position
+        // background height, while extending two pixels beyond
+        // the note glyph on both left and right sides.
+        const int horizontal_padding =
+            padding * 2;
+
+        const int x =
+            field_x - horizontal_padding;
+
+        const int y =
+            row_y - 1;
+
+        const int width =
+            NOTE_WIDTH +
+            horizontal_padding * 2 - 1;
+
+        const int height =
+            layout.row_height + 2;
+
+        for (int i = 0;
+            i < thickness;
+            ++i)
+        {
+            framebuffer.Rectangle(
+                x - i,
+                y - i,
+                width + i * 2,
+                height + i * 2,
+                current_event_edit_border);
+        }
+    }
+
     void DrawPattern(
         Framebuffer& framebuffer,
         const Pattern& pattern)
     {
         DrawPatternFrame(framebuffer);
+
+        DrawCurrentPatternRow(
+            framebuffer);
+
+        DrawCurrentPosition(
+            framebuffer);
+
         DrawRowHeader(framebuffer);
         DrawRowNumbers(framebuffer);
         DrawPatternChannels(
@@ -688,15 +761,12 @@ void RenderMainScreen(
         tune,
         pattern);
 
-    DrawCurrentRow(
-        framebuffer);
-
-    DrawCurrentPosition(
-        framebuffer);
-
     DrawPattern(
         framebuffer,
         pattern);
+
+    DrawCurrentEventEdit(
+        framebuffer);
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
