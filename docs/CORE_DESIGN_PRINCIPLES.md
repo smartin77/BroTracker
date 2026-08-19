@@ -149,3 +149,19 @@ The availability of modern storage media should be used to simplify memory manag
 Whenever possible, BroTracker should prefer streaming and efficient storage over keeping large amounts of data in RAM.
 
 The limitations of the reference platform should guide architectural decisions, while modern hardware capabilities such as SD storage should be used where they provide real benefits.
+
+## 12. Timing Granularity Should Remain Extensible
+
+BroTracker should not assume that one pattern row is the smallest possible timing position.
+
+The timing model should be evaluated for support of sub-row timing positions or microticks that could allow finer rhythmic placement without increasing the visual density of the main pattern editor.
+
+Potential uses include:
+
+- triplets and other non-grid rhythmic divisions;
+- microtiming and note placement between regular tracker rows;
+- future tracker features inspired by table or sub-step based sequencing.
+
+The exact implementation, resolution and user interface representation of such timing positions are not yet defined.
+
+They should be analysed and evaluated against timing accuracy, deterministic playback, MIDI synchronization, memory usage and the simplicity of the tracker workflow before becoming part of the core design.
