@@ -434,3 +434,41 @@ Per the D0012 external inspiration policy, the following ideas are under conside
 - **Padded sample buffers** — allocating small guard padding around sample memory to avoid per-sample bounds checks during interpolation, as a possible low-level technique for a resource-constrained realtime engine.
 
 These remain open considerations, not adopted decisions. BroTracker continues to prefer independent, native implementations per D0012.
+
+---
+
+## D0029 - Timing Model and Microtiming
+
+BroTracker will use **BPM as the primary tempo representation**, following the common approach used by modern sequencers and music software.
+
+LPB (Lines Per Beat) and TPB (Ticks Per Beat) are currently under evaluation and are **not committed as part of the BroTracker timing model**. The project may ultimately avoid both concepts if a simpler and more suitable timing model is found.
+
+BroTracker shall nevertheless be designed with native support for finer timing positions below the visible pattern-row level.
+
+The implementation shall account for both:
+
+- **microticks** — finer internal timing positions that may be used for precise scheduling, synchronization and microtiming;
+- **micro-notes / table-like sequencing** — finer note or parameter events associated with a pattern event or instrument.
+
+These mechanisms may or may not be directly visualized in the main Pattern View. Their native representation and realtime processing should exist independently of their user interface representation.
+
+The internal timing resolution may be higher than the number of micro positions exposed directly to the user. This allows BroTracker to maintain a readable, sequencer-like pattern editor while retaining sufficient timing resolution for accurate audio playback, MIDI output, synchronization and future rhythmic features such as triplets.
+
+The exact relationship between BPM, pattern rows, internal scheduler resolution, microticks and micro-notes/tables remains an implementation topic and will be evaluated during development.
+
+---
+
+## D0030 - Loading a New Tune During Playback
+
+If a tune is currently playing and the user interface allows another tune/project to be opened during playback, opening the new tune must not require the user to manually restart playback.
+
+The behaviour is controlled by a configuration directive:
+
+- **Default:** the newly opened tune starts playing immediately after loading.
+- **`NEW_FILE_QUEUE`:** the newly opened tune is placed into the playback queue instead.
+
+The default behaviour is considered a **must-have core workflow**.
+
+The queue behaviour will be evaluated and implemented later. The initial implementation shall support only the default behaviour of immediately starting playback of the newly loaded tune. The configuration directive and queue mechanism therefore do not need to be functional in the initial implementation.
+
+The important distinction is that opening a new tune during playback must never leave the newly loaded tune stopped and require the user to exit the file browser and manually start playback.
