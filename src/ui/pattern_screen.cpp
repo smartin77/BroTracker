@@ -42,7 +42,7 @@ namespace
     constexpr Color current_position_note       { 16,  16,  16  };
     constexpr Color current_position_instrument { 78, 78, 118 };
 
-    constexpr int lpb = 4;
+    constexpr int pattern_position_highlight_interval = 4;
     constexpr int current_row_position = 13;
     constexpr int current_channel = 0;
 
@@ -121,16 +121,15 @@ namespace
             tune.title,
             header_value);
 
-        const std::string labels[] =
+        const std::string header_labels[] =
         {
             "PAT:",
             "POS:",
             "BPM:",
-            "LPB:",
             "CPU:"
         };
 
-        const std::string values[] =
+        const std::string header_values[] =
         {
             pattern.number < 10
                 ? "0" + std::to_string(pattern.number)
@@ -140,24 +139,27 @@ namespace
 
             std::to_string(tune.tempo),
 
-            "04",
-
             "03%"
         };
 
+        const int header_item_count =
+            static_cast<int>(
+                sizeof(header_labels) /
+                sizeof(header_labels[0]));
+
         for (int index = 0;
-            index < 5;
+            index < header_item_count;
             ++index)
         {
             const int cell_x =
                 layout.channel_start_x +
-                (index + 3) *
+                (index + 4) *
                     layout.channel_width;
 
             const int group_cells =
                 static_cast<int>(
-                    labels[index].length() +
-                    values[index].length());
+                    header_labels[index].length() +
+                    header_values[index].length());
 
             const int group_width =
                 group_cells * 6;
@@ -171,16 +173,16 @@ namespace
                 framebuffer,
                 x,
                 9,
-                labels[index],
+                header_labels[index],
                 header_name);
 
             DrawFixedText(
                 framebuffer,
                 x +
                     static_cast<int>(
-                        labels[index].length()) * 6,
+                        header_labels[index].length()) * 6,
                 9,
-                values[index],
+                header_values[index],
                 header_value);
         }
     }
@@ -322,11 +324,12 @@ namespace
                 row_text.insert(0, "0");
             }
 
-            const bool is_lpb_row =
-            ((row + 1) % lpb) == 1;
+            const bool is_highlighted_position =
+                ((row + 1) %
+                    pattern_position_highlight_interval) == 1;
 
             const Color row_number_color =
-                is_lpb_row
+                is_highlighted_position
                     ? row_number_bright
                     : row_number_normal;
 

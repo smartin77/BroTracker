@@ -167,7 +167,13 @@ The internal realtime scheduling resolution may be higher than the timing resolu
 
 This separation should allow BroTracker to maintain a readable, sequencer-like pattern editor while retaining sufficient timing resolution for accurate audio playback, MIDI output, synchronization and future microtiming features.
 
-LPB (Lines Per Beat) should represent musical timing rather than being treated only as a visual row-highlighting interval. Pattern highlighting should be derived from the musical timing model.
+BPM will be the primary tempo representation used by BroTracker.
+
+LPB (Lines Per Beat) and TPB (Ticks Per Beat) are currently under evaluation and are not committed as part of the BroTracker timing model.
+
+Pattern position highlighting is a separate UI function and must not be coupled to LPB, TPB or any other future timing parameter.
+
+The pattern position highlight interval is a presentation setting that controls which pattern rows receive visual emphasis. Its implementation must remain independent from the underlying musical timing and realtime scheduler.
 
 The exact relationship between BPM, LPB, pattern rows, scheduler ticks and possible microticks is not yet defined.
 
