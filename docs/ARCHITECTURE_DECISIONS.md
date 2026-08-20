@@ -507,3 +507,72 @@ MOD is an initial candidate for future import support. XM may be added later. Ot
 The importer is primarily a **GUI-side functionality** intended for the target handheld and other UI clients. The realtime engine must not depend on the presence of an external-format importer.
 
 This separation keeps the core engine small, deterministic and focused on realtime playback, while allowing external format support to evolve independently.
+
+---
+
+## D0032 - BroTracker File and Container Formats
+
+BroTracker distinguishes between three related file/container formats with different purposes:
+
+- **BTT — BroTracker Tune**
+- **BTP — BroTracker Project**
+- **BTM — BroTracker Module**
+
+These formats are not three different playback representations. The BroTracker realtime core operates on its internal data structures. The formats define how tunes and projects are stored, referenced and transported.
+
+### BTT — BroTracker Tune
+
+BTT is a lightweight tune/module representation.
+
+Sample instruments in a BTT may reference samples by their external storage locations rather than containing the sample data itself.
+
+This makes BTT suitable when the samples are intentionally kept outside the tune container.
+
+If a referenced sample cannot be found when loading a BTT, the tune and instrument definition must remain available. The missing sample shall be reported as **not located**, and the user should be able to locate the sample manually.
+
+Instrument parameters must not be discarded merely because the referenced sample is unavailable.
+
+### BTP — BroTracker Project
+
+BTP is the native BroTracker project format and is the initial project format.
+
+A BTP project is stored together with its samples in a dedicated project directory on the attached storage device.
+
+The project directory uses the tune/project name. Renaming the tune/project should also rename the associated project directory automatically.
+
+All samples used by the project are copied into the project directory so that the project does not depend on their original external locations.
+
+The BTP format shall be designed as an **addressable format**.
+
+Important runtime-relevant data shall be stored so that it can be loaded first and efficiently into memory when required. Optional or non-essential information shall be placed later in the file and may be loaded independently from the storage device.
+
+Examples of information suitable for separate, on-demand loading include:
+
+- tune descriptions;
+- instrument descriptions;
+- additional descriptive metadata;
+- information that is not required for realtime playback.
+
+This allows descriptive information to have practical or effectively unrestricted text length without unnecessarily increasing the memory requirements of the realtime portion of the project.
+
+Instrument descriptions are particularly useful for MIDI instruments. A creator may document the external hardware used, MIDI channel, bank/program information, or short notes describing the external instrument configuration.
+
+The exact binary structure and field sizes of BTP are intentionally left open for a future file format specification.
+
+### BTM — BroTracker Module
+
+BTM is a transport and distribution container for a complete BTP project.
+
+A BTM file is a ZIP container containing the complete BTP project directory, including the project data and all required samples.
+
+BTM therefore does not define a separate musical or playback representation. It packages an existing BTP project into a single portable file.
+
+The intended relationship is:
+
+BTT = lightweight tune with external sample references
+
+BTP = complete native BroTracker project
+
+BTM = ZIP container containing a complete BTP project
+
+The separation allows the native project format to remain optimized for BroTracker's storage and runtime requirements while BTM provides a convenient single-file format for transfer, backup and distribution.
