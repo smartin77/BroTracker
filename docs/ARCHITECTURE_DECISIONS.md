@@ -472,3 +472,38 @@ The default behaviour is considered a **must-have core workflow**.
 The queue behaviour will be evaluated and implemented later. The initial implementation shall support only the default behaviour of immediately starting playback of the newly loaded tune. The configuration directive and queue mechanism therefore do not need to be functional in the initial implementation.
 
 The important distinction is that opening a new tune during playback must never leave the newly loaded tune stopped and require the user to exit the file browser and manually start playback.
+
+---
+
+## D0031 - External Format Import
+
+External tracker format compatibility is **not a priority of the BroTracker realtime core**.
+
+The BroTracker playback engine shall operate exclusively on BroTracker's internal data representation and shall not contain format-specific loading logic for external tracker formats.
+
+External formats such as MOD and XM shall be handled by dedicated importers located outside the realtime core.
+
+The intended workflow is:
+
+External module file
+→ GUI importer
+→ format-specific parser
+→ conversion to BroTracker internal representation
+→ BTM (BroTracker Module / BroTracker Tune)
+→ BroTracker core
+
+The importer is responsible for:
+
+- reading the original file format;
+- interpreting its format-specific structures and semantics;
+- converting compatible data into BroTracker's internal representation;
+- handling unsupported or incompatible features during conversion;
+- producing a valid BroTracker module/tune.
+
+The resulting BTM data must be fully self-contained and suitable for normal BroTracker playback.
+
+MOD is an initial candidate for future import support. XM may be added later. Other tracker formats may be considered in the future, but external format support is not a core development priority.
+
+The importer is primarily a **GUI-side functionality** intended for the target handheld and other UI clients. The realtime engine must not depend on the presence of an external-format importer.
+
+This separation keeps the core engine small, deterministic and focused on realtime playback, while allowing external format support to evolve independently.
