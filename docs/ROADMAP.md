@@ -27,8 +27,10 @@
 
 ## Phase 5
 
-- MOD/XM import support
 - Additional playback engines
+- Optional external module import support through GUI-side importers
+
+External module import is not a core engine priority. MOD may be supported first, with XM and other tracker formats considered later as independent importer functionality.
 
 ## Draft / Consideration - Internal Sound Engines
 
