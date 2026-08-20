@@ -10,8 +10,6 @@ This document defines the MIDI capabilities currently planned for BroTracker.
 
 The implementation is intentionally conservative and focused on reliable sequencing rather than advanced MIDI processing.
 
----
-
 ## Supported Interfaces
 
 BroTracker is designed to support MIDI through platform-specific interfaces.
@@ -21,8 +19,6 @@ The initial implementation prioritizes USB MIDI.
 Direct physical DIN MIDI connections on the Teensy are planned but intentionally deferred.
 
 The MIDI subsystem must remain independent of the physical transport. The core generates MIDI events, while platform-specific MIDI backends are responsible for transmitting them through the available hardware or operating-system interface.
-
----
 
 ## MIDI OUT Priority
 
@@ -47,8 +43,6 @@ In particular, USB Audio and USB MIDI may pass through different buffering and c
 
 The Teensy realtime scheduler remains the authoritative timing source for both internal audio events and MIDI events.
 
----
-
 ## Initial Development Configuration
 
 During initial hardware development, BroTracker will use USB connectivity.
@@ -71,8 +65,6 @@ This configuration avoids requiring direct DIN MIDI circuitry on the Teensy duri
 
 Direct physical DIN MIDI IN/OUT on Teensy hardware is deferred until a later stage.
 
----
-
 ## MIDI Input
 
 MIDI input is supported through platform-specific MIDI backends.
@@ -85,8 +77,6 @@ Host platforms may support additional MIDI input devices through their native or
 
 Specific host MIDI devices are not part of the core architecture.
 
----
-
 ## Host MIDI
 
 Windows, macOS and Linux host implementations may provide MIDI input and output through platform-specific backends.
@@ -97,8 +87,6 @@ The shared core must not depend on a specific operating-system MIDI API.
 
 Android MIDI support may be added in a future platform implementation.
 
----
-
 ## DIN MIDI
 
 Direct Teensy DIN MIDI IN/OUT hardware is planned for a future development stage.
@@ -106,8 +94,6 @@ Direct Teensy DIN MIDI IN/OUT hardware is planned for a future development stage
 It is intentionally not required for the initial realtime engine implementation.
 
 The MIDI core and scheduler must nevertheless be designed so that a future DIN MIDI backend can be added without changing tracker or sequencing logic.
-
----
 
 ## Core Principles
 
@@ -118,8 +104,6 @@ BroTracker shall:
 - support external MIDI synchronization
 - support internal MIDI sequencing
 - provide deterministic real-time MIDI timing
-
----
 
 ## Scope
 
@@ -136,8 +120,6 @@ Advanced functionality such as:
 
 is intentionally left to dedicated external software or hardware.
 
----
-
 ## Compatibility
 
 BroTracker should interoperate with existing MIDI routing solutions whenever possible.
@@ -151,8 +133,6 @@ Examples include:
 - CME H4MIDI
 
 These examples are informative only and do not represent required integrations.
-
----
 
 ## Future Considerations
 
