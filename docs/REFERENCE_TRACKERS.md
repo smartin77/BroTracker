@@ -29,6 +29,7 @@ A mature open-source tracker and module editor supporting many module formats. U
 
 - [OpenMPT](https://openmpt.org/)
 - [OpenMPT on GitHub](https://github.com/OpenMPT/openmpt)
+- [OpenMPT Effect reference](https://wiki.openmpt.org/Manual:_Effect_Reference)
 
 ## Dirtywave M8
 
