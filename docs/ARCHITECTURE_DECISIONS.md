@@ -4,8 +4,6 @@ This document records major architectural and project decisions.
 
 The purpose is to preserve the reasoning behind important choices so they remain understandable as the project evolves.
 
----
-
 ## D0001 — Reference Platform
 
 Reference platform: **Teensy 4.1**
@@ -17,8 +15,6 @@ Reason:
 - USB Host support.
 - Enough CPU power and RAM for deterministic playback.
 
----
-
 ## D0002 — Headless Architecture
 
 BroTracker follows a headless architecture.
@@ -27,15 +23,11 @@ The realtime playback engine runs on Teensy 4.1.
 
 The user interface is a client responsible only for presentation, user interaction and communication.
 
----
-
 ## D0003 — Playback First
 
 Realtime playback always has higher priority than user interface updates.
 
 Timing accuracy must never depend on rendering performance.
-
----
 
 ## D0004 — First Playback Engine
 
@@ -49,15 +41,11 @@ Reasons:
 
 Future engines may include FM synthesis, wavetable synthesis or other technologies.
 
----
-
 ## D0005 — Incremental Development
 
 Development should proceed in small, self-contained milestones.
 
 Every completed milestone should leave the repository in a usable and buildable state.
-
----
 
 ## D0006 — Native Import Philosophy
 
@@ -69,8 +57,6 @@ The playback engine should operate only on BroTracker's internal data structures
 
 The importer should be permissive, while the playback engine should remain deterministic, simple and predictable.
 
----
-
 ## D0007 — WAV Import
 
 WAV is considered a first-class import format.
@@ -80,8 +66,6 @@ BroTracker should support importing the most common PCM WAV variants used in mus
 When possible, incompatible but convertible WAV formats should be automatically converted during import into BroTracker's internal sample representation.
 
 Engine limitations should be defined by the capabilities of the reference hardware, not by the WAV container itself.
-
----
 
 ## D0008 — Project and Sample Storage
 
@@ -102,8 +86,6 @@ Particular attention should be given to:
 
 The internal sample representation may differ from the imported file format if it provides advantages for playback performance or storage efficiency.
 
----
-
 ## D0009 — Project Memory
 
 The GitHub repository is the primary source of truth for the BroTracker project.
@@ -115,8 +97,6 @@ Documentation is expected to evolve together with the project.
 Recording a decision does not make it permanent; decisions may be revised or replaced as better solutions are discovered through implementation and testing.
 
 The purpose of the documentation is to preserve project knowledge, provide continuity and allow both humans and AI collaborators to understand the project's evolution.
-
----
 
 ## D00010 - Sample Format Baseline
 
@@ -132,8 +112,6 @@ BroTracker currently standardizes on the following minimum sample capabilities:
 - Fine tune
 
 The storage format (standard WAV vs. internal format) remains an implementation decision. The detailed specification is maintained in `docs/SAMPLE_FORMAT.md`.
-
----
 
 ## D00011 - MIDI Routing Philosophy
 
@@ -157,8 +135,6 @@ is outside the current project scope and should be handled by dedicated external
 
 This decision keeps the MIDI subsystem focused on reliable sequencing while still allowing practical MIDI connectivity between supported interfaces.
 
----
-
 ## D0012 — External Inspiration
 
 BroTracker may draw inspiration from existing open-source projects and proven software architectures and audio libraries (juce.com).
@@ -176,8 +152,6 @@ In particular:
 
 The goal is to learn from successful projects without becoming constrained by them.
 
----
-
 ## D0013 - UI Base Resolution
 
 The canonical UI resolution is **640×480**.
@@ -187,8 +161,6 @@ Future versions may support higher resolutions (e.g. **800×600**) while remaini
 Higher resolutions may display additional content (primarily more tracker channels), but all functionality must remain accessible at 640×480 through scrolling or page navigation.
 
 If content extends beyond the visible 640×480 area, the UI must provide a clear visual indicator that additional content is available.
-
----
 
 ## D0014 - UI Bitmap Font
 
@@ -207,8 +179,6 @@ Word spacing and other text layout rules may be adjusted separately while preser
 
 The bitmap font is considered part of the BroTracker visual identity and should remain consistent across all supported platforms.
 
----
-
 ## D0015 - UI Character Set
 
 The primary UI character set is ASCII.
@@ -225,8 +195,6 @@ Example:
 
 This behavior applies only to accented characters. Standard ASCII uppercase and lowercase letters remain unchanged.
 
----
-
 ## D0016 - Pattern Row Numbering
 
 The first column of the Pattern View displays row numbers.
@@ -241,8 +209,6 @@ The numbering format is configurable:
 Internally, row numbering always starts at 0. The selected mode affects only the displayed values and user interaction. All internal processing remains zero-based.
 
 Pattern View may optionally highlight bar start rows using a brighter color. The bar interval is configurable (for example every 4, 8 or 16 rows).
-
----
 
 ## D0017 – BroTracker Font Format (BTF)
 
@@ -263,8 +229,6 @@ BitFontMaker was selected because it provides several advantages:
 
 BroTracker does not rely on TrueType (TTF), OpenType (OTF) or other scalable font formats at runtime.
 
----
-
 ## D0018 - Note Nnumbering and Octave_Cconvention
 
 Internal:
@@ -279,8 +243,6 @@ MIDI value unchanged
 
 Compatibility:
 Alternative display conventions may be supported
-
----
 
 ## D0019 - Note-Off Events
 
@@ -297,15 +259,9 @@ The exact runtime event representation for distinguishing these two note-off tim
 
 The glyphs are UI representation only and are not stored as part of the musical event data.
 
----
-
 ## D0020 - Future export
 
 Most likely, we won't support exporting our module to other module formats. For the audio part, we’ll only support a mixdown audio file based on the internal MIX system parameters. As for MIDI, it will be a standalone MIDI file, regardless of how the user manages to connect or use it meaningfully with third-party tools. Since these involve different platforms and hardware synths controlled via MIDI, users will need their own hardware mixer or separate processing for the final audio.
-
----
-
----
 
 ## D0021 - One Core, Multiple Runtimes
 
@@ -322,8 +278,6 @@ A host runtime is an optional environment for executing the shared core outside 
 
 The core must not depend directly on operating-system, display, audio or MIDI APIs.
 
----
-
 ## D0022 - Supported UI Client Platforms
 
 BroTracker shall support multiple UI client platforms while maintaining a single logical UI design.
@@ -339,8 +293,6 @@ Additional UI client targets are:
 Android may be supported in a future implementation.
 
 UI client platform support must not compromise the Teensy 4.1 realtime architecture.
-
----
 
 ## D0023 - Host Development Runtime
 
@@ -361,8 +313,6 @@ The host development runtime must preserve the same tracker semantics and schedu
 
 Host runtime implementations are development and convenience environments. They do not replace Teensy 4.1 as the reference realtime platform.
 
----
-
 ## D0024 - Logical UI Resolution
 
 The canonical BroTracker UI resolution is 640 × 480.
@@ -375,8 +325,6 @@ Desktop frontends may display the same framebuffer using integer scaling, such a
 
 This allows desktop systems to provide a larger physical display while maintaining a single canonical BroTracker interface.
 
----
-
 ## D0025 - Shared Realtime Event Scheduling
 
 Internal audio events and external MIDI events shall originate from the same realtime scheduling model.
@@ -386,8 +334,6 @@ MIDI OUT timing is a primary realtime performance requirement.
 The scheduler architecture must therefore avoid treating MIDI output as an asynchronous secondary process that can introduce unnecessary timing differences relative to internal audio.
 
 The actual latency and jitter characteristics of each hardware and host transport must be measured during implementation.
-
----
 
 ## D0026 - Initial USB MIDI Hardware Configuration
 
@@ -411,8 +357,6 @@ Direct physical DIN MIDI IN/OUT connections on the Teensy are intentionally defe
 
 The core MIDI architecture must remain independent of this temporary hardware configuration.
 
----
-
 ## D0027 - Physical Teensy MIDI Connections Deferred
 
 Direct physical DIN MIDI IN/OUT hardware on Teensy is deferred until a later development stage.
@@ -420,8 +364,6 @@ Direct physical DIN MIDI IN/OUT hardware on Teensy is deferred until a later dev
 The initial implementation shall prioritize USB MIDI and reliable MIDI timing through the common MIDI event architecture.
 
 Adding physical DIN MIDI hardware later must not require changes to the tracker, sequencer or core event model.
-
----
 
 ## D0028 - Candidate Ideas Under Consideration (External Inspiration)
 
@@ -434,8 +376,6 @@ Per the D0012 external inspiration policy, the following ideas are under conside
 - **Padded sample buffers** — allocating small guard padding around sample memory to avoid per-sample bounds checks during interpolation, as a possible low-level technique for a resource-constrained realtime engine.
 
 These remain open considerations, not adopted decisions. BroTracker continues to prefer independent, native implementations per D0012.
-
----
 
 ## D0029 - Timing Model and Microtiming
 
@@ -456,8 +396,6 @@ The internal timing resolution may be higher than the number of micro positions 
 
 The exact relationship between BPM, pattern rows, internal scheduler resolution, microticks and micro-notes/tables remains an implementation topic and will be evaluated during development.
 
----
-
 ## D0030 - Loading a New Tune During Playback
 
 If a tune is currently playing and the user interface allows another tune/project to be opened during playback, opening the new tune must not require the user to manually restart playback.
@@ -472,8 +410,6 @@ The default behaviour is considered a **must-have core workflow**.
 The queue behaviour will be evaluated and implemented later. The initial implementation shall support only the default behaviour of immediately starting playback of the newly loaded tune. The configuration directive and queue mechanism therefore do not need to be functional in the initial implementation.
 
 The important distinction is that opening a new tune during playback must never leave the newly loaded tune stopped and require the user to exit the file browser and manually start playback.
-
----
 
 ## D0031 - External Format Import
 
@@ -507,8 +443,6 @@ MOD is an initial candidate for future import support. XM may be added later. Ot
 The importer is primarily a **GUI-side functionality** intended for the target handheld and other UI clients. The realtime engine must not depend on the presence of an external-format importer.
 
 This separation keeps the core engine small, deterministic and focused on realtime playback, while allowing external format support to evolve independently.
-
----
 
 ## D0032 - BroTracker File and Container Formats
 
