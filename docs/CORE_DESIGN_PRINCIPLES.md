@@ -180,3 +180,25 @@ The exact relationship between BPM, LPB, pattern rows, scheduler ticks and possi
 Existing tracker implementations and related sequencing approaches should be analysed and evaluated before choosing the final model. The evaluation should consider timing accuracy, deterministic playback, MIDI synchronization, memory usage, implementation complexity and the simplicity of the tracker workflow.
 
 No specific microtick resolution, editable micro-position count or user interface representation is currently committed.
+
+## 13. Effect Prioritization
+
+BroTracker should prioritize effects based on usefulness, CPU cost, realtime determinism and relevance to MIDI control.
+
+The initial effect set should focus on simple, low-cost operations that provide significant functionality without placing unnecessary load on the reference platform.
+
+Priority should be given to:
+
+- Global playback and transport events, such as speed/tempo changes, pattern jumps and pattern breaks.
+- MIDI-related events, such as MIDI Control Change, Program Change and Pitch Bend.
+- Basic volume and panning operations.
+- Simple note control operations such as note cut.
+- Instrument-level volume and ADSR envelopes.
+
+Instrument envelopes should be handled by the playback engine as instrument properties rather than as pattern effects whenever practical.
+
+More CPU-intensive effects should be added only after the basic effect set is working reliably and their impact on Teensy 4.1 realtime performance can be measured.
+
+Existing tracker effect systems, such as those documented by OpenMPT, should be treated as references and sources of possible functionality rather than as a list of effects that BroTracker must implement.
+
+BroTracker should prioritize its own architecture and realtime requirements over compatibility with the complete effect set of existing tracker formats.
