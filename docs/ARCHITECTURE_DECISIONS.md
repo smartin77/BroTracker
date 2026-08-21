@@ -379,22 +379,56 @@ These remain open considerations, not adopted decisions. BroTracker continues to
 
 ## D0029 - Timing Model and Microtiming
 
-BroTracker will use **BPM as the primary tempo representation**, following the common approach used by modern sequencers and music software.
+BroTracker will use **BPM (Beats Per Minute) as the primary tempo representation**.
 
-LPB (Lines Per Beat) and TPB (Ticks Per Beat) are currently under evaluation and are **not committed as part of the BroTracker timing model**. The project may ultimately avoid both concepts if a simpler and more suitable timing model is found.
+BPM always represents the number of beats occurring per minute, regardless of the selected rhythmic subdivision.
 
-BroTracker shall nevertheless be designed with native support for finer timing positions below the visible pattern-row level.
+The user-facing BPM value shall be displayed with one decimal place:
 
-The implementation shall account for both:
+`NNN.N BPM`
 
-- **microticks** — finer internal timing positions that may be used for precise scheduling, synchronization and microtiming;
-- **micro-notes / table-like sequencing** — finer note or parameter events associated with a pattern event or instrument.
+Examples:
 
-These mechanisms may or may not be directly visualized in the main Pattern View. Their native representation and realtime processing should exist independently of their user interface representation.
+- `120.0 BPM`
+- `127.5 BPM`
+- `140.0 BPM`
 
-The internal timing resolution may be higher than the number of micro positions exposed directly to the user. This allows BroTracker to maintain a readable, sequencer-like pattern editor while retaining sufficient timing resolution for accurate audio playback, MIDI output, synchronization and future rhythmic features such as triplets.
+The UI shall therefore provide a tempo resolution of **0.1 BPM**.
 
-The exact relationship between BPM, pattern rows, internal scheduler resolution, microticks and micro-notes/tables remains an implementation topic and will be evaluated during development.
+BPM values with additional decimal places, such as `NNN.00` or `NNN.000`, are not considered necessary for the BroTracker user interface.
+
+### Tables
+
+BroTracker will use **Tables** as the user-facing mechanism for rhythmic subdivisions and alternative timing divisions.
+
+Tables are separate from BPM. They do not change the meaning of BPM and do not represent beats per minute.
+
+Tables may define rhythmic divisions such as:
+
+- straight divisions;
+- triplets;
+- other multiplets;
+- future rhythmic divisions as required.
+
+The exact Table representation and available divisions remain an implementation topic.
+
+The purpose of Tables is to provide flexible rhythmic subdivision without introducing LPB (Lines Per Beat) as a tempo concept.
+
+### Internal Timing
+
+The user-facing BPM and Table values do not define the internal scheduler resolution.
+
+The internal clock and scheduler may use substantially finer timing precision where required for:
+
+- accurate audio playback;
+- MIDI output;
+- synchronization;
+- microtiming;
+- rhythmic subdivisions.
+
+The internal timing resolution may therefore be considerably higher than the timing resolution exposed directly to the user interface.
+
+The exact relationship between BPM, Tables, pattern rows and internal scheduler resolution will be evaluated during implementation.
 
 ## D0030 - Loading a New Tune During Playback
 
