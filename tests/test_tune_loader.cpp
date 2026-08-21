@@ -20,7 +20,7 @@ TEST_CASE(LoadTuneFromJson_ParsesDummyTune)
     const Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
 
     CHECK_EQ(tune.title, std::string("my_tune"));
-    CHECK_EQ(tune.tempo, 140);
+    CHECK_EQ(tune.tempo, 140.5);
     CHECK(!tune.patterns.empty());
 
     const Pattern& pattern = tune.patterns.front();
