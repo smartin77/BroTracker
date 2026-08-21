@@ -1,0 +1,34 @@
+name: BroTracker CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Render UI
+        run: ./build/BroTrackerUI
+
+      - name: Upload rendered UI
+        uses: actions/upload-artifact@v4
+        with:
+          name: brotracker-ui-preview
+          path: assets/ui_main_screen.bmp
