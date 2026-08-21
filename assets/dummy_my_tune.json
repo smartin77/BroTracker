@@ -1,7 +1,7 @@
 {
   "tune": {
     "name": "my_tune",
-    "tempo": 140,
+    "tempo": 140.5,
     "pattern": [
       {
         "number": 5,

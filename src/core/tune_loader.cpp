@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <cstdlib>
 
 namespace
 {
@@ -207,6 +208,33 @@ namespace
                     position_ - start));
         }
 
+        double ParseNumber()
+        {
+            SkipWhitespace();
+
+            const std::size_t start =
+                position_;
+
+            char* end = nullptr;
+
+            const double value =
+                std::strtod(
+                    text_.c_str() + position_,
+                    &end);
+
+            if (end == text_.c_str() + position_)
+            {
+                throw std::runtime_error(
+                    "Expected JSON number.");
+            }
+
+            position_ =
+                static_cast<std::size_t>(
+                    end - text_.c_str());
+
+            return value;
+        }
+
         void SkipValue()
         {
             SkipWhitespace();
@@ -272,10 +300,7 @@ namespace
                 }
                 else if (key == "tempo")
                 {
-                    tune.tempo =
-                        static_cast<
-                            std::uint16_t>(
-                                ParseInteger());
+                    tune.tempo = ParseNumber();
                 }
                 else if (key == "pattern")
                 {

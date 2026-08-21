@@ -16,11 +16,8 @@
 
 struct Tune
 {
+    double tempo = 140.0;
     std::string title = "UNTITLED";
-
-    std::uint16_t tempo = 140;
-
     std::uint8_t channel_count = 8;
-
     std::vector<Pattern> patterns;
 };

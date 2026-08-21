@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <string>
+#include <iomanip>
+#include <sstream>
 
 #include "core/constants.h"
 #include "core/note.h"
@@ -105,6 +107,13 @@ namespace
         const Tune& tune,
         const Pattern& pattern)
     {
+        std::ostringstream tempo_stream;
+
+        tempo_stream
+            << std::fixed
+            << std::setprecision(1)
+            << tune.tempo;
+
         framebuffer.Rectangle(
             layout.pattern_x,
             0,
@@ -128,21 +137,21 @@ namespace
 
         const std::string header_labels[] =
         {
+            "BPM:",
             "PAT:",
             "POS:",
-            "BPM:",
             "CPU:"
         };
 
         const std::string header_values[] =
         {
+            tempo_stream.str(),
+            
             pattern.number < 10
                 ? "0" + std::to_string(pattern.number)
                 : std::to_string(pattern.number),
 
             "16",
-
-            std::to_string(tune.tempo),
 
             "03%"
         };
