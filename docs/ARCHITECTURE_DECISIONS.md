@@ -510,3 +510,39 @@ BTP = complete native BroTracker project
 BTM = ZIP container containing a complete BTP project
 
 The separation allows the native project format to remain optimized for BroTracker's storage and runtime requirements while BTM provides a convenient single-file format for transfer, backup and distribution.
+
+## D0033 - Development Automation and CI
+
+BroTracker shall use GitHub Actions as its primary continuous integration platform.
+
+The purpose of CI is to automatically verify that changes remain buildable and testable, particularly as the project grows and community contributions are introduced.
+
+The initial CI system should remain small and focused.
+
+Initial CI responsibilities:
+
+- build the shared BroTracker core;
+- build the host development runtime;
+- run available automated tests;
+- report the result for pushes and pull requests.
+
+The CI system should support the project's development principle that functional commits should leave the repository in a buildable state.
+
+As the project matures, CI may be extended to include:
+
+- Teensy 4.1 firmware builds;
+- additional host platforms;
+- static analysis;
+- CodeQL or similar code scanning;
+- additional automated tests;
+- release artifact generation.
+
+GitHub Actions is preferred because it is integrated directly into the project's GitHub repository and does not require separate CI infrastructure.
+
+BroTracker shall avoid unnecessary DevOps infrastructure. Container orchestration, self-hosted CI infrastructure and other complex deployment systems are outside the current project requirements.
+
+Dependency maintenance and security updates may use GitHub Dependabot where appropriate.
+
+Release automation is considered a future extension. The intended release workflow is to build and verify release artifacts through CI and publish them through GitHub Releases.
+
+The CI system must support the project rather than become a development burden. Automation should be introduced incrementally when it provides a clear practical benefit.
