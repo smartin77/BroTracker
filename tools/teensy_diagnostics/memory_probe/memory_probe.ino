@@ -32,6 +32,12 @@
 // no PSRAM chip is soldered on.
 extern "C" uint8_t external_psram_size;
 
+extern "C"
+{
+    extern unsigned long _stext;
+    extern unsigned long _etext;
+}
+
 namespace
 {
     constexpr std::size_t BUFFER_SIZE = 4096;
@@ -49,12 +55,7 @@ namespace
     // External PSRAM; only backed by real memory if a chip is installed.
     EXTMEM volatile uint8_t psram_buffer[BUFFER_SIZE];
 
-    FASTRUN void FunctionInItcm()
-    {
-        __asm__ volatile ("nop");
-    }
-
-    void FunctionInFlashDefault()
+    FLASHMEM void FunctionInFlash()
     {
         __asm__ volatile ("nop");
     }
@@ -210,12 +211,16 @@ void setup()
     output.println("-- Symbol addresses (compare against the datasheet / linker map) --");
 
     PrintAddress(
-        "FASTRUN function  (expect ITCM)",
-        reinterpret_cast<const volatile void*>(&FunctionInItcm));
+        "ITCM start        (linker _stext)",
+        reinterpret_cast<const volatile void*>(&_stext));
 
     PrintAddress(
-        "Default function  (expect Flash/FlexSPI)",
-        reinterpret_cast<const volatile void*>(&FunctionInFlashDefault));
+        "ITCM end          (linker _etext)",
+        reinterpret_cast<const volatile void*>(&_etext));
+
+    PrintAddress(
+        "FLASHMEM function (expect Flash/FlexSPI)",
+        reinterpret_cast<const volatile void*>(&FunctionInFlash));
 
     PrintAddress(
         "Default global    (expect RAM1/DTCM)",
