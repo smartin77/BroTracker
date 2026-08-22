@@ -292,3 +292,13 @@ The following remain to be verified before implementation:
 9. Behaviour of ArkOS / Linux when BroTracker Audio is connected.
 10. Whether host-side audio routing is required, optional or disabled by default.
 11. Practical latency and jitter measurements for USB Audio versus native audio output.
+
+## CPU Frequency
+
+The audio engine assumes a stable CPU frequency during active realtime playback.
+
+Any Teensy CPU overclocking or performance configuration must be established before realtime playback begins.
+
+Dynamic CPU frequency changes during active audio processing are not part of the BroTracker realtime architecture.
+
+Realtime overload must instead be handled through CPU budgeting, voice management, DSP quality policies or other deterministic software mechanisms.

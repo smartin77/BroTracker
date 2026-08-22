@@ -1,5 +1,3 @@
-
-
 # Scheduler Specification
 
 ## Status
@@ -11,8 +9,6 @@ Draft
 This document defines the timing architecture of BroTracker.
 
 The scheduler is responsible for deterministic playback timing of all time-critical events.
-
----
 
 ## Design Goals
 
@@ -28,8 +24,6 @@ This includes:
 - transport control
 - future synchronized engine events
 
----
-
 ## Core Principle
 
 Audio playback and MIDI output shall originate from the same scheduler.
@@ -37,8 +31,6 @@ Audio playback and MIDI output shall originate from the same scheduler.
 BroTracker should minimize timing differences between internal sample playback and external MIDI devices by scheduling both from the same timeline.
 
 The scheduler should not treat audio playback and MIDI output as independent systems.
-
----
 
 ## Output Transport Independence
 
@@ -52,8 +44,6 @@ Host-side audio routing must therefore be treated as an output path, not as the 
 
 For platform-specific audio transport behaviour, see [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md).
 
----
-
 ## Deterministic Timing
 
 Whenever possible, events occurring on the same tracker row should be dispatched from the same scheduling cycle.
@@ -65,8 +55,6 @@ Example:
 - generate MIDI Clock (if required)
 
 These events should remain time-aligned.
-
----
 
 ## Implementation
 
@@ -81,8 +69,6 @@ Possible techniques include:
 
 The implementation may evolve without changing the external timing model.
 
----
-
 ## Performance Goals
 
 The scheduler should prioritize:
@@ -95,3 +81,11 @@ The scheduler should prioritize:
 Implementation details remain subject to future profiling and hardware testing.
 
 For platform-specific audio transport behaviour, see [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md).
+
+## CPU Frequency Stability
+
+The realtime playback system assumes a stable CPU clock during active playback.
+
+Dynamic CPU frequency changes must not be used as an emergency mechanism for realtime overload recovery.
+
+Performance scaling, if supported by the platform, must be configured before realtime playback begins and must not change the timing model during active playback.
