@@ -121,6 +121,31 @@ Potential BroTracker uses:
 
 Realtime inner-loop state and interrupt-critical data should remain in internal memory.
 
+## Optional PSRAM Strategy
+
+PSRAM is an optional hardware capability for BroTracker.
+
+The BroTracker core and baseline feature set must remain fully functional without PSRAM. Development and testing must therefore not assume that external PSRAM is present.
+
+When PSRAM is detected at runtime, BroTracker may automatically enable additional features or increase available capacities that benefit from the additional memory.
+
+The intended behaviour is:
+
+- No PSRAM:
+  - All core functionality remains available.
+  - BroTracker operates within the available internal RAM and storage resources.
+  - No core feature may require PSRAM for basic operation.
+
+- PSRAM detected:
+  - BroTracker automatically detects the available PSRAM capacity.
+  - Additional memory-dependent features may be enabled.
+  - Existing features may receive larger capacities or improved caching where appropriate.
+  - The available PSRAM capacity may influence which optional features are enabled.
+
+This creates a capability-based memory model rather than a hardware requirement.
+
+The practical value of PSRAM will be evaluated by measuring whether the additional memory enables useful BroTracker features or significantly increases their capacity. The goal is not to make PSRAM mandatory, but to make an optional PSRAM upgrade provide a clear and tangible benefit to users who choose to install it.
+
 ### Experimental Result
 
 The physical Teensy 4.1 used for the initial memory probe reports:
@@ -150,6 +175,8 @@ Verified:
 The initial access benchmark reported approximately `5 cycles/byte` for both the tested DTCM and RAM2 buffers. This is a preliminary diagnostic measurement, not a final latency model.
 
 These results confirm the basic linker placement model, but do not yet define the final BroTracker memory allocation policy.
+
+The current hardware does not provide PSRAM. Future PSRAM testing will be used to determine which optional BroTracker features can benefit from detected external memory.
 
 ## Dynamic Allocation Policy
 
@@ -223,6 +250,7 @@ The following must be verified before finalizing the kernel memory architecture:
 7. SPI and display DMA requirements.
 8. PSRAM access characteristics and practical latency.
    PSRAM availability was checked experimentally; the tested Teensy 4.1 reports no PSRAM, so latency remains unverified.
+   Future testing will evaluate PSRAM capacity, access characteristics and practical usefulness for BroTracker workloads. PSRAM will remain an optional capability and must not become a requirement for the baseline feature set.
 9. Stack and heap placement and limits.
 10. A concrete memory budget for the BroTracker realtime kernel.
 11. Which Teensy/PJRC libraries are suitable for use inside the realtime kernel.
