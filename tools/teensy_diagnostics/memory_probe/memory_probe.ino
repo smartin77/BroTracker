@@ -36,6 +36,11 @@ extern "C"
 {
     extern unsigned long _stext;
     extern unsigned long _etext;
+    extern unsigned long _sdata;
+    extern unsigned long _edata;
+    extern unsigned long _sbss;
+    extern unsigned long _ebss;
+    extern unsigned long _estack;
 }
 
 namespace
@@ -229,6 +234,26 @@ void setup()
     PrintAddress(
         "DMAMEM buffer     (expect RAM2)",
         dma_buffer);
+
+    PrintAddress(
+    "DTCM data start    (linker _sdata)",
+    reinterpret_cast<const volatile void*>(&_sdata));
+
+    PrintAddress(
+        "DTCM data end      (linker _edata)",
+        reinterpret_cast<const volatile void*>(&_edata));
+
+    PrintAddress(
+        "DTCM BSS start     (linker _sbss)",
+        reinterpret_cast<const volatile void*>(&_sbss));
+
+    PrintAddress(
+        "DTCM BSS end       (linker _ebss)",
+        reinterpret_cast<const volatile void*>(&_ebss));
+
+    PrintAddress(
+        "DTCM stack top     (linker _estack)",
+        reinterpret_cast<const volatile void*>(&_estack));
 
     output.print("PSRAM detected: ");
     output.print(external_psram_size);
