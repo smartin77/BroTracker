@@ -10,12 +10,7 @@
  *              uniquely-numbered file under BroTracker/ on the built-in
  *              SD card, so existing card content is never touched.
  *
- *              This is the Arduino IDE / Teensyduino copy of
- *              tools/teensy_diagnostics/src/main.cpp (kept identical by
- *              hand, since PlatformIO's src/ layout and Arduino IDE's
- *              folder-name-must-match-sketch-name rule can't share one
- *              file). Prefer building via PlatformIO when possible; only
- *              update this copy if the PlatformIO source changes.
+ *              This is the Arduino IDE / Teensyduino
  *
  * Copyright (C) smARTin and BroTracker contributors
  * License: GPL-3.0
@@ -23,6 +18,7 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <DMAChannel.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +53,9 @@ namespace
     // RAM2 / DMA-capable region.
     DMAMEM volatile uint8_t dma_buffer[BUFFER_SIZE];
 
+    // DMA test destination in RAM2.
+    DMAMEM volatile uint8_t dma_test_destination[BUFFER_SIZE];
+
     // External PSRAM; only backed by real memory if a chip is installed.
     EXTMEM volatile uint8_t psram_buffer[BUFFER_SIZE];
 
@@ -81,7 +80,8 @@ namespace
 
             if (log_file != nullptr)
             {
-                log_file->write(byte);
+                log_file->write(&byte, 1);
+            log_file->flush();
             }
 
             return 1;
@@ -133,6 +133,41 @@ namespace
             static_cast<std::uint32_t>(ITERATIONS) * 2;
 
         return (end - start) / total_bytes;
+    }
+
+    bool RunDmaMemoryTest(
+        volatile uint8_t* source,
+        volatile uint8_t* destination,
+        std::size_t size)
+    {
+        for (std::size_t index = 0; index < size; ++index)
+        {
+            source[index] = static_cast<uint8_t>(index);
+            destination[index] = 0;
+        }
+
+        DMAChannel dma;
+        dma.sourceBuffer(source, static_cast<unsigned int>(size));
+        dma.destinationBuffer(destination, static_cast<unsigned int>(size));
+        dma.transferSize(1);
+
+        dma.enable();
+
+        while (!dma.complete())
+        {
+        }
+
+        dma.clearComplete();
+
+        for (std::size_t index = 0; index < size; ++index)
+        {
+            if (destination[index] != static_cast<uint8_t>(index))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Reads/increments a small counter file on the SD card so repeated runs
@@ -199,6 +234,16 @@ void setup()
 
         log_file = SD.open(filename, FILE_WRITE);
         output.Begin(log_file);
+
+        if (log_file)
+        {
+            log_file.println("SD log test: OK");
+            log_file.flush();
+        }
+        else
+        {
+            Serial.println("ERROR: Failed to open SD log file.");
+        }
 
         Serial.print("Logging to SD: ");
         Serial.println(filename);
@@ -287,6 +332,17 @@ void setup()
     output.print("DMAMEM  (RAM2):      ");
     output.print(dma_cycles);
     output.println(" cycles/byte");
+
+    output.println();
+    output.println("-- DMA memory test --");
+
+    const bool dma_ram2_ok = RunDmaMemoryTest(
+        dma_buffer,
+        dma_test_destination,
+        BUFFER_SIZE);
+
+    output.print("RAM2 -> RAM2 DMA: ");
+    output.println(dma_ram2_ok ? "PASS" : "FAIL");
 
     if (external_psram_size > 0)
     {
