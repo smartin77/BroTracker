@@ -381,7 +381,7 @@ These remain open considerations, not adopted decisions. BroTracker continues to
 
 BroTracker will use **BPM (Beats Per Minute) as the primary tempo representation**.
 
-BPM always represents the number of beats occurring per minute, regardless of the selected rhythmic subdivision.
+BPM represents the number of quarter-note beats occurring per minute.
 
 The user-facing BPM value shall be displayed with one decimal place:
 
@@ -391,44 +391,138 @@ Examples:
 
 - `120.0 BPM`
 - `127.5 BPM`
+- `130.0 BPM`
 - `140.0 BPM`
 
 The UI shall therefore provide a tempo resolution of **0.1 BPM**.
 
-BPM values with additional decimal places, such as `NNN.00` or `NNN.000`, are not considered necessary for the BroTracker user interface.
+### Sequencer Timing Relationship
+
+BroTracker uses a conventional sequencer timing relationship in which:
+
+- one BPM beat represents one quarter note;
+- one tracker row represents one sixteenth note;
+- four tracker rows therefore represent one quarter-note beat;
+- sixteen tracker rows represent one four-beat sequencer bar.
+
+This relationship is independent of the internal scheduler resolution.
+
+For example, at `130.0 BPM`:
+
+- one quarter-note beat = approximately `461.538 ms`;
+- one tracker row = approximately `115.385 ms`;
+- sixteen tracker rows = approximately `1.846 s`.
+
+A conventional 16-step sequencer pattern containing events on steps `1, 5, 9, 13` therefore maps directly to BroTracker rows `1, 5, 9, 13`.
+
+This establishes a predictable relationship between BroTracker pattern rows and conventional drum-machine/sequencer timing.
+
+### Internal Timing Resolution
+
+BroTracker will use an internal timing resolution of **96 ticks per tracker row**.
+
+These ticks are an internal scheduler resolution and are not exposed as PPQN or as a user-facing musical unit.
+
+The resolution is intentionally finer than the visible tracker row.
+
+Therefore:
+
+- 1 tracker row = 96 internal ticks;
+- 1 quarter-note beat = 4 tracker rows = 384 internal ticks;
+- 16 tracker rows = 1536 internal ticks.
+
+The internal tick resolution is an implementation detail of the realtime scheduler. It must not be treated as a fixed limitation of the musical model.
+
+The scheduler architecture should allow the internal resolution to be increased in the future without changing the logical pattern row structure or the user-facing timing model.
+
+### Timing Subdivisions
+
+The 96-tick row resolution provides exact integer timing positions for common rhythmic subdivisions.
+
+Examples within one tracker row:
+
+- halves: 48 ticks;
+- triplets: 32 ticks;
+- quarters: 24 ticks;
+- eighths: 12 ticks;
+- sixteenths: 6 ticks.
+
+This allows common rhythmic subdivisions to be represented without fractional tick positions or rounding.
+
+The initial implementation does not need to expose all available subdivisions to the user.
+
+The internal scheduler should nevertheless preserve the full timing resolution so that additional rhythmic divisions, microtiming and more advanced Table functionality can be introduced later without redesigning the core timing engine.
 
 ### Tables
 
-BroTracker will use **Tables** as the user-facing mechanism for rhythmic subdivisions and alternative timing divisions.
+Tables are the user-facing mechanism for rhythmic subdivisions, microtiming and other event timing details within the tracker row.
 
 Tables are separate from BPM. They do not change the meaning of BPM and do not represent beats per minute.
 
-Tables may define rhythmic divisions such as:
+Tables may define:
 
-- straight divisions;
+- straight subdivisions;
 - triplets;
 - other multiplets;
-- future rhythmic divisions as required.
+- timing offsets;
+- future rhythmic divisions;
+- other event timing relationships required by the tracker.
 
-The exact Table representation and available divisions remain an implementation topic.
+The initial Table implementation may expose only a subset of these capabilities.
 
-The purpose of Tables is to provide flexible rhythmic subdivision without introducing LPB (Lines Per Beat) as a tempo concept.
+The Table system must be designed around the internal timing resolution rather than defining a separate incompatible timing clock.
 
-### Internal Timing
+### Microtiming
 
-The user-facing BPM and Table values do not define the internal scheduler resolution.
+The visible tracker row remains the primary editing and display unit.
 
-The internal clock and scheduler may use substantially finer timing precision where required for:
+Events may nevertheless occur at different internal timing positions within the row.
 
-- accurate audio playback;
-- MIDI output;
-- synchronization;
-- microtiming;
-- rhythmic subdivisions.
+This allows multiple events associated with the same tracker row to have different timing positions without introducing additional visible pattern rows.
 
-The internal timing resolution may therefore be considerably higher than the timing resolution exposed directly to the user interface.
+For example, multiple events may occupy a single tracker row at internal positions such as:
 
-The exact relationship between BPM, Tables, pattern rows and internal scheduler resolution will be evaluated during implementation.
+`0`, `32`, and `64`.
+
+The exact user-facing representation of these positions is an implementation decision.
+
+### Scheduler Timing
+
+The user-facing BPM and Table values do not directly define the implementation of the realtime scheduler.
+
+The scheduler shall operate using the internal 96-tick timing resolution.
+
+The relationship is therefore:
+
+`BPM → tracker row duration → internal tick duration`
+
+At a given BPM, the duration of one internal tick is derived from the duration of one tracker row.
+
+For example, at `130.0 BPM`:
+
+- one quarter-note beat ≈ `461.538 ms`;
+- one tracker row ≈ `115.385 ms`;
+- one internal tick ≈ `1.202 ms`.
+
+The scheduler may use a higher-resolution hardware timer or clock source internally. The 96-tick model defines the musical timing resolution, not necessarily the physical timer interrupt frequency.
+
+### Future Resolution
+
+The initial implementation uses 96 internal ticks per tracker row.
+
+The timing architecture must not assume that 96 is the permanent maximum resolution.
+
+Future implementations may use higher internal resolutions such as 192 or 384 ticks per tracker row if required for more precise microtiming, MIDI synchronization, audio scheduling or other realtime requirements.
+
+Such an increase should not require changes to:
+
+- the logical pattern row structure;
+- the BPM model;
+- the user-facing tracker grid;
+- the basic Table concept;
+- the musical relationship between sequencer beats and tracker rows.
+
+The initial implementation should therefore treat 96 ticks as the **current internal timing resolution**, not as a permanent architectural limit.
 
 ## D0030 - Loading a New Tune During Playback
 
