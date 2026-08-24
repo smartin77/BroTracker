@@ -80,12 +80,12 @@ namespace
 
             if (log_file != nullptr)
             {
-                log_file->write(&byte, 1);
-            log_file->flush();
+                log_file->write(byte);
             }
 
             return 1;
         }
+
     private:
         File* log_file = nullptr;
     };
