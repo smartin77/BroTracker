@@ -38,6 +38,29 @@ The conceptual architecture is:
 
 The audio engine must not depend on a specific DAC, USB implementation or host operating system.
 
+## Platform Audio Boundary
+
+The shared audio engine must expose a platform-independent sample processing interface.
+
+The platform layer provides:
+
+- audio callback or equivalent realtime execution;
+- output buffer;
+- sample count;
+- sample rate;
+- platform-specific synchronization and hardware handling.
+
+The shared engine provides:
+
+- sample generation;
+- tracker timing;
+- event scheduling;
+- software synthesis;
+- sample playback;
+- synchronized MIDI events.
+
+This boundary allows the same audio engine architecture to run on Teensy and on host platforms using different audio backends.
+
 ## Realtime Audio Output
 
 The primary realtime audio path should be a native Teensy audio output path.
@@ -57,6 +80,18 @@ The preferred architecture is:
 This path keeps audio generation, realtime scheduling and the physical audio clock within the Teensy realtime environment.
 
 A Teensy 4.1 board does not provide a conventional built-in stereo headphone output by itself. A suitable external DAC, codec or audio hardware is therefore required for a native physical audio output.
+
+## Audio Processing Blocks
+
+The Teensy audio implementation is expected to process audio in fixed-size blocks determined by the selected audio platform and driver.
+
+The BroTracker audio engine must therefore support block-based processing while retaining a sample-based internal timeline.
+
+A block boundary must not become a tracker timing boundary.
+
+If a tracker event occurs part-way through an audio block, the engine must preserve the event's position within that block.
+
+This allows tracker timing to remain independent of the selected audio block size.
 
 ## USB Audio
 
@@ -108,6 +143,35 @@ Audio events and MIDI events must originate from the same realtime scheduling mo
 The audio output interface must consume the scheduled audio stream without changing the logical timing of tracker events.
 
 The USB host must not become responsible for BroTracker playback timing.
+
+## Audio-Driven Timing
+
+On the Teensy realtime platform, audio processing provides the primary execution boundary for the audio-capable playback timeline.
+
+The audio engine processes samples in platform-defined audio blocks. The scheduler tracks the logical playback position within that sample timeline.
+
+For example, at a 44100 Hz sample rate:
+
+    44100 samples = 1 second of audio time
+
+A tracker tick is therefore represented by a position on the audio sample timeline rather than by a CPU-cycle count.
+
+When a tick or other scheduled event falls within an audio block, the audio engine must be able to identify its sample position and dispatch the corresponding realtime events at the appropriate point in the block.
+
+This allows:
+
+- software synthesis;
+- sample playback;
+- internal audio events;
+- MIDI events;
+- MIDI clock;
+- transport events
+
+to originate from the same logical timeline.
+
+The audio callback or interrupt provides the execution context.
+
+It does not replace the scheduler as the owner of logical playback time.
 
 ## Audio Clock Domains
 
@@ -302,3 +366,5 @@ Any Teensy CPU overclocking or performance configuration must be established bef
 Dynamic CPU frequency changes during active audio processing are not part of the BroTracker realtime architecture.
 
 Realtime overload must instead be handled through CPU budgeting, voice management, DSP quality policies or other deterministic software mechanisms.
+
+Realtime playback timing must not depend on CPU frequency, whether the Teensy is running at the reference frequency or at a validated higher performance configuration.

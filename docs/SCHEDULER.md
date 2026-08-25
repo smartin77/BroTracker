@@ -32,6 +32,32 @@ BroTracker should minimize timing differences between internal sample playback a
 
 The scheduler should not treat audio playback and MIDI output as independent systems.
 
+## Audio-Driven Realtime Timeline
+
+For audio-capable playback, the realtime timeline should be advanced according to the number of audio samples processed by the audio engine.
+
+The scheduler owns the logical playback position. The audio processing boundary provides the realtime execution context in which that timeline advances.
+
+This allows tracker timing to remain independent of CPU frequency and platform-specific wall-clock implementations.
+
+For a sample rate of 44100 Hz, processing 44100 audio samples represents one second of audio time.
+
+Tracker ticks are therefore scheduled against the audio sample timeline rather than against CPU cycles or general-purpose wall-clock timers.
+
+The platform audio layer may process samples in blocks, but tick and event positions must remain sample-accurate within those blocks where required.
+
+The same realtime timeline is used for:
+
+- internal audio events;
+- sample playback;
+- software synthesis;
+- MIDI Note On/Off events;
+- MIDI Clock;
+- transport events;
+- other synchronized realtime events.
+
+The exact platform implementation of the audio processing callback is platform-specific.
+
 ## Output Transport Independence
 
 The scheduler is the authoritative timing source for BroTracker realtime playback.
@@ -58,16 +84,19 @@ These events should remain time-aligned.
 
 ## Implementation
 
-The exact implementation remains open.
+The realtime scheduler is implemented around a sample-based playback timeline.
 
-Possible techniques include:
+On audio-capable platforms, the audio callback or equivalent realtime processing mechanism provides the execution boundary for advancing this timeline.
 
-- interrupt-driven scheduler
-- timer-based scheduler
-- event queue
-- buffered scheduling
+The scheduler must not depend on CPU cycle counters or CPU frequency for logical playback timing.
 
-The implementation may evolve without changing the external timing model.
+Platform-specific mechanisms may differ:
+
+- Teensy may use hardware audio interrupts and DMA-driven audio processing;
+- desktop systems may use an audio callback provided by the selected audio backend;
+- other platforms may provide an equivalent realtime audio processing boundary.
+
+The platform layer adapts these mechanisms to the common scheduler model without changing the logical timing model.
 
 ## Performance Goals
 
