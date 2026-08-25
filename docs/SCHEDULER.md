@@ -84,19 +84,15 @@ These events should remain time-aligned.
 
 ## Implementation
 
-The realtime scheduler is implemented around a sample-based playback timeline.
+The scheduler implementation must preserve the common logical timing model independently of the underlying platform.
 
-On audio-capable platforms, the audio callback or equivalent realtime processing mechanism provides the execution boundary for advancing this timeline.
+For audio-capable playback, the audio sample timeline provides the realtime representation of playback position.
 
-The scheduler must not depend on CPU cycle counters or CPU frequency for logical playback timing.
+Audio processing callbacks, interrupts or equivalent platform mechanisms provide execution opportunities for processing audio and scheduled events.
 
-Platform-specific mechanisms may differ:
+The scheduler must not derive logical playback timing from CPU cycles or CPU frequency.
 
-- Teensy may use hardware audio interrupts and DMA-driven audio processing;
-- desktop systems may use an audio callback provided by the selected audio backend;
-- other platforms may provide an equivalent realtime audio processing boundary.
-
-The platform layer adapts these mechanisms to the common scheduler model without changing the logical timing model.
+Platform-specific audio processing mechanisms are defined by the corresponding platform architecture.
 
 ## Performance Goals
 
@@ -108,8 +104,6 @@ The scheduler should prioritize:
 - minimal CPU overhead
 
 Implementation details remain subject to future profiling and hardware testing.
-
-For platform-specific audio transport behaviour, see [TEENSY_AUDIO_ARCHITECTURE.md](TEENSY_AUDIO_ARCHITECTURE.md).
 
 ## CPU Frequency Stability
 
