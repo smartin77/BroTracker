@@ -17,4 +17,5 @@ Project documentation is located in the `docs` directory.
 - [MIDI Support](./MIDI_SUPPORT.md)
 - [Teensy 4.1 Memory Architecture](./TEENSY_MEMORY_ARCHITECTURE.md)
 - [BroTracker File Formats](./FILE_FORMATS.md)
+- [Reference Engines](./REFERENCE_ENGINES.md)
 - [Roadmap](./ROADMAP.md)
