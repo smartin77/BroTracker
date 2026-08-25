@@ -45,7 +45,8 @@
  *   - Establish useful baseline values before introducing audio
  *     buffering, the Teensy Audio Library, or other streaming layers.
  *
- * The benchmark is READ-ONLY and does not modify files on the SD card.
+ * The benchmark reads sample data only. It writes a small benchmark report
+ * to BroTracker_SD_Test after the benchmark starts and after the tests finish.
  *
  * Copyright (C) smARTin and BroTracker contributors
  * License: GPL-3.0
@@ -62,6 +63,15 @@ namespace
 {
     constexpr const char* SAMPLE_DIRECTORY =
         "Samples/Wav-HQ/DrumLoop";
+
+    constexpr const char* REPORT_FILE =
+        "BroTracker_SD_Test/sd_read_benchmark.txt";
+
+    constexpr const char* BUILD_DATE =
+        __DATE__;
+
+    constexpr const char* BUILD_TIME =
+        __TIME__;
 
     constexpr std::size_t MAX_FILES =
         64;
@@ -139,6 +149,35 @@ namespace
 
         double megabytes_per_second = 0.0;
     };
+
+    struct SingleFileResult
+    {
+        TimingResult timing;
+    };
+
+    struct BatchResult
+    {
+        std::size_t file_count = 0;
+        TimingResult timing;
+    };
+
+    struct InterleavedResult
+    {
+        std::size_t stream_count = 0;
+        std::size_t chunk_size = 0;
+        TimingResult timing;
+    };
+
+    SingleFileResult single_results[MAX_FILES];
+
+    BatchResult batch_results[BATCH_SIZE_COUNT];
+
+    BatchResult repeated_results[REPEATED_RUNS];
+
+    InterleavedResult interleaved_results[
+        INTERLEAVED_STREAM_COUNT];
+
+    std::size_t repeated_batch_file_count = 0;
 
     uint16_t ReadLE16(
         const uint8_t* data)
@@ -559,188 +598,69 @@ namespace
         return result;
     }
 
-    void PrintTiming(
-        const TimingResult& result)
-    {
-        Serial.print(
-            "  Data: ");
-
-        Serial.print(
-            static_cast<uint32_t>(
-                result.bytes));
-
-        Serial.print(
-            " bytes | Time: ");
-
-        Serial.print(
-            result.elapsed_us);
-
-        Serial.print(
-            " us | Throughput: ");
-
-        Serial.print(
-            result.megabytes_per_second,
-            2);
-
-        Serial.println(
-            " MB/s");
-    }
-
     void RunSingleFileTest()
     {
-        Serial.println();
-        Serial.println(
-            "=== TEST A: SINGLE FILE READ ===");
-
         uint64_t total_bytes = 0;
         uint64_t total_time_us = 0;
 
         for (std::size_t index = 0;
-             index < sample_file_count;
-             ++index)
+            index < sample_file_count;
+            ++index)
         {
             const TimingResult result =
                 ReadSample(
                     sample_files[index]);
 
-            total_bytes +=
-                result.bytes;
+            single_results[index].timing =
+                result;
 
-            total_time_us +=
-                result.elapsed_us;
-
-            Serial.print(
-                index + 1);
-
-            Serial.print(
-                "/");
-
-            Serial.print(
-                sample_file_count);
-
-            Serial.print(
-                " ");
-
-            Serial.print(
-                sample_files[index].path);
-
-            Serial.print(
-                " | ");
-
-            Serial.print(
-                result.elapsed_us);
-
-            Serial.print(
-                " us | ");
-
-            Serial.print(
-                result.megabytes_per_second,
-                2);
-
-            Serial.println(
-                " MB/s");
+            total_bytes += result.bytes;
+            total_time_us += result.elapsed_us;
         }
-
-        Serial.println();
-
-        Serial.print(
-            "Total PCM data: ");
-
-        Serial.print(
-            static_cast<uint32_t>(
-                total_bytes));
-
-        Serial.println(
-            " bytes");
-
-        Serial.print(
-            "Total read time: ");
-
-        Serial.print(
-            static_cast<uint32_t>(
-                total_time_us));
-
-        Serial.println(
-            " us");
     }
 
     void RunBatchTests()
     {
-        Serial.println();
-        Serial.println(
-            "=== TEST B: SEQUENTIAL BATCH READ ===");
-
         for (std::size_t size_index = 0;
-             size_index < BATCH_SIZE_COUNT;
-             ++size_index)
+            size_index < BATCH_SIZE_COUNT;
+            ++size_index)
         {
             const std::size_t count =
                 BATCH_SIZES[size_index];
 
-            if (count >
-                sample_file_count)
+            batch_results[size_index].file_count =
+                count;
+
+            if (count > sample_file_count)
             {
+                batch_results[size_index].timing =
+                    TimingResult();
+
                 continue;
             }
 
-            Serial.println();
-
-            Serial.print(
-                "Batch: ");
-
-            Serial.print(
-                count);
-
-            Serial.println(
-                " files");
-
-            const TimingResult result =
+            batch_results[size_index].timing =
                 ReadBatch(count);
-
-            PrintTiming(result);
         }
     }
 
     void RunRepeatedBatchTests()
     {
-        Serial.println();
-        Serial.println(
-            "=== TEST C: REPEATED BATCH READ ===");
-
-        const std::size_t count =
+        repeated_batch_file_count =
             sample_file_count < 16
                 ? sample_file_count
                 : 16;
 
         for (std::size_t run = 0;
-             run < REPEATED_RUNS;
-             ++run)
+            run < REPEATED_RUNS;
+            ++run)
         {
-            Serial.print(
-                "Run ");
+            repeated_results[run].file_count =
+                repeated_batch_file_count;
 
-            Serial.print(
-                run + 1);
-
-            Serial.print(
-                " / ");
-
-            Serial.print(
-                REPEATED_RUNS);
-
-            Serial.print(
-                " | ");
-
-            Serial.print(
-                count);
-
-            Serial.println(
-                " files");
-
-            const TimingResult result =
-                ReadBatch(count);
-
-            PrintTiming(result);
+            repeated_results[run].timing =
+                ReadBatch(
+                    repeated_batch_file_count);
         }
     }
 
@@ -876,40 +796,29 @@ namespace
                  1000000.0);
         }
 
-        Serial.print(
-            "Streams: ");
+        const std::size_t result_index =
+            stream_count == 2 ? 0 :
+            stream_count == 4 ? 1 :
+            2;
 
-        Serial.print(
-            stream_count);
+        interleaved_results[result_index]
+            .stream_count = stream_count;
 
-        Serial.print(
-            " | Chunk: ");
+        interleaved_results[result_index]
+            .chunk_size =
+                INTERLEAVED_CHUNK_SIZE;
 
-        Serial.print(
-            INTERLEAVED_CHUNK_SIZE);
+        interleaved_results[result_index]
+            .timing.elapsed_us =
+                elapsed;
 
-        Serial.print(
-            " B | Data: ");
+        interleaved_results[result_index]
+            .timing.bytes =
+                total_bytes;
 
-        Serial.print(
-            static_cast<uint32_t>(
-                total_bytes));
-
-        Serial.print(
-            " B | Time: ");
-
-        Serial.print(
-            elapsed);
-
-        Serial.print(
-            " us | Throughput: ");
-
-        Serial.print(
-            throughput,
-            2);
-
-        Serial.println(
-            " MB/s");
+        interleaved_results[result_index]
+            .timing.megabytes_per_second =
+                throughput;
     }
 
     void RunInterleavedTests()
@@ -977,6 +886,455 @@ namespace
     }
 }
 
+void StartReport()
+{
+    SD.mkdir("BroTracker_SD_Test");
+
+    File report =
+        SD.open(
+            REPORT_FILE,
+            FILE_WRITE);
+
+    if (!report)
+    {
+        Serial.println();
+        Serial.println(
+            "ERROR: Could not create benchmark report.");
+
+        return;
+    }
+
+    report.println();
+    report.println(
+        "========================================");
+
+    report.println(
+        "BroTracker SD Read Benchmark");
+
+    report.println(
+        "Teensy 4.1 / NXP i.MX RT1062");
+
+    report.println(
+        "========================================");
+
+    report.println();
+
+    report.print(
+        "Firmware build: ");
+
+    report.print(
+        BUILD_DATE);
+
+    report.print(
+        " ");
+
+    report.println(
+        BUILD_TIME);
+
+    report.println();
+
+    report.print(
+        "Dataset: ");
+
+    report.println(
+        SAMPLE_DIRECTORY);
+
+    report.println();
+
+    report.println(
+        "Benchmark status: STARTED");
+
+    report.flush();
+    report.close();
+
+    Serial.println();
+    Serial.println(
+        "Benchmark report initialized:");
+
+    Serial.println(
+        REPORT_FILE);
+}
+
+void AppendReportStatus(
+    const char* status)
+{
+    File report =
+        SD.open(
+            REPORT_FILE,
+            FILE_WRITE);
+
+    if (!report)
+    {
+        Serial.println();
+        Serial.println(
+            "ERROR: Could not update benchmark report.");
+
+        return;
+    }
+
+    report.println();
+
+    report.print(
+        "Benchmark status: ");
+
+    report.println(
+        status);
+
+    report.flush();
+    report.close();
+}
+
+void WriteReport()
+{
+    SD.mkdir("BroTracker_SD_Test");
+
+    File report =
+        SD.open(
+            REPORT_FILE,
+            FILE_WRITE);
+
+    if (!report)
+    {
+        Serial.println();
+        Serial.println(
+            "ERROR: Could not create benchmark report.");
+
+        return;
+    }
+
+    report.println();
+    report.println(
+        "========================================");
+
+    report.println(
+        "BroTracker SD Read Benchmark");
+
+    report.println(
+        "Teensy 4.1 / NXP i.MX RT1062");
+
+    report.println(
+        "========================================");
+
+    report.println();
+
+    report.print(
+        "Firmware build: ");
+
+    report.print(
+        BUILD_DATE);
+
+    report.print(
+        " ");
+
+    report.println(
+        BUILD_TIME);
+
+    report.println();
+
+    report.print(
+        "Dataset: ");
+
+    report.println(
+        SAMPLE_DIRECTORY);
+
+    report.print(
+        "WAV files: ");
+
+    report.println(
+        sample_file_count);
+
+    report.println();
+
+    report.println(
+        "=== DATASET ===");
+
+    uint64_t total_pcm = 0;
+
+    for (std::size_t index = 0;
+         index < sample_file_count;
+         ++index)
+    {
+        total_pcm +=
+            sample_files[index]
+                .wav.data_size;
+
+        report.print(
+            sample_files[index].path);
+
+        report.print(
+            " | ");
+
+        report.print(
+            sample_files[index]
+                .file_size);
+
+        report.print(
+            " bytes | ");
+
+        report.print(
+            sample_files[index]
+                .wav.channels);
+
+        report.print(
+            " ch | ");
+
+        report.print(
+            sample_files[index]
+                .wav.sample_rate);
+
+        report.print(
+            " Hz | ");
+
+        report.print(
+            sample_files[index]
+                .wav.bits_per_sample);
+
+        report.print(
+            " bit | PCM ");
+
+        report.print(
+            sample_files[index]
+                .wav.data_size);
+
+        report.println(
+            " bytes");
+    }
+
+    report.println();
+
+    report.println(
+        "=== TEST A: SINGLE FILE READ ===");
+
+    uint64_t total_single_bytes = 0;
+    uint64_t total_single_time = 0;
+
+    for (std::size_t index = 0;
+         index < sample_file_count;
+         ++index)
+    {
+        const TimingResult& result =
+            single_results[index].timing;
+
+        total_single_bytes +=
+            result.bytes;
+
+        total_single_time +=
+            result.elapsed_us;
+
+        report.print(
+            index + 1);
+
+        report.print(
+            "/");
+
+        report.print(
+            sample_file_count);
+
+        report.print(
+            " ");
+
+        report.print(
+            sample_files[index].path);
+
+        report.print(
+            " | ");
+
+        report.print(
+            result.elapsed_us);
+
+        report.print(
+            " us | ");
+
+        report.print(
+            result.megabytes_per_second,
+            2);
+
+        report.println(
+            " MB/s");
+    }
+
+    report.println();
+
+    report.print(
+        "Total PCM data: ");
+
+    report.print(
+        static_cast<uint32_t>(
+            total_single_bytes));
+
+    report.println(
+        " bytes");
+
+    report.print(
+        "Total read time: ");
+
+    report.print(
+        static_cast<uint32_t>(
+            total_single_time));
+
+    report.println(
+        " us");
+
+    report.println();
+
+    report.println(
+        "=== TEST B: SEQUENTIAL BATCH READ ===");
+
+    for (std::size_t index = 0;
+         index < BATCH_SIZE_COUNT;
+         ++index)
+    {
+        const BatchResult& result =
+            batch_results[index];
+
+        report.print(
+            "Batch: ");
+
+        report.print(
+            result.file_count);
+
+        report.print(
+            " files | ");
+
+        report.print(
+            result.timing.bytes);
+
+        report.print(
+            " bytes | ");
+
+        report.print(
+            result.timing.elapsed_us);
+
+        report.print(
+            " us | ");
+
+        report.print(
+            result.timing.megabytes_per_second,
+            2);
+
+        report.println(
+            " MB/s");
+    }
+
+    report.println();
+
+    report.println(
+        "=== TEST C: REPEATED BATCH READ ===");
+
+    report.print(
+        "Batch size: ");
+
+    report.println(
+        repeated_batch_file_count);
+
+    for (std::size_t index = 0;
+         index < REPEATED_RUNS;
+         ++index)
+    {
+        report.print(
+            "Run ");
+
+        report.print(
+            index + 1);
+
+        report.print(
+            " | ");
+
+        report.print(
+            repeated_results[index]
+                .timing.bytes);
+
+        report.print(
+            " bytes | ");
+
+        report.print(
+            repeated_results[index]
+                .timing.elapsed_us);
+
+        report.print(
+            " us | ");
+
+        report.print(
+            repeated_results[index]
+                .timing.megabytes_per_second,
+            2);
+
+        report.println(
+            " MB/s");
+    }
+
+    report.println();
+
+    report.println(
+        "=== TEST D: INTERLEAVED READS ===");
+
+    for (std::size_t index = 0;
+         index < INTERLEAVED_STREAM_COUNT;
+         ++index)
+    {
+        const InterleavedResult& result =
+            interleaved_results[index];
+
+        report.print(
+            "Streams: ");
+
+        report.print(
+            result.stream_count);
+
+        report.print(
+            " | Chunk: ");
+
+        report.print(
+            result.chunk_size);
+
+        report.print(
+            " B | ");
+
+        report.print(
+            result.timing.bytes);
+
+        report.print(
+            " bytes | ");
+
+        report.print(
+            result.timing.elapsed_us);
+
+        report.print(
+            " us | ");
+
+        report.print(
+            result.timing.megabytes_per_second,
+            2);
+
+        report.println(
+            " MB/s");
+    }
+
+    report.println();
+
+    report.println(
+        "========================================");
+
+    report.println(
+        "SD READ BENCHMARK COMPLETE");
+
+    report.println(
+        "========================================");
+
+    report.println(
+        "Benchmark status: COMPLETE");
+
+    report.flush();
+    report.close();
+
+    Serial.println();
+    Serial.println(
+        "Benchmark report saved to:");
+
+    Serial.println(
+        REPORT_FILE);
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -1012,6 +1370,8 @@ void setup()
     Serial.println(
         "SD initialization: PASS");
 
+    StartReport();
+
     DiscoverSamples();
 
     if (sample_file_count == 0)
@@ -1025,6 +1385,9 @@ void setup()
 
         Serial.println(
             SAMPLE_DIRECTORY);
+
+        AppendReportStatus(
+            "FAILED - no WAV files found");
 
         return;
     }
@@ -1048,6 +1411,8 @@ void setup()
     RunRepeatedBatchTests();
 
     RunInterleavedTests();
+
+    WriteReport();
 
     Serial.println();
     Serial.println(
