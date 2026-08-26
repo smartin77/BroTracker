@@ -27,6 +27,7 @@
  *
  *   B. Sequential batch reads
  *      4, 8, 16, 32 and 64 WAV files are loaded sequentially.
+ *      Batch sizes larger than the discovered valid WAV count are skipped.
  *
  *   C. Repeated batch reads
  *      The same batches are repeated to observe timing variability.
@@ -44,6 +45,8 @@
  *     by the SD subsystem.
  *   - Establish useful baseline values before introducing audio
  *     buffering, the Teensy Audio Library, or other streaming layers.
+ *   - Keep a file-level list of successful and failed reads so that
+ *     unsupported or problematic WAV containers can be isolated later.
  *
  * The benchmark reads sample data only. It writes a small benchmark report
  * to BroTracker_SD_Test after the benchmark starts and after the tests finish.
@@ -142,12 +145,22 @@ namespace
 
     std::size_t sample_file_count = 0;
 
+    std::size_t discovered_wav_count = 0;
+    std::size_t invalid_wav_count = 0;
+
+    char invalid_wav_paths[MAX_FILES][128];
+    const char* invalid_wav_errors[MAX_FILES];
+
     struct TimingResult
     {
         uint32_t elapsed_us = 0;
         uint64_t bytes = 0;
 
         double megabytes_per_second = 0.0;
+
+        bool error = false;
+
+        const char* error_type = nullptr;
     };
 
     struct SingleFileResult
@@ -390,6 +403,8 @@ namespace
     void DiscoverSamples()
     {
         sample_file_count = 0;
+        discovered_wav_count = 0;
+        invalid_wav_count = 0;
 
         File directory =
             SD.open(
@@ -403,8 +418,7 @@ namespace
             return;
         }
 
-        while (sample_file_count <
-               MAX_FILES)
+        while (true)
         {
             File entry =
                 directory.openNextFile();
@@ -429,18 +443,60 @@ namespace
                 continue;
             }
 
+            ++discovered_wav_count;
+
+            if (discovered_wav_count > MAX_FILES)
+            {
+                entry.close();
+                continue;
+            }
+
+            const std::size_t directory_length =
+                std::strlen(SAMPLE_DIRECTORY);
+
+            const std::size_t name_length =
+                std::strlen(name);
+
+            if (directory_length + 1 + name_length >=
+                sizeof(sample_files[0].path))
+            {
+                if (invalid_wav_count < MAX_FILES)
+                {
+                    std::strncpy(
+                        invalid_wav_paths[invalid_wav_count],
+                        name,
+                        sizeof(invalid_wav_paths[0]) - 1);
+
+                    invalid_wav_paths[invalid_wav_count]
+                        [sizeof(invalid_wav_paths[0]) - 1] =
+                        '\0';
+
+                    invalid_wav_errors[invalid_wav_count] =
+                        "PATH_TOO_LONG";
+
+                    ++invalid_wav_count;
+                }
+
+                entry.close();
+                continue;
+            }
+
             SampleFile& sample =
                 sample_files[
                     sample_file_count];
 
-            std::strncpy(
+            std::memcpy(
                 sample.path,
-                name,
-                sizeof(sample.path) - 1);
+                SAMPLE_DIRECTORY,
+                directory_length);
 
-            sample.path[
-                sizeof(sample.path) - 1] =
-                '\0';
+            sample.path[directory_length] =
+                '/';
+
+            std::memcpy(
+                sample.path + directory_length + 1,
+                name,
+                name_length + 1);
 
             sample.file_size =
                 entry.size();
@@ -454,11 +510,22 @@ namespace
 
             if (!sample.valid)
             {
-                Serial.print(
-                    "Invalid/unsupported WAV: ");
+                if (invalid_wav_count < MAX_FILES)
+                {
+                    std::strncpy(
+                        invalid_wav_paths[invalid_wav_count],
+                        sample.path,
+                        sizeof(invalid_wav_paths[0]) - 1);
 
-                Serial.println(
-                    sample.path);
+                    invalid_wav_paths[invalid_wav_count]
+                        [sizeof(invalid_wav_paths[0]) - 1] =
+                        '\0';
+
+                    invalid_wav_errors[invalid_wav_count] =
+                        "INVALID_WAV";
+
+                    ++invalid_wav_count;
+                }
 
                 continue;
             }
@@ -481,13 +548,20 @@ namespace
 
         if (!file)
         {
+            result.error = true;
+            result.error_type = "OPEN";
+
             return result;
         }
 
         if (!file.seek(
                 sample.wav.data_offset))
         {
+            result.error = true;
+            result.error_type = "SEEK";
+
             file.close();
+
             return result;
         }
 
@@ -511,7 +585,11 @@ namespace
 
             if (bytes_read <= 0)
             {
+                result.error = true;
+                result.error_type = "READ";
+
                 file.close();
+
                 return result;
             }
 
@@ -569,8 +647,16 @@ namespace
                 ReadSample(
                     sample_files[index]);
 
-            if (sample_result.bytes == 0)
+            if (sample_result.error)
             {
+                result.error = true;
+
+                if (result.error_type == nullptr)
+                {
+                    result.error_type =
+                        sample_result.error_type;
+                }
+
                 continue;
             }
 
@@ -858,10 +944,22 @@ namespace
             SAMPLE_DIRECTORY);
 
         Serial.print(
-            "WAV files: ");
+            "WAV files found: ");
+
+        Serial.println(
+            discovered_wav_count);
+
+        Serial.print(
+            "Valid WAV files: ");
 
         Serial.println(
             sample_file_count);
+
+        Serial.print(
+            "Invalid/unsupported WAV files: ");
+
+        Serial.println(
+            invalid_wav_count);
 
         uint64_t total_pcm = 0;
 
@@ -1103,6 +1201,49 @@ void WriteReport()
     report.println();
 
     report.println(
+        "=== FILE DISCOVERY ===");
+
+    report.print(
+        "WAV files found: ");
+
+    report.println(
+        discovered_wav_count);
+
+    report.print(
+        "Valid WAV files: ");
+
+    report.println(
+        sample_file_count);
+
+    report.print(
+        "Invalid/unsupported WAV files: ");
+
+    report.println(
+        invalid_wav_count);
+
+    if (invalid_wav_count > 0)
+    {
+        report.println(
+            "Invalid WAV list:");
+
+        for (std::size_t index = 0;
+             index < invalid_wav_count;
+             ++index)
+        {
+            report.print(
+                invalid_wav_paths[index]);
+
+            report.print(
+                " | ");
+
+            report.println(
+                invalid_wav_errors[index]);
+        }
+    }
+
+    report.println();
+
+    report.println(
         "=== TEST A: SINGLE FILE READ ===");
 
     uint64_t total_single_bytes = 0;
@@ -1151,9 +1292,79 @@ void WriteReport()
 
         report.println(
             " MB/s");
+
+        if (result.error)
+        {
+            report.print(
+                "  ERROR: ");
+
+            report.println(
+                result.error_type);
+        }
     }
 
     report.println();
+
+    std::size_t successful_reads = 0;
+    std::size_t failed_reads = 0;
+
+    for (std::size_t index = 0;
+         index < sample_file_count;
+         ++index)
+    {
+        if (single_results[index].timing.error)
+        {
+            ++failed_reads;
+        }
+        else
+        {
+            ++successful_reads;
+        }
+    }
+
+    report.print(
+        "Successful reads: ");
+
+    report.println(
+        successful_reads);
+
+    report.print(
+        "Failed reads: ");
+
+    report.println(
+        failed_reads);
+
+    report.println();
+
+    if (failed_reads > 0)
+    {
+        report.println(
+            "=== FAILED FILES ===");
+
+        for (std::size_t index = 0;
+             index < sample_file_count;
+             ++index)
+        {
+            const TimingResult& result =
+                single_results[index].timing;
+
+            if (!result.error)
+            {
+                continue;
+            }
+
+            report.print(
+                sample_files[index].path);
+
+            report.print(
+                " | ERROR: ");
+
+            report.println(
+                result.error_type);
+        }
+
+        report.println();
+    }
 
     report.print(
         "Total PCM data: ");
@@ -1193,6 +1404,15 @@ void WriteReport()
         report.print(
             result.file_count);
 
+        if (result.file_count >
+            sample_file_count)
+        {
+            report.println(
+                " files | SKIPPED (not enough valid WAV files)");
+
+            continue;
+        }
+
         report.print(
             " files | ");
 
@@ -1214,6 +1434,15 @@ void WriteReport()
 
         report.println(
             " MB/s");
+
+        if (result.timing.error)
+        {
+            report.print(
+                "  ERROR: ");
+
+            report.println(
+                result.timing.error_type);
+        }
     }
 
     report.println();
@@ -1261,6 +1490,16 @@ void WriteReport()
 
         report.println(
             " MB/s");
+
+        if (repeated_results[index].timing.error)
+        {
+            report.print(
+                "  ERROR: ");
+
+            report.println(
+                repeated_results[index]
+                    .timing.error_type);
+        }
     }
 
     report.println();
