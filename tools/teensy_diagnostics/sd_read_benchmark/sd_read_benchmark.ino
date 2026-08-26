@@ -77,7 +77,7 @@ namespace
         __TIME__;
 
     constexpr std::size_t MAX_FILES =
-        64;
+        128;
 
     constexpr std::size_t READ_BUFFER_SIZE =
         4096;
@@ -222,111 +222,55 @@ namespace
 
     bool ReadWavInfo(
         File& file,
-        WavInfo& info)
+        WavInfo& info,
+        const char*& reason)
     {
-        uint8_t header[WAV_HEADER_SIZE];
+        uint8_t header[12];
 
-        const int bytes_read =
-            file.read(
-                header,
-                sizeof(header));
+        if (!file.seek(0)) { reason = "SEEK_TO_START"; return false; }
+        if (file.read(header, sizeof(header)) != (int)sizeof(header)) { reason = "SHORT_RIFF_HEADER"; return false; }
+        if (!IsFourCC(header, "RIFF") && !IsFourCC(header, "RF64")) { reason = "NOT_RIFF"; return false; }
+        if (!IsFourCC(header + 8, "WAVE")) { reason = "NOT_WAVE"; return false; }
 
-        if (bytes_read < 12)
+        bool found_fmt = false;
+        uint8_t chunk[8];
+
+        while (file.available())
         {
-            return false;
-        }
+            if (file.read(chunk, sizeof(chunk)) != (int)sizeof(chunk)) { reason = "SHORT_CHUNK_HEADER"; return false; }
+            const uint32_t size = ReadLE32(chunk + 4);
 
-        if (!IsFourCC(header, "RIFF") &&
-            !IsFourCC(header, "RF64"))
-        {
-            return false;
-        }
-
-        if (!IsFourCC(header + 8, "WAVE"))
-        {
-            return false;
-        }
-
-        /*
-         * Parse WAV chunks rather than assuming a fixed 44-byte
-         * PCM header. This allows LIST, JUNK and other chunks.
-         */
-        std::size_t position = 12;
-
-        uint8_t chunk_header[8];
-
-        while (position + 8 <=
-               static_cast<std::size_t>(bytes_read))
-        {
-            std::memcpy(
-                chunk_header,
-                header + position,
-                8);
-
-            const uint32_t chunk_size =
-                ReadLE32(
-                    chunk_header + 4);
-
-            if (IsFourCC(
-                    chunk_header,
-                    "fmt "))
+            if (IsFourCC(chunk, "fmt "))
             {
-                if (chunk_size < 16 ||
-                    position + 8 + 16 >
-                        static_cast<std::size_t>(
-                            bytes_read))
-                {
-                    return false;
-                }
-
-                const uint8_t* fmt =
-                    header + position + 8;
-
-                const uint16_t format =
-                    ReadLE16(fmt);
-
-                if (format != 1)
-                {
-                    return false;
-                }
-
-                info.channels =
-                    ReadLE16(fmt + 2);
-
-                info.sample_rate =
-                    ReadLE32(fmt + 4);
-
-                info.bits_per_sample =
-                    ReadLE16(fmt + 14);
+                if (size < 16) { reason = "FMT_TOO_SMALL"; return false; }
+                uint8_t fmt[16];
+                if (file.read(fmt, sizeof(fmt)) != (int)sizeof(fmt)) { reason = "SHORT_FMT_CHUNK"; return false; }
+                if (ReadLE16(fmt) != 1) { reason = "NOT_PCM"; return false; }
+                info.channels = ReadLE16(fmt + 2);
+                info.sample_rate = ReadLE32(fmt + 4);
+                info.bits_per_sample = ReadLE16(fmt + 14);
+                found_fmt = true;
+                if (size > 16 && !file.seek(file.position() + size - 16)) { reason = "FMT_SKIP_FAILED"; return false; }
             }
-
-            if (IsFourCC(
-                    chunk_header,
-                    "data"))
+            else if (IsFourCC(chunk, "data"))
             {
-                info.data_offset =
-                    position + 8;
-
-                info.data_size =
-                    chunk_size;
-
+                if (!found_fmt) { reason = "DATA_BEFORE_FMT"; return false; }
+                info.data_offset = file.position();
+                info.data_size = size;
                 info.valid = true;
-
+                reason = nullptr;
                 return true;
             }
-
-            position +=
-                8 + chunk_size;
-
-            /*
-             * WAV chunks are word aligned.
-             */
-            if (chunk_size & 1)
+            else
             {
-                ++position;
+                if (!file.seek(file.position() + size)) { reason = "CHUNK_SKIP_FAILED"; return false; }
             }
+
+            if (size & 1)
+                if (!file.seek(file.position() + 1)) { reason = "CHUNK_PADDING_FAILED"; return false; }
         }
 
+        reason = found_fmt ? "DATA_NOT_FOUND" : "FMT_NOT_FOUND";
         return false;
     }
 
@@ -406,133 +350,64 @@ namespace
         discovered_wav_count = 0;
         invalid_wav_count = 0;
 
-        File directory =
-            SD.open(
-                SAMPLE_DIRECTORY);
-
-        if (!directory)
-        {
-            Serial.println(
-                "ERROR: Sample directory could not be opened.");
-
-            return;
-        }
+        File directory = SD.open(SAMPLE_DIRECTORY);
+        if (!directory) { Serial.println("ERROR: Sample directory could not be opened."); return; }
 
         while (true)
         {
-            File entry =
-                directory.openNextFile();
+            File entry = directory.openNextFile();
+            if (!entry) break;
+            if (entry.isDirectory()) { entry.close(); continue; }
 
-            if (!entry)
-            {
-                break;
-            }
-
-            if (entry.isDirectory())
-            {
-                entry.close();
-                continue;
-            }
-
-            const char* name =
-                entry.name();
-
-            if (!IsWavFile(name))
-            {
-                entry.close();
-                continue;
-            }
-
+            const char* name = entry.name();
+            if (!IsWavFile(name)) { entry.close(); continue; }
             ++discovered_wav_count;
 
-            if (discovered_wav_count > MAX_FILES)
+            const std::size_t dl = std::strlen(SAMPLE_DIRECTORY);
+            const std::size_t nl = std::strlen(name);
+
+            if (sample_file_count >= MAX_FILES || dl + 1 + nl >= sizeof(sample_files[0].path))
             {
-                entry.close();
-                continue;
-            }
-
-            const std::size_t directory_length =
-                std::strlen(SAMPLE_DIRECTORY);
-
-            const std::size_t name_length =
-                std::strlen(name);
-
-            if (directory_length + 1 + name_length >=
-                sizeof(sample_files[0].path))
-            {
-                if (invalid_wav_count < MAX_FILES)
-                {
-                    std::strncpy(
-                        invalid_wav_paths[invalid_wav_count],
-                        name,
-                        sizeof(invalid_wav_paths[0]) - 1);
-
-                    invalid_wav_paths[invalid_wav_count]
-                        [sizeof(invalid_wav_paths[0]) - 1] =
-                        '\0';
-
-                    invalid_wav_errors[invalid_wav_count] =
-                        "PATH_TOO_LONG";
-
-                    ++invalid_wav_count;
+                if (invalid_wav_count < MAX_FILES) {
+                    std::strncpy(invalid_wav_paths[invalid_wav_count], name, sizeof(invalid_wav_paths[0]) - 1);
+                    invalid_wav_paths[invalid_wav_count][sizeof(invalid_wav_paths[0]) - 1] = '\0';
+                    invalid_wav_errors[invalid_wav_count++] =
+                        sample_file_count >= MAX_FILES ? "MAX_FILES_LIMIT" : "PATH_TOO_LONG";
                 }
-
                 entry.close();
                 continue;
             }
 
-            SampleFile& sample =
-                sample_files[
-                    sample_file_count];
+            SampleFile candidate;
+            std::memcpy(candidate.path, SAMPLE_DIRECTORY, dl);
+            candidate.path[dl] = '/';
+            std::memcpy(candidate.path + dl + 1, name, nl + 1);
+            candidate.file_size = entry.size();
 
-            std::memcpy(
-                sample.path,
-                SAMPLE_DIRECTORY,
-                directory_length);
-
-            sample.path[directory_length] =
-                '/';
-
-            std::memcpy(
-                sample.path + directory_length + 1,
-                name,
-                name_length + 1);
-
-            sample.file_size =
-                entry.size();
-
-            sample.valid =
-                ReadWavInfo(
-                    entry,
-                    sample.wav);
-
+            const char* reason = nullptr;
+            candidate.valid = ReadWavInfo(entry, candidate.wav, reason);
             entry.close();
 
-            if (!sample.valid)
+            if (!candidate.valid)
             {
-                if (invalid_wav_count < MAX_FILES)
-                {
-                    std::strncpy(
-                        invalid_wav_paths[invalid_wav_count],
-                        sample.path,
-                        sizeof(invalid_wav_paths[0]) - 1);
+                std::memcpy(
+                    invalid_wav_paths[invalid_wav_count],
+                    candidate.path,
+                    sizeof(invalid_wav_paths[0]));
 
-                    invalid_wav_paths[invalid_wav_count]
-                        [sizeof(invalid_wav_paths[0]) - 1] =
-                        '\0';
+                invalid_wav_paths[
+                    invalid_wav_count]
+                    [sizeof(invalid_wav_paths[0]) - 1] =
+                    '\0';
 
-                    invalid_wav_errors[invalid_wav_count] =
-                        "INVALID_WAV";
-
-                    ++invalid_wav_count;
-                }
-
+                invalid_wav_errors[
+                    invalid_wav_count++
+                    ] = reason ? reason : "INVALID_WAV";
                 continue;
             }
 
-            ++sample_file_count;
+            sample_files[sample_file_count++] = candidate;
         }
-
         directory.close();
     }
 
@@ -1415,6 +1290,12 @@ void WriteReport()
 
         report.print(
             " files | ");
+
+        if (result.file_count > sample_file_count)
+        {
+            report.println("SKIPPED - not enough valid WAV files");
+            continue;
+        }
 
         report.print(
             result.timing.bytes);
