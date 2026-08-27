@@ -5,51 +5,49 @@
  *
  * Purpose:
  *
- *   Measure the real-world SD card read performance of a Teensy 4.1
- *   when loading multiple PCM WAV samples.
+ *   Measure SD-card read performance on Teensy 4.1 while treating the
+ *   sample directory as a future BroTracker Instrument/Sample browser.
  *
- *   This benchmark is intentionally focused on the storage layer.
- *   It does not use the Teensy Audio Library and does not generate
- *   audio output.
+ * Design:
+ *
+ *   - The directory is scanned completely.
+ *   - The number of supported sample files is not limited by a fixed
+ *     dataset-size constant.
+ *   - Currently, PCM RIFF/WAVE files are the supported sample format.
+ *   - Browser pagination is limited only by the number of rows displayed
+ *     on the UI. This is currently 31 rows and is intended to become a
+ *     UI configuration value later.
+ *   - Sample metadata is loaded only for the requested browser page.
+ *   - Benchmark tests rescan the directory instead of keeping every sample
+ *     path in RAM.
  *
  * Dataset:
  *
  *   Samples/Wav-HQ/DrumLoop/
  *
- *   The dataset is expected to contain multiple PCM WAV files,
- *   primarily 16-bit / 44.1 kHz, with both mono and stereo files.
- *
  * Tests:
  *
  *   A. Single-file reads
- *      Each WAV file is opened, its WAV header is inspected,
- *      all PCM data is read, and the file is closed.
+ *      Read every valid sample once.
  *
  *   B. Sequential batch reads
- *      4, 8, 16, 32 and 64 WAV files are loaded sequentially.
- *      Batch sizes larger than the discovered valid WAV count are skipped.
+ *      Read 4, 8, 16, 32 and 64 valid samples sequentially.
  *
  *   C. Repeated batch reads
- *      The same batches are repeated to observe timing variability.
+ *      Repeat the 16-sample sequential read three times.
  *
  *   D. Interleaved reads
- *      Multiple WAV files are opened and read in alternating chunks.
- *      This is intended as a storage-level approximation of future
- *      multi-sample streaming.
+ *      Read 2, 4 and 8 samples in alternating 1024-byte chunks.
  *
  * Goals:
  *
  *   - Establish baseline SD read performance on Teensy 4.1.
- *   - Measure the overhead of opening and reading many small files.
- *   - Determine whether multiple sample streams can be serviced
- *     by the SD subsystem.
- *   - Establish useful baseline values before introducing audio
- *     buffering, the Teensy Audio Library, or other streaming layers.
- *   - Keep a file-level list of successful and failed reads so that
- *     unsupported or problematic WAV containers can be isolated later.
+ *   - Measure many-small-file access rather than only large-file throughput.
+ *   - Measure storage behaviour relevant to future multi-sample streaming.
+ *   - Validate that all supported files in a directory can be discovered.
+ *   - Keep browser pagination independent from the number of samples.
  *
- * The benchmark reads sample data only. It writes a small benchmark report
- * to BroTracker_SD_Test after the benchmark starts and after the tests finish.
+ * This benchmark writes a report to BroTracker_SD_Test.
  *
  * Copyright (C) smARTin and BroTracker contributors
  * License: GPL-3.0
@@ -76,14 +74,20 @@ namespace
     constexpr const char* BUILD_TIME =
         __TIME__;
 
-    constexpr std::size_t MAX_FILES =
-        128;
+    /*
+     * UI/browser configuration.
+     *
+     * This is NOT a limit on the number of samples in a directory.
+     * It will later be supplied by the actual UI configuration.
+     */
+    constexpr std::size_t BROWSER_PAGE_ROWS =
+        31;
 
     constexpr std::size_t READ_BUFFER_SIZE =
         4096;
 
-    constexpr std::size_t WAV_HEADER_SIZE =
-        256;
+    constexpr std::size_t INTERLEAVED_CHUNK_SIZE =
+        1024;
 
     constexpr std::size_t REPEATED_RUNS =
         3;
@@ -112,15 +116,12 @@ namespace
         sizeof(INTERLEAVED_STREAMS) /
         sizeof(INTERLEAVED_STREAMS[0]);
 
-    constexpr std::size_t INTERLEAVED_CHUNK_SIZE =
-        1024;
-
     uint8_t read_buffer[READ_BUFFER_SIZE];
 
     struct WavInfo
     {
-        std::size_t data_offset = 0;
-        std::size_t data_size = 0;
+        uint32_t data_offset = 0;
+        uint32_t data_size = 0;
 
         uint16_t channels = 0;
         uint16_t bits_per_sample = 0;
@@ -132,24 +133,51 @@ namespace
 
     struct SampleFile
     {
-        char path[128];
+        char path[128] = {};
 
         WavInfo wav;
 
-        std::size_t file_size = 0;
+        uint32_t file_size = 0;
 
         bool valid = false;
     };
 
-    SampleFile sample_files[MAX_FILES];
+    /*
+     * Result of scanning a directory.
+     *
+     * total_entries:
+     *     Every non-directory filesystem entry.
+     *
+     * supported_samples:
+     *     Files accepted by the current sample-format validators.
+     *
+     * invalid_wav:
+     *     WAV candidates which failed the current WAV validator.
+     *
+     * The benchmark does not store all sample paths in RAM.
+     */
+    struct DiscoverySummary
+    {
+        uint32_t total_entries = 0;
+        uint32_t wav_candidates = 0;
+        uint32_t supported_samples = 0;
+        uint32_t invalid_wav = 0;
+    };
 
-    std::size_t sample_file_count = 0;
+    /*
+     * A browser page is deliberately bounded by the UI page size.
+     * This is the only fixed sample-list storage used by the browser model.
+     */
+    struct SampleBrowserPage
+    {
+        uint32_t page_index = 0;
+        uint32_t total_samples = 0;
+        uint32_t total_pages = 0;
 
-    std::size_t discovered_wav_count = 0;
-    std::size_t invalid_wav_count = 0;
+        std::size_t count = 0;
 
-    char invalid_wav_paths[MAX_FILES][128];
-    const char* invalid_wav_errors[MAX_FILES];
+        SampleFile samples[BROWSER_PAGE_ROWS];
+    };
 
     struct TimingResult
     {
@@ -159,45 +187,55 @@ namespace
         double megabytes_per_second = 0.0;
 
         bool error = false;
-
         const char* error_type = nullptr;
     };
 
-    struct SingleFileResult
+    struct BenchmarkSummary
     {
-        TimingResult timing;
+        uint32_t successful_reads = 0;
+        uint32_t failed_reads = 0;
+
+        uint64_t total_bytes = 0;
+        uint64_t total_time_us = 0;
     };
 
-    struct BatchResult
-    {
-        std::size_t file_count = 0;
-        TimingResult timing;
-    };
+    DiscoverySummary discovery;
 
-    struct InterleavedResult
-    {
-        std::size_t stream_count = 0;
-        std::size_t chunk_size = 0;
-        TimingResult timing;
-    };
+    TimingResult batch_results[
+        BATCH_SIZE_COUNT];
 
-    SingleFileResult single_results[MAX_FILES];
+    TimingResult repeated_results[
+        REPEATED_RUNS];
 
-    BatchResult batch_results[BATCH_SIZE_COUNT];
-
-    BatchResult repeated_results[REPEATED_RUNS];
-
-    InterleavedResult interleaved_results[
+    TimingResult interleaved_results[
         INTERLEAVED_STREAM_COUNT];
 
-    std::size_t repeated_batch_file_count = 0;
+    std::size_t repeated_batch_size = 16;
+
+    uint32_t BrowserPageCount(
+        uint32_t total_samples)
+    {
+        if (total_samples == 0)
+        {
+            return 0;
+        }
+
+        return
+            (total_samples +
+             static_cast<uint32_t>(
+                 BROWSER_PAGE_ROWS) -
+             1) /
+            static_cast<uint32_t>(
+                BROWSER_PAGE_ROWS);
+    }
 
     uint16_t ReadLE16(
         const uint8_t* data)
     {
         return static_cast<uint16_t>(
             data[0] |
-            (static_cast<uint16_t>(data[1]) << 8));
+            (static_cast<uint16_t>(
+                data[1]) << 8));
     }
 
     uint32_t ReadLE32(
@@ -205,114 +243,23 @@ namespace
     {
         return static_cast<uint32_t>(
             data[0] |
-            (static_cast<uint32_t>(data[1]) << 8) |
-            (static_cast<uint32_t>(data[2]) << 16) |
-            (static_cast<uint32_t>(data[3]) << 24));
+            (static_cast<uint32_t>(
+                data[1]) << 8) |
+            (static_cast<uint32_t>(
+                data[2]) << 16) |
+            (static_cast<uint32_t>(
+                data[3]) << 24));
     }
 
     bool IsFourCC(
         const uint8_t* data,
         const char* text)
     {
-        return data[0] == text[0] &&
-               data[1] == text[1] &&
-               data[2] == text[2] &&
-               data[3] == text[3];
-    }
-
-    bool ReadWavInfo(
-        File& file,
-        WavInfo& info,
-        const char*& reason)
-    {
-        reason = "UNKNOWN";
-        uint8_t header[12];
-
-        if (!file.seek(0)) { reason = "SEEK_TO_START"; return false; }
-        if (file.read(header, sizeof(header)) != (int)sizeof(header)) { reason = "SHORT_RIFF_HEADER"; return false; }
-        if (!IsFourCC(header, "RIFF") && !IsFourCC(header, "RF64")) { reason = "NOT_RIFF"; return false; }
-        if (!IsFourCC(header + 8, "WAVE")) { reason = "NOT_WAVE"; return false; }
-
-        bool found_fmt = false;
-        uint8_t chunk[8];
-
-        while (file.available())
-        {
-            if (file.read(chunk, sizeof(chunk)) != (int)sizeof(chunk)) { reason = "SHORT_CHUNK_HEADER"; return false; }
-            const uint32_t size = ReadLE32(chunk + 4);
-
-            if (IsFourCC(chunk, "fmt "))
-            {
-                if (size < 16) { reason = "FMT_TOO_SMALL"; return false; }
-                uint8_t fmt[16];
-                if (file.read(fmt, sizeof(fmt)) != (int)sizeof(fmt)) { reason = "SHORT_FMT_CHUNK"; return false; }
-                if (ReadLE16(fmt) != 1) { reason = "NOT_PCM"; return false; }
-                info.channels = ReadLE16(fmt + 2);
-                info.sample_rate = ReadLE32(fmt + 4);
-                info.bits_per_sample = ReadLE16(fmt + 14);
-                found_fmt = true;
-                if (size > 16 && !file.seek(file.position() + size - 16)) { reason = "FMT_SKIP_FAILED"; return false; }
-            }
-            else if (IsFourCC(chunk, "data"))
-            {
-                if (!found_fmt) { reason = "DATA_BEFORE_FMT"; return false; }
-                info.data_offset = file.position();
-                info.data_size = size;
-                info.valid = true;
-                reason = nullptr;
-                return true;
-            }
-            else
-            {
-                if (!file.seek(file.position() + size)) { reason = "CHUNK_SKIP_FAILED"; return false; }
-            }
-
-            if (size & 1)
-                if (!file.seek(file.position() + 1)) { reason = "CHUNK_PADDING_FAILED"; return false; }
-        }
-
-        reason = found_fmt ? "DATA_NOT_FOUND" : "FMT_NOT_FOUND";
-        return false;
-    }
-
-    void PrintWavInfo(
-        const SampleFile& sample)
-    {
-        Serial.print(
-            sample.path);
-
-        Serial.print(
-            " | ");
-
-        Serial.print(
-            sample.file_size);
-
-        Serial.print(
-            " bytes | ");
-
-        Serial.print(
-            sample.wav.channels);
-
-        Serial.print(
-            " ch | ");
-
-        Serial.print(
-            sample.wav.sample_rate);
-
-        Serial.print(
-            " Hz | ");
-
-        Serial.print(
-            sample.wav.bits_per_sample);
-
-        Serial.print(
-            " bit | PCM ");
-
-        Serial.print(
-            sample.wav.data_size);
-
-        Serial.println(
-            " bytes");
+        return
+            data[0] == text[0] &&
+            data[1] == text[1] &&
+            data[2] == text[2] &&
+            data[3] == text[3];
     }
 
     bool IsWavFile(
@@ -339,77 +286,459 @@ namespace
             name[length - 1];
 
         return
-            (c0 == '.' &&
-             (c1 == 'w' || c1 == 'W') &&
-             (c2 == 'a' || c2 == 'A') &&
-             (c3 == 'v' || c3 == 'V'));
+            c0 == '.' &&
+            (c1 == 'w' || c1 == 'W') &&
+            (c2 == 'a' || c2 == 'A') &&
+            (c3 == 'v' || c3 == 'V');
     }
 
-    void DiscoverSamples()
+    /*
+     * Parse a PCM RIFF/WAVE file by scanning its chunks directly from SD.
+     *
+     * We intentionally do not impose a fixed WAV-header size. Containers
+     * containing LIST/JUNK/etc. before the data chunk are valid candidates.
+     *
+     * RF64 is not treated as a supported format here because proper RF64
+     * size handling requires the ds64 chunk and is a separate decision.
+     */
+    bool ReadWavInfo(
+        File& file,
+        WavInfo& info,
+        const char*& reason)
     {
-        sample_file_count = 0;
-        discovered_wav_count = 0;
-        invalid_wav_count = 0;
+        reason = "UNKNOWN";
 
-        File directory = SD.open(SAMPLE_DIRECTORY);
-        if (!directory) { Serial.println("ERROR: Sample directory could not be opened."); return; }
+        uint8_t header[12];
 
+        if (!file.seek(0))
+        {
+            reason = "SEEK_TO_START";
+            return false;
+        }
+
+        if (file.read(
+                header,
+                sizeof(header)) !=
+            static_cast<int>(
+                sizeof(header)))
+        {
+            reason = "SHORT_RIFF_HEADER";
+            return false;
+        }
+
+        if (!IsFourCC(
+                header,
+                "RIFF"))
+        {
+            reason = "NOT_RIFF";
+            return false;
+        }
+
+        if (!IsFourCC(
+                header + 8,
+                "WAVE"))
+        {
+            reason = "NOT_WAVE";
+            return false;
+        }
+
+        bool found_fmt = false;
+
+        uint8_t chunk[8];
+
+        while (file.available())
+        {
+            if (file.read(
+                    chunk,
+                    sizeof(chunk)) !=
+                static_cast<int>(
+                    sizeof(chunk)))
+            {
+                reason = "SHORT_CHUNK_HEADER";
+                return false;
+            }
+
+            const uint32_t chunk_size =
+                ReadLE32(chunk + 4);
+
+            const uint32_t chunk_data_position =
+                static_cast<uint32_t>(
+                    file.position());
+
+            if (IsFourCC(
+                    chunk,
+                    "fmt "))
+            {
+                if (chunk_size < 16)
+                {
+                    reason = "FMT_TOO_SMALL";
+                    return false;
+                }
+
+                uint8_t fmt[16];
+
+                if (file.read(
+                        fmt,
+                        sizeof(fmt)) !=
+                    static_cast<int>(
+                        sizeof(fmt)))
+                {
+                    reason = "SHORT_FMT_CHUNK";
+                    return false;
+                }
+
+                if (ReadLE16(fmt) != 1)
+                {
+                    reason = "NOT_PCM";
+                    return false;
+                }
+
+                info.channels =
+                    ReadLE16(fmt + 2);
+
+                info.sample_rate =
+                    ReadLE32(fmt + 4);
+
+                info.bits_per_sample =
+                    ReadLE16(fmt + 14);
+
+                found_fmt = true;
+
+                const uint32_t remaining =
+                    chunk_size - 16;
+
+                if (remaining > 0 &&
+                    !file.seek(
+                        chunk_data_position +
+                        chunk_size))
+                {
+                    reason = "FMT_SKIP_FAILED";
+                    return false;
+                }
+            }
+            else if (IsFourCC(
+                         chunk,
+                         "data"))
+            {
+                if (!found_fmt)
+                {
+                    reason = "DATA_BEFORE_FMT";
+                    return false;
+                }
+
+                info.data_offset =
+                    chunk_data_position;
+
+                info.data_size =
+                    chunk_size;
+
+                info.valid = true;
+                reason = nullptr;
+
+                return true;
+            }
+            else
+            {
+                if (!file.seek(
+                        chunk_data_position +
+                        chunk_size))
+                {
+                    reason = "CHUNK_SKIP_FAILED";
+                    return false;
+                }
+            }
+
+            if (chunk_size & 1)
+            {
+                if (!file.seek(
+                        file.position() + 1))
+                {
+                    reason = "CHUNK_PADDING_FAILED";
+                    return false;
+                }
+            }
+        }
+
+        reason =
+            found_fmt
+                ? "DATA_NOT_FOUND"
+                : "FMT_NOT_FOUND";
+
+        return false;
+    }
+
+    bool BuildSampleFile(
+        File& entry,
+        const char* name,
+        SampleFile& sample,
+        const char*& reason)
+    {
+        const std::size_t directory_length =
+            std::strlen(
+                SAMPLE_DIRECTORY);
+
+        const std::size_t name_length =
+            std::strlen(name);
+
+        if (directory_length + 1 + name_length >=
+            sizeof(sample.path))
+        {
+            reason = "PATH_TOO_LONG";
+            return false;
+        }
+
+        std::memcpy(
+            sample.path,
+            SAMPLE_DIRECTORY,
+            directory_length);
+
+        sample.path[
+            directory_length] =
+            '/';
+
+        std::memcpy(
+            sample.path +
+                directory_length + 1,
+            name,
+            name_length + 1);
+
+        sample.file_size =
+            static_cast<uint32_t>(
+                entry.size());
+
+        sample.valid =
+            ReadWavInfo(
+                entry,
+                sample.wav,
+                reason);
+
+        return sample.valid;
+    }
+
+    /*
+     * Scan the complete directory.
+     *
+     * No dataset-size limit exists here.
+     * This routine is intended to become reusable by the Instrument/sample
+     * browser layer.
+     */
+    bool OpenSampleDirectory(
+        File& directory)
+    {
+        directory =
+            SD.open(
+                SAMPLE_DIRECTORY);
+
+        return static_cast<bool>(
+            directory);
+    }
+
+    /*
+     * Return the next supported sample from an already-open directory.
+     *
+     * This is the important reusable primitive: callers can enumerate an
+     * arbitrary number of samples without allocating an array for the
+     * complete directory.
+     */
+    bool NextSupportedSample(
+        File& directory,
+        SampleFile& sample)
+    {
         while (true)
         {
-            File entry = directory.openNextFile();
-            if (!entry) break;
-            if (entry.isDirectory()) { entry.close(); continue; }
+            File entry =
+                directory.openNextFile();
 
-            const char* name = entry.name();
-            if (!IsWavFile(name)) { entry.close(); continue; }
-            ++discovered_wav_count;
-
-            const std::size_t dl = std::strlen(SAMPLE_DIRECTORY);
-            const std::size_t nl = std::strlen(name);
-
-            if (sample_file_count >= MAX_FILES || dl + 1 + nl >= sizeof(sample_files[0].path))
+            if (!entry)
             {
-                if (invalid_wav_count < MAX_FILES) {
-                    std::strncpy(invalid_wav_paths[invalid_wav_count], name, sizeof(invalid_wav_paths[0]) - 1);
-                    invalid_wav_paths[invalid_wav_count][sizeof(invalid_wav_paths[0]) - 1] = '\0';
-                    invalid_wav_errors[invalid_wav_count++] =
-                        sample_file_count >= MAX_FILES ? "MAX_FILES_LIMIT" : "PATH_TOO_LONG";
-                }
+                return false;
+            }
+
+            if (entry.isDirectory())
+            {
                 entry.close();
                 continue;
             }
 
-            SampleFile candidate;
-            std::memcpy(candidate.path, SAMPLE_DIRECTORY, dl);
-            candidate.path[dl] = '/';
-            std::memcpy(candidate.path + dl + 1, name, nl + 1);
-            candidate.file_size = entry.size();
+            const char* name =
+                entry.name();
 
-            const char* reason = nullptr;
-            candidate.valid = ReadWavInfo(entry, candidate.wav, reason);
-            entry.close();
-
-            if (!candidate.valid)
+            if (!IsWavFile(name))
             {
-                std::memcpy(
-                    invalid_wav_paths[invalid_wav_count],
-                    candidate.path,
-                    sizeof(invalid_wav_paths[0]));
-
-                invalid_wav_paths[
-                    invalid_wav_count]
-                    [sizeof(invalid_wav_paths[0]) - 1] =
-                    '\0';
-                
-                invalid_wav_errors[
-                    invalid_wav_count++
-                ] = reason ? reason : "INVALID_WAV";
+                entry.close();
                 continue;
             }
 
-            sample_files[sample_file_count++] = candidate;
+            const char* reason = nullptr;
+
+            const bool valid =
+                BuildSampleFile(
+                    entry,
+                    name,
+                    sample,
+                    reason);
+
+            entry.close();
+
+            if (!valid)
+            {
+                continue;
+            }
+
+            return true;
         }
+    }
+
+    /*
+     * Scan the complete directory.
+     *
+     * No dataset-size limit exists here. Only counters are retained.
+     */
+    bool ScanSampleDirectory(
+        DiscoverySummary& summary)
+    {
+        summary = {};
+
+        File directory;
+
+        if (!OpenSampleDirectory(
+                directory))
+        {
+            return false;
+        }
+
+        while (true)
+        {
+            File entry =
+                directory.openNextFile();
+
+            if (!entry)
+            {
+                break;
+            }
+
+            if (entry.isDirectory())
+            {
+                entry.close();
+                continue;
+            }
+
+            ++summary.total_entries;
+
+            const char* name =
+                entry.name();
+
+            if (!IsWavFile(name))
+            {
+                entry.close();
+                continue;
+            }
+
+            ++summary.wav_candidates;
+
+            SampleFile sample;
+            const char* reason = nullptr;
+
+            if (BuildSampleFile(
+                    entry,
+                    name,
+                    sample,
+                    reason))
+            {
+                ++summary.supported_samples;
+            }
+            else
+            {
+                ++summary.invalid_wav;
+            }
+
+            entry.close();
+        }
+
         directory.close();
+
+        return true;
+    }
+
+    /*
+     * Load one page of supported samples.
+     *
+     * The complete directory may contain thousands of samples. Only
+     * BROWSER_PAGE_ROWS entries are retained in RAM.
+     *
+     * Page selection is based on the count of supported sample files,
+     * not on filesystem entry number.
+     */
+    bool LoadSampleBrowserPage(
+        uint32_t page_index,
+        uint32_t total_samples,
+        SampleBrowserPage& page)
+    {
+        page = {};
+        page.page_index = page_index;
+        page.total_samples = total_samples;
+        page.total_pages =
+            BrowserPageCount(
+                total_samples);
+
+        if (page_index >= page.total_pages)
+        {
+            return false;
+        }
+
+        const uint32_t first_sample =
+            page_index *
+            static_cast<uint32_t>(
+                BROWSER_PAGE_ROWS);
+
+        File directory;
+
+        if (!OpenSampleDirectory(
+                directory))
+        {
+            return false;
+        }
+
+        uint32_t supported_index = 0;
+
+        while (supported_index <
+               first_sample)
+        {
+            SampleFile ignored;
+
+            if (!NextSupportedSample(
+                    directory,
+                    ignored))
+            {
+                directory.close();
+                return false;
+            }
+
+            ++supported_index;
+        }
+
+        while (page.count <
+               BROWSER_PAGE_ROWS)
+        {
+            SampleFile sample;
+
+            if (!NextSupportedSample(
+                    directory,
+                    sample))
+            {
+                break;
+            }
+
+            page.samples[
+                page.count++] =
+                sample;
+
+            ++supported_index;
+        }
+
+        directory.close();
+
+        return page.count > 0;
     }
 
     TimingResult ReadSample(
@@ -426,7 +755,6 @@ namespace
         {
             result.error = true;
             result.error_type = "OPEN";
-
             return result;
         }
 
@@ -435,9 +763,7 @@ namespace
         {
             result.error = true;
             result.error_type = "SEEK";
-
             file.close();
-
             return result;
         }
 
@@ -463,9 +789,7 @@ namespace
             {
                 result.error = true;
                 result.error_type = "READ";
-
                 file.close();
-
                 return result;
             }
 
@@ -478,38 +802,115 @@ namespace
                     bytes_read);
         }
 
-        const uint32_t end =
-            micros();
+        result.elapsed_us =
+            micros() - start;
 
         file.close();
-
-        result.elapsed_us =
-            end - start;
 
         if (result.elapsed_us > 0)
         {
             result.megabytes_per_second =
-                (static_cast<double>(
+                static_cast<double>(
                     result.bytes) /
-                 1000000.0) /
-                (static_cast<double>(
-                    result.elapsed_us) /
-                 1000000.0);
+                static_cast<double>(
+                    result.elapsed_us);
         }
 
         return result;
     }
 
-    TimingResult ReadBatch(
+    /*
+     * Read every supported sample.
+     *
+     * The directory is opened once and enumerated once. This is important:
+     * a large sample folder must not turn into an O(n²) directory scan.
+     */
+    BenchmarkSummary RunSingleFileReads()
+    {
+        BenchmarkSummary summary;
+
+        File directory;
+
+        if (!OpenSampleDirectory(
+                directory))
+        {
+            summary.failed_reads =
+                discovery.supported_samples;
+
+            return summary;
+        }
+
+        const uint32_t start =
+            micros();
+
+        uint32_t sample_index = 0;
+
+        while (sample_index <
+               discovery.supported_samples)
+        {
+            SampleFile sample;
+
+            if (!NextSupportedSample(
+                    directory,
+                    sample))
+            {
+                summary.failed_reads +=
+                    discovery.supported_samples -
+                    sample_index;
+
+                break;
+            }
+
+            const TimingResult result =
+                ReadSample(sample);
+
+            if (result.error)
+            {
+                ++summary.failed_reads;
+            }
+            else
+            {
+                ++summary.successful_reads;
+                summary.total_bytes +=
+                    result.bytes;
+            }
+
+            ++sample_index;
+        }
+
+        summary.total_time_us =
+            micros() - start;
+
+        directory.close();
+
+        return summary;
+    }
+
+    TimingResult RunSequentialBatch(
         std::size_t count)
     {
         TimingResult result;
 
         if (count >
-            sample_file_count)
+            discovery.supported_samples)
         {
-            count =
-                sample_file_count;
+            result.error = true;
+            result.error_type =
+                "NOT_ENOUGH_SAMPLES";
+
+            return result;
+        }
+
+        File directory;
+
+        if (!OpenSampleDirectory(
+                directory))
+        {
+            result.error = true;
+            result.error_type =
+                "DISCOVERY";
+
+            return result;
         }
 
         const uint32_t start =
@@ -519,951 +920,687 @@ namespace
              index < count;
              ++index)
         {
+            SampleFile sample;
+
+            if (!NextSupportedSample(
+                    directory,
+                    sample))
+            {
+                result.error = true;
+                result.error_type =
+                    "DISCOVERY";
+                break;
+            }
+
             const TimingResult sample_result =
-                ReadSample(
-                    sample_files[index]);
+                ReadSample(sample);
 
             if (sample_result.error)
             {
                 result.error = true;
-
-                if (result.error_type == nullptr)
-                {
-                    result.error_type =
-                        sample_result.error_type;
-                }
-
-                continue;
+                result.error_type =
+                    sample_result.error_type;
+                break;
             }
 
             result.bytes +=
                 sample_result.bytes;
         }
 
-        const uint32_t end =
-            micros();
-
         result.elapsed_us =
-            end - start;
+            micros() - start;
+
+        directory.close();
 
         if (result.elapsed_us > 0)
         {
             result.megabytes_per_second =
-                (static_cast<double>(
+                static_cast<double>(
                     result.bytes) /
-                 1000000.0) /
-                (static_cast<double>(
-                    result.elapsed_us) /
-                 1000000.0);
+                static_cast<double>(
+                    result.elapsed_us);
         }
 
         return result;
     }
 
-    void RunSingleFileTest()
-    {
-        uint64_t total_bytes = 0;
-        uint64_t total_time_us = 0;
-
-        for (std::size_t index = 0;
-            index < sample_file_count;
-            ++index)
-        {
-            const TimingResult result =
-                ReadSample(
-                    sample_files[index]);
-
-            single_results[index].timing =
-                result;
-
-            total_bytes += result.bytes;
-            total_time_us += result.elapsed_us;
-        }
-    }
-
-    void RunBatchTests()
-    {
-        for (std::size_t size_index = 0;
-            size_index < BATCH_SIZE_COUNT;
-            ++size_index)
-        {
-            const std::size_t count =
-                BATCH_SIZES[size_index];
-
-            batch_results[size_index].file_count =
-                count;
-
-            if (count > sample_file_count)
-            {
-                batch_results[size_index].timing =
-                    TimingResult();
-
-                continue;
-            }
-
-            batch_results[size_index].timing =
-                ReadBatch(count);
-        }
-    }
-
-    void RunRepeatedBatchTests()
-    {
-        repeated_batch_file_count =
-            sample_file_count < 16
-                ? sample_file_count
-                : 16;
-
-        for (std::size_t run = 0;
-            run < REPEATED_RUNS;
-            ++run)
-        {
-            repeated_results[run].file_count =
-                repeated_batch_file_count;
-
-            repeated_results[run].timing =
-                ReadBatch(
-                    repeated_batch_file_count);
-        }
-    }
-
-    void RunInterleavedTest(
+    /*
+     * Interleaved read using only the requested number of stream states.
+     * Stream metadata is bounded by the test configuration, not by the
+     * total number of samples in the directory.
+     */
+    TimingResult RunInterleaved(
         std::size_t stream_count)
     {
+        TimingResult result;
+
         if (stream_count >
-            sample_file_count)
+            discovery.supported_samples)
         {
-            return;
+            result.error = true;
+            result.error_type =
+                "NOT_ENOUGH_SAMPLES";
+
+            return result;
         }
 
-        File streams[
-            8];
+        File files[
+            INTERLEAVED_STREAM_COUNT];
 
         std::size_t remaining[
-            8];
+            INTERLEAVED_STREAM_COUNT] = {};
 
-        bool active[
-            8];
+        File directory;
 
-        uint64_t total_bytes = 0;
+        if (!OpenSampleDirectory(
+                directory))
+        {
+            result.error = true;
+            result.error_type =
+                "DISCOVERY";
+
+            return result;
+        }
 
         for (std::size_t index = 0;
              index < stream_count;
              ++index)
         {
-            streams[index] =
+            SampleFile sample;
+
+            if (!NextSupportedSample(
+                    directory,
+                    sample))
+            {
+                result.error = true;
+                result.error_type =
+                    "DISCOVERY";
+
+                directory.close();
+
+                for (std::size_t close_index = 0;
+                     close_index < index;
+                     ++close_index)
+                {
+                    files[close_index].close();
+                }
+
+                return result;
+            }
+
+            files[index] =
                 SD.open(
-                    sample_files[index].path,
+                    sample.path,
                     FILE_READ);
 
-            if (!streams[index])
+            if (!files[index])
             {
-                active[index] = false;
-                remaining[index] = 0;
-                continue;
+                result.error = true;
+                result.error_type =
+                    "OPEN";
+
+                for (std::size_t close_index = 0;
+                     close_index < index;
+                     ++close_index)
+                {
+                    files[close_index].close();
+                }
+
+                return result;
             }
 
-            if (!streams[index].seek(
-                    sample_files[index]
-                        .wav.data_offset))
+            if (!files[index].seek(
+                    sample.wav.data_offset))
             {
-                streams[index].close();
+                result.error = true;
+                result.error_type =
+                    "SEEK";
 
-                active[index] = false;
-                remaining[index] = 0;
-                continue;
+                for (std::size_t close_index = 0;
+                     close_index <= index;
+                     ++close_index)
+                {
+                    files[close_index].close();
+                }
+
+                return result;
             }
-
-            active[index] = true;
 
             remaining[index] =
-                sample_files[index]
-                    .wav.data_size;
+                sample.wav.data_size;
         }
+
+        directory.close();
+
+        std::size_t active =
+            stream_count;
 
         const uint32_t start =
             micros();
 
-        bool work_remaining = true;
-
-        while (work_remaining)
+        while (active > 0)
         {
-            work_remaining = false;
+            active = 0;
 
             for (std::size_t index = 0;
                  index < stream_count;
                  ++index)
             {
-                if (!active[index] ||
-                    remaining[index] == 0)
+                if (remaining[index] == 0)
                 {
                     continue;
                 }
 
-                work_remaining = true;
+                ++active;
 
                 const std::size_t request =
                     remaining[index] <
-                        INTERLEAVED_CHUNK_SIZE
+                            INTERLEAVED_CHUNK_SIZE
                         ? remaining[index]
                         : INTERLEAVED_CHUNK_SIZE;
 
                 const int bytes_read =
-                    streams[index].read(
+                    files[index].read(
                         read_buffer,
                         request);
 
                 if (bytes_read <= 0)
                 {
-                    remaining[index] = 0;
-                    active[index] = false;
-                    continue;
-                }
+                    result.error = true;
+                    result.error_type =
+                        "READ";
 
-                total_bytes +=
-                    static_cast<uint32_t>(
-                        bytes_read);
+                    for (std::size_t close_index = 0;
+                         close_index < stream_count;
+                         ++close_index)
+                    {
+                        files[close_index].close();
+                    }
+
+                    return result;
+                }
 
                 remaining[index] -=
                     static_cast<std::size_t>(
                         bytes_read);
+
+                result.bytes +=
+                    static_cast<uint32_t>(
+                        bytes_read);
             }
         }
 
-        const uint32_t end =
-            micros();
+        result.elapsed_us =
+            micros() - start;
 
         for (std::size_t index = 0;
              index < stream_count;
              ++index)
         {
-            if (streams[index])
-            {
-                streams[index].close();
-            }
+            files[index].close();
         }
 
-        const uint32_t elapsed =
-            end - start;
-
-        double throughput = 0.0;
-
-        if (elapsed > 0)
+        if (result.elapsed_us > 0)
         {
-            throughput =
-                (static_cast<double>(
-                    total_bytes) /
-                 1000000.0) /
-                (static_cast<double>(
-                    elapsed) /
-                 1000000.0);
+            result.megabytes_per_second =
+                static_cast<double>(
+                    result.bytes) /
+                static_cast<double>(
+                    result.elapsed_us);
         }
 
-        const std::size_t result_index =
-            stream_count == 2 ? 0 :
-            stream_count == 4 ? 1 :
-            2;
-
-        interleaved_results[result_index]
-            .stream_count = stream_count;
-
-        interleaved_results[result_index]
-            .chunk_size =
-                INTERLEAVED_CHUNK_SIZE;
-
-        interleaved_results[result_index]
-            .timing.elapsed_us =
-                elapsed;
-
-        interleaved_results[result_index]
-            .timing.bytes =
-                total_bytes;
-
-        interleaved_results[result_index]
-            .timing.megabytes_per_second =
-                throughput;
+        return result;
     }
 
-    void RunInterleavedTests()
+    void PrintTiming(
+        const char* label,
+        const TimingResult& result)
+    {
+        Serial.print(label);
+        Serial.print(" | ");
+
+        if (result.error)
+        {
+            Serial.print("ERROR: ");
+            Serial.println(
+                result.error_type);
+
+            return;
+        }
+
+        Serial.print(
+            result.bytes);
+
+        Serial.print(
+            " bytes | ");
+
+        Serial.print(
+            result.elapsed_us);
+
+        Serial.print(
+            " us | ");
+
+        Serial.print(
+            result.megabytes_per_second,
+            2);
+
+        Serial.println(
+            " MB/s");
+    }
+
+    void PrintDiscovery()
     {
         Serial.println();
         Serial.println(
-            "=== TEST D: INTERLEAVED READS ===");
+            "=== FILE DISCOVERY ===");
 
         Serial.print(
-            "Chunk size: ");
-
-        Serial.print(
-            INTERLEAVED_CHUNK_SIZE);
+            "Total filesystem entries: ");
 
         Serial.println(
-            " bytes");
+            discovery.total_entries);
+
+        Serial.print(
+            "WAV candidates: ");
+
+        Serial.println(
+            discovery.wav_candidates);
+
+        Serial.print(
+            "Supported PCM WAV samples: ");
+
+        Serial.println(
+            discovery.supported_samples);
+
+        Serial.print(
+            "Invalid/unsupported WAV: ");
+
+        Serial.println(
+            discovery.invalid_wav);
+
+        Serial.print(
+            "Browser page rows: ");
+
+        Serial.println(
+            BROWSER_PAGE_ROWS);
+
+        Serial.print(
+            "Browser pages: ");
+
+        Serial.println(
+            BrowserPageCount(
+                discovery.supported_samples));
+    }
+
+    void PrintBrowserPageTest()
+    {
+        SampleBrowserPage page;
+
+        if (!LoadSampleBrowserPage(
+                0,
+                discovery.supported_samples,
+                page))
+        {
+            Serial.println(
+                "Browser page load failed.");
+
+            return;
+        }
+
+        Serial.println();
+        Serial.println(
+            "=== SAMPLE BROWSER PAGE 1 ===");
+
+        Serial.print(
+            "Page rows loaded: ");
+
+        Serial.println(
+            page.count);
+
+        Serial.print(
+            "Total samples: ");
+
+        Serial.println(
+            page.total_samples);
+
+        Serial.print(
+            "Total pages: ");
+
+        Serial.println(
+            page.total_pages);
+
+        for (std::size_t index = 0;
+             index < page.count;
+             ++index)
+        {
+            Serial.print(
+                index + 1);
+
+            Serial.print(
+                " | ");
+
+            Serial.println(
+                page.samples[index].path);
+        }
+    }
+
+    bool WriteReport(
+        const BenchmarkSummary& single_summary)
+    {
+        if (!SD.exists(
+                "BroTracker_SD_Test"))
+        {
+            if (!SD.mkdir(
+                    "BroTracker_SD_Test"))
+            {
+                return false;
+            }
+        }
+
+        File report =
+            SD.open(
+                REPORT_FILE,
+                FILE_WRITE);
+
+        if (!report)
+        {
+            return false;
+        }
+
+        report.println(
+            "========================================");
+
+        report.println(
+            "BroTracker SD Read Benchmark");
+
+        report.println(
+            "Teensy 4.1 / NXP i.MX RT1062");
+
+        report.println(
+            "========================================");
+
+        report.print(
+            "Firmware build: ");
+
+        report.print(
+            BUILD_DATE);
+
+        report.print(
+            " ");
+
+        report.println(
+            BUILD_TIME);
+
+        report.print(
+            "Dataset: ");
+
+        report.println(
+            SAMPLE_DIRECTORY);
+
+        report.println();
+
+        report.println(
+            "=== FILE DISCOVERY ===");
+
+        report.print(
+            "Total filesystem entries: ");
+
+        report.println(
+            discovery.total_entries);
+
+        report.print(
+            "WAV candidates: ");
+
+        report.println(
+            discovery.wav_candidates);
+
+        report.print(
+            "Supported PCM WAV samples: ");
+
+        report.println(
+            discovery.supported_samples);
+
+        report.print(
+            "Invalid/unsupported WAV: ");
+
+        report.println(
+            discovery.invalid_wav);
+
+        report.print(
+            "Browser page rows: ");
+
+        report.println(
+            BROWSER_PAGE_ROWS);
+
+        report.print(
+            "Browser pages: ");
+
+        report.println(
+            BrowserPageCount(
+                discovery.supported_samples));
+
+        report.println();
+
+        report.println(
+            "=== TEST A: SINGLE FILE READ ===");
+
+        report.print(
+            "Successful reads: ");
+
+        report.println(
+            single_summary.successful_reads);
+
+        report.print(
+            "Failed reads: ");
+
+        report.println(
+            single_summary.failed_reads);
+
+        report.print(
+            "Total PCM data: ");
+
+        report.println(
+            static_cast<uint32_t>(
+                single_summary.total_bytes));
+
+        report.print(
+            "Total read time: ");
+
+        report.print(
+            static_cast<uint32_t>(
+                single_summary.total_time_us));
+
+        report.println(
+            " us");
+
+        report.println();
+
+        report.println(
+            "=== TEST B: SEQUENTIAL BATCH READ ===");
+
+        for (std::size_t index = 0;
+             index < BATCH_SIZE_COUNT;
+             ++index)
+        {
+            report.print(
+                "Batch: ");
+
+            report.print(
+                BATCH_SIZES[index]);
+
+            report.print(
+                " files | ");
+
+            if (batch_results[index].error)
+            {
+                report.print(
+                    "SKIPPED | ");
+
+                report.println(
+                    batch_results[index]
+                        .error_type);
+
+                continue;
+            }
+
+            report.print(
+                static_cast<uint32_t>(
+                    batch_results[index].bytes));
+
+            report.print(
+                " bytes | ");
+
+            report.print(
+                batch_results[index]
+                    .elapsed_us);
+
+            report.print(
+                " us | ");
+
+            report.print(
+                batch_results[index]
+                    .megabytes_per_second,
+                2);
+
+            report.println(
+                " MB/s");
+        }
+
+        report.println();
+
+        report.println(
+            "=== TEST C: REPEATED BATCH READ ===");
+
+        report.print(
+            "Batch size: ");
+
+        report.println(
+            repeated_batch_size);
+
+        for (std::size_t index = 0;
+             index < REPEATED_RUNS;
+             ++index)
+        {
+            report.print(
+                "Run ");
+
+            report.print(
+                index + 1);
+
+            report.print(
+                " | ");
+
+            if (repeated_results[index].error)
+            {
+                report.println(
+                    repeated_results[index]
+                        .error_type);
+
+                continue;
+            }
+
+            report.print(
+                static_cast<uint32_t>(
+                    repeated_results[index].bytes));
+
+            report.print(
+                " bytes | ");
+
+            report.print(
+                repeated_results[index]
+                    .elapsed_us);
+
+            report.print(
+                " us | ");
+
+            report.print(
+                repeated_results[index]
+                    .megabytes_per_second,
+                2);
+
+            report.println(
+                " MB/s");
+        }
+
+        report.println();
+
+        report.println(
+            "=== TEST D: INTERLEAVED READS ===");
 
         for (std::size_t index = 0;
              index < INTERLEAVED_STREAM_COUNT;
              ++index)
         {
-            RunInterleavedTest(
+            report.print(
+                "Streams: ");
+
+            report.print(
                 INTERLEAVED_STREAMS[index]);
-        }
-    }
-
-    void PrintDatasetSummary()
-    {
-        Serial.println();
-        Serial.println(
-            "=== DATASET ===");
-
-        Serial.print(
-            "Directory: ");
-
-        Serial.println(
-            SAMPLE_DIRECTORY);
-
-        Serial.print(
-            "WAV files found: ");
-
-        Serial.println(
-            discovered_wav_count);
-
-        Serial.print(
-            "Valid WAV files: ");
-
-        Serial.println(
-            sample_file_count);
-
-        Serial.print(
-            "Invalid/unsupported WAV files: ");
-
-        Serial.println(
-            invalid_wav_count);
-
-        uint64_t total_pcm = 0;
-
-        for (std::size_t index = 0;
-             index < sample_file_count;
-             ++index)
-        {
-            total_pcm +=
-                sample_files[index]
-                    .wav.data_size;
-        }
-
-        Serial.print(
-            "Total PCM data: ");
-
-        Serial.print(
-            static_cast<uint32_t>(
-                total_pcm));
-
-        Serial.println(
-            " bytes");
-    }
-}
-
-void StartReport()
-{
-    SD.mkdir("BroTracker_SD_Test");
-
-    File report =
-        SD.open(
-            REPORT_FILE,
-            FILE_WRITE);
-
-    if (!report)
-    {
-        Serial.println();
-        Serial.println(
-            "ERROR: Could not create benchmark report.");
-
-        return;
-    }
-
-    report.println();
-    report.println(
-        "========================================");
-
-    report.println(
-        "BroTracker SD Read Benchmark");
-
-    report.println(
-        "Teensy 4.1 / NXP i.MX RT1062");
-
-    report.println(
-        "========================================");
-
-    report.println();
-
-    report.print(
-        "Firmware build: ");
-
-    report.print(
-        BUILD_DATE);
-
-    report.print(
-        " ");
-
-    report.println(
-        BUILD_TIME);
-
-    report.println();
-
-    report.print(
-        "Dataset: ");
-
-    report.println(
-        SAMPLE_DIRECTORY);
-
-    report.println();
-
-    report.println(
-        "Benchmark status: STARTED");
-
-    report.flush();
-    report.close();
-
-    Serial.println();
-    Serial.println(
-        "Benchmark report initialized:");
-
-    Serial.println(
-        REPORT_FILE);
-}
-
-void AppendReportStatus(
-    const char* status)
-{
-    File report =
-        SD.open(
-            REPORT_FILE,
-            FILE_WRITE);
-
-    if (!report)
-    {
-        Serial.println();
-        Serial.println(
-            "ERROR: Could not update benchmark report.");
-
-        return;
-    }
-
-    report.println();
-
-    report.print(
-        "Benchmark status: ");
-
-    report.println(
-        status);
-
-    report.flush();
-    report.close();
-}
-
-void WriteReport()
-{
-    SD.mkdir("BroTracker_SD_Test");
-
-    File report =
-        SD.open(
-            REPORT_FILE,
-            FILE_WRITE);
-
-    if (!report)
-    {
-        Serial.println();
-        Serial.println(
-            "ERROR: Could not create benchmark report.");
-
-        return;
-    }
-
-    report.println();
-    report.println(
-        "========================================");
-
-    report.println(
-        "BroTracker SD Read Benchmark");
-
-    report.println(
-        "Teensy 4.1 / NXP i.MX RT1062");
-
-    report.println(
-        "========================================");
-
-    report.println();
-
-    report.print(
-        "Firmware build: ");
-
-    report.print(
-        BUILD_DATE);
-
-    report.print(
-        " ");
-
-    report.println(
-        BUILD_TIME);
-
-    report.println();
-
-    report.print(
-        "Dataset: ");
-
-    report.println(
-        SAMPLE_DIRECTORY);
-
-    report.print(
-        "WAV files: ");
-
-    report.println(
-        sample_file_count);
-
-    report.println();
-
-    report.println(
-        "=== DATASET ===");
-
-    uint64_t total_pcm = 0;
-
-    for (std::size_t index = 0;
-         index < sample_file_count;
-         ++index)
-    {
-        total_pcm +=
-            sample_files[index]
-                .wav.data_size;
-
-        report.print(
-            sample_files[index].path);
-
-        report.print(
-            " | ");
-
-        report.print(
-            sample_files[index]
-                .file_size);
-
-        report.print(
-            " bytes | ");
-
-        report.print(
-            sample_files[index]
-                .wav.channels);
-
-        report.print(
-            " ch | ");
-
-        report.print(
-            sample_files[index]
-                .wav.sample_rate);
-
-        report.print(
-            " Hz | ");
-
-        report.print(
-            sample_files[index]
-                .wav.bits_per_sample);
-
-        report.print(
-            " bit | PCM ");
-
-        report.print(
-            sample_files[index]
-                .wav.data_size);
-
-        report.println(
-            " bytes");
-    }
-
-    report.println();
-
-    report.println(
-        "=== FILE DISCOVERY ===");
-
-    report.print(
-        "WAV files found: ");
-
-    report.println(
-        discovered_wav_count);
-
-    report.print(
-        "Valid WAV files: ");
-
-    report.println(
-        sample_file_count);
-
-    report.print(
-        "Invalid/unsupported WAV files: ");
-
-    report.println(
-        invalid_wav_count);
-
-    if (invalid_wav_count > 0)
-    {
-        report.println(
-            "Invalid WAV list:");
-
-        for (std::size_t index = 0;
-             index < invalid_wav_count;
-             ++index)
-        {
-            report.print(
-                invalid_wav_paths[index]);
 
             report.print(
-                " | ");
+                " | Chunk: ");
 
-            report.println(
-                invalid_wav_errors[index]);
-        }
-    }
-
-    report.println();
-
-    report.println(
-        "=== TEST A: SINGLE FILE READ ===");
-
-    uint64_t total_single_bytes = 0;
-    uint64_t total_single_time = 0;
-
-    for (std::size_t index = 0;
-         index < sample_file_count;
-         ++index)
-    {
-        const TimingResult& result =
-            single_results[index].timing;
-
-        total_single_bytes +=
-            result.bytes;
-
-        total_single_time +=
-            result.elapsed_us;
-
-        report.print(
-            index + 1);
-
-        report.print(
-            "/");
-
-        report.print(
-            sample_file_count);
-
-        report.print(
-            " ");
-
-        report.print(
-            sample_files[index].path);
-
-        report.print(
-            " | ");
-
-        report.print(
-            result.elapsed_us);
-
-        report.print(
-            " us | ");
-
-        report.print(
-            result.megabytes_per_second,
-            2);
-
-        report.println(
-            " MB/s");
-
-        if (result.error)
-        {
             report.print(
-                "  ERROR: ");
+                INTERLEAVED_CHUNK_SIZE);
 
-            report.println(
-                result.error_type);
-        }
-    }
+            report.print(
+                " B | ");
 
-    report.println();
-
-    std::size_t successful_reads = 0;
-    std::size_t failed_reads = 0;
-
-    for (std::size_t index = 0;
-         index < sample_file_count;
-         ++index)
-    {
-        if (single_results[index].timing.error)
-        {
-            ++failed_reads;
-        }
-        else
-        {
-            ++successful_reads;
-        }
-    }
-
-    report.print(
-        "Successful reads: ");
-
-    report.println(
-        successful_reads);
-
-    report.print(
-        "Failed reads: ");
-
-    report.println(
-        failed_reads);
-
-    report.println();
-
-    if (failed_reads > 0)
-    {
-        report.println(
-            "=== FAILED FILES ===");
-
-        for (std::size_t index = 0;
-             index < sample_file_count;
-             ++index)
-        {
-            const TimingResult& result =
-                single_results[index].timing;
-
-            if (!result.error)
+            if (interleaved_results[index].error)
             {
+                report.println(
+                    interleaved_results[index]
+                        .error_type);
+
                 continue;
             }
 
             report.print(
-                sample_files[index].path);
+                static_cast<uint32_t>(
+                    interleaved_results[index].bytes));
 
             report.print(
-                " | ERROR: ");
+                " bytes | ");
+
+            report.print(
+                interleaved_results[index]
+                    .elapsed_us);
+
+            report.print(
+                " us | ");
+
+            report.print(
+                interleaved_results[index]
+                    .megabytes_per_second,
+                2);
 
             report.println(
-                result.error_type);
+                " MB/s");
         }
 
         report.println();
-    }
-
-    report.print(
-        "Total PCM data: ");
-
-    report.print(
-        static_cast<uint32_t>(
-            total_single_bytes));
-
-    report.println(
-        " bytes");
-
-    report.print(
-        "Total read time: ");
-
-    report.print(
-        static_cast<uint32_t>(
-            total_single_time));
-
-    report.println(
-        " us");
-
-    report.println();
-
-    report.println(
-        "=== TEST B: SEQUENTIAL BATCH READ ===");
-
-    for (std::size_t index = 0;
-         index < BATCH_SIZE_COUNT;
-         ++index)
-    {
-        const BatchResult& result =
-            batch_results[index];
-
-        report.print(
-            "Batch: ");
-
-        report.print(
-            result.file_count);
-
-        if (result.file_count >
-            sample_file_count)
-        {
-            report.println(
-                " files | SKIPPED (not enough valid WAV files)");
-
-            continue;
-        }
-
-        report.print(
-            " files | ");
-
-        if (result.file_count > sample_file_count)
-        {
-            report.println("SKIPPED - not enough valid WAV files");
-            continue;
-        }
-
-        report.print(
-            result.timing.bytes);
-
-        report.print(
-            " bytes | ");
-
-        report.print(
-            result.timing.elapsed_us);
-
-        report.print(
-            " us | ");
-
-        report.print(
-            result.timing.megabytes_per_second,
-            2);
 
         report.println(
-            " MB/s");
-
-        if (result.timing.error)
-        {
-            report.print(
-                "  ERROR: ");
-
-            report.println(
-                result.timing.error_type);
-        }
-    }
-
-    report.println();
-
-    report.println(
-        "=== TEST C: REPEATED BATCH READ ===");
-
-    report.print(
-        "Batch size: ");
-
-    report.println(
-        repeated_batch_file_count);
-
-    for (std::size_t index = 0;
-         index < REPEATED_RUNS;
-         ++index)
-    {
-        report.print(
-            "Run ");
-
-        report.print(
-            index + 1);
-
-        report.print(
-            " | ");
-
-        report.print(
-            repeated_results[index]
-                .timing.bytes);
-
-        report.print(
-            " bytes | ");
-
-        report.print(
-            repeated_results[index]
-                .timing.elapsed_us);
-
-        report.print(
-            " us | ");
-
-        report.print(
-            repeated_results[index]
-                .timing.megabytes_per_second,
-            2);
+            "========================================");
 
         report.println(
-            " MB/s");
-
-        if (repeated_results[index].timing.error)
-        {
-            report.print(
-                "  ERROR: ");
-
-            report.println(
-                repeated_results[index]
-                    .timing.error_type);
-        }
-    }
-
-    report.println();
-
-    report.println(
-        "=== TEST D: INTERLEAVED READS ===");
-
-    for (std::size_t index = 0;
-         index < INTERLEAVED_STREAM_COUNT;
-         ++index)
-    {
-        const InterleavedResult& result =
-            interleaved_results[index];
-
-        report.print(
-            "Streams: ");
-
-        report.print(
-            result.stream_count);
-
-        report.print(
-            " | Chunk: ");
-
-        report.print(
-            result.chunk_size);
-
-        report.print(
-            " B | ");
-
-        report.print(
-            result.timing.bytes);
-
-        report.print(
-            " bytes | ");
-
-        report.print(
-            result.timing.elapsed_us);
-
-        report.print(
-            " us | ");
-
-        report.print(
-            result.timing.megabytes_per_second,
-            2);
+            "SD READ BENCHMARK COMPLETE");
 
         report.println(
-            " MB/s");
+            "========================================");
+
+        report.flush();
+        report.close();
+
+        return true;
     }
-
-    report.println();
-
-    report.println(
-        "========================================");
-
-    report.println(
-        "SD READ BENCHMARK COMPLETE");
-
-    report.println(
-        "========================================");
-
-    report.println(
-        "Benchmark status: COMPLETE");
-
-    report.flush();
-    report.close();
-
-    Serial.println();
-    Serial.println(
-        "Benchmark report saved to:");
-
-    Serial.println(
-        REPORT_FILE);
 }
 
 void setup()
 {
     Serial.begin(115200);
 
-    while (!Serial && millis() < 3000)
-    {
-        // Give the serial monitor time to attach.
-    }
+    delay(1000);
 
     Serial.println();
     Serial.println(
@@ -1478,9 +1615,25 @@ void setup()
     Serial.println(
         "========================================");
 
-    Serial.println();
+    Serial.print(
+        "Firmware build: ");
 
-    if (!SD.begin(BUILTIN_SDCARD))
+    Serial.print(
+        BUILD_DATE);
+
+    Serial.print(
+        " ");
+
+    Serial.println(
+        BUILD_TIME);
+
+    Serial.print(
+        "Dataset: ");
+
+    Serial.println(
+        SAMPLE_DIRECTORY);
+
+    if (!SD.begin())
     {
         Serial.println(
             "ERROR: SD initialization failed.");
@@ -1488,52 +1641,158 @@ void setup()
         return;
     }
 
-    Serial.println(
-        "SD initialization: PASS");
-
-    StartReport();
-
-    DiscoverSamples();
-
-    if (sample_file_count == 0)
+    if (!ScanSampleDirectory(
+            discovery))
     {
-        Serial.println();
         Serial.println(
-            "ERROR: No WAV files found.");
-
-        Serial.print(
-            "Expected directory: ");
-
-        Serial.println(
-            SAMPLE_DIRECTORY);
-
-        AppendReportStatus(
-            "FAILED - no WAV files found");
+            "ERROR: Sample directory could not be scanned.");
 
         return;
     }
 
-    PrintDatasetSummary();
+    PrintDiscovery();
+
+    /*
+     * Demonstrate the browser model using the first UI page.
+     */
+    PrintBrowserPageTest();
 
     Serial.println();
+    Serial.println(
+        "=== TEST A: SINGLE FILE READ ===");
+
+    const BenchmarkSummary single_summary =
+        RunSingleFileReads();
+
+    Serial.print(
+        "Successful reads: ");
+
+    Serial.println(
+        single_summary.successful_reads);
+
+    Serial.print(
+        "Failed reads: ");
+
+    Serial.println(
+        single_summary.failed_reads);
+
+    Serial.print(
+        "Total PCM data: ");
+
+    Serial.println(
+        static_cast<uint32_t>(
+            single_summary.total_bytes));
+
+    Serial.print(
+        "Total read time: ");
+
+    Serial.print(
+        static_cast<uint32_t>(
+            single_summary.total_time_us));
+
+    Serial.println(
+        " us");
+
+    Serial.println();
+    Serial.println(
+        "=== TEST B: SEQUENTIAL BATCH READ ===");
 
     for (std::size_t index = 0;
-         index < sample_file_count;
+         index < BATCH_SIZE_COUNT;
          ++index)
     {
-        PrintWavInfo(
-            sample_files[index]);
+        batch_results[index] =
+            RunSequentialBatch(
+                BATCH_SIZES[index]);
+
+        Serial.print(
+            "Batch: ");
+
+        Serial.print(
+            BATCH_SIZES[index]);
+
+        Serial.print(
+            " files | ");
+
+        PrintTiming(
+            "",
+            batch_results[index]);
     }
 
-    RunSingleFileTest();
+    Serial.println();
+    Serial.println(
+        "=== TEST C: REPEATED BATCH READ ===");
 
-    RunBatchTests();
+    Serial.print(
+        "Batch size: ");
 
-    RunRepeatedBatchTests();
+    Serial.println(
+        repeated_batch_size);
 
-    RunInterleavedTests();
+    for (std::size_t index = 0;
+         index < REPEATED_RUNS;
+         ++index)
+    {
+        repeated_results[index] =
+            RunSequentialBatch(
+                repeated_batch_size);
 
-    WriteReport();
+        Serial.print(
+            "Run ");
+
+        Serial.print(
+            index + 1);
+
+        Serial.print(
+            " | ");
+
+        PrintTiming(
+            "",
+            repeated_results[index]);
+    }
+
+    Serial.println();
+    Serial.println(
+        "=== TEST D: INTERLEAVED READS ===");
+
+    for (std::size_t index = 0;
+         index < INTERLEAVED_STREAM_COUNT;
+         ++index)
+    {
+        interleaved_results[index] =
+            RunInterleaved(
+                INTERLEAVED_STREAMS[index]);
+
+        Serial.print(
+            "Streams: ");
+
+        Serial.print(
+            INTERLEAVED_STREAMS[index]);
+
+        Serial.print(
+            " | ");
+
+        PrintTiming(
+            "",
+            interleaved_results[index]);
+    }
+
+    if (WriteReport(
+            single_summary))
+    {
+        Serial.println();
+        Serial.println(
+            "Benchmark report written to:");
+
+        Serial.println(
+            REPORT_FILE);
+    }
+    else
+    {
+        Serial.println();
+        Serial.println(
+            "ERROR: Could not write benchmark report.");
+    }
 
     Serial.println();
     Serial.println(
@@ -1548,5 +1807,4 @@ void setup()
 
 void loop()
 {
-    // Benchmark runs once from setup().
 }
