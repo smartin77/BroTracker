@@ -225,6 +225,7 @@ namespace
         WavInfo& info,
         const char*& reason)
     {
+        reason = "UNKNOWN";
         uint8_t header[12];
 
         if (!file.seek(0)) { reason = "SEEK_TO_START"; return false; }
@@ -399,10 +400,10 @@ namespace
                     invalid_wav_count]
                     [sizeof(invalid_wav_paths[0]) - 1] =
                     '\0';
-
+                
                 invalid_wav_errors[
                     invalid_wav_count++
-                    ] = reason ? reason : "INVALID_WAV";
+                ] = reason ? reason : "INVALID_WAV";
                 continue;
             }
 
