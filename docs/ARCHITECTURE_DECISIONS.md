@@ -674,3 +674,49 @@ Dependency maintenance and security updates may use GitHub Dependabot where appr
 Release automation is considered a future extension. The intended release workflow is to build and verify release artifacts through CI and publish them through GitHub Releases.
 
 The CI system must support the project rather than become a development burden. Automation should be introduced incrementally when it provides a clear practical benefit.
+
+## D0034 - Modular Subsystem Architecture
+
+BroTracker shall be implemented as a single integrated application composed of clearly separated logical subsystems rather than as a monolithic implementation.
+
+The final Teensy 4.1 firmware remains a single application and executable. Modularity refers to the internal architecture of the application, not to independently running programs.
+
+Major subsystems should have clear responsibilities, explicit interfaces and limited dependencies on other subsystems.
+
+The primary goal is replaceability: a major subsystem should be replaceable or substantially rewritten without requiring unrelated subsystems to be redesigned.
+
+Subsystem boundaries should therefore be established before implementing large amounts of functionality.
+
+Major logical subsystems may include, but are not limited to:
+
+- tracker core and data model;
+- realtime scheduler;
+- playback engine;
+- audio engine;
+- MIDI engine;
+- storage and file loading;
+- Teensy runtime and hardware adapters;
+- UI communication/state;
+- renderer;
+- user interface and editing.
+
+Subsystems should expose only the interfaces required by other subsystems. Implementation details should remain internal to the subsystem wherever practical.
+
+The architecture should avoid unnecessary coupling between subsystems. In particular:
+
+- the realtime scheduler must not depend on UI rendering;
+- the core tracker model must not depend on Teensy hardware;
+- UI code must not own realtime playback timing;
+- platform-specific hardware functionality must remain behind runtime or adapter boundaries;
+- storage implementation must not become part of the tracker data model;
+- audio and MIDI output should receive events from the same realtime playback model rather than implementing independent sequencing logic.
+
+Modules should be coarse-grained logical components rather than an excessive number of small classes or files. Modularity must not introduce unnecessary abstraction, runtime overhead or complexity on Teensy 4.1.
+
+Where practical, each major subsystem should be testable independently on a host platform using test doubles or platform-independent implementations.
+
+Development should proceed incrementally: a subsystem interface should be established, implemented, tested and integrated before building substantial functionality on top of it.
+
+The architecture should permit future replacement of individual implementations, such as a scheduler, audio engine, MIDI backend or storage implementation, without changing the overall tracker architecture.
+
+This decision extends the existing principles of platform separation, headless operation, one core/multiple runtimes and timing-first development.
