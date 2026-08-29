@@ -720,3 +720,85 @@ Development should proceed incrementally: a subsystem interface should be establ
 The architecture should permit future replacement of individual implementations, such as a scheduler, audio engine, MIDI backend or storage implementation, without changing the overall tracker architecture.
 
 This decision extends the existing principles of platform separation, headless operation, one core/multiple runtimes and timing-first development.
+
+## D0035 - Clock and Sync Architecture
+
+BroTracker shall separate clock generation, external synchronization and realtime event scheduling into distinct responsibilities.
+
+The realtime scheduler shall operate using the internal timing resolution defined by D0029.
+
+Clock and synchronization mechanisms shall provide the timing reference from which the scheduler derives its internal tick progression.
+
+The scheduler must not depend on the implementation details of a particular clock source.
+
+Potential clock sources include:
+
+- internal Teensy hardware timing;
+- external MIDI Clock;
+- external audio synchronization;
+- future external hardware clock sources.
+
+### Audio Synchronization
+
+When audio is used as an external synchronization source, BroTracker should avoid relying on the Teensy Audio Library's block-level processing for timing-critical edge detection.
+
+The Teensy Audio Library processes audio in blocks of 128 samples. At a nominal 44.1 kHz sample rate, one audio sample represents approximately 22.7 microseconds and one 128-sample block approximately 2.9 milliseconds.
+
+Block-level audio processing is therefore unsuitable as the primary mechanism for detecting timing-critical synchronization edges when lower latency is required.
+
+Where practical, an external audio synchronization signal should be converted into a suitable digital edge and captured using Teensy hardware timing facilities or hardware interrupts.
+
+This allows synchronization timing to be measured independently of the Audio Library's block scheduling.
+
+The exact implementation of audio synchronization, including input conditioning, edge detection, timestamping, filtering and phase correction, remains an implementation decision.
+
+The nominal audio sample period may be used as a timing reference when appropriate, but the architecture must not assume that one audio sample represents a guaranteed absolute timing accuracy.
+
+### MIDI Clock Relationship
+
+MIDI Clock provides 24 timing-clock messages per quarter note.
+
+BroTracker's internal timing resolution is 96 ticks per tracker row. One quarter note consists of four tracker rows and therefore corresponds to 384 internal ticks.
+
+Therefore:
+
+- 1 tracker row = 96 internal ticks;
+- 1 quarter note = 384 internal ticks;
+- 1 MIDI Clock = 16 internal ticks.
+
+MIDI Clock output shall be derived from the same realtime scheduling model used for internal playback.
+
+MIDI Clock generation must not introduce a separate independent sequencer timing mechanism.
+
+### Timing Independence
+
+The Clock / Sync subsystem provides timing information to the realtime scheduler.
+
+The scheduler converts this timing into the internal BroTracker tick domain.
+
+The playback engine consumes scheduler events and produces events for audio and MIDI output.
+
+This separation allows the clock source to be replaced without requiring changes to tracker data, playback semantics or UI code.
+
+The intended relationship is:
+
+```text
+Clock / Sync Source
+        |
+        v
+Clock / Sync Subsystem
+        |
+        v
+Realtime Scheduler
+        |
+        v
+Playback Engine
+       / \
+      /   \
+     v     v
+  Audio   MIDI
+  ```
+
+Timing-critical functionality must not depend on UI rendering or other non-realtime application activity.
+
+The Clock / Sync subsystem and the Realtime Scheduler should remain independently replaceable so that improved timing mechanisms can be introduced without redesigning the tracker or playback architecture.
