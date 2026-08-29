@@ -85,3 +85,73 @@ Realtime subsystems must not depend on UI rendering performance.
 The renderer must consume state intended for presentation rather than directly controlling realtime playback.
 
 Subsystem boundaries should be reviewed whenever a new feature would introduce a dependency between otherwise independent components.
+
+### Clock / Sync Subsystem
+
+Clock generation and external synchronization are handled by a dedicated Clock / Sync subsystem.
+
+The subsystem provides a timing reference to the realtime scheduler without exposing the scheduler to the implementation details of the underlying clock source.
+
+Potential clock sources include:
+
+- internal Teensy hardware timing;
+- external MIDI Clock;
+- external audio synchronization;
+- future external hardware clock sources.
+
+The Clock / Sync subsystem is responsible for timing-source-specific functionality such as:
+
+- clock generation or capture;
+- hardware timestamping where available;
+- edge detection;
+- synchronization measurement;
+- filtering;
+- phase correction;
+- tempo estimation where required.
+
+The realtime scheduler converts the resulting timing information into BroTracker's internal timing domain.
+
+The scheduler uses the internal timing resolution defined by D0029: 96 ticks per tracker row.
+
+One quarter note consists of four tracker rows and therefore corresponds to 384 internal ticks.
+
+MIDI Clock provides 24 clocks per quarter note, resulting in 16 internal scheduler ticks per MIDI Clock.
+
+The MIDI Clock output must be derived from the same scheduler timing model as internal playback.
+
+### Audio Synchronization
+
+When audio is used as a synchronization source, timing-critical edge detection should not depend on the Teensy Audio Library's 128-sample block processing.
+
+At a nominal 44.1 kHz sample rate, one sample represents approximately 22.7 microseconds and one 128-sample audio block approximately 2.9 milliseconds.
+
+Where practical, an external audio synchronization signal should therefore be captured through a suitable digital hardware input and Teensy's hardware timing facilities or interrupts rather than relying on block-level audio callbacks.
+
+The audio synchronization implementation must remain independent of the Audio Library's normal block processing.
+
+The exact signal conditioning, capture and filtering implementation will be defined during implementation and hardware testing.
+
+### Timing Flow
+
+The intended timing relationship is:
+
+```text
+External / Internal Clock Source
+              |
+              v
+       Clock / Sync
+              |
+              v
+      Realtime Scheduler
+         96 ticks/row
+              |
+              v
+       Playback Engine
+          /        \
+         v          v
+      Audio        MIDI
+```
+
+The Clock / Sync subsystem and the Realtime Scheduler should remain independently replaceable.
+
+Changing the clock source or its implementation must not require changes to tracker pattern data, playback semantics or UI rendering.
