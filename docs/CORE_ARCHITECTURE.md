@@ -1,4 +1,4 @@
-## Teensy Runtime
+# Teensy Runtime
 
 The Teensy 4.1 runtime is the reference realtime implementation of BroTracker.
 

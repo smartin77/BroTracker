@@ -128,6 +128,8 @@ Proof of concept comes before feature completeness.
 
 BroTracker should evolve through small, reliable and testable steps.
 
+Major functionality should be developed as clearly separated subsystems with explicit boundaries so that individual implementations can be tested, replaced or refactored without unnecessarily affecting unrelated parts of the system.
+
 ## 10. Community Driven
 
 BroTracker is an open-source project.
