@@ -44,3 +44,13 @@ Detailed platform architecture is documented separately in:
 - [TEENSY_MEMORY_ARCHITECTURE.md](TEENSY_MEMORY_ARCHITECTURE.md)
 - [SCHEDULER.md](SCHEDULER.md)
 - [MIDI_SUPPORT.md](MIDI_SUPPORT.md)
+
+## Architectural vs. Directory Boundaries
+
+Directory structure should reflect major architectural boundaries where practical, but directory separation alone does not define a subsystem.
+
+A subsystem may consist of multiple source files and may span implementation details that are logically part of the same component.
+
+Architectural boundaries are defined primarily by responsibility, dependency direction and interfaces rather than by the number of directories or files.
+
+The project should avoid creating directories or abstractions solely to make the structure appear more modular.
