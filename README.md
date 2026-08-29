@@ -6,23 +6,23 @@ The project targets **Teensy 4.1** as the realtime engine and Linux-based handhe
 
 ## Project Goals
 
-* Classic tracker workflow inspired by ProTracker and FastTracker
-* Deterministic timing for both internal audio and external MIDI devices
-* Low-latency sample playback
-* Sample Regions (non-destructive slicing)
-* MOD/XM import
-* Modular architecture with clearly separated and replaceable subsystems
-* Simple and community-friendly development model
+- Classic tracker workflow inspired by ProTracker and FastTracker
+- Deterministic timing for both internal audio and external MIDI devices
+- Low-latency sample playback
+- Sample Regions (non-destructive slicing)
+- MOD/XM support – rather use an external tool to convert to native BroTracker module
+- Modular architecture with clearly separated and replaceable subsystems
+- Simple and community-friendly development model
 
 ## Repository Structure
 
 The repository is organized around clear architectural boundaries:
 
-* core for platform-independent tracker logic, shared data structures and realtime concepts
-* firmware for Teensy 4.1-specific runtime and hardware integration
-* ui for host-side editing and interface logic
-* tools for utilities and import/export helpers
-* docs and assets for project documentation and resources
+- core for platform-independent tracker logic, shared data structures and realtime concepts
+- firmware for Teensy 4.1-specific runtime and hardware integration
+- ui for host-side editing and interface logic
+- tools for utilities and import/export helpers
+- docs and assets for project documentation and resources
 
 Major runtime functionality is implemented as separate logical subsystems within the single BroTracker application. Subsystems are designed to remain independently testable and replaceable where practical.
 
