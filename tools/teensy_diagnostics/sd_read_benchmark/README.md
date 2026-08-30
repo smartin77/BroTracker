@@ -374,12 +374,14 @@ The following values should be configurable without changing the benchmark logic
 
 Example configuration:
 
+``` c++
 const char* BENCHMARK_SOURCE_PATH = "/Samples/Wav-HQ/DrumLoop/";
 const char* BENCHMARK_OUTPUT_PATH = "/BT_benchmarks/";
 
 constexpr uint32_t FILES_PER_BATCH = 31;
 constexpr uint32_t READ_LOOPS = 10;
 constexpr uint32_t READ_CHUNK_SIZE = 4096;
+```
 
 These values are initial benchmark parameters and may be changed during testing.
 
