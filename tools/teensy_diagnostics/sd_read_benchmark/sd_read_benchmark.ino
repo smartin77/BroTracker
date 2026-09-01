@@ -1235,9 +1235,10 @@ namespace
     // the same build.
     // ---------------------------------------------------------------------
 
-    void BuildResultFilename(
+    void FormatResultFilenameForSuffix(
         char* filename,
-        std::size_t capacity)
+        std::size_t capacity,
+        std::uint32_t suffix)
     {
         const char* month_text =
             kCompileDate;
@@ -1294,21 +1295,31 @@ namespace
             (time_text[6] - '0') * 10 +
             (time_text[7] - '0');
 
+        std::snprintf(
+            filename,
+            capacity,
+            "%sSD_BENCH_%04d%02d%02d_%02d%02d%02d_%04lu.txt",
+            BENCHMARK_OUTPUT_PATH,
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            suffix);
+    }
+
+    void BuildResultFilename(
+        char* filename,
+        std::size_t capacity)
+    {
         for (std::uint32_t suffix = 1;
              suffix <= 9999;
              ++suffix)
         {
-            std::snprintf(
+            FormatResultFilenameForSuffix(
                 filename,
                 capacity,
-                "%sSD_BENCH_%04d%02d%02d_%02d%02d%02d_%04lu.txt",
-                BENCHMARK_OUTPUT_PATH,
-                year,
-                month,
-                day,
-                hour,
-                minute,
-                second,
                 suffix);
 
             if (!SD.exists(filename))
@@ -1316,6 +1327,23 @@ namespace
         }
 
         filename[0] = '\0';
+    }
+
+    // Returns true if a result file for the exact current firmware build
+    // (i.e. suffix 0001) already exists. Used to detect a spurious second
+    // setup() run (e.g. caused by a host-triggered reset right after
+    // upload) so the benchmark is not pointlessly repeated on the same
+    // build and the SD card is not written twice.
+    bool ResultAlreadyExistsForThisBuild()
+    {
+        char filename[96];
+
+        FormatResultFilenameForSuffix(
+            filename,
+            sizeof(filename),
+            1);
+
+        return SD.exists(filename);
     }
 
     // ---------------------------------------------------------------------
@@ -1559,6 +1587,22 @@ void setup()
         "SD initialization: PASS");
 
     FsDateTime::setCallback(SdDateTimeCallback);
+
+    // A host-triggered reset right after upload (e.g. the IDE opening the
+    // serial monitor) can run setup() a second time for the same build.
+    // Skip re-running the full scan/benchmark in that case.
+    if (ResultAlreadyExistsForThisBuild())
+    {
+        Serial.println(
+            "Result file for this build already exists.");
+
+        Serial.println(
+            "Skipping duplicate run (likely a second reset after upload).");
+
+        BlinkCompletion();
+
+        return;
+    }
 
     if (!OpenReport())
     {
