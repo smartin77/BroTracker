@@ -802,3 +802,26 @@ Playback Engine
 Timing-critical functionality must not depend on UI rendering or other non-realtime application activity.
 
 The Clock / Sync subsystem and the Realtime Scheduler should remain independently replaceable so that improved timing mechanisms can be introduced without redesigning the tracker or playback architecture.
+
+## D0036 - Channel Mute Behaviour
+
+Channel mute suppresses all pattern-generated events for the muted channel.
+
+A muted channel does not execute:
+
+- note events;
+- instrument events;
+- effect events;
+- or other pattern-generated events.
+
+Pattern playback and the channel's playback position continue normally.
+
+The channel retains its selected global instrument while muted.
+
+Manual input directed to a muted channel may play that selected instrument.
+
+This behaviour applies to all supported BroTracker instrument types and is not limited to MIDI instruments.
+
+Channel mute is not an audio mute and does not constitute a separate performance mode.
+
+The exact behaviour of instrument changes occurring in pattern data while the channel is muted remains open for further design evaluation.

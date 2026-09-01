@@ -274,6 +274,32 @@ The channel columns are separated by vertical divider lines.
 
 The current design uses fixed-width character cells so that columns remain aligned even though the bitmap glyphs themselves may have different visual widths.
 
+## Channel Mute
+
+A channel can be muted directly from the tracker interface.
+
+A muted channel is visually indicated by striking through its channel number.
+
+Channel mute affects pattern playback only.
+
+When a channel is muted:
+
+- no pattern event is executed for that channel;
+- note events are suppressed;
+- instrument events are suppressed;
+- effect events are suppressed;
+- other pattern-generated events are suppressed.
+
+The pattern itself continues to play and its playback position continues to advance normally.
+
+The channel's selected global instrument remains available while the channel is muted.
+
+Manual input may be directed to the muted channel and will use its selected global instrument.
+
+This allows a performer to temporarily remove a channel from sequencer control while manually playing that channel's instrument.
+
+Channel mute is therefore not an audio mute and is not a separate performance mode.
+
 ## Note Notation
 
 BroTracker supports both International and German note naming conventions.
