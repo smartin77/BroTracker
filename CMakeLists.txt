@@ -14,16 +14,16 @@ add_library(BroTrackerCore STATIC
 
 target_include_directories(BroTrackerCore PUBLIC src)
 
-add_executable(BroTrackerUI
-    src/main.cpp
+add_executable(BroTrackerUIPreview
+    tools/ui_preview/main.cpp
     src/ui/font.cpp
     src/ui/text_renderer.cpp
     src/ui/pattern_screen.cpp
     src/renderer/framebuffer.cpp
 )
 
-target_link_libraries(BroTrackerUI PRIVATE BroTrackerCore)
-target_include_directories(BroTrackerUI PRIVATE src)
+target_link_libraries(BroTrackerUIPreview PRIVATE BroTrackerCore)
+target_include_directories(BroTrackerUIPreview PRIVATE src)
 
 enable_testing()
 
