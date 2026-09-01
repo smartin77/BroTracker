@@ -18,4 +18,5 @@ Project documentation is located in the `docs` directory.
 - [Teensy 4.1 Memory Architecture](./TEENSY_MEMORY_ARCHITECTURE.md)
 - [BroTracker File Formats](./FILE_FORMATS.md)
 - [Reference Engines](./REFERENCE_ENGINES.md)
+- [Reference SD Card](./REFERENCE_SD_CARD.md)
 - [Roadmap](./ROADMAP.md)
