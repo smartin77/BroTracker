@@ -254,7 +254,9 @@ Channel separator lines are intentionally lightweight and must not visually domi
 
 ## Channel Layout
 
-The initial main pattern screen displays **eight channels**.
+The initial BroTracker implementation uses eight channels.
+
+The channel count is fixed to eight for the initial implementation. Future versions may support additional channels, but channel expansion is intentionally left for later development.
 
 Each channel contains at minimum:
 
@@ -299,6 +301,16 @@ Manual input may be directed to the muted channel and will use its selected glob
 This allows a performer to temporarily remove a channel from sequencer control while manually playing that channel's instrument.
 
 Channel mute is therefore not an audio mute and is not a separate performance mode.
+
+## Channel Mute Indicator
+
+A muted channel is visually indicated by striking through its channel number.
+
+The strike-through is a state indicator only. It does not represent audio muting.
+
+A muted channel continues to exist in the pattern and continues to advance with playback, but pattern-generated events are suppressed.
+
+The channel's selected global instrument remains available for manual input while the channel is muted.
 
 ## Note Notation
 
@@ -386,7 +398,7 @@ The intended visual distinction is:
 
 The final effect data model is not yet implemented. UI dummy data may therefore be used to demonstrate the intended appearance before the effect data model is implemented.
 
-## LPB and Beat Highlighting
+## Beat Highlighting
 
 **LPB (Lines Per Beat)** defines how many pattern rows correspond to one musical beat.
 

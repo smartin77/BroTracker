@@ -64,6 +64,12 @@ The realtime scheduler is responsible for deterministic time progression and sch
 
 The playback engine translates tracker state and scheduled positions into playback events.
 
+The playback engine must respect the channel mute state when processing pattern playback.
+
+For a muted channel, pattern-generated events must be suppressed while pattern playback and channel position continue normally.
+
+Manual input to a muted channel remains independent of pattern event suppression and may control the channel's selected instrument using the input controls supported by that instrument.
+
 The audio subsystem is responsible for audio generation and playback.
 
 The MIDI subsystem is responsible for MIDI event output and hardware-specific MIDI transport.

@@ -805,7 +805,7 @@ The Clock / Sync subsystem and the Realtime Scheduler should remain independentl
 
 ## D0036 - Channel Mute Behaviour
 
-Channel mute suppresses all pattern-generated events for the muted channel.
+Channel mute suppresses pattern-generated events for the muted channel.
 
 A muted channel does not execute:
 
@@ -819,6 +819,10 @@ Pattern playback and the channel's playback position continue normally.
 The channel retains its selected global instrument while muted.
 
 Manual input directed to a muted channel may play that selected instrument.
+
+Manual input is not limited to note events. A muted channel may also respond to controller and expression events that are relevant to the selected instrument, including velocity, pitch bend, modulation, aftertouch and other supported instrument-specific controls.
+
+The exact set of supported manual input controls depends on the capabilities and input requirements of the selected instrument.
 
 This behaviour applies to all supported BroTracker instrument types and is not limited to MIDI instruments.
 
