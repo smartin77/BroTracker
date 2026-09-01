@@ -25,7 +25,7 @@ jobs:
         run: ctest --output-on-failure -C Release
 
       - name: Render UI
-        run: ./build/BroTrackerUI
+        run: ./build/BroTrackerUIPreview
 
       - name: Upload rendered UI
         uses: actions/upload-artifact@v4
