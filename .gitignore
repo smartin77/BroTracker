@@ -4,6 +4,7 @@
 .vscode/*.code-workspace
 _backyard/
 BroTracker/
+!firmware/teensy/BroTracker/
 build/
 out/
 .cache/
