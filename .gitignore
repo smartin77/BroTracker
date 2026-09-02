@@ -3,6 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/*.code-workspace
 _backyard/
+BroTracker/
 build/
 out/
 .cache/
