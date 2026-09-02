@@ -14,6 +14,15 @@ add_library(BroTrackerCore STATIC
 
 target_include_directories(BroTrackerCore PUBLIC src)
 
+add_executable(BroTrackerUI
+    src/main.cpp
+    src/runtime/runtime.cpp
+    src/runtime/storage.cpp
+)
+
+target_link_libraries(BroTrackerUI PRIVATE BroTrackerCore)
+target_include_directories(BroTrackerUI PRIVATE src)
+
 add_executable(BroTrackerUIPreview
     tools/ui_preview/main.cpp
     src/ui/font.cpp
