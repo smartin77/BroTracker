@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 
 namespace
 {
@@ -140,6 +141,17 @@ namespace
     constexpr std::uint32_t READ_LOOPS = 10;
     constexpr std::uint32_t READ_CHUNK_SIZE = 4096;
 
+    // Benchmark is expected to run on every startup by default.
+    // Enable this guard only if you want to suppress repeated runs of the
+    // same firmware build during host-triggered resets.
+    constexpr bool SKIP_DUPLICATE_BUILD_RUN = false;
+
+    // Optional host clock synchronization over USB serial.
+    // The host can send one of these lines right after connect:
+    //   EPOCH:1735689600
+    //   T1735689600
+    constexpr std::uint32_t HOST_TIME_SYNC_TIMEOUT_MS = 1500;
+
     constexpr std::uint32_t LED_FLASH_MS = 750;
     constexpr std::uint32_t LED_PAUSE_MS = 750;
 
@@ -226,6 +238,7 @@ namespace
     std::uint64_t aggregate_chunk_bytes = 0;
 
     bool benchmark_ok = true;
+    bool clock_synced_from_host = false;
 
     // ---------------------------------------------------------------------
     // Reporting
@@ -420,6 +433,91 @@ namespace
         }
 
         return true;
+    }
+
+    bool TryParseUnixEpoch(
+        const char* text,
+        std::uint32_t& epoch_out)
+    {
+        if (text == nullptr || text[0] == '\0')
+            return false;
+
+        const char* payload = text;
+
+        if (std::strncmp(payload, "EPOCH:", 6) == 0)
+            payload += 6;
+        else if (payload[0] == 'T')
+            payload += 1;
+
+        if (*payload == '\0')
+            return false;
+
+        char* end = nullptr;
+
+        const unsigned long parsed =
+            std::strtoul(payload, &end, 10);
+
+        if (end == payload || *end != '\0')
+            return false;
+
+        // Reject obviously invalid dates (before 2000-01-01 UTC).
+        if (parsed < 946684800ul)
+            return false;
+
+        epoch_out = static_cast<std::uint32_t>(parsed);
+        return true;
+    }
+
+    bool TrySyncClockFromHost(
+        std::uint32_t timeout_ms)
+    {
+        if (!Serial)
+            return false;
+
+        char line[48] = {};
+        std::size_t index = 0;
+
+        const std::uint32_t start = millis();
+
+        while (millis() - start < timeout_ms)
+        {
+            while (Serial.available() > 0)
+            {
+                const int raw = Serial.read();
+
+                if (raw < 0)
+                    continue;
+
+                const char c = static_cast<char>(raw);
+
+                if (c == '\r' || c == '\n')
+                {
+                    if (index == 0)
+                        continue;
+
+                    line[index] = '\0';
+
+                    std::uint32_t epoch = 0;
+
+                    if (TryParseUnixEpoch(line, epoch))
+                    {
+                        setTime(static_cast<time_t>(epoch));
+                        Teensy3Clock.set(now());
+                        return true;
+                    }
+
+                    index = 0;
+                    continue;
+                }
+
+                if (index + 1 < sizeof(line))
+                    line[index++] = c;
+                else
+                    index = 0;
+            }
+        }
+
+        return false;
     }
 
     // ---------------------------------------------------------------------
@@ -1329,21 +1427,26 @@ namespace
         filename[0] = '\0';
     }
 
-    // Returns true if a result file for the exact current firmware build
-    // (i.e. suffix 0001) already exists. Used to detect a spurious second
-    // setup() run (e.g. caused by a host-triggered reset right after
-    // upload) so the benchmark is not pointlessly repeated on the same
-    // build and the SD card is not written twice.
+    // Returns true if any result file for the exact current firmware build
+    // already exists (any suffix 0001..9999).
     bool ResultAlreadyExistsForThisBuild()
     {
         char filename[96];
 
-        FormatResultFilenameForSuffix(
-            filename,
-            sizeof(filename),
-            1);
+        for (std::uint32_t suffix = 1;
+             suffix <= 9999;
+             ++suffix)
+        {
+            FormatResultFilenameForSuffix(
+                filename,
+                sizeof(filename),
+                suffix);
 
-        return SD.exists(filename);
+            if (SD.exists(filename))
+                return true;
+        }
+
+        return false;
     }
 
     // ---------------------------------------------------------------------
@@ -1396,6 +1499,13 @@ namespace
 
         ReportPrint(F("Build time: "));
         ReportPrintln(kCompileTime);
+
+        ReportPrint(F("Clock source: "));
+
+        if (clock_synced_from_host)
+            ReportPrintln(F("host serial epoch"));
+        else
+            ReportPrintln(F("firmware compile time fallback"));
 
         ReportPrintln();
 
@@ -1566,10 +1676,24 @@ void setup()
 
     SetCompileTimeClock();
 
+    clock_synced_from_host =
+        TrySyncClockFromHost(HOST_TIME_SYNC_TIMEOUT_MS);
+
     Serial.println();
     Serial.println(
         "=== BroTracker SD Read Benchmark ===");
     Serial.println();
+
+    if (clock_synced_from_host)
+    {
+        Serial.println(
+            "Clock sync: HOST SERIAL EPOCH");
+    }
+    else
+    {
+        Serial.println(
+            "Clock sync: COMPILE TIME FALLBACK");
+    }
 
     if (!SD.begin(
             BUILTIN_SDCARD))
@@ -1588,10 +1712,10 @@ void setup()
 
     FsDateTime::setCallback(SdDateTimeCallback);
 
-    // A host-triggered reset right after upload (e.g. the IDE opening the
-    // serial monitor) can run setup() a second time for the same build.
-    // Skip re-running the full scan/benchmark in that case.
-    if (ResultAlreadyExistsForThisBuild())
+    // Optional protection against duplicate host-triggered startup runs
+    // for the same build.
+    if (SKIP_DUPLICATE_BUILD_RUN &&
+        ResultAlreadyExistsForThisBuild())
     {
         Serial.println(
             "Result file for this build already exists.");
