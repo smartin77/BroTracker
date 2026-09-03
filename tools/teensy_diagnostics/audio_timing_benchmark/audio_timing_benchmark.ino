@@ -47,19 +47,12 @@
 //
 // Arduino IDE Integration (Per D0038 - Arduino IDE Integration for Reusable Components):
 //
-// Arduino IDE automatically discovers libraries in:
-//   {sketch_directory}/libraries/
+// Arduino IDE automatically discovers libraries from the repository libraries/ directory
+// when the BroTracker repository root is configured as the Arduino Sketchbook location.
 //
-// Hard links in the libraries/ folder point to the authoritative implementations:
-//   - BroTrackerScheduler/ → src/runtime/scheduler.h/cpp (platform-independent)
-//   - BroTrackerDiagnostics/ → firmware/teensy/BroTracker/diagnostics.h/cpp (Teensy-specific)
-//
-// Hard links are transparent to Arduino IDE and provide these benefits:
-//   1. Single source of truth - changes to the original immediately appear in the link
-//   2. No file duplication - one physical file, multiple directory entries
-//   3. No admin privileges required - hard links work on Windows without elevation
-//   4. Preserves repository architecture - components remain in their documented locations
-//   5. Arduino IDE compatible - libraries are automatically discovered and compiled
+// This sketch references:
+//   - BroTrackerScheduler from libraries/scheduler/ (platform-independent)
+//   - BroTrackerDiagnostics from libraries/teensy/diagnostics/ (Teensy-specific)
 //
 // The sketch includes these libraries using standard Arduino syntax:
 

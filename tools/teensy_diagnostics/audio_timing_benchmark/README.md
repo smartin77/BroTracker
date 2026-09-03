@@ -32,17 +32,16 @@ This benchmark uses the actual, reusable BroTracker implementations **without an
 
 **Per Architectural Decisions D0037 & D0038:**
 
-- **Scheduler**: `src/runtime/scheduler.h/cpp` (single source of truth, platform-independent)
-- **Diagnostics**: `firmware/teensy/BroTracker/diagnostics.h/cpp` (single source of truth, Teensy-specific infrastructure)
+- **Scheduler**: `libraries/scheduler/` (single source of truth, platform-independent)
+- **Diagnostics**: `libraries/teensy/diagnostics/` (single source of truth, Teensy-specific infrastructure)
 
-The components are consumed through Arduino IDE's native library discovery mechanism:
+The components are consumed through Arduino IDE's standard library discovery mechanism:
 
-- `libraries/BroTrackerScheduler/` contains hard links to the platform-independent Scheduler
-- `libraries/BroTrackerDiagnostics/` contains hard links to the Teensy diagnostics infrastructure
-- Arduino IDE automatically discovers these libraries when you open the sketch
-- Hard links ensure single source of truth: the files in libraries/ are the same physical files as the repository originals
-- Changes to the original files immediately appear in the hard-linked copies
-- No copying, no duplication, no maintenance burden
+- `libraries/scheduler/` contains the platform-independent Scheduler implementation
+- `libraries/teensy/diagnostics/` contains the Teensy diagnostics infrastructure
+- Arduino IDE automatically discovers these libraries from the repository `libraries/` directory
+- Single source of truth: there is exactly one implementation of each component in the repository
+- Changes to the library implementations are immediately available to all consumers
 
 This approach satisfies the Arduino-specific integration requirement from D0038:
 > "Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code."
@@ -57,9 +56,13 @@ This approach satisfies the Arduino-specific integration requirement from D0038:
 
 ### Setup (One Time)
 
-1. Install Arduino IDE (https://www.arduino.cc/en/software) - version 1.8.15 or later
+1. Install Arduino IDE (https://www.arduino.cc/en/software) - version 2.0 or later
 2. Install Teensyduino add-on (https://www.pjrc.com/teensy/teensyduino.html)
 3. Verify that Teensy 4.1 board support is available
+4. Configure Arduino IDE to use the BroTracker repository as the Sketchbook location:
+   - File → Preferences → Sketchbook location
+   - Set to: `/path/to/BroTracker` (the repository root)
+   - Restart Arduino IDE
 
 ### Build and Upload
 
@@ -67,11 +70,11 @@ This approach satisfies the Arduino-specific integration requirement from D0038:
    - File → Open
    - Navigate to: `tools/teensy_diagnostics/audio_timing_benchmark/audio_timing_benchmark.ino`
 
-2. Arduino IDE automatically discovers the reusable libraries:
-   - `libraries/BroTrackerScheduler/` (hard links to `src/runtime/scheduler.h/cpp`)
-   - `libraries/BroTrackerDiagnostics/` (hard links to `firmware/teensy/BroTracker/diagnostics.h/cpp`)
+2. Arduino IDE automatically discovers the reusable libraries from the repository `libraries/` directory:
+   - `libraries/scheduler/` (platform-independent Scheduler)
+   - `libraries/teensy/diagnostics/` (Teensy diagnostics infrastructure)
    
-   No additional setup required. Arduino IDE searches `{sketch_directory}/libraries/` automatically.
+   The IDE will show both libraries as available for the sketch. No additional setup required.
 
 3. Select Teensy 4.1 board and USB settings:
    - Tools → Board → Teensy 4.1
@@ -80,7 +83,7 @@ This approach satisfies the Arduino-specific integration requirement from D0038:
 
 4. Compile:
    - Sketch → Verify/Compile (Ctrl+R)
-   - Arduino IDE will compile the sketch and both reusable libraries (via hard links)
+   - Arduino IDE will compile the sketch and both reusable libraries
 
 5. Connect Teensy 4.1 to USB and press the Teensy Program Button (physical button on the board)
 
@@ -188,29 +191,31 @@ This benchmark demonstrates Arduino IDE integration per architectural decisions 
 
 **How It Works:**
 
-Arduino IDE automatically discovers libraries in `{sketch_directory}/libraries/`. This benchmark uses:
+Arduino IDE automatically discovers libraries in the configured Sketchbook's `libraries/` directory:
 
-1. Hard links in `libraries/BroTrackerScheduler/src/` → `src/runtime/scheduler.h/cpp`
-2. Hard links in `libraries/BroTrackerDiagnostics/src/` → `firmware/teensy/BroTracker/diagnostics.h/cpp`
-3. Proper `library.properties` metadata files for Arduino IDE library discovery
+1. Repository-level `libraries/scheduler/` contains the platform-independent Scheduler
+2. Repository-level `libraries/teensy/diagnostics/` contains Teensy diagnostics infrastructure
+3. Both directories have proper `library.properties` metadata for Arduino IDE library discovery
 
 **Key Benefits:**
 
-- **Single physical files**: Hard links point to the same actual files as the repository originals
-- **Zero duplication**: Changes to the original files immediately appear in the hard-linked copies
+- **Single physical files**: Components exist in exactly one location in the repository
+- **Zero duplication**: All consumers use the same implementation
 - **No maintenance burden**: Implementations are managed in one location only
-- **No build system required**: Pure Arduino IDE workflow, no PlatformIO, CMake, or other tools
+- **No special linking required**: Uses Arduino IDE's standard library discovery
+- **Git-portable**: Works with fresh clones without additional setup steps
 - **Preserves repository architecture**: Components remain in their documented ownership locations
 
 ## Troubleshooting
 
 **Compilation Error: "scheduler.h not found" or "diagnostics.h not found"**
-- Verify that `audio_timing_benchmark.ino` is in: `tools/teensy_diagnostics/audio_timing_benchmark/`
-- Verify that the Arduino libraries exist in the sketch directory:
-  - `libraries/BroTrackerScheduler/library.properties` and `src/scheduler.h/cpp`
-  - `libraries/BroTrackerDiagnostics/library.properties` and `src/diagnostics.h/cpp`
-- These are hard links to the actual implementations; do not delete or manually edit them
-- If links are missing, you can recreate them by running the hard link creation commands in this directory
+- Verify that the BroTracker repository root is configured as the Arduino Sketchbook location:
+  - File → Preferences → Sketchbook location should be the BroTracker repository root
+  - Restart Arduino IDE after changing this setting
+- Verify that the libraries exist in the repository root:
+  - `libraries/scheduler/library.properties` and `src/scheduler.h/cpp`
+  - `libraries/teensy/diagnostics/library.properties` and `src/diagnostics.h/cpp`
+- Arduino IDE should automatically show these libraries as available for the sketch
 
 **Compilation Error related to BroTracker namespace, Scheduler class, or diagnostics functions**
 - Verify Teensyduino add-on is installed (provides Arduino.h, SD.h, TimeLib.h)
@@ -384,8 +389,8 @@ The Scheduler integration verifies that the audio processing boundary can correc
 
 - `docs/TEENSY_AUDIO_ARCHITECTURE.md` - Teensy audio architecture and Realtime Audio Benchmark section
 - `docs/SCHEDULER.md` - Scheduler specification and timing requirements
-- `src/runtime/scheduler.h/cpp` - BroTracker Scheduler implementation
-- `firmware/teensy/BroTracker/diagnostics.h/cpp` - Diagnostics infrastructure
+- `libraries/scheduler/` - BroTracker Scheduler implementation (reusable library)
+- `libraries/teensy/diagnostics/` - Diagnostics infrastructure (reusable library)
 
 ## Future Enhancements
 
