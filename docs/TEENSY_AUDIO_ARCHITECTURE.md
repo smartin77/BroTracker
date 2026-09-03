@@ -223,6 +223,135 @@ Variable latency, jitter or clock drift are more significant for realtime synchr
 
 The BroTracker architecture must therefore avoid relying on the host USB Audio playback path for latency-critical realtime synchronization.
 
+## Realtime Audio Benchmark
+
+The first Teensy audio benchmark shall establish the realtime processing characteristics of the audio platform before implementing the complete BroTracker audio engine.
+
+The benchmark is intended to measure the behaviour of the platform audio processing boundary and the minimal BroTracker timing path.
+
+It is not intended to implement the audio engine.
+
+The initial benchmark should measure:
+
+- audio processing block duration;
+- scheduler advancement overhead;
+- minimum processing time;
+- average processing time;
+- maximum processing time;
+- processing-time variation;
+- available processing margin;
+- processing overruns.
+
+The benchmark should use a deterministic audio workload so that timing results primarily represent the processing path rather than unpredictable application behaviour.
+
+The initial benchmark should not depend on:
+
+- tracker pattern playback;
+- software synthesis;
+- sample streaming from SD;
+- MIDI transport;
+- USB Audio host routing;
+- host-side audio processing.
+
+These systems will be benchmarked separately when their corresponding realtime paths exist.
+
+### Measurement Clock
+
+The benchmark must use a measurement mechanism separate from the BroTracker scheduler timeline.
+
+The scheduler represents logical playback time in audio samples.
+
+The measurement mechanism measures real execution duration.
+
+These are different concepts and must remain architecturally separate.
+
+Conceptually:
+
+    Audio Processing Boundary
+            |
+            +---- Scheduler
+            |       |
+            |       +---- logical sample timeline
+            |
+            +---- Measurement
+                    |
+                    +---- execution duration
+                    +---- jitter
+                    +---- processing margin
+
+The measurement mechanism must not become the source of playback timing.
+
+The exact Teensy measurement mechanism remains an implementation and hardware-testing decision.
+
+### Processing Budget
+
+For an audio block containing N samples at a sample rate of R samples per second, the available audio processing interval is:
+
+    block duration = N / R seconds
+
+The benchmark should compare measured processing time against this available interval.
+
+The resulting processing margin should be recorded.
+
+A realtime processing overrun occurs when the processing time exceeds the available interval.
+
+The benchmark should report overruns explicitly rather than hiding them inside an average measurement.
+
+### Timing Stability
+
+Average processing time alone is insufficient to characterize realtime suitability.
+
+The benchmark should therefore distinguish between:
+
+- average execution time;
+- worst observed execution time;
+- execution-time variation;
+- processing overruns.
+
+A system with a predictable constant processing time is preferable to a system with a similar average but large unpredictable timing variation.
+
+This distinction is particularly important for synchronization with external MIDI hardware.
+
+### Synchronization Relevance
+
+The benchmark does not initially measure end-to-end audio-to-MIDI latency.
+
+Instead, it establishes whether the realtime audio processing path behaves predictably enough to support the common scheduler timeline.
+
+Later measurements may compare:
+
+    Scheduler event position
+            |
+            +---- audio output path
+            |
+            +---- MIDI output path
+
+The physical paths may have different constant latencies.
+
+A stable constant latency difference may be compensated at an appropriate output boundary.
+
+Variable latency, jitter or clock drift cannot be reliably corrected using a single fixed compensation value and must therefore be minimized.
+
+The common scheduler timeline must remain unchanged by such output compensation.
+
+### Initial Benchmark Scope
+
+The initial Teensy benchmark should remain deliberately small.
+
+It should establish the timing baseline before adding:
+
+- software synthesis;
+- sample playback;
+- mixing;
+- SD streaming;
+- MIDI transmission;
+- USB Audio;
+- host audio routing.
+
+Each later subsystem can then be benchmarked against the established realtime processing budget.
+
+Benchmark results should be used to guide audio block size, processing architecture and realtime resource budgeting rather than being treated as fixed architectural constants.
+
 ## MIDI and Audio Synchronization
 
 BroTracker must maintain a single authoritative realtime timeline.
@@ -309,7 +438,7 @@ It means that host-routed USB Audio must not be treated as equivalent to a direc
 ## Preferred Architecture
 
 The preferred BroTracker architecture is:
-
+'
     Teensy 4.1
         |
         +---- Scheduler
