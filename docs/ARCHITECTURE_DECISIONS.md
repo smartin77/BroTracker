@@ -829,3 +829,60 @@ This behaviour applies to all supported BroTracker instrument types and is not l
 Channel mute is not an audio mute and does not constitute a separate performance mode.
 
 The exact behaviour of instrument changes occurring in pattern data while the channel is muted remains open for further design evaluation.
+
+## D0037 — Teensy Reusable Infrastructure
+
+Teensy-specific infrastructure that is intended to remain part of the project and be reused by multiple firmware components or diagnostic tools belongs under `firmware/teensy/`.
+
+This includes persistent debug and diagnostic functionality such as:
+
+- SD-card logging;
+- diagnostic LED signalling;
+- Teensy-specific diagnostic helpers;
+- other hardware-specific infrastructure that is expected to remain available throughout the project.
+
+Diagnostic tools under `tools/teensy_diagnostics/` are consumers of this infrastructure.
+
+They must not copy, fork, or locally reimplement existing reusable Teensy components.
+
+The repository therefore maintains a single source of truth for each reusable component.
+
+For example:
+
+- `firmware/teensy/BroTracker/diagnostics.*` is the single source of truth for Teensy diagnostics;
+- individual diagnostic sketches consume that implementation rather than maintaining their own copies.
+
+Platform-independent reusable components remain in their appropriate shared/runtime locations. Platform-specific reusable components may remain under `firmware/teensy/` when their implementation depends directly on Teensy hardware or libraries.
+
+Arduino IDE compatibility must not be solved by duplicating reusable source files or introducing a second implementation. If a diagnostic sketch requires reusable repository components, the Arduino IDE integration must consume the existing source of truth while preserving the repository architecture.
+
+This also applies to permanent debug functionality. Debug logging and diagnostic signalling are considered persistent platform infrastructure, not disposable benchmark-specific functionality.
+
+## D0038 — Arduino IDE Integration for Reusable Components
+
+Arduino IDE diagnostic sketches may consume reusable BroTracker components located outside the sketch directory.
+
+Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code.
+
+The architectural location of a reusable component is not changed solely to satisfy Arduino IDE build requirements.
+
+The ownership remains defined by the component itself:
+
+- platform-independent runtime components remain in their existing shared/runtime locations;
+- Teensy-specific reusable infrastructure remains under `firmware/teensy/`;
+- diagnostic sketches remain under `tools/teensy_diagnostics/`.
+
+Arduino IDE-specific packaging or integration is therefore considered a build/integration concern rather than an architectural relocation of the component.
+
+Diagnostic tools must not solve Arduino IDE integration by:
+
+- copying reusable `.cpp` or `.h` implementations into the tool directory;
+- maintaining local replacement implementations;
+- introducing PlatformIO, CMake, or another build system;
+- moving reusable components solely to make them discoverable by Arduino IDE.
+
+The Arduino IDE integration must instead reference or expose the existing source-of-truth implementation through an Arduino-supported mechanism.
+
+This decision applies to reusable Teensy infrastructure such as diagnostics, SD-card logging, diagnostic signalling and future Teensy-specific debug infrastructure, as well as shared runtime components consumed by Teensy diagnostic tools.
+
+The physical Arduino IDE / Teensy build remains a manual developer verification step. Repository-side tooling must not claim hardware verification unless it has actually been performed on the target hardware.
