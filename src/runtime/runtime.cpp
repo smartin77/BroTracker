@@ -36,7 +36,7 @@ namespace BroTracker
 
     void Runtime::RunOnce()
     {
-        scheduler_.Advance();
+        scheduler_.AdvanceSamples(0);  // No audio processed in host test harness yet
         playback_engine_.Process();
         core_state_.Update();
     }
