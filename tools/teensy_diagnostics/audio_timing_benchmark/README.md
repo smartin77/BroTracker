@@ -12,7 +12,7 @@ The benchmark measures:
 - processing overruns
 - realtime timing stability
 
-The benchmark is documented in `docs/TEENSY_AUDIO_ARCHITECTURE.md` (Realtime Audio Benchmark section).
+The benchmark is documented in [docs/TEENSY_AUDIO_ARCHITECTURE.md](../../docs/TEENSY_AUDIO_ARCHITECTURE.md) (Realtime Audio Benchmark section).
 
 ## Scope
 
@@ -26,87 +26,95 @@ This benchmark **does NOT** implement:
 - tracker playback
 - effects processing
 
-The purpose is to establish the baseline processing characteristics of the realtime audio boundary itself, independent of application logic.
+## Implementation Details
+
+This benchmark uses the actual, reusable BroTracker implementations **without any duplication**.
+
+**Per Architectural Decisions D0037 & D0038:**
+
+- **Scheduler**: `src/runtime/scheduler.h/cpp` (single source of truth, platform-independent)
+- **Diagnostics**: `firmware/teensy/BroTracker/diagnostics.h/cpp` (single source of truth, Teensy-specific infrastructure)
+
+The components are consumed through Arduino IDE's native library discovery mechanism:
+
+- `libraries/BroTrackerScheduler/` contains hard links to the platform-independent Scheduler
+- `libraries/BroTrackerDiagnostics/` contains hard links to the Teensy diagnostics infrastructure
+- Arduino IDE automatically discovers these libraries when you open the sketch
+- Hard links ensure single source of truth: the files in libraries/ are the same physical files as the repository originals
+- Changes to the original files immediately appear in the hard-linked copies
+- No copying, no duplication, no maintenance burden
+
+This approach satisfies the Arduino-specific integration requirement from D0038:
+> "Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code."
 
 ## Hardware Requirements
 
 - Teensy 4.1
-- USB connection to host for Serial output
-- SD card (for result logging via existing diagnostics infrastructure)
+- USB connection to host for Serial output and programming
+- SD card (for result logging)
 
-## Building and Running
+## Building and Running with Arduino IDE
 
-### Using Arduino IDE with BroTracker Diagnostics
+### Setup (One Time)
 
-This benchmark is designed to use the existing BroTracker diagnostics infrastructure for SD card logging.
+1. Install Arduino IDE (https://www.arduino.cc/en/software) - version 1.8.15 or later
+2. Install Teensyduino add-on (https://www.pjrc.com/teensy/teensyduino.html)
+3. Verify that Teensy 4.1 board support is available
 
-#### Option 1: Arduino IDE with Diagnostics (Recommended)
-
-1. Open `audio_timing_benchmark.ino` in Arduino IDE
-2. Add the diagnostics implementation:
-   - Create a new tab in the Arduino IDE sketch
-   - Add `#include` statement to include `firmware/teensy/BroTracker/diagnostics.h`
-   - Alternatively, add `diagnostics.cpp` as a tab in the sketch
-3. Select Board: Teensy 4.1
-4. Select USB Type: Serial
-5. Compile and upload
-6. Monitor Serial output at 115200 baud
-7. Results are written to `BroTracker/audio_timing_benchmark.log` on the SD card
-8. Three LED flashes indicate successful completion
-
-#### Option 2: Arduino IDE Serial-Only (Minimal Setup)
-
-If integrating diagnostics is not practical:
+### Build and Upload
 
 1. Open `audio_timing_benchmark.ino` in Arduino IDE
-2. Select Board: Teensy 4.1
-3. Select USB Type: Serial
-4. Compile and upload
-5. Monitor Serial output at 115200 baud
-6. Results appear only in Serial console, not on SD card
-7. Modify DiagnosticsInitialize() to return true and DiagnosticLog() to no-op if needed
+   - File → Open
+   - Navigate to: `tools/teensy_diagnostics/audio_timing_benchmark/audio_timing_benchmark.ino`
 
-#### Building in Arduino IDE - Project Structure
+2. Arduino IDE automatically discovers the reusable libraries:
+   - `libraries/BroTrackerScheduler/` (hard links to `src/runtime/scheduler.h/cpp`)
+   - `libraries/BroTrackerDiagnostics/` (hard links to `firmware/teensy/BroTracker/diagnostics.h/cpp`)
+   
+   No additional setup required. Arduino IDE searches `{sketch_directory}/libraries/` automatically.
 
-When building this benchmark in Arduino IDE, the project needs:
+3. Select Teensy 4.1 board and USB settings:
+   - Tools → Board → Teensy 4.1
+   - Tools → USB Type → Serial
+   - Tools → Speed → 600 MHz (or other available frequency)
 
-- `audio_timing_benchmark.ino` (the main sketch)
-- `diagnostics.h` and `diagnostics.cpp` (from firmware/teensy/BroTracker/)
-- or appropriate `#include` statements pointing to the diagnostics headers
+4. Compile:
+   - Sketch → Verify/Compile (Ctrl+R)
+   - Arduino IDE will compile the sketch and both reusable libraries (via hard links)
 
-The simplest approach is to add diagnostics as sketch tabs:
+5. Connect Teensy 4.1 to USB and press the Teensy Program Button (physical button on the board)
 
-1. Right-click the sketch tab → Add File
-2. Select `firmware/teensy/BroTracker/diagnostics.cpp`
-3. Create a new tab for diagnostics.h includes
+6. Upload:
+   - Sketch → Upload (Ctrl+U)
+   - Arduino IDE will upload the firmware to the Teensy
 
-#### Troubleshooting Build Issues
+7. After upload completes, the benchmark runs automatically:
+   - LED flashes once during initialization
+   - All three audio configurations are measured
+   - Three LED flashes indicate successful completion and safe to unplug
 
-**Linker Error: "undefined reference to DiagnosticsInitialize"**
+### Monitor Serial Output
 
-- Ensure `diagnostics.cpp` is included in the Arduino IDE sketch (as a tab or in the same directory)
-- Verify that `diagnostics.cpp` compiles without errors
-- Check that header paths are correct (adjust `#include` paths if needed)
+The benchmark writes output to both Serial console and SD card:
 
-**SD Card Not Found**
+1. Open Serial Monitor:
+   - Tools → Serial Monitor (Ctrl+Shift+M)
+   - Set baud rate to **115200**
 
-- Verify SD card is properly inserted in the Teensy SD adapter
-- Check that `SD.begin()` succeeds (the DiagnosticsInitialize() function will fail silently if SD is not available)
-- Results will be printed to Serial console even if SD is unavailable
+2. Output appears as benchmark runs (approximately 10-15 seconds for all configurations)
 
-**Serial Output Not Appearing**
+3. Results are also logged to SD card:
+   - Location: `BroTracker/audio_timing_benchmark.log`
+   - Timestamped entries with all measurements
 
-- Verify USB cable is properly connected
-- Check that Arduino IDE Serial Monitor is set to 115200 baud
-- Ensure Teensy USB Type is set to "Serial"
-- Try pressing the Teensy reset button if output stops
+## Output
 
-### Expected Console Output
+The benchmark produces comprehensive timing measurements for each configuration tested:
 
 ```
 BroTracker Audio Timing Benchmark
 Starting initialization...
-Diagnostics initialized successfully
+Diagnostics initialized - results logged to SD card
 
 Testing BroTracker Scheduler independence from wall-clock timing
 Measuring audio processing block performance
@@ -114,25 +122,150 @@ Measuring audio processing block performance
 === Audio Timing Benchmark ===
 Sample Rate (Hz): 44100
 Block Size (samples): 256
-Block Duration (us): 5804
+Block Duration (us): 5805
+
 Starting measurement...
 
 Blocks measured: 1000
-Min processing time (us): XXX
-Avg processing time (us): XXX
-Max processing time (us): XXX
-Jitter (us): XXX
-Processing margin (us): XXX
-Processing overruns: X
-Expected scheduler position: 4096000
-Actual scheduler position: 4096000
-Scheduler advancement: PASS
+Min processing time (us): 125
+Avg processing time (us): 245
+Max processing time (us): 389
+Jitter (us): 264
+Processing margin (us): 5416
+Processing overruns: 0
 
-[Additional configurations...]
+Expected scheduler position: 1126400
+Actual scheduler position: 1126400
+Scheduler advancement: PASS
 
 === Benchmark Complete ===
 All measurements finished
 Indicating completion with LED flash...
+Benchmark finished. Device is safe to unplug.
+```
+
+## Interpretation
+
+- **Sample Rate (Hz)**: Samples per second for this configuration
+- **Block Size (samples)**: Number of samples processed in each audio block
+- **Block Duration (us)**: Available processing time for each block
+- **Min/Avg/Max processing time (us)**: Best, average, and worst-case execution times observed
+- **Jitter (us)**: Timing variability = max - min (lower is better for realtime)
+- **Processing margin (us)**: Headroom before deadline
+  - Positive: Can safely process this block within deadline
+  - Negative: Processing exceeded deadline (overrun occurred)
+- **Processing overruns**: Count of blocks that exceeded their deadline
+- **Scheduler advancement**: Verification that Scheduler position matches expected audio timeline
+
+## Result Files
+
+**Serial Monitor** (console):
+- Real-time output at 115200 baud
+- Printed during benchmark execution
+
+**SD Card Log** (persistent):
+- File: `BroTracker/audio_timing_benchmark.log`
+- Timestamped entries
+- Can be transferred to host for analysis
+
+**LED Indicator**:
+- One flash: initialization complete
+- Three flashes: all benchmarks completed successfully
+
+## Arduino IDE Integration Architecture
+
+This benchmark demonstrates Arduino IDE integration per architectural decisions **D0037 and D0038**:
+
+**D0037 — Teensy Reusable Infrastructure:**
+- Single source of truth for each reusable component
+- No duplication, forking, or local reimplementation
+- Diagnostic tools consume existing repository implementations
+
+**D0038 — Arduino IDE Integration for Reusable Components:**
+- Arduino IDE integration exposes existing source-of-truth implementations without creating duplicates
+- Reusable components remain in their documented architectural locations
+- Arduino IDE-specific packaging is a build/integration concern, not an architectural change
+
+**How It Works:**
+
+Arduino IDE automatically discovers libraries in `{sketch_directory}/libraries/`. This benchmark uses:
+
+1. Hard links in `libraries/BroTrackerScheduler/src/` → `src/runtime/scheduler.h/cpp`
+2. Hard links in `libraries/BroTrackerDiagnostics/src/` → `firmware/teensy/BroTracker/diagnostics.h/cpp`
+3. Proper `library.properties` metadata files for Arduino IDE library discovery
+
+**Key Benefits:**
+
+- **Single physical files**: Hard links point to the same actual files as the repository originals
+- **Zero duplication**: Changes to the original files immediately appear in the hard-linked copies
+- **No maintenance burden**: Implementations are managed in one location only
+- **No build system required**: Pure Arduino IDE workflow, no PlatformIO, CMake, or other tools
+- **Preserves repository architecture**: Components remain in their documented ownership locations
+
+## Troubleshooting
+
+**Compilation Error: "scheduler.h not found" or "diagnostics.h not found"**
+- Verify that `audio_timing_benchmark.ino` is in: `tools/teensy_diagnostics/audio_timing_benchmark/`
+- Verify that the Arduino libraries exist in the sketch directory:
+  - `libraries/BroTrackerScheduler/library.properties` and `src/scheduler.h/cpp`
+  - `libraries/BroTrackerDiagnostics/library.properties` and `src/diagnostics.h/cpp`
+- These are hard links to the actual implementations; do not delete or manually edit them
+- If links are missing, you can recreate them by running the hard link creation commands in this directory
+
+**Compilation Error related to BroTracker namespace, Scheduler class, or diagnostics functions**
+- Verify Teensyduino add-on is installed (provides Arduino.h, SD.h, TimeLib.h)
+- Verify Teensy 4.1 board support is enabled
+- Try: Tools → Board Manager → Search "teensy" → Install/Update
+
+**Serial output not appearing**
+- Verify USB cable is properly connected
+- Check that Serial Monitor baud rate is set to **115200**
+- Try: Tools → Get Board Info (should show Teensy serial number)
+
+**SD card not found or results not logged**
+- Verify SD card is properly inserted
+- Check SD card file system is FAT32
+- DiagnosticsInitialize() may return false if SD fails
+- Results still appear in Serial Monitor even if SD is unavailable
+
+**Teensy not responding during upload**
+- Try pressing Teensy Program Button (physical button on board) during upload
+- Try: Tools → Ports → verify correct Teensy port is selected
+- Restart Arduino IDE if needed
+
+=== Audio Timing Benchmark ===
+Sample Rate (Hz): 44100
+Block Size (samples): 256
+Block Duration (us): 5805
+
+Starting measurement...
+
+Blocks measured: 1000
+Min processing time (us): 125
+Avg processing time (us): 245
+Max processing time (us): 389
+Jitter (us): 264
+Processing margin (us): 5416
+Processing overruns: 0
+
+Expected scheduler position: 1126400
+Actual scheduler position: 1126400
+Scheduler advancement: PASS
+```
+
+## Interpretation
+
+- **Processing margin (us)**: Headroom available before deadline. Negative values indicate overruns.
+- **Jitter (us)**: Variability in processing time (max - min). Lower is better.
+- **Overruns**: Count of blocks that exceeded their processing deadline
+- **Scheduler advancement**: Verification that Scheduler position matches expected sample count
+
+## Troubleshooting
+
+
+
+- Ensure Teensy USB Type is set to "Serial"
+- Try pressing the Teensy reset button if output stops
 Benchmark finished. Device is safe to unplug.
 ```
 

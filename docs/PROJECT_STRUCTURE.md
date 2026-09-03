@@ -45,6 +45,41 @@ Detailed platform architecture is documented separately in:
 - [SCHEDULER.md](SCHEDULER.md)
 - [MIDI_SUPPORT.md](MIDI_SUPPORT.md)
 
+## Teensy Reusable Infrastructure
+
+The `firmware/teensy/` directory may contain reusable platform-specific infrastructure that is shared by the Teensy firmware and development or diagnostic tools.
+
+This includes functionality that depends directly on Teensy hardware or the Teensy/Arduino environment but is intended to remain part of the project beyond a single diagnostic tool.
+
+Examples include:
+
+- SD-card logging;
+- diagnostic LED signalling;
+- Teensy-specific timing or hardware helpers;
+- persistent debug and diagnostic functionality;
+- other reusable Teensy hardware integration components.
+
+Such components are not considered tool-specific code merely because a diagnostic tool is their current or first consumer.
+
+Diagnostic tools belong under `tools/teensy_diagnostics/`.
+
+A diagnostic tool may consume reusable Teensy infrastructure from `firmware/teensy/`, but must not create a second implementation of an existing reusable component.
+
+For example:
+
+- `firmware/teensy/BroTracker/diagnostics.*` is the single source of truth for Teensy diagnostics;
+- `tools/teensy_diagnostics/` contains diagnostic tools that consume this infrastructure.
+
+The same principle applies to shared platform-independent components. A tool must use the existing implementation rather than creating a local replacement.
+
+The distinction is therefore:
+
+- `src/` — shared platform-independent implementation;
+- `firmware/teensy/` — Teensy-specific reusable runtime and hardware infrastructure;
+- `tools/` — development and diagnostic tools that consume these components.
+
+Arduino IDE integration must not be solved by copying or forking reusable components. A diagnostic sketch must consume the existing source of truth while preserving the repository architecture.
+
 ## Architectural vs. Directory Boundaries
 
 Directory structure should reflect major architectural boundaries where practical, but directory separation alone does not define a subsystem.
@@ -54,3 +89,28 @@ A subsystem may consist of multiple source files and may span implementation det
 Architectural boundaries are defined primarily by responsibility, dependency direction and interfaces rather than by the number of directories or files.
 
 The project should avoid creating directories or abstractions solely to make the structure appear more modular.
+
+### Arduino IDE Integration
+
+Arduino IDE diagnostic sketches may require access to reusable BroTracker components that are located outside the individual sketch directory.
+
+Repository-relative include paths must not be used as a mechanism for accessing source files outside the Arduino sketch build context. Arduino IDE builds sketches in its own build environment and does not treat the repository root as a general C++ include/build root.
+
+Arduino-specific integration must therefore use a supported Arduino library or sketch integration mechanism to expose the existing source-of-truth files to the sketch.
+
+This integration mechanism must not require:
+
+- copying reusable source files into individual diagnostic tools;
+- maintaining duplicate implementations;
+- moving platform-specific infrastructure solely to satisfy Arduino IDE;
+- introducing PlatformIO, CMake, or another build system.
+
+The repository location of the reusable component remains authoritative.
+
+For example:
+
+- `firmware/teensy/BroTracker/diagnostics.*` remains the source of truth for Teensy diagnostics;
+- `src/runtime/scheduler.*` remains the source of truth for the Scheduler;
+- an Arduino IDE integration layer may expose these existing components to a diagnostic sketch without creating another implementation.
+
+Arduino IDE packaging is considered an integration concern and must not redefine the architectural ownership of the reusable component.
