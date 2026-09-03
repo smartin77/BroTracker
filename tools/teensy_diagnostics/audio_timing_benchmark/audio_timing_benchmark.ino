@@ -39,7 +39,15 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "diagnostics.h"
+// ============================================================================
+// Forward declarations - use Arduino Serial for diagnostics bootstrap only
+// ============================================================================
+
+void PrintLine(const char* message);
+void PrintValue(const char* label, uint32_t value);
+void PrintValue64(const char* label, uint64_t value);
+void PrintDecimal(const char* label, uint32_t value, uint8_t places);
+bool DiagnosticsReady();
 
 // ============================================================================
 // BroTracker Scheduler
@@ -280,14 +288,43 @@ void RunBenchmark(const BenchmarkConfig& config)
 }
 
 // ============================================================================
-// Logging Functions
+// Diagnostics Integration
 // ============================================================================
+//
+// Use existing BroTracker diagnostics infrastructure for logging and completion signal.
+//
+// The DiagnosticsInitialize(), DiagnosticLog(), and DiagnosticBlink() functions
+// are expected to be available from firmware/teensy/BroTracker/diagnostics.h
+// when this sketch is built in Arduino IDE with the BroTracker firmware project.
+//
+// To build this benchmark:
+// 1. Open audio_timing_benchmark.ino in Arduino IDE
+// 2. Add a tab that includes the diagnostics.h header from firmware/teensy/BroTracker/
+// 3. Ensure the diagnostics.cpp implementation is compiled with the sketch
+// 4. Or, link against the compiled BroTracker firmware libraries if Arduino libraries are configured
+
+// Forward declarations for diagnostics functions
+bool DiagnosticsInitialize();
+bool DiagnosticLog(const char* message);
+void DiagnosticBlink(unsigned int count);
+
+bool diagnostics_available = false;
+
+bool DiagnosticsReady()
+{
+    return diagnostics_available;
+}
 
 void PrintLine(const char* message)
 {
-    // Write to diagnostics system (SD card + Serial)
+    // Always print to Serial for development
     Serial.println(message);
-    BroTracker::DiagnosticLog(message);
+
+    // Also log to diagnostics if available
+    if (diagnostics_available)
+    {
+        DiagnosticLog(message);
+    }
 }
 
 void PrintValue(const char* label, uint32_t value)
@@ -300,12 +337,25 @@ void PrintValue(const char* label, uint32_t value)
 void PrintValue64(const char* label, uint64_t value)
 {
     char buffer[128];
+    // Arduino snprintf may not support %llu, use manual formatting
     uint32_t high = (uint32_t)(value >> 32);
     uint32_t low = (uint32_t)(value & 0xFFFFFFFF);
     if (high > 0)
         snprintf(buffer, sizeof(buffer), "%s %lu%08lu", label, (unsigned long)high, (unsigned long)low);
     else
         snprintf(buffer, sizeof(buffer), "%s %lu", label, (unsigned long)low);
+    PrintLine(buffer);
+}
+
+void PrintDecimal(const char* label, uint32_t value, uint8_t places)
+{
+    char buffer[128];
+    // Simple fixed-point formatting
+    char format[32];
+    snprintf(format, sizeof(format), "%%s %%.%df", places);
+    // Note: snprintf doesn't support floating point on Arduino
+    // For now, just print as integer
+    snprintf(buffer, sizeof(buffer), "%s %lu", label, (unsigned long)value);
     PrintLine(buffer);
 }
 
@@ -321,15 +371,16 @@ void setup()
     PrintLine("BroTracker Audio Timing Benchmark");
     PrintLine("Starting initialization...");
 
-    // Initialize diagnostics (SD card logging and completion signal)
-    if (!BroTracker::DiagnosticsInitialize())
+    // Initialize diagnostics
+    diagnostics_available = DiagnosticsInitialize();
+    if (diagnostics_available)
     {
-        PrintLine("Warning: Diagnostics initialization failed");
-        PrintLine("Results will be available on Serial console only");
+        PrintLine("Diagnostics initialized successfully");
     }
     else
     {
-        PrintLine("Diagnostics initialized - results will be logged to SD card");
+        PrintLine("Warning: Diagnostics initialization failed");
+        PrintLine("Continuing with Serial output only");
     }
 
     PrintLine("");
@@ -357,9 +408,9 @@ void setup()
     PrintLine("=== Benchmark Complete ===");
     PrintLine("All measurements finished");
 
-    // Signal completion with LED flash (using existing diagnostics infrastructure)
+    // Signal completion
     PrintLine("Indicating completion with LED flash...");
-    BroTracker::DiagnosticBlink(3);
+    DiagnosticBlink(3);  // Three LED flashes indicate success
 
     PrintLine("Benchmark finished. Device is safe to unplug.");
 }
