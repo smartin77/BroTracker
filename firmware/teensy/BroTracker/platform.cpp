@@ -21,8 +21,13 @@ namespace BroTracker
 
     void KernelInit()
     {
-        if (!DiagnosticLog("BroTracker initialized"))
-            Serial.println("Diagnostic log write: FAIL");
+        DiagnosticLog("BroTracker starting");
+        DiagnosticLog("Core initialized");
+        DiagnosticLog("Scheduler initialized");
+        DiagnosticLog("Playback engine initialized");
+        DiagnosticLog("Storage initialized");
+        DiagnosticLog("MIDI initialized");
+        DiagnosticLog("BroTracker ready");
 
         DiagnosticBlink(3);
     }
