@@ -17,6 +17,7 @@ target_include_directories(BroTrackerCore PUBLIC src)
 add_executable(BroTracker
     src/main.cpp
     src/runtime/runtime.cpp
+    src/runtime/scheduler.cpp
     src/runtime/storage.cpp
 )
 
@@ -40,6 +41,8 @@ add_executable(BroTrackerTests
     tests/test_main.cpp
     tests/test_note_formatter.cpp
     tests/test_tune_loader.cpp
+    tests/test_scheduler.cpp
+    src/runtime/scheduler.cpp
 )
 
 target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore)

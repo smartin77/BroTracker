@@ -9,21 +9,38 @@
 
 - Timing engine foundation
 - Deterministic playback and scheduling primitives
+- Implement the common logical playback timeline
+- Define the scheduler's sample-based timing representation
+- Establish the relationship between scheduler time and audio processing boundaries
+- Verify deterministic scheduler behaviour on the Teensy 4.1 reference platform
+- Measure scheduler timing stability, jitter and CPU overhead
+
+The scheduler shall remain the authoritative source of logical playback time.
+
+Audio processing callbacks or blocks provide realtime execution opportunities but do not become the timing authority.
+
+The scheduler timing model must remain independent of CPU frequency and platform-specific wall-clock timers.
 
 ## Phase 2
 
 - Basic sample player
 - Simple instrument and sample loading workflow
+- Integrate sample playback with the common scheduler timeline
+- Verify sample-accurate event positioning within audio processing blocks
+- Establish the initial Teensy audio processing path
 
 ## Phase 3
 
 - Pattern editor
 - Basic pattern editing and transport controls
+- Connect pattern playback to the common scheduler timing model
 
 ## Phase 4
 
 - MIDI support
 - External clock and device integration
+- Synchronize MIDI events with the common realtime timeline
+- Verify MIDI/audio event alignment
 
 ## Phase 5
 
