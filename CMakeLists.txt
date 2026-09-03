@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(BroTrackerUI)
+project(BroTracker)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -13,6 +13,15 @@ add_library(BroTrackerCore STATIC
 )
 
 target_include_directories(BroTrackerCore PUBLIC src)
+
+add_executable(BroTracker
+    src/main.cpp
+    src/runtime/runtime.cpp
+    src/runtime/storage.cpp
+)
+
+target_link_libraries(BroTracker PRIVATE BroTrackerCore)
+target_include_directories(BroTracker PRIVATE src)
 
 add_executable(BroTrackerUIPreview
     tools/ui_preview/main.cpp
