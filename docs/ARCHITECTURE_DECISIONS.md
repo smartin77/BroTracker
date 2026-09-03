@@ -830,59 +830,68 @@ Channel mute is not an audio mute and does not constitute a separate performance
 
 The exact behaviour of instrument changes occurring in pattern data while the channel is muted remains open for further design evaluation.
 
-## D0037 — Teensy Reusable Infrastructure
+## D0037 — Reusable Platform Infrastructure
 
-Teensy-specific infrastructure that is intended to remain part of the project and be reused by multiple firmware components or diagnostic tools belongs under `firmware/teensy/`.
+Reusable BroTracker components shall be maintained under `libraries/` when they are intended to be consumed by multiple parts of the project.
 
-This includes persistent debug and diagnostic functionality such as:
+Reusable libraries are separated according to platform dependency.
+
+Platform-independent reusable components shall remain free of platform-specific dependencies and may be consumed by Teensy firmware, host runtimes, tests, diagnostic tools and future supported platforms.
+
+Platform-specific reusable infrastructure shall be placed in an appropriate platform-specific library.
+
+For Teensy 4.1 this includes persistent infrastructure such as:
 
 - SD-card logging;
 - diagnostic LED signalling;
-- Teensy-specific diagnostic helpers;
-- other hardware-specific infrastructure that is expected to remain available throughout the project.
+- Teensy-specific timing or hardware helpers;
+- persistent debug and diagnostic functionality;
+- other reusable Teensy hardware integration components.
 
-Diagnostic tools under `tools/teensy_diagnostics/` are consumers of this infrastructure.
+Such infrastructure is not considered tool-specific merely because a diagnostic tool is its current or first consumer.
 
-They must not copy, fork, or locally reimplement existing reusable Teensy components.
+The distinction is:
 
-The repository therefore maintains a single source of truth for each reusable component.
+- `libraries/` — reusable project components;
+- `firmware/` — platform-specific firmware and application integration;
+- `tools/` — development and diagnostic tools consuming reusable components.
 
-For example:
+Each reusable component must have a single source of truth.
 
-- `firmware/teensy/BroTracker/diagnostics.*` is the single source of truth for Teensy diagnostics;
-- individual diagnostic sketches consume that implementation rather than maintaining their own copies.
+Consumers must not copy, fork or locally reimplement an existing reusable component.
 
-Platform-independent reusable components remain in their appropriate shared/runtime locations. Platform-specific reusable components may remain under `firmware/teensy/` when their implementation depends directly on Teensy hardware or libraries.
-
-Arduino IDE compatibility must not be solved by duplicating reusable source files or introducing a second implementation. If a diagnostic sketch requires reusable repository components, the Arduino IDE integration must consume the existing source of truth while preserving the repository architecture.
-
-This also applies to permanent debug functionality. Debug logging and diagnostic signalling are considered persistent platform infrastructure, not disposable benchmark-specific functionality.
+Permanent debug and diagnostic functionality is considered reusable platform infrastructure and must remain available beyond the lifetime of any individual benchmark or diagnostic tool.
 
 ## D0038 — Arduino IDE Integration for Reusable Components
 
-Arduino IDE diagnostic sketches may consume reusable BroTracker components located outside the sketch directory.
+Arduino IDE diagnostic sketches shall consume reusable BroTracker components through the repository's reusable library structure rather than maintaining local copies.
 
-Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code.
+The preferred integration model is to expose reusable components under the repository `libraries/` directory using the standard Arduino library structure where required.
 
-The architectural location of a reusable component is not changed solely to satisfy Arduino IDE build requirements.
+This allows the Arduino IDE to discover the reusable components through its normal library mechanism without requiring repository-relative include paths or duplicated source files.
 
-The ownership remains defined by the component itself:
+The architectural ownership of a reusable component is defined by its platform dependency and intended reuse, not by the location of the diagnostic sketch consuming it.
 
-- platform-independent runtime components remain in their existing shared/runtime locations;
-- Teensy-specific reusable infrastructure remains under `firmware/teensy/`;
+Therefore:
+
+- platform-independent reusable components belong in appropriate libraries without introducing Teensy-specific dependencies;
+- Teensy-specific reusable infrastructure belongs in appropriate Teensy libraries;
+- firmware remains responsible for Teensy application and runtime integration;
 - diagnostic sketches remain under `tools/teensy_diagnostics/`.
 
-Arduino IDE-specific packaging or integration is therefore considered a build/integration concern rather than an architectural relocation of the component.
+Arduino IDE packaging metadata such as `library.properties` is considered build/integration metadata. It does not constitute a separate implementation and does not change the architectural responsibility of the component.
 
-Diagnostic tools must not solve Arduino IDE integration by:
+The Arduino IDE integration must not be solved by:
 
-- copying reusable `.cpp` or `.h` implementations into the tool directory;
-- maintaining local replacement implementations;
-- introducing PlatformIO, CMake, or another build system;
-- moving reusable components solely to make them discoverable by Arduino IDE.
+- copying reusable `.cpp` or `.h` implementations into individual tools;
+- maintaining duplicate implementations;
+- hard-linking repository files into sketch directories;
+- relying on symlinks as a repository requirement;
+- moving reusable components solely because of an Arduino IDE discovery limitation;
+- introducing PlatformIO, CMake or another alternative build system.
 
-The Arduino IDE integration must instead reference or expose the existing source-of-truth implementation through an Arduino-supported mechanism.
+The preferred developer workflow is to use the BroTracker repository as the Arduino Sketchbook and allow Arduino IDE to discover libraries from the repository's standard `libraries/` directory.
 
-This decision applies to reusable Teensy infrastructure such as diagnostics, SD-card logging, diagnostic signalling and future Teensy-specific debug infrastructure, as well as shared runtime components consumed by Teensy diagnostic tools.
+If a future reusable component cannot be consumed directly through this mechanism, a developer-side preparation step may be introduced as a fallback. Such a step may generate or install local integration artifacts, but the repository source of truth must remain in the BroTracker library structure.
 
-The physical Arduino IDE / Teensy build remains a manual developer verification step. Repository-side tooling must not claim hardware verification unless it has actually been performed on the target hardware.
+The physical Arduino IDE / Teensy 4.1 build, upload and hardware verification remain manual developer responsibilities. Repository-side tooling must not claim hardware verification unless it has actually been performed on the target hardware.
