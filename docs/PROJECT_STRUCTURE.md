@@ -54,6 +54,29 @@ The `libraries/` directory contains components that are intended to be consumed 
 
 Reusable libraries are separated according to platform dependency.
 
+### Arduino IDE Integration and Local Build Preparation
+
+The repository `libraries/` directory is the source of truth for all reusable BroTracker libraries.
+
+The presence of a library under the repository `libraries/` directory does not by itself guarantee that the Arduino IDE GUI will discover it when building a sketch located elsewhere in the repository. Arduino IDE library discovery is based on its configured library search locations and does not recursively treat arbitrary repository directories as libraries.
+
+When an Arduino IDE sketch requires reusable BroTracker libraries, a developer-side preparation step may be used to make the required libraries available in the Arduino IDE's library search location.
+
+Such preparation may copy or otherwise synchronize the repository source-of-truth libraries into the developer's Arduino library environment before compilation.
+
+This does not constitute a second source of truth. The prepared Arduino library content is a build/integration artifact and must not be edited manually. Changes must always be made in the repository `libraries/` source-of-truth and then propagated through the preparation step.
+
+The preparation mechanism must:
+
+- use the repository `libraries/` directory as its source;
+- never require manual modification of generated/prepared library copies;
+- remain reproducible from a fresh repository clone;
+- avoid hard links or symlinks as repository dependencies;
+- avoid relocating reusable components solely to satisfy Arduino IDE discovery;
+- preserve the architectural ownership and platform separation defined for reusable libraries.
+
+Arduino IDE integration is therefore considered a build/developer-environment concern and must not alter the reusable library architecture.
+
 ### Platform-independent libraries
 
 Platform-independent reusable components must not depend on Teensy hardware, Arduino APIs or operating-system-specific functionality.

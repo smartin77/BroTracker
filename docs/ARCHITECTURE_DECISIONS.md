@@ -860,29 +860,34 @@ This also applies to permanent debug functionality. Debug logging and diagnostic
 
 ## D0038 — Arduino IDE Integration for Reusable Components
 
-Arduino IDE diagnostic sketches may consume reusable BroTracker components located outside the sketch directory.
+Arduino IDE diagnostic sketches shall consume the repository's reusable BroTracker components without maintaining independent implementations or manually maintained copies.
 
-Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code.
+The repository `libraries/` directory remains the single source of truth for reusable components.
 
-The architectural location of a reusable component is not changed solely to satisfy Arduino IDE build requirements.
+Reusable components shall use the standard Arduino library structure where appropriate, but repository placement alone does not guarantee discovery by the Arduino IDE GUI. Arduino IDE discovers libraries through its configured library search locations and does not recursively search arbitrary directories within a repository.
 
-The ownership remains defined by the component itself:
+Therefore, when an Arduino IDE sketch requires reusable BroTracker libraries, a developer-side preparation step may be used to synchronize the required libraries from the repository `libraries/` directory into an Arduino IDE library search location before compilation.
 
-- platform-independent runtime components remain in their existing shared/runtime locations;
-- Teensy-specific reusable infrastructure remains under `firmware/teensy/`;
-- diagnostic sketches remain under `tools/teensy_diagnostics/`.
+The prepared library content is a generated/local build artifact. It must never become an independently maintained implementation or an additional source of truth.
 
-Arduino IDE-specific packaging or integration is therefore considered a build/integration concern rather than an architectural relocation of the component.
+The preparation process must:
 
-Diagnostic tools must not solve Arduino IDE integration by:
+- use the repository `libraries/` directory as the source;
+- be reproducible from a fresh repository clone;
+- avoid hard links and symlinks as repository dependencies;
+- avoid manually maintained duplicate implementations;
+- avoid moving reusable components solely to satisfy Arduino IDE discovery;
+- preserve the platform-independent/platform-specific separation of reusable libraries;
+- leave the repository source-of-truth libraries unchanged.
 
-- copying reusable `.cpp` or `.h` implementations into the tool directory;
-- maintaining local replacement implementations;
-- introducing PlatformIO, CMake, or another build system;
-- moving reusable components solely to make them discoverable by Arduino IDE.
+The architectural ownership of a reusable component is defined by its platform dependency and intended reuse, not by the location of the diagnostic sketch consuming it.
 
-The Arduino IDE integration must instead reference or expose the existing source-of-truth implementation through an Arduino-supported mechanism.
+Therefore:
 
-This decision applies to reusable Teensy infrastructure such as diagnostics, SD-card logging, diagnostic signalling and future Teensy-specific debug infrastructure, as well as shared runtime components consumed by Teensy diagnostic tools.
+- platform-independent reusable components belong in appropriate libraries without introducing platform-specific dependencies;
+- Teensy-specific reusable infrastructure belongs in appropriate Teensy libraries;
+- firmware remains responsible for Teensy application and runtime integration;
+- diagnostic sketches remain under `tools/teensy_diagnostics/`;
+- Arduino IDE preparation is an integration mechanism and does not change component ownership.
 
-The physical Arduino IDE / Teensy build remains a manual developer verification step. Repository-side tooling must not claim hardware verification unless it has actually been performed on the target hardware.
+The developer is responsible for manually verifying Arduino IDE compilation and Teensy hardware execution. Repository-side tooling may prepare the build environment, but it must not claim successful hardware verification.
