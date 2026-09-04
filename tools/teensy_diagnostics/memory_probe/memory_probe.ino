@@ -19,6 +19,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <DMAChannel.h>
+#include <diagnostics.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -44,9 +45,6 @@ namespace
     constexpr std::size_t BUFFER_SIZE = 4096;
     constexpr int ITERATIONS = 1000;
 
-    constexpr const char* LOG_DIRECTORY = "BroTracker";
-    constexpr const char* RUN_COUNTER_PATH = "BroTracker/run_count.txt";
-
     // Non-attributed globals default to RAM1 (DTCM) on Teensy 4.x.
     volatile uint8_t default_buffer[BUFFER_SIZE];
 
@@ -69,25 +67,42 @@ namespace
     class TeeOutput : public Print
     {
     public:
-        void Begin(File& file)
+        void SetLogFile(void* file)
         {
-            log_file = &file;
+            log_file = file;
         }
 
         size_t write(uint8_t byte) override
         {
             Serial.write(byte);
 
-            if (log_file != nullptr)
+            // Buffer the character until newline for logging
+            if (byte == '\n' || buffer_pos >= sizeof(buffer) - 1)
             {
-                log_file->write(byte);
+                if (byte != '\n' && buffer_pos < sizeof(buffer) - 1)
+                    buffer[buffer_pos++] = byte;
+
+                buffer[buffer_pos] = '\0';
+
+                if (log_file && buffer_pos > 0)
+                {
+                    BroTracker::ToolLogMessage(log_file, buffer);
+                }
+
+                buffer_pos = 0;
+                return 1;
             }
+
+            if (buffer_pos < sizeof(buffer) - 1)
+                buffer[buffer_pos++] = byte;
 
             return 1;
         }
 
     private:
-        File* log_file = nullptr;
+        void* log_file = nullptr;
+        char buffer[256] = {};
+        size_t buffer_pos = 0;
     };
 
     TeeOutput output;
@@ -170,34 +185,7 @@ namespace
         return true;
     }
 
-    // Reads/increments a small counter file on the SD card so repeated runs
-    // each get their own log file instead of overwriting previous results.
-    unsigned int NextRunNumber()
-    {
-        unsigned int run_number = 1;
 
-        File counter_file = SD.open(RUN_COUNTER_PATH, FILE_READ);
-
-        if (counter_file)
-        {
-            run_number = counter_file.parseInt() + 1;
-            counter_file.close();
-        }
-
-        // FILE_WRITE appends on Teensy's SD library, so the old value must
-        // be removed first to avoid accumulating stale counter lines.
-        SD.remove(RUN_COUNTER_PATH);
-
-        File updated_file = SD.open(RUN_COUNTER_PATH, FILE_WRITE);
-
-        if (updated_file)
-        {
-            updated_file.println(run_number);
-            updated_file.close();
-        }
-
-        return run_number;
-    }
 }
 
 void setup()
@@ -214,44 +202,24 @@ void setup()
         // Wait briefly for the host serial monitor to attach.
     }
 
-    const bool sd_ready = SD.begin(BUILTIN_SDCARD);
-
-    File log_file;
-
-    if (sd_ready)
+    // Initialize diagnostics and open tool-specific log file
+    if (BroTracker::DiagnosticsInitialize())
     {
-        SD.mkdir(LOG_DIRECTORY); // No-op if it already exists; never erases the card.
+        void* tool_log_file = BroTracker::OpenToolLogFile("memory_probe");
 
-        const unsigned int run_number = NextRunNumber();
-
-        char filename[48];
-        std::snprintf(
-            filename,
-            sizeof(filename),
-            "%s/memory_probe_%03u.txt",
-            LOG_DIRECTORY,
-            run_number);
-
-        log_file = SD.open(filename, FILE_WRITE);
-        output.Begin(log_file);
-
-        if (log_file)
+        if (tool_log_file)
         {
-            log_file.println("SD log test: OK");
-            log_file.flush();
+            output.SetLogFile(tool_log_file);
+            Serial.println("Tool log file created - logging to SD");
         }
         else
         {
-            Serial.println("ERROR: Failed to open SD log file.");
+            Serial.println("WARNING: Could not open tool log file - logging to Serial only");
         }
-
-        Serial.print("Logging to SD: ");
-        Serial.println(filename);
     }
     else
     {
-        Serial.println(
-            "SD card not detected - logging to Serial only.");
+        Serial.println("SD card not detected - logging to Serial only.");
     }
 
     output.println();
@@ -359,10 +327,6 @@ void setup()
         "Probe complete - answers open questions 1-3 and 8 in "
         "docs/TEENSY_MEMORY_ARCHITECTURE.md.");
 
-    if (log_file)
-    {
-        log_file.close();
-    }
 
     Serial.println();
     Serial.println("Done. Safe to reset or reflash the board now.");
