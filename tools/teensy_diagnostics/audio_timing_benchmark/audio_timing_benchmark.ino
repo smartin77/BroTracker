@@ -60,6 +60,30 @@
 #include <diagnostics.h>
 
 // ============================================================================
+// Data Types and Structures
+// ============================================================================
+
+struct BenchmarkConfig
+{
+    uint32_t sample_rate;
+    uint16_t block_size;
+
+    uint32_t block_duration_us() const
+    {
+        return (uint32_t)(((uint64_t)block_size * 1000000) / sample_rate);
+    }
+};
+
+struct MeasurementStats
+{
+    uint32_t min_time_us;
+    uint32_t max_time_us;
+    uint64_t total_time_us;
+    uint32_t overrun_count;
+    uint32_t measured_blocks;
+};
+
+// ============================================================================
 // Logging
 // ============================================================================
 
@@ -87,34 +111,6 @@ void PrintValue64(const char* label, uint64_t value)
         snprintf(buffer, sizeof(buffer), "%s %lu", label, (unsigned long)low);
     PrintLine(buffer);
 }
-
-// ============================================================================
-// Benchmark Configuration
-// ============================================================================
-
-struct BenchmarkConfig
-{
-    uint32_t sample_rate;
-    uint16_t block_size;
-
-    uint32_t block_duration_us() const
-    {
-        return (uint32_t)(((uint64_t)block_size * 1000000) / sample_rate);
-    }
-};
-
-// ============================================================================
-// Measurement Results
-// ============================================================================
-
-struct MeasurementStats
-{
-    uint32_t min_time_us;
-    uint32_t max_time_us;
-    uint64_t total_time_us;
-    uint32_t overrun_count;
-    uint32_t measured_blocks;
-};
 
 // ============================================================================
 // Deterministic Audio Workload
@@ -302,11 +298,6 @@ void setup()
     BroTracker::DiagnosticBlink(3);
 
     PrintLine("Benchmark finished. Device is safe to unplug.");
-}
-
-void loop()
-{
-    delay(1000);
 }
 
 void loop()
