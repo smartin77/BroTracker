@@ -12,11 +12,11 @@ The benchmark measures:
 - processing overruns
 - realtime timing stability
 
-The benchmark is documented in [docs/TEENSY_AUDIO_ARCHITECTURE.md](../../docs/TEENSY_AUDIO_ARCHITECTURE.md) (Realtime Audio Benchmark section).
+The benchmark is intentionally independent from the future BroTracker Audio Engine.
 
 ## Scope
 
-This benchmark **does NOT** implement:
+This benchmark does **NOT** implement:
 
 - audio synthesis
 - sample playback
@@ -26,121 +26,205 @@ This benchmark **does NOT** implement:
 - tracker playback
 - effects processing
 
-## Implementation Details
+## Implementation
 
-This benchmark uses the actual, reusable BroTracker implementations **without any duplication**.
+The benchmark uses the actual reusable BroTracker implementations without duplication.
 
-**Per Architectural Decisions D0037 & D0038:**
+The reusable libraries are:
 
-- **Scheduler**: `libraries/scheduler/` (single source of truth, platform-independent)
-- **Diagnostics**: `libraries/teensy/diagnostics/` (single source of truth, Teensy-specific infrastructure)
+- `libraries/scheduler/` — platform-independent Scheduler
+- `libraries/teensy/diagnostics/` — Teensy-specific diagnostics infrastructure
 
-The components are consumed through Arduino IDE's standard library discovery mechanism:
+Both are maintained as single sources of truth in the repository and are consumed by the benchmark through PlatformIO's library discovery mechanism.
 
-- `libraries/scheduler/` contains the platform-independent Scheduler implementation
-- `libraries/teensy/diagnostics/` contains the Teensy diagnostics infrastructure
-- Arduino IDE automatically discovers these libraries from the repository `libraries/` directory
-- Single source of truth: there is exactly one implementation of each component in the repository
-- Changes to the library implementations are immediately available to all consumers
+The benchmark sketch is located at:
 
-This approach satisfies the Arduino-specific integration requirement from D0038:
-> "Arduino IDE integration must expose the existing source-of-truth implementation to the sketch without creating duplicated or forked source code."
+```text
+tools/teensy_diagnostics/audio_timing_benchmark/
+```
+
+The PlatformIO project is defined by the repository-level:
+
+```text
+platformio.ini
+```
+
+The benchmark uses the `audio_timing_benchmark` PlatformIO environment.
 
 ## Hardware Requirements
 
 - Teensy 4.1
-- USB connection to host for Serial output and programming
-- SD card (for result logging)
+- USB connection to the host for programming and Serial output
+- SD card for result logging
 
-## Building and Running with Arduino IDE
+## PlatformIO Setup
 
-### Setup (One Time)
+The project uses PlatformIO with the Arduino framework and Teensy 4.1 board support.
 
-1. Install Arduino IDE (https://www.arduino.cc/en/software) - version 2.0 or later
-2. Install Teensyduino add-on (https://www.pjrc.com/teensy/teensyduino.html)
-3. Verify that Teensy 4.1 board support is available
-4. Configure Arduino IDE to use the BroTracker repository as the Sketchbook location:
-   - File → Preferences → Sketchbook location
-   - Set to: `/path/to/BroTracker` (the repository root)
-   - Restart Arduino IDE
+The relevant environment is:
 
-### Build and Upload
+```ini
+[env:audio_timing_benchmark]
+platform = teensy
+framework = arduino
+board = teensy41
+```
 
-1. Open `audio_timing_benchmark.ino` in Arduino IDE
-   - File → Open
-   - Navigate to: `tools/teensy_diagnostics/audio_timing_benchmark/audio_timing_benchmark.ino`
+PlatformIO automatically discovers the reusable libraries from the repository `libraries/` directory.
 
-2. Arduino IDE automatically discovers the reusable libraries from the repository `libraries/` directory:
-   - `libraries/scheduler/` (platform-independent Scheduler)
-   - `libraries/teensy/diagnostics/` (Teensy diagnostics infrastructure)
-   
-   The IDE will show both libraries as available for the sketch. No additional setup required.
+No file copying, hard links, symlinks, or manually maintained library duplicates are required.
 
-3. Select Teensy 4.1 board and USB settings:
-   - Tools → Board → Teensy 4.1
-   - Tools → USB Type → Serial
-   - Tools → Speed → 600 MHz (or other available frequency)
+## Building
 
-4. Compile:
-   - Sketch → Verify/Compile (Ctrl+R)
-   - Arduino IDE will compile the sketch and both reusable libraries
+From the BroTracker repository root:
 
-5. Connect Teensy 4.1 to USB and press the Teensy Program Button (physical button on the board)
+```bash
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe run -e audio_timing_benchmark
+```
 
-6. Upload:
-   - Sketch → Upload (Ctrl+U)
-   - Arduino IDE will upload the firmware to the Teensy
+If the PlatformIO CLI is available in the terminal `PATH`, the shorter form can be used:
 
-7. After upload completes, the benchmark runs automatically:
-   - LED flashes once during initialization
-   - All three audio configurations are measured
-   - Three LED flashes indicate successful completion and safe to unplug
+```bash
+pio run -e audio_timing_benchmark
+```
 
-### Monitor Serial Output
+A successful build produces:
 
-The benchmark writes output to both Serial console and SD card:
+```text
+.pio/build/audio_timing_benchmark/firmware.hex
+```
 
-1. Open Serial Monitor:
-   - Tools → Serial Monitor (Ctrl+Shift+M)
-   - Set baud rate to **115200**
+The dependency graph should include:
 
-2. Output appears as benchmark runs (approximately 10-15 seconds for all configurations)
+```text
+BroTrackerDiagnostics
+BroTrackerScheduler
+```
 
-3. Results are also logged to SD card:
-   - Location: `BroTracker/audio_timing_benchmark.log`
-   - Timestamped entries with all measurements
+## Uploading to Teensy 4.1
+
+The configured upload protocol is `teensy-gui`.
+
+The easiest workflow in VS Code is to use the PlatformIO **Upload** action for the `audio_timing_benchmark` environment.
+
+Alternatively:
+
+```bash
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe run -e audio_timing_benchmark -t upload
+```
+
+Connect the Teensy 4.1 by USB. If required, press the physical Program button on the Teensy during the upload process.
+
+After a successful upload, the benchmark starts automatically.
+
+## Serial Monitor
+
+The project is configured for:
+
+```text
+115200 baud
+```
+
+In VS Code / PlatformIO, start the monitor for the `audio_timing_benchmark` environment.
+
+Alternatively:
+
+```bash
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe device monitor -e audio_timing_benchmark
+```
+
+The complete workflow can also be executed with:
+
+```bash
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe run -e audio_timing_benchmark -t upload -t monitor
+```
+
+## Expected Benchmark
+
+The benchmark tests three configurations:
+
+| Sample Rate | Block Size | Block Duration | Intended Use |
+| ------------- | ------------ | ---------------- | -------------- |
+| 44.1 kHz | 256 | ~5.8 ms | Low latency |
+| 44.1 kHz | 512 | ~11.6 ms | Balanced |
+| 44.1 kHz | 1024 | ~23.2 ms | Larger processing block |
+
+Each configuration processes 1000 deterministic audio blocks.
+
+For each configuration the benchmark reports:
+
+- minimum processing time
+- average processing time
+- maximum processing time
+- jitter
+- processing margin
+- processing overruns
+- expected Scheduler position
+- actual Scheduler position
+- Scheduler advancement status
+
+## Verified Teensy 4.1 Result
+
+The benchmark has been successfully built, uploaded and executed on a physical Teensy 4.1.
+
+Verified results:
+
+| Sample Rate | Block Size | Min | Avg | Max | Jitter | Overruns | Scheduler |
+| ------------- | ------------ | ----- | ----- | ----- | -------- | ---------- | ----------- |
+| 44.1 kHz | 256 | 2 µs | 2 µs | 3 µs | 1 µs | 0 | PASS |
+| 44.1 kHz | 512 | 4 µs | 4 µs | 5 µs | 1 µs | 0 | PASS |
+| 44.1 kHz | 1024 | 8 µs | 8 µs | 9 µs | 1 µs | 0 | PASS |
+
+Scheduler positions were verified exactly:
+
+```text
+Expected scheduler position: 281600
+Actual scheduler position: 281600
+Scheduler advancement: PASS
+```
+
+```text
+Expected scheduler position: 563200
+Actual scheduler position: 563200
+Scheduler advancement: PASS
+```
+
+```text
+Expected scheduler position: 1126400
+Actual scheduler position: 1126400
+Scheduler advancement: PASS
+```
+
+All three configurations completed with:
+
+```text
+Processing overruns: 0
+```
+
+The benchmark completed normally and reported:
+
+```text
+Benchmark finished. Device is safe to unplug.
+```
 
 ## Output
 
-The benchmark produces comprehensive timing measurements for each configuration tested:
+A typical run begins with:
 
-```
+```text
 BroTracker Audio Timing Benchmark
 Starting initialization...
 Diagnostics initialized - results logged to SD card
 
 Testing BroTracker Scheduler independence from wall-clock timing
 Measuring audio processing block performance
+```
 
-=== Audio Timing Benchmark ===
-Sample Rate (Hz): 44100
-Block Size (samples): 256
-Block Duration (us): 5805
+Each configuration then reports its timing measurements and Scheduler verification.
 
-Starting measurement...
+The benchmark finishes with:
 
-Blocks measured: 1000
-Min processing time (us): 125
-Avg processing time (us): 245
-Max processing time (us): 389
-Jitter (us): 264
-Processing margin (us): 5416
-Processing overruns: 0
-
-Expected scheduler position: 1126400
-Actual scheduler position: 1126400
-Scheduler advancement: PASS
-
+```text
 === Benchmark Complete ===
 All measurements finished
 Indicating completion with LED flash...
@@ -149,219 +233,199 @@ Benchmark finished. Device is safe to unplug.
 
 ## Interpretation
 
-- **Sample Rate (Hz)**: Samples per second for this configuration
-- **Block Size (samples)**: Number of samples processed in each audio block
-- **Block Duration (us)**: Available processing time for each block
-- **Min/Avg/Max processing time (us)**: Best, average, and worst-case execution times observed
-- **Jitter (us)**: Timing variability = max - min (lower is better for realtime)
-- **Processing margin (us)**: Headroom before deadline
-  - Positive: Can safely process this block within deadline
-  - Negative: Processing exceeded deadline (overrun occurred)
-- **Processing overruns**: Count of blocks that exceeded their deadline
-- **Scheduler advancement**: Verification that Scheduler position matches expected audio timeline
-
-## Result Files
-
-**Serial Monitor** (console):
-- Real-time output at 115200 baud
-- Printed during benchmark execution
-
-**SD Card Log** (persistent):
-- File: `BroTracker/audio_timing_benchmark.log`
-- Timestamped entries
-- Can be transferred to host for analysis
-
-**LED Indicator**:
-- One flash: initialization complete
-- Three flashes: all benchmarks completed successfully
-
-## Arduino IDE Integration Architecture
-
-This benchmark demonstrates Arduino IDE integration per architectural decisions **D0037 and D0038**:
-
-**D0037 — Teensy Reusable Infrastructure:**
-- Single source of truth for each reusable component
-- No duplication, forking, or local reimplementation
-- Diagnostic tools consume existing repository implementations
-
-**D0038 — Arduino IDE Integration for Reusable Components:**
-- Arduino IDE integration exposes existing source-of-truth implementations without creating duplicates
-- Reusable components remain in their documented architectural locations
-- Arduino IDE-specific packaging is a build/integration concern, not an architectural change
-
-**How It Works:**
-
-Arduino IDE automatically discovers libraries in the configured Sketchbook's `libraries/` directory:
-
-1. Repository-level `libraries/scheduler/` contains the platform-independent Scheduler
-2. Repository-level `libraries/teensy/diagnostics/` contains Teensy diagnostics infrastructure
-3. Both directories have proper `library.properties` metadata for Arduino IDE library discovery
-
-**Key Benefits:**
-
-- **Single physical files**: Components exist in exactly one location in the repository
-- **Zero duplication**: All consumers use the same implementation
-- **No maintenance burden**: Implementations are managed in one location only
-- **No special linking required**: Uses Arduino IDE's standard library discovery
-- **Git-portable**: Works with fresh clones without additional setup steps
-- **Preserves repository architecture**: Components remain in their documented ownership locations
-
-## Troubleshooting
-
-**Compilation Error: "scheduler.h not found" or "diagnostics.h not found"**
-- Verify that the BroTracker repository root is configured as the Arduino Sketchbook location:
-  - File → Preferences → Sketchbook location should be the BroTracker repository root
-  - Restart Arduino IDE after changing this setting
-- Verify that the libraries exist in the repository root:
-  - `libraries/scheduler/library.properties` and `src/scheduler.h/cpp`
-  - `libraries/teensy/diagnostics/library.properties` and `src/diagnostics.h/cpp`
-- Arduino IDE should automatically show these libraries as available for the sketch
-
-**Compilation Error related to BroTracker namespace, Scheduler class, or diagnostics functions**
-- Verify Teensyduino add-on is installed (provides Arduino.h, SD.h, TimeLib.h)
-- Verify Teensy 4.1 board support is enabled
-- Try: Tools → Board Manager → Search "teensy" → Install/Update
-
-**Serial output not appearing**
-- Verify USB cable is properly connected
-- Check that Serial Monitor baud rate is set to **115200**
-- Try: Tools → Get Board Info (should show Teensy serial number)
-
-**SD card not found or results not logged**
-- Verify SD card is properly inserted
-- Check SD card file system is FAT32
-- DiagnosticsInitialize() may return false if SD fails
-- Results still appear in Serial Monitor even if SD is unavailable
-
-**Teensy not responding during upload**
-- Try pressing Teensy Program Button (physical button on board) during upload
-- Try: Tools → Ports → verify correct Teensy port is selected
-- Restart Arduino IDE if needed
-
-=== Audio Timing Benchmark ===
-Sample Rate (Hz): 44100
-Block Size (samples): 256
-Block Duration (us): 5805
-
-Starting measurement...
-
-Blocks measured: 1000
-Min processing time (us): 125
-Avg processing time (us): 245
-Max processing time (us): 389
-Jitter (us): 264
-Processing margin (us): 5416
-Processing overruns: 0
-
-Expected scheduler position: 1126400
-Actual scheduler position: 1126400
-Scheduler advancement: PASS
-```
-
-## Interpretation
-
-- **Processing margin (us)**: Headroom available before deadline. Negative values indicate overruns.
-- **Jitter (us)**: Variability in processing time (max - min). Lower is better.
-- **Overruns**: Count of blocks that exceeded their processing deadline
-- **Scheduler advancement**: Verification that Scheduler position matches expected sample count
-
-## Troubleshooting
-
-
-
-- Ensure Teensy USB Type is set to "Serial"
-- Try pressing the Teensy reset button if output stops
-Benchmark finished. Device is safe to unplug.
-```
-
-## Configurations Tested
-
-The benchmark tests multiple audio configurations:
-
-| Sample Rate | Block Size | Block Duration | Use Case |
-|-------------|------------|----------------|----------|
-| 44.1 kHz    | 256        | ~5.8 ms        | Low-latency |
-| 44.1 kHz    | 512        | ~11.6 ms       | Balanced |
-| 44.1 kHz    | 1024       | ~23.2 ms       | Battery-efficient |
-
-Additional configurations can be added by modifying the `configs[]` array in `RunBenchmark()`.
-
-## Interpreting Results
-
 ### Processing Time
 
-- **Min/Average/Max**: Execution time for the measured workload per block
-- **Jitter**: Difference between max and min (execution-time variation)
+- **Min/Avg/Max** — execution time for the measured workload per block
+- **Jitter** — difference between maximum and minimum processing time
+
+Lower processing time and lower jitter leave more headroom for future realtime processing.
 
 ### Processing Margin
 
-- **Positive**: Available headroom for realtime work
-  - Example: +500 us = 500 microseconds of spare time per block
-- **Negative**: Indicates processing overload
-  - Should be zero for realtime suitability
+Processing margin is the available time between the measured processing duration and the audio block deadline.
+
+- Positive margin — processing completed within the available block time
+- Zero or negative margin — processing reached or exceeded the deadline
 
 ### Processing Overruns
 
-- **Count**: Number of blocks where execution time exceeded available block duration
-- **Significance**: Even one overrun indicates potential realtime issues
-- **Expected**: Zero for stable realtime behaviour
+An overrun occurs when processing exceeds the available duration of the audio block.
+
+For a realtime system, the target is:
+
+```text
+Processing overruns: 0
+```
 
 ### Scheduler Advancement
 
-The benchmark verifies that the Scheduler's logical playback timeline advances according to processed sample count, not elapsed wall-clock time.
+The benchmark verifies that the Scheduler's logical playback timeline advances according to the number of processed samples.
 
-- **Expected Position**: (block_size × total_blocks) samples
-- **Actual Position**: Scheduler.GetPosition() after all blocks
-- **Status**: PASS if positions match exactly, FAIL if divergent
+Expected position:
 
-This confirms that:
-- Scheduler does NOT depend on millis() or micros()
-- Scheduler advances deterministically
-- Scheduler is suitable as the common timing reference for audio and MIDI
+```text
+block_size × number_of_blocks
+```
+
+Actual position is obtained from:
+
+```cpp
+Scheduler::GetPosition()
+```
+
+The result must match exactly.
+
+This verifies that Scheduler advancement is deterministic and independent of the wall-clock measurement used by the benchmark.
 
 ## Measurement Clock
 
-The benchmark uses Teensy's `micros()` for measurement timing, separate from the Scheduler.
+The benchmark deliberately separates the logical Scheduler timeline from the physical measurement clock.
 
-This separation is intentional and required by the architecture:
-
-```
-Scheduler Timeline (logical)
+```text
+Scheduler Timeline
     |
-    +-- represents playback samples
-    +-- increments by AdvanceSamples(N)
+    +-- logical playback position
+    +-- advances by processed sample count
     +-- independent of wall-clock time
 
-Measurement Clock (actual execution)
+Measurement Clock
     |
-    +-- measures elapsed microseconds
+    +-- measures actual execution duration
     +-- detects jitter and overruns
-    +-- used only for diagnostics
+    +-- used for diagnostics only
 ```
 
-## SD Card Output
+The benchmark uses Teensy's `micros()` for execution-time measurement.
 
-Results are written to the SD card at:
-
-```
-BroTracker/audio_timing_benchmark.log
-```
-
-This uses the existing BroTracker diagnostics infrastructure. Previous benchmark files are preserved with timestamps.
+The Scheduler does not use this measurement clock to advance its logical timeline.
 
 ## Deterministic Workload
 
-The benchmark applies a deterministic arithmetic operation (bit rotation) to each sample in the buffer.
+The benchmark applies deterministic arithmetic work to a sample buffer.
 
-This creates predictable CPU work without:
-- dependency on external state
+The workload is intentionally simple and predictable. It does not depend on:
+
 - filesystem access
 - MIDI output
-- non-deterministic branching
+- external state
+- non-deterministic application behaviour
 
-The workload is intentionally simple so that timing results primarily represent the audio processing path rather than application complexity.
+This allows the benchmark to establish a baseline for the processing boundary before more complex audio-engine components are introduced.
 
-## Next Steps
+## SD Card Output
+
+The diagnostics infrastructure logs benchmark results to:
+
+```text
+BroTracker/audio_timing_benchmark.log
+```
+
+Serial output remains available even if SD logging is unavailable.
+
+## LED Indication
+
+The benchmark uses the Teensy LED as a simple execution indicator:
+
+- one flash — initialization complete
+- three flashes — benchmark completed
+
+## Architecture
+
+This benchmark follows the reusable-library architecture defined for BroTracker.
+
+### Platform-independent reusable code
+
+```text
+libraries/scheduler/
+```
+
+Contains the Scheduler implementation that is not tied to Teensy-specific hardware.
+
+### Teensy-specific reusable infrastructure
+
+```text
+libraries/teensy/diagnostics/
+```
+
+Contains diagnostics and logging functionality used by Teensy diagnostic tools.
+
+### Diagnostic benchmark
+
+```text
+tools/teensy_diagnostics/audio_timing_benchmark/
+```
+
+Contains the benchmark-specific sketch and documentation.
+
+The benchmark does not maintain private copies of the reusable Scheduler or Diagnostics implementations.
+
+## Troubleshooting
+
+### `scheduler.h` or `diagnostics.h` not found
+
+Verify that PlatformIO is building from the BroTracker repository root and that the repository `libraries/` directory contains:
+
+```text
+libraries/
+├── scheduler/
+│   ├── library.properties
+│   └── src/
+│       ├── scheduler.h
+│       └── scheduler.cpp
+│
+└── teensy/
+    └── diagnostics/
+        ├── library.properties
+        └── src/
+            ├── diagnostics.h
+            └── diagnostics.cpp
+```
+
+Clean the PlatformIO build directory and rebuild if necessary:
+
+```bash
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe run -e audio_timing_benchmark -t clean
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe run -e audio_timing_benchmark
+```
+
+### PlatformIO command `pio` is not recognized
+
+PlatformIO may be installed in the PlatformIO virtual environment without its executable being in the system `PATH`.
+
+Use the full executable path:
+
+```text
+C:\Users\<username>\.platformio\penv\Scripts\platformio.exe
+```
+
+Alternatively, run the command from a VS Code PlatformIO terminal where the environment is available.
+
+### Upload problems
+
+- Verify the Teensy 4.1 is connected by USB.
+- Use the Teensy Program button if the uploader does not automatically detect the board.
+- Verify that the PlatformIO upload protocol is configured for the project.
+- Close any application that has locked the Teensy serial port.
+
+### No Serial output
+
+Verify:
+
+```text
+115200 baud
+```
+
+and that the correct Teensy serial port is selected.
+
+The benchmark starts automatically after upload.
+
+### SD logging problems
+
+Verify that an SD card is inserted and accessible to the Teensy.
+
+The benchmark's Serial output can still be used to inspect the timing measurements.
+
+## Future Measurements
 
 After establishing this baseline, future benchmarks may measure:
 
@@ -373,35 +437,36 @@ After establishing this baseline, future benchmarks may measure:
 - USB Audio overhead
 - end-to-end audio-to-MIDI latency
 
-Each subsequent measurement can be compared against this baseline to identify which subsystems consume processing budget.
+Each subsequent benchmark can be compared against this baseline to determine how much processing budget is consumed by individual BroTracker subsystems.
 
 ## Architecture Notes
 
-The benchmark is intentionally independent from the future BroTracker Audio Engine. It can be:
+The benchmark is intentionally independent from the future BroTracker Audio Engine.
 
-- reused when the engine is implemented;
-- executed independently for platform verification;
-- extended to test specific engine components in isolation.
+It can therefore be:
 
-The Scheduler integration verifies that the audio processing boundary can correctly advance the shared logical timeline without the Scheduler depending on realtime measurement mechanisms.
+- executed independently for platform verification
+- reused when the audio engine is implemented
+- extended to test individual engine components in isolation
+
+The Scheduler integration verifies that the audio processing boundary can correctly advance the shared logical timeline without making the Scheduler dependent on realtime measurement mechanisms.
 
 ## References
 
-- `docs/TEENSY_AUDIO_ARCHITECTURE.md` - Teensy audio architecture and Realtime Audio Benchmark section
-- `docs/SCHEDULER.md` - Scheduler specification and timing requirements
-- `libraries/scheduler/` - BroTracker Scheduler implementation (reusable library)
-- `libraries/teensy/diagnostics/` - Diagnostics infrastructure (reusable library)
+- `docs/TEENSY_AUDIO_ARCHITECTURE.md` — Teensy audio architecture and realtime audio benchmark documentation
+- `docs/SCHEDULER.md` — Scheduler specification and timing requirements
+- `libraries/scheduler/` — platform-independent BroTracker Scheduler library
+- `libraries/teensy/diagnostics/` — Teensy diagnostics library
+- `platformio.ini` — PlatformIO project configuration
 
 ## Future Enhancements
 
-Possible improvements to this benchmark:
+Possible improvements include:
 
-- Configurable workload complexity
-- Multiple workload profiles (arithmetic, memory access, etc.)
-- Statistical output (variance, percentiles)
-- Configuration stored on SD for flexibility
-- Automatic repeat runs with averaged results
-- Jitter histogram or distribution visualization
-- Comparison with baseline measurements
-- MIDI timing integration (Phase 4)
-
+- configurable workload complexity
+- multiple workload profiles
+- statistical output such as variance and percentiles
+- automatic repeat runs
+- jitter distribution analysis
+- comparison against stored baseline measurements
+- future MIDI timing integration
