@@ -2,6 +2,7 @@
 .vscode/ipch/
 .vscode/c_cpp_properties.json
 .vscode/*.code-workspace
+.vscode/launch.json
 _backyard/
 BroTracker/
 !firmware/teensy/BroTracker/
