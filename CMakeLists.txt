@@ -17,12 +17,12 @@ target_include_directories(BroTrackerCore PUBLIC src)
 add_executable(BroTracker
     src/main.cpp
     src/runtime/runtime.cpp
-    src/runtime/scheduler.cpp
+    libraries/scheduler/src/scheduler.cpp
     src/runtime/storage.cpp
 )
 
 target_link_libraries(BroTracker PRIVATE BroTrackerCore)
-target_include_directories(BroTracker PRIVATE src)
+target_include_directories(BroTracker PRIVATE src libraries/scheduler/src)
 
 add_executable(BroTrackerUIPreview
     tools/ui_preview/main.cpp
@@ -42,11 +42,11 @@ add_executable(BroTrackerTests
     tests/test_note_formatter.cpp
     tests/test_tune_loader.cpp
     tests/test_scheduler.cpp
-    src/runtime/scheduler.cpp
+    libraries/scheduler/src/scheduler.cpp
 )
 
 target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore)
-target_include_directories(BroTrackerTests PRIVATE src tests)
+target_include_directories(BroTrackerTests PRIVATE src tests libraries/scheduler/src)
 
 add_test(
     NAME BroTrackerTests

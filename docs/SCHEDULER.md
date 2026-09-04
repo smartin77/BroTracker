@@ -105,6 +105,87 @@ The scheduler should prioritize:
 
 Implementation details remain subject to future profiling and hardware testing.
 
+## Timing Measurement
+
+Realtime timing performance shall be evaluated separately from the logical playback timeline.
+
+The scheduler's logical playback position is not a measurement clock.
+
+The scheduler represents playback time in the audio sample domain. Measurement instrumentation may use a platform-specific high-resolution timing source to measure execution duration, jitter and processing margin, but such instrumentation must not become part of the playback timing model.
+
+The distinction is:
+
+    Measurement Clock
+        |
+        +---- measures execution duration
+        +---- measures jitter
+        +---- measures processing margin
+
+    Scheduler Timeline
+        |
+        +---- represents logical playback time
+        +---- schedules realtime events
+        +---- advances according to processed audio samples
+
+Measurement instrumentation must not modify, drive or otherwise become authoritative for the scheduler timeline.
+
+## Realtime Determinism
+
+The realtime system should be evaluated not only by average processing time but also by timing variation.
+
+A processing path with a low average execution time but large timing variation may be unsuitable for reliable synchronization.
+
+Measurements should therefore consider at least:
+
+- minimum execution time;
+- average execution time;
+- maximum execution time;
+- execution-time spread or jitter;
+- processing budget;
+- number of processing overruns.
+
+The primary objective is predictable realtime behaviour rather than minimum average execution time alone.
+
+## Audio and MIDI Timing Consistency
+
+Audio events and MIDI events must continue to originate from the same scheduler timeline regardless of their physical output path.
+
+Physical output paths may introduce different constant latencies.
+
+A constant latency difference can be measured and compensated for later without changing the logical timing model.
+
+Variable latency or jitter is more problematic because it cannot be corrected reliably using a single fixed compensation value.
+
+The realtime architecture should therefore prioritize:
+
+1. common logical timing;
+2. deterministic event scheduling;
+3. low timing variation;
+4. predictable processing latency;
+5. absolute latency measurement and compensation.
+
+The scheduler must not introduce output-specific compensation into the logical playback timeline.
+
+Any future latency compensation should be applied at the appropriate output boundary and should not alter the common logical event position.
+
+## Benchmarking Principle
+
+Initial realtime benchmarks should establish the timing characteristics of the audio processing boundary before implementing the complete audio engine.
+
+The first benchmark should measure deterministic audio-block processing behaviour and scheduler advancement without introducing tracker-specific synthesis, sample streaming or MIDI transport complexity.
+
+The benchmark should establish a baseline for:
+
+- audio block processing time;
+- scheduler advancement overhead;
+- available processing margin;
+- timing variation;
+- processing overruns.
+
+The benchmark results should be used to guide later audio-engine and platform-boundary decisions.
+
+Specific audio block sizes, sample rates, measurement mechanisms and hardware configuration remain implementation and hardware-testing concerns.
+
 ## CPU Frequency Stability
 
 The realtime playback system assumes a stable CPU clock during active playback.

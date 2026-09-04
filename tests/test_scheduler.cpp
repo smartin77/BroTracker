@@ -11,7 +11,7 @@
 
 #include "test_framework.h"
 
-#include "runtime/scheduler.h"
+#include "scheduler.h"
 
 TEST_CASE(Scheduler_InitializesWithPositionZero)
 {

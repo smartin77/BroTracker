@@ -54,28 +54,39 @@ The `libraries/` directory contains components that are intended to be consumed 
 
 Reusable libraries are separated according to platform dependency.
 
-### Arduino IDE Integration and Local Build Preparation
+## D0038 — Arduino IDE Integration for Reusable Components
 
-The repository `libraries/` directory is the source of truth for all reusable BroTracker libraries.
+Arduino IDE diagnostic sketches shall consume the repository's reusable BroTracker components without maintaining independent implementations or manually maintained copies.
 
-The presence of a library under the repository `libraries/` directory does not by itself guarantee that the Arduino IDE GUI will discover it when building a sketch located elsewhere in the repository. Arduino IDE library discovery is based on its configured library search locations and does not recursively treat arbitrary repository directories as libraries.
+The repository `libraries/` directory remains the single source of truth for reusable components.
 
-When an Arduino IDE sketch requires reusable BroTracker libraries, a developer-side preparation step may be used to make the required libraries available in the Arduino IDE's library search location.
+Reusable components shall use the standard Arduino library structure where appropriate, but repository placement alone does not guarantee discovery by the Arduino IDE GUI. Arduino IDE discovers libraries through its configured library search locations and does not recursively search arbitrary directories within a repository.
 
-Such preparation may copy or otherwise synchronize the repository source-of-truth libraries into the developer's Arduino library environment before compilation.
+Therefore, when an Arduino IDE sketch requires reusable BroTracker libraries, a developer-side preparation step may be used to synchronize the required libraries from the repository `libraries/` directory into an Arduino IDE library search location before compilation.
 
-This does not constitute a second source of truth. The prepared Arduino library content is a build/integration artifact and must not be edited manually. Changes must always be made in the repository `libraries/` source-of-truth and then propagated through the preparation step.
+The prepared library content is a generated/local build artifact. It must never become an independently maintained implementation or an additional source of truth.
 
-The preparation mechanism must:
+The preparation process must:
 
-- use the repository `libraries/` directory as its source;
-- never require manual modification of generated/prepared library copies;
-- remain reproducible from a fresh repository clone;
-- avoid hard links or symlinks as repository dependencies;
-- avoid relocating reusable components solely to satisfy Arduino IDE discovery;
-- preserve the architectural ownership and platform separation defined for reusable libraries.
+- use the repository `libraries/` directory as the source;
+- be reproducible from a fresh repository clone;
+- avoid hard links and symlinks as repository dependencies;
+- avoid manually maintained duplicate implementations;
+- avoid moving reusable components solely to satisfy Arduino IDE discovery;
+- preserve the platform-independent/platform-specific separation of reusable libraries;
+- leave the repository source-of-truth libraries unchanged.
 
-Arduino IDE integration is therefore considered a build/developer-environment concern and must not alter the reusable library architecture.
+The architectural ownership of a reusable component is defined by its platform dependency and intended reuse, not by the location of the diagnostic sketch consuming it.
+
+Therefore:
+
+- platform-independent reusable components belong in appropriate libraries without introducing platform-specific dependencies;
+- Teensy-specific reusable infrastructure belongs in appropriate Teensy libraries;
+- firmware remains responsible for Teensy application and runtime integration;
+- diagnostic sketches remain under `tools/teensy_diagnostics/`;
+- Arduino IDE preparation is an integration mechanism and does not change component ownership.
+
+The developer is responsible for manually verifying Arduino IDE compilation and Teensy hardware execution. Repository-side tooling may prepare the build environment, but it must not claim successful hardware verification.
 
 ### Platform-independent libraries
 
