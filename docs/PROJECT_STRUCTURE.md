@@ -54,6 +54,40 @@ The `libraries/` directory contains components that are intended to be consumed 
 
 Reusable libraries are separated according to platform dependency.
 
+## D0038 — Arduino IDE Integration for Reusable Components
+
+Arduino IDE diagnostic sketches shall consume the repository's reusable BroTracker components without maintaining independent implementations or manually maintained copies.
+
+The repository `libraries/` directory remains the single source of truth for reusable components.
+
+Reusable components shall use the standard Arduino library structure where appropriate, but repository placement alone does not guarantee discovery by the Arduino IDE GUI. Arduino IDE discovers libraries through its configured library search locations and does not recursively search arbitrary directories within a repository.
+
+Therefore, when an Arduino IDE sketch requires reusable BroTracker libraries, a developer-side preparation step may be used to synchronize the required libraries from the repository `libraries/` directory into an Arduino IDE library search location before compilation.
+
+The prepared library content is a generated/local build artifact. It must never become an independently maintained implementation or an additional source of truth.
+
+The preparation process must:
+
+- use the repository `libraries/` directory as the source;
+- be reproducible from a fresh repository clone;
+- avoid hard links and symlinks as repository dependencies;
+- avoid manually maintained duplicate implementations;
+- avoid moving reusable components solely to satisfy Arduino IDE discovery;
+- preserve the platform-independent/platform-specific separation of reusable libraries;
+- leave the repository source-of-truth libraries unchanged.
+
+The architectural ownership of a reusable component is defined by its platform dependency and intended reuse, not by the location of the diagnostic sketch consuming it.
+
+Therefore:
+
+- platform-independent reusable components belong in appropriate libraries without introducing platform-specific dependencies;
+- Teensy-specific reusable infrastructure belongs in appropriate Teensy libraries;
+- firmware remains responsible for Teensy application and runtime integration;
+- diagnostic sketches remain under `tools/teensy_diagnostics/`;
+- Arduino IDE preparation is an integration mechanism and does not change component ownership.
+
+The developer is responsible for manually verifying Arduino IDE compilation and Teensy hardware execution. Repository-side tooling may prepare the build environment, but it must not claim successful hardware verification.
+
 ### Platform-independent libraries
 
 Platform-independent reusable components must not depend on Teensy hardware, Arduino APIs or operating-system-specific functionality.
