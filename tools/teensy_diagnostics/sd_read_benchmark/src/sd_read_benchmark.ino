@@ -38,6 +38,10 @@
 #include <cstdio>
 #include <cstdlib>
 
+// Forward declarations for global Arduino entry points
+void setup();
+void loop();
+
 namespace
 {
 constexpr char kCompileDate[] = __DATE__;

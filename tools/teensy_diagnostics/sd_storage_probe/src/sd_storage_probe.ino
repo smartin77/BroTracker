@@ -98,21 +98,6 @@ namespace
     }
 
     void ReportPrint(
-        const __FlashStringHelper* text)
-    {
-        Serial.print(text);
-
-        if (report_file_handle)
-        {
-            // Convert FlashStringHelper to char* for logging
-            char buffer[256];
-            strncpy_P(buffer, (const char*)text, sizeof(buffer) - 1);
-            buffer[sizeof(buffer) - 1] = '\0';
-            BroTracker::ToolLogMessage(report_file_handle, buffer);
-        }
-    }
-
-    void ReportPrint(
         std::size_t value)
     {
         Serial.print(value);
@@ -143,20 +128,6 @@ namespace
         if (report_file_handle)
         {
             BroTracker::ToolLogMessage(report_file_handle, text);
-        }
-    }
-
-    void ReportPrintln(
-        const __FlashStringHelper* text)
-    {
-        Serial.println(text);
-
-        if (report_file_handle)
-        {
-            char buffer[256];
-            strncpy_P(buffer, (const char*)text, sizeof(buffer) - 1);
-            buffer[sizeof(buffer) - 1] = '\0';
-            BroTracker::ToolLogMessage(report_file_handle, buffer);
         }
     }
 
@@ -594,15 +565,12 @@ void setup()
     Serial.println();
 
     Serial.println(
-        "Initializing built-in SD card...");
+        "Initializing diagnostics...");
 
-    const bool sd_ready =
-        SD.begin(BUILTIN_SDCARD);
-
-    if (!sd_ready)
+    if (!BroTracker::DiagnosticsInitialize())
     {
         Serial.println(
-            "SD initialization: FAIL");
+            "Diagnostics initialization: FAIL");
 
         Serial.println();
         Serial.println(
@@ -612,17 +580,14 @@ void setup()
     }
 
     Serial.println(
-        "SD initialization: PASS");
+        "Diagnostics initialization: PASS");
 
     Serial.println();
     Serial.println(
         "-- Filesystem setup --");
 
-    // BroTracker directory is already created by DiagnosticsInitialize()
-    const bool directory_exists =
-        SD.exists("BroTracker");
-
-    if (!directory_exists)
+    // Verify BroTracker directory exists (created by DiagnosticsInitialize)
+    if (!SD.exists("BroTracker"))
     {
         Serial.println(
             "BroTracker directory available: FAIL");
@@ -736,8 +701,8 @@ void setup()
     ReportPrintln(
         "Probe complete.");
 
-    report_file.flush();
-    report_file.close();
+    BroTracker::CloseToolLogFile(report_file_handle);
+    report_file_handle = nullptr;
 
     Serial.println();
     Serial.println(
