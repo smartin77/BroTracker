@@ -1,8 +1,4 @@
-.vscode/browse.vc.db
-.vscode/ipch/
-.vscode/c_cpp_properties.json
-.vscode/*.code-workspace
-.vscode/launch.json
+.vscode/
 _backyard/
 BroTracker/
 !firmware/teensy/BroTracker/
