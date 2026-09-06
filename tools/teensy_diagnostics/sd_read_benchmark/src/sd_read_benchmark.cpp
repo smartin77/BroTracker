@@ -17,7 +17,7 @@
  *              - benchmarks only valid WAV files
  *              - measures full-file and chunked reads
  *              - records timing and throughput statistics
- *              - writes a new result file to the SD card in BroTracker/
+ *              - writes a new result file to the SD card
  *              - preserves previous benchmark result files
  *              - flashes the onboard LED three times on successful completion
  *
@@ -31,16 +31,11 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TimeLib.h>
-#include <diagnostics.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-
-// Forward declarations for global Arduino entry points
-void setup();
-void loop();
 
 namespace
 {
@@ -139,6 +134,9 @@ namespace
     constexpr const char* BENCHMARK_SOURCE_PATH =
         "/Samples/Wav-HQ/DrumLoop/";
 
+    constexpr const char* BENCHMARK_OUTPUT_PATH =
+        "/BT_benchmarks/";
+
     constexpr std::uint32_t FILES_PER_BATCH = 31;
     constexpr std::uint32_t READ_LOOPS = 10;
     constexpr std::uint32_t READ_CHUNK_SIZE = 4096;
@@ -218,8 +216,6 @@ namespace
 
     File report_file;
 
-    void* g_report_file_handle = nullptr;
-
     std::uint8_t read_buffer[READ_CHUNK_SIZE];
 
     // Scan statistics.
@@ -252,113 +248,79 @@ namespace
     {
         Serial.print(text);
 
-        if (g_report_file_handle)
-            BroTracker::ToolLogMessage(g_report_file_handle, text);
+        if (report_file)
+            report_file.print(text);
     }
 
     void ReportPrint(const __FlashStringHelper* text)
     {
         Serial.print(text);
 
-        if (g_report_file_handle)
-        {
-            char buffer[256];
-            strncpy_P(buffer, (const char*)text, sizeof(buffer) - 1);
-            buffer[sizeof(buffer) - 1] = '\0';
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.print(text);
     }
 
     void ReportPrint(std::uint32_t value)
     {
         Serial.print(value);
 
-        if (g_report_file_handle)
-        {
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)value);
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.print(value);
     }
 
     void ReportPrint(std::uint64_t value)
     {
         Serial.print(value);
 
-        if (g_report_file_handle)
-        {
-            char buffer[64];
-            uint32_t high = (uint32_t)(value >> 32);
-            uint32_t low = (uint32_t)(value & 0xFFFFFFFF);
-            if (high > 0)
-                snprintf(buffer, sizeof(buffer), "%lu%08lu", (unsigned long)high, (unsigned long)low);
-            else
-                snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)low);
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.print(value);
     }
+
 
     void ReportPrintln(std::uint32_t value)
     {
         Serial.println(value);
 
-        if (g_report_file_handle)
-        {
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)value);
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.println(value);
     }
 
     void ReportPrintln(std::uint64_t value)
     {
         Serial.println(value);
 
-        if (g_report_file_handle)
-        {
-            char buffer[64];
-            uint32_t high = (uint32_t)(value >> 32);
-            uint32_t low = (uint32_t)(value & 0xFFFFFFFF);
-            if (high > 0)
-                snprintf(buffer, sizeof(buffer), "%lu%08lu", (unsigned long)high, (unsigned long)low);
-            else
-                snprintf(buffer, sizeof(buffer), "%lu", (unsigned long)low);
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.println(value);
     }
 
     void ReportPrintln()
     {
         Serial.println();
 
-        if (g_report_file_handle)
-            BroTracker::ToolLogMessage(g_report_file_handle, "");
+        if (report_file)
+            report_file.println();
     }
 
     void ReportPrintln(const char* text)
     {
         Serial.println(text);
 
-        if (g_report_file_handle)
-            BroTracker::ToolLogMessage(g_report_file_handle, text);
+        if (report_file)
+            report_file.println(text);
     }
 
     void ReportPrintln(const __FlashStringHelper* text)
     {
         Serial.println(text);
 
-        if (g_report_file_handle)
-        {
-            char buffer[256];
-            strncpy_P(buffer, (const char*)text, sizeof(buffer) - 1);
-            buffer[sizeof(buffer) - 1] = '\0';
-            BroTracker::ToolLogMessage(g_report_file_handle, buffer);
-        }
+        if (report_file)
+            report_file.println(text);
     }
 
     void FlushReport()
     {
-        // No-op with the new API; ToolLogMessage() flushes automatically
+        if (report_file)
+            report_file.flush();
     }
 
     // ---------------------------------------------------------------------
@@ -1367,17 +1329,162 @@ namespace
     // Teensy 4.1 has no battery-backed RTC, so the report filename uses
     // firmware build date/time as required by the benchmark specification.
     //
-    // Report setup using the reusable diagnostics API
-    // Each benchmark run gets its own sequential log file.
+    // A numeric suffix prevents overwriting another result generated by
+    // the same build.
+    // ---------------------------------------------------------------------
+
+    void FormatResultFilenameForSuffix(
+        char* filename,
+        std::size_t capacity,
+        std::uint32_t suffix)
+    {
+        const char* month_text =
+            kCompileDate;
+
+        int month = 1;
+
+        static const char* months =
+            "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+        char month_code[4] =
+        {
+            month_text[0],
+            month_text[1],
+            month_text[2],
+            '\0'
+        };
+
+        const char* month_ptr =
+            std::strstr(
+                months,
+                month_code);
+
+        if (month_ptr != nullptr)
+        {
+            month =
+                static_cast<int>(
+                    (month_ptr - months) / 3) + 1;
+        }
+
+        const int day =
+            (month_text[4] == ' ')
+                ? month_text[5] - '0'
+                : (month_text[4] - '0') * 10 +
+                  (month_text[5] - '0');
+
+        const int year =
+            (month_text[7] - '0') * 1000 +
+            (month_text[8] - '0') * 100 +
+            (month_text[9] - '0') * 10 +
+            (month_text[10] - '0');
+
+        const char* time_text =
+            kCompileTime;
+
+        const int hour =
+            (time_text[0] - '0') * 10 +
+            (time_text[1] - '0');
+
+        const int minute =
+            (time_text[3] - '0') * 10 +
+            (time_text[4] - '0');
+
+        const int second =
+            (time_text[6] - '0') * 10 +
+            (time_text[7] - '0');
+
+        std::snprintf(
+            filename,
+            capacity,
+            "%sSD_BENCH_%04d%02d%02d_%02d%02d%02d_%04lu.txt",
+            BENCHMARK_OUTPUT_PATH,
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            suffix);
+    }
+
+    void BuildResultFilename(
+        char* filename,
+        std::size_t capacity)
+    {
+        for (std::uint32_t suffix = 1;
+             suffix <= 9999;
+             ++suffix)
+        {
+            FormatResultFilenameForSuffix(
+                filename,
+                capacity,
+                suffix);
+
+            if (!SD.exists(filename))
+                return;
+        }
+
+        filename[0] = '\0';
+    }
+
+    // Returns true if any result file for the exact current firmware build
+    // already exists (any suffix 0001..9999).
+    bool ResultAlreadyExistsForThisBuild()
+    {
+        char filename[96];
+
+        for (std::uint32_t suffix = 1;
+             suffix <= 9999;
+             ++suffix)
+        {
+            FormatResultFilenameForSuffix(
+                filename,
+                sizeof(filename),
+                suffix);
+
+            if (SD.exists(filename))
+                return true;
+        }
+
+        return false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Report setup
+    // ---------------------------------------------------------------------
 
     bool OpenReport()
     {
-        void* file_handle = BroTracker::OpenToolLogFile("sd_read_benchmark");
+        if (!SD.exists(
+                BENCHMARK_OUTPUT_PATH))
+        {
+            if (!SD.mkdir(
+                    BENCHMARK_OUTPUT_PATH))
+            {
+                if (!SD.exists(
+                        BENCHMARK_OUTPUT_PATH))
+                {
+                    return false;
+                }
+            }
+        }
 
-        if (!file_handle)
+        char filename[96];
+
+        BuildResultFilename(
+            filename,
+            sizeof(filename));
+
+        if (filename[0] == '\0')
             return false;
 
-        g_report_file_handle = file_handle;
+        report_file =
+            SD.open(
+                filename,
+                FILE_WRITE);
+
+        if (!report_file)
+            return false;
 
         ReportPrintln(
             F("BroTracker SD Read Benchmark"));
@@ -1408,7 +1515,7 @@ namespace
 
         ReportPrint(F("Output: "));
         ReportPrintln(
-            F("BroTracker/sd_read_benchmark-NNNN.log"));
+            BENCHMARK_OUTPUT_PATH);
 
         ReportPrint(F("Files per batch: "));
         ReportPrintln(
@@ -1604,6 +1711,22 @@ void setup()
         "SD initialization: PASS");
 
     FsDateTime::setCallback(SdDateTimeCallback);
+
+    // Optional protection against duplicate host-triggered startup runs
+    // for the same build.
+    if (SKIP_DUPLICATE_BUILD_RUN &&
+        ResultAlreadyExistsForThisBuild())
+    {
+        Serial.println(
+            "Result file for this build already exists.");
+
+        Serial.println(
+            "Skipping duplicate run (likely a second reset after upload).");
+
+        BlinkCompletion();
+
+        return;
+    }
 
     if (!OpenReport())
     {

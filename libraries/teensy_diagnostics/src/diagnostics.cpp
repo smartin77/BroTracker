@@ -171,7 +171,7 @@ void WriteTimestamp(File& log_file)
         minute(current),
         second(current));
 
-    log_file.print("Timestamp: ");
+    //log_file.print("Timestamp: ");
     log_file.println(timestamp);
 }
 

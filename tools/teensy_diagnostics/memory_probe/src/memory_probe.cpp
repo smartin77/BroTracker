@@ -327,6 +327,11 @@ void setup()
         "Probe complete - answers open questions 1-3 and 8 in "
         "docs/TEENSY_MEMORY_ARCHITECTURE.md.");
 
+    Serial.println();
+    Serial.println(
+        "Three long LED flashes indicate completion.");
+
+    BroTracker::DiagnosticBlink(3);
 
     Serial.println();
     Serial.println("Done. Safe to reset or reflash the board now.");

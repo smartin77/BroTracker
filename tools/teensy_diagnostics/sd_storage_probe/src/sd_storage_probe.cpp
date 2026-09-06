@@ -687,34 +687,62 @@ void setup()
     {
         ReportPrintln(
             "SD STORAGE PROBE: PASS");
+
+        ReportPrintln(
+            "========================================");
+
+        ReportPrintln();
+        ReportPrintln(
+            "Probe complete.");
+
+        BroTracker::CloseToolLogFile(report_file_handle);
+        report_file_handle = nullptr;
+
+        Serial.println();
+        Serial.println(
+            "Report saved to:");
+        Serial.println(
+            "BroTracker/sd_storage_probe-NNNN.log");
+
+        Serial.println();
+        Serial.println(
+            "Test files removed from BroTracker/.");
+        Serial.println(
+            "Test directory and report preserved.");
+
+        Serial.println();
+        Serial.println(
+            "Three long LED flashes indicate completion.");
+
+        BroTracker::DiagnosticBlink(3);
     }
     else
     {
         ReportPrintln(
             "SD STORAGE PROBE: FAIL");
+
+        ReportPrintln(
+            "========================================");
+
+        ReportPrintln();
+        ReportPrintln(
+            "Probe complete.");
+
+        BroTracker::CloseToolLogFile(report_file_handle);
+        report_file_handle = nullptr;
+
+        Serial.println();
+        Serial.println(
+            "Report saved to:");
+        Serial.println(
+            "BroTracker/sd_storage_probe-NNNN.log");
+
+        Serial.println();
+        Serial.println(
+            "Test files removed from BroTracker/.");
+        Serial.println(
+            "Test directory and report preserved.");
     }
-
-    ReportPrintln(
-        "========================================");
-
-    ReportPrintln();
-    ReportPrintln(
-        "Probe complete.");
-
-    BroTracker::CloseToolLogFile(report_file_handle);
-    report_file_handle = nullptr;
-
-    Serial.println();
-    Serial.println(
-        "Report saved to:");
-    Serial.println(
-        "BroTracker/sd_storage_probe-NNNN.log");
-
-    Serial.println();
-    Serial.println(
-        "Test files removed from BroTracker/.");
-    Serial.println(
-        "Test directory and report preserved.");
 }
 
 void loop()
