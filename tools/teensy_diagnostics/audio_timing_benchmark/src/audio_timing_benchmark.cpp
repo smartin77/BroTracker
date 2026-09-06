@@ -60,6 +60,13 @@
 #include <diagnostics.h>
 
 // ============================================================================
+// Global State
+// ============================================================================
+
+// Tool-specific log file handle (opaque pointer)
+void* g_tool_log_file = nullptr;
+
+// ============================================================================
 // Data Types and Structures
 // ============================================================================
 
@@ -90,7 +97,10 @@ struct MeasurementStats
 void PrintLine(const char* message)
 {
     Serial.println(message);
-    BroTracker::DiagnosticLog(message);
+    if (g_tool_log_file != nullptr)
+    {
+        BroTracker::ToolLogMessage(g_tool_log_file, message);
+    }
 }
 
 void PrintValue(const char* label, uint32_t value)
@@ -258,20 +268,32 @@ void setup()
     Serial.begin(115200);
     delay(1000);
 
-    PrintLine("BroTracker Audio Timing Benchmark");
-    PrintLine("Starting initialization...");
+    Serial.println("BroTracker Audio Timing Benchmark");
+    Serial.println("Starting initialization...");
 
     if (!BroTracker::DiagnosticsInitialize())
     {
-        PrintLine("Warning: Diagnostics initialization failed");
-        PrintLine("Results will appear in Serial console only");
+        Serial.println("Warning: Diagnostics initialization failed");
+        Serial.println("Results will appear in Serial console only");
     }
     else
     {
-        PrintLine("Diagnostics initialized - results logged to SD card");
+        Serial.println("Diagnostics initialized - opening tool log file...");
+
+        // Open tool-specific log file
+        g_tool_log_file = BroTracker::OpenToolLogFile("audio_timing_benchmark");
+        if (g_tool_log_file)
+        {
+            Serial.println("Tool log file created successfully");
+        }
+        else
+        {
+            Serial.println("Warning: Could not open tool log file");
+        }
     }
 
     PrintLine("");
+    PrintLine("BroTracker Audio Timing Benchmark");
     PrintLine("Testing BroTracker Scheduler independence from wall-clock timing");
     PrintLine("Measuring audio processing block performance");
     PrintLine("");
@@ -298,6 +320,14 @@ void setup()
     BroTracker::DiagnosticBlink(3);
 
     PrintLine("Benchmark finished. Device is safe to unplug.");
+
+    // Close the tool log file
+    if (g_tool_log_file)
+    {
+        BroTracker::CloseToolLogFile(g_tool_log_file);
+        g_tool_log_file = nullptr;
+        Serial.println("Tool log file closed.");
+    }
 }
 
 void loop()

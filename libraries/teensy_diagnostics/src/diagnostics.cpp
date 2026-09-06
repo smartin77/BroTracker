@@ -171,10 +171,74 @@ void WriteTimestamp(File& log_file)
         minute(current),
         second(current));
 
-    log_file.print("Timestamp: ");
+    //log_file.print("Timestamp: ");
     log_file.println(timestamp);
 }
+
+File* OpenToolLogFileInternal(const char* tool_name)
+{
+    if (!diagnostics_ready || tool_name == nullptr)
+        return nullptr;
+
+    // Find the next available sequence number
+    unsigned int sequence = 1;
+    char buffer[64];
+
+    for (sequence = 1; sequence <= 9999; ++sequence)
+    {
+        std::snprintf(
+            buffer,
+            sizeof(buffer),
+            "%s/%s-%04u.log",
+            kLogDirectory,
+            tool_name,
+            sequence);
+
+        if (!SD.exists(buffer))
+            break;
+    }
+
+    // Open the new log file
+    File* log_file = new File(SD.open(buffer, FILE_WRITE));
+
+    if (log_file && *log_file)
+    {
+        // Write initial timestamp header for this tool run
+        log_file->println("=== Tool Log Start ===");
+        WriteTimestamp(*log_file);
+        log_file->println("");
+        log_file->flush();
+        return log_file;
+    }
+
+    // Failed to open file
+    delete log_file;
+    return nullptr;
 }
+
+void CloseToolLogFileInternal(File* log_file)
+{
+    if (log_file)
+    {
+        log_file->println("");
+        log_file->println("=== Tool Log End ===");
+        log_file->flush();
+        log_file->close();
+        delete log_file;
+    }
+}
+
+bool ToolLogMessageInternal(File* log_file, const char* message)
+{
+    if (!log_file || !*log_file || message == nullptr)
+        return false;
+
+    WriteTimestamp(*log_file);
+    log_file->println(message);
+    log_file->flush();
+    return true;
+}
+}  // namespace (close anonymous namespace)
 
 namespace BroTracker
 {
@@ -232,5 +296,21 @@ namespace BroTracker
             digitalWrite(LED_BUILTIN, LOW);
             delay(kLedPauseMs);
         }
+    }
+
+    // Opaque handle versions that wrap the File* implementations from anonymous namespace
+    void* OpenToolLogFile(const char* tool_name)
+    {
+        return OpenToolLogFileInternal(tool_name);
+    }
+
+    void CloseToolLogFile(void* log_file_handle)
+    {
+        CloseToolLogFileInternal(static_cast<File*>(log_file_handle));
+    }
+
+    bool ToolLogMessage(void* log_file_handle, const char* message)
+    {
+        return ToolLogMessageInternal(static_cast<File*>(log_file_handle), message);
     }
 }

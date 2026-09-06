@@ -19,12 +19,13 @@
  *              - delete
  *              - close / reopen persistence
  *
- *              Test output is written both to Serial and to:
+ *              Test output is written both to Serial and to a sequential
+ *              log file on the SD card:
  *
- *                  BroTracker_SD_Test/sd_storage_probe.txt
+ *                  BroTracker/sd_storage_probe-NNNN.log
  *
- *              The test directory and report are intentionally preserved
- *              after the probe completes.
+ *              Test binary files are stored in BroTracker/ alongside the
+ *              probe report log and are removed after each test.
  *
  *              Temporary binary test files are removed after each test.
  *
@@ -34,23 +35,18 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <diagnostics.h>
 
 #include <cstddef>
 #include <cstdint>
 
 namespace
 {
-    constexpr const char* TEST_DIRECTORY =
-        "BroTracker_SD_Test";
-
-    constexpr const char* REPORT_FILE =
-        "BroTracker_SD_Test/sd_storage_probe.txt";
-
     constexpr const char* TEST_FILE =
-        "BroTracker_SD_Test/test.bin";
+        "BroTracker/test.bin";
 
     constexpr const char* RENAMED_FILE =
-        "BroTracker_SD_Test/renamed.bin";
+        "BroTracker/renamed.bin";
 
     constexpr std::size_t SMALL_SIZE =
         1024;
@@ -76,7 +72,7 @@ namespace
     uint8_t write_buffer[CHUNK_SIZE];
     uint8_t read_buffer[CHUNK_SIZE];
 
-    File report_file;
+    void* report_file_handle = nullptr;
 
     bool all_tests_passed = true;
 
@@ -95,20 +91,9 @@ namespace
     {
         Serial.print(text);
 
-        if (report_file)
+        if (report_file_handle)
         {
-            report_file.print(text);
-        }
-    }
-
-    void ReportPrint(
-        const __FlashStringHelper* text)
-    {
-        Serial.print(text);
-
-        if (report_file)
-        {
-            report_file.print(text);
+            BroTracker::ToolLogMessage(report_file_handle, text);
         }
     }
 
@@ -117,9 +102,11 @@ namespace
     {
         Serial.print(value);
 
-        if (report_file)
+        if (report_file_handle)
         {
-            report_file.print(value);
+            char buffer[32];
+            snprintf(buffer, sizeof(buffer), "%zu", value);
+            BroTracker::ToolLogMessage(report_file_handle, buffer);
         }
     }
 
@@ -127,9 +114,9 @@ namespace
     {
         Serial.println();
 
-        if (report_file)
+        if (report_file_handle)
         {
-            report_file.println();
+            BroTracker::ToolLogMessage(report_file_handle, "");
         }
     }
 
@@ -138,20 +125,9 @@ namespace
     {
         Serial.println(text);
 
-        if (report_file)
+        if (report_file_handle)
         {
-            report_file.println(text);
-        }
-    }
-
-    void ReportPrintln(
-        const __FlashStringHelper* text)
-    {
-        Serial.println(text);
-
-        if (report_file)
-        {
-            report_file.println(text);
+            BroTracker::ToolLogMessage(report_file_handle, text);
         }
     }
 
@@ -167,11 +143,6 @@ namespace
         if (!success)
         {
             all_tests_passed = false;
-        }
-
-        if (report_file)
-        {
-            report_file.flush();
         }
     }
 
@@ -594,15 +565,12 @@ void setup()
     Serial.println();
 
     Serial.println(
-        "Initializing built-in SD card...");
+        "Initializing diagnostics...");
 
-    const bool sd_ready =
-        SD.begin(BUILTIN_SDCARD);
-
-    if (!sd_ready)
+    if (!BroTracker::DiagnosticsInitialize())
     {
         Serial.println(
-            "SD initialization: FAIL");
+            "Diagnostics initialization: FAIL");
 
         Serial.println();
         Serial.println(
@@ -612,21 +580,17 @@ void setup()
     }
 
     Serial.println(
-        "SD initialization: PASS");
+        "Diagnostics initialization: PASS");
 
     Serial.println();
     Serial.println(
         "-- Filesystem setup --");
 
-    SD.mkdir(TEST_DIRECTORY);
-
-    const bool directory_exists =
-        SD.exists(TEST_DIRECTORY);
-
-    if (!directory_exists)
+    // Verify BroTracker directory exists (created by DiagnosticsInitialize)
+    if (!SD.exists("BroTracker"))
     {
         Serial.println(
-            "Test directory available: FAIL");
+            "BroTracker directory available: FAIL");
 
         Serial.println();
         Serial.println(
@@ -636,20 +600,15 @@ void setup()
     }
 
     Serial.println(
-        "Test directory available: PASS");
+        "BroTracker directory available: PASS");
 
     /*
-     * Open the persistent report.
-     *
-     * FILE_WRITE appends, so every probe run is preserved in the same
-     * report file rather than overwriting previous results.
+     * Open tool-specific log file using the reusable diagnostics API.
+     * Each probe run gets its own sequential log file.
      */
-    report_file =
-        SD.open(
-            REPORT_FILE,
-            FILE_WRITE);
+    report_file_handle = BroTracker::OpenToolLogFile("sd_storage_probe");
 
-    if (!report_file)
+    if (!report_file_handle)
     {
         Serial.println(
             "Report file open: FAIL");
@@ -672,12 +631,12 @@ void setup()
     ReportPrint(
         "Test directory: ");
     ReportPrintln(
-        TEST_DIRECTORY);
+        "BroTracker");
 
     ReportPrint(
         "Report file: ");
     ReportPrintln(
-        REPORT_FILE);
+        "BroTracker/sd_storage_probe-NNNN.log");
 
     ReportPrintln();
 
@@ -728,34 +687,62 @@ void setup()
     {
         ReportPrintln(
             "SD STORAGE PROBE: PASS");
+
+        ReportPrintln(
+            "========================================");
+
+        ReportPrintln();
+        ReportPrintln(
+            "Probe complete.");
+
+        BroTracker::CloseToolLogFile(report_file_handle);
+        report_file_handle = nullptr;
+
+        Serial.println();
+        Serial.println(
+            "Report saved to:");
+        Serial.println(
+            "BroTracker/sd_storage_probe-NNNN.log");
+
+        Serial.println();
+        Serial.println(
+            "Test files removed from BroTracker/.");
+        Serial.println(
+            "Test directory and report preserved.");
+
+        Serial.println();
+        Serial.println(
+            "Three long LED flashes indicate completion.");
+
+        BroTracker::DiagnosticBlink(3);
     }
     else
     {
         ReportPrintln(
             "SD STORAGE PROBE: FAIL");
+
+        ReportPrintln(
+            "========================================");
+
+        ReportPrintln();
+        ReportPrintln(
+            "Probe complete.");
+
+        BroTracker::CloseToolLogFile(report_file_handle);
+        report_file_handle = nullptr;
+
+        Serial.println();
+        Serial.println(
+            "Report saved to:");
+        Serial.println(
+            "BroTracker/sd_storage_probe-NNNN.log");
+
+        Serial.println();
+        Serial.println(
+            "Test files removed from BroTracker/.");
+        Serial.println(
+            "Test directory and report preserved.");
     }
-
-    ReportPrintln(
-        "========================================");
-
-    ReportPrintln();
-    ReportPrintln(
-        "Probe complete.");
-
-    report_file.flush();
-    report_file.close();
-
-    Serial.println();
-    Serial.println(
-        "Report saved to:");
-    Serial.println(
-        "BroTracker_SD_Test/sd_storage_probe.txt");
-
-    Serial.println();
-    Serial.println(
-        "Temporary test files removed.");
-    Serial.println(
-        "Test directory and report preserved.");
 }
 
 void loop()
