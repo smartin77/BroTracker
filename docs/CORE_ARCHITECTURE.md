@@ -177,13 +177,21 @@ This section is a working architectural draft and does not define a specific Tee
 
 ### Audio Synchronization
 
-When audio is used as a synchronization source, timing-critical edge detection should not depend on the Teensy Audio Library's 128-sample block processing.
+This section concerns audio used as an external synchronization source.
+
+External audio synchronization signals may provide timing information to BroTracker, for example through a digital sync or clock input.
+
+Timing-critical edge detection should not depend on the Teensy Audio Library's normal 128-sample block processing.
 
 At a nominal 44.1 kHz sample rate, one sample represents approximately 22.7 microseconds and one 128-sample audio block approximately 2.9 milliseconds.
 
 Where practical, an external audio synchronization signal should therefore be captured through a suitable digital hardware input and Teensy's hardware timing facilities or interrupts rather than relying on block-level audio callbacks.
 
-The audio synchronization implementation must remain independent of the Audio Library's normal block processing.
+The external audio synchronization implementation must remain independent of the Audio Library's normal audio processing path.
+
+The resulting timing information is provided to the Clock / Sync subsystem, which relates it to the BroTracker common logical timeline.
+
+This external synchronization path must remain distinct from the normal internal audio processing timeline. The internal audio engine may advance the scheduler according to processed audio samples, while an external audio synchronization source may instead provide timing information to the Clock / Sync subsystem.
 
 The exact signal conditioning, capture and filtering implementation will be defined during implementation and hardware testing.
 
