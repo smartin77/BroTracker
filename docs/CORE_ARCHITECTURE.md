@@ -125,6 +125,56 @@ MIDI Clock provides 24 clocks per quarter note, resulting in 16 internal schedul
 
 The MIDI Clock output must be derived from the same scheduler timing model as internal playback.
 
+### Realtime Clock Domains
+
+BroTracker may contain multiple realtime clock domains.
+
+These may include:
+
+- the audio sample clock;
+- internal Teensy hardware timing;
+- external MIDI Clock;
+- future MIDI 2.0 timing mechanisms;
+- other external synchronization sources.
+
+These clock domains must not be treated as interchangeable timing sources.
+
+The Clock / Sync subsystem provides the mechanism for relating external and internal timing references to BroTracker's common logical timeline.
+
+The realtime scheduler operates on this common timeline rather than directly depending on a specific hardware timer or transport.
+
+```text
+             Realtime Clock Domains
+                      |
+    +-----------------+-----------------+
+    |                 |                 |
+    v                 v                 v
+Audio clock      Internal timing    MIDI timing
+    |                 |                 |
+    +-----------------+-----------------+
+                      |
+                      v
+              BroTracker Timeline
+                      |
+                      v
+                Scheduler
+                      |
+              +-------+-------+
+              |               |
+              v               v
+            Audio           MIDI
+```
+
+The audio sample clock may provide the primary execution reference for audio processing, while MIDI and other timing sources may operate in their own transport or hardware domains.
+
+Synchronization between these domains must preserve the common logical playback position.
+
+Physical output latency must not change the logical scheduler position. Output paths may introduce different constant latencies, while variable latency, jitter or clock drift require separate handling by the appropriate synchronization or output layer.
+
+The exact hardware implementation of internal timing, timestamping and interrupt handling remains an implementation and hardware-testing decision.
+
+This section is a working architectural draft and does not define a specific Teensy timer or interrupt implementation.
+
 ### Audio Synchronization
 
 When audio is used as a synchronization source, timing-critical edge detection should not depend on the Teensy Audio Library's 128-sample block processing.

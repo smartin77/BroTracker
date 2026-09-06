@@ -204,6 +204,54 @@ USB Audio introduces a host-side transport and audio clock domain:
 
 The USB Audio path must therefore not be assumed to have identical timing characteristics to the native Teensy audio path.
 
+## Audio Timeline and Clock Synchronization
+
+The Teensy audio sample clock provides a stable reference for the audio processing timeline.
+
+The scheduler may be advanced from the audio processing boundary as audio samples are processed. This establishes a deterministic relationship between processed audio samples and the BroTracker logical playback timeline.
+
+This does not make the physical audio output latency part of the scheduler timeline.
+
+```text
+             Audio sample processing
+                      |
+                      v
+               Audio block boundary
+                      |
+              +-------+-------+
+              |               |
+              v               v
+        process samples   advance logical
+                            timeline
+                                |
+                                v
+                            Scheduler
+                                |
+                         +------+------+
+                         |             |
+                         v             v
+                       Audio          MIDI
+```
+
+The scheduler therefore represents logical playback time, while the physical audio output path may introduce additional latency after the audio samples have been generated.
+
+Other realtime timing sources may operate in separate clock domains.
+
+These may include:
+
+- internal Teensy hardware timing;
+- MIDI 1.0 Clock;
+- future MIDI 2.0 timing;
+- external synchronization sources.
+
+Such sources must be synchronized to the BroTracker logical timeline rather than directly replacing the audio processing timeline.
+
+MIDI timing must therefore be treated as a realtime synchronization domain rather than as a direct audio processing clock.
+
+The architecture should allow MIDI 1.0 and future MIDI 2.0 implementations to share the same logical timing model while using different transport and timestamp mechanisms.
+
+The exact implementation of internal hardware timers, interrupts, timestamping and MIDI timing remains subject to Teensy hardware verification.
+
 ## Latency and Jitter
 
 USB Audio may introduce:
