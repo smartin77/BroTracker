@@ -8,6 +8,7 @@
 
 #include <Arduino.h>
 #include <Audio.h>
+#include <SD.h>
 #include <scheduler.h>
 
 namespace BroTracker
@@ -36,15 +37,30 @@ namespace
 
     void LoadTestSample()
     {
+        File file = SD.open(kTestSamplePath, FILE_READ);
+        
+        if (!file)
+        {
+            Serial.println("Test sample: file not found (Samples/test.wav)");
+            DiagnosticLog("Test sample: file not found (Samples/test.wav)");
+            return;
+        }
+        
+        Serial.println("Test sample: file found, attempting to load");
+        DiagnosticLog("Test sample: file found, attempting to load");
+        file.close();
+        
         if (LoadWavSampleFromSd(kTestSamplePath, g_test_sample))
         {
-            DiagnosticLog("Test sample loaded");
+            Serial.println("Test sample loaded successfully");
+            DiagnosticLog("Test sample loaded successfully");
             g_sample_player.SetSample(&g_test_sample);
             g_sample_player.Play();
         }
         else
         {
-            DiagnosticLog("Test sample not loaded (missing or unsupported test.wav)");
+            Serial.println("Test sample: file found but WAV parsing failed");
+            DiagnosticLog("Test sample: file found but WAV parsing failed");
         }
     }
 
