@@ -2,6 +2,9 @@
 
 #include "audio_test_source.h"
 #include "diagnostics.h"
+#include "sample.h"
+#include "sample_player.h"
+#include "wav_loader.h"
 
 #include <Arduino.h>
 #include <Audio.h>
@@ -13,16 +16,37 @@ namespace
 {
     // Minimal native audio path used to verify the Teensy audio processing
     // boundary on real hardware:
-    //   AudioTestSource -> AudioMixer4 -> AudioOutputMQS
+    //   AudioTestSource, SamplePlayer -> AudioMixer4 -> AudioOutputMQS
     // A USB Audio path is attached alongside it when the selected Teensy
     // USB type includes an audio interface.
     Scheduler g_scheduler;
     AudioTestSource g_audio_test_source(g_scheduler);
+    SamplePlayer g_sample_player;
     AudioMixer4 g_audio_mixer;
     AudioOutputMQS g_audio_output_mqs;
 
     AudioConnection g_patch_source_to_mixer(g_audio_test_source, 0, g_audio_mixer, 0);
+    AudioConnection g_patch_player_to_mixer(g_sample_player, 0, g_audio_mixer, 1);
     AudioConnection g_patch_mixer_to_mqs(g_audio_mixer, 0, g_audio_output_mqs, 0);
+
+    // Test sample loaded from SD at startup; see LoadTestSample().
+    Sample g_test_sample;
+
+    const char kTestSamplePath[] = "test.wav";
+
+    void LoadTestSample()
+    {
+        if (LoadWavSampleFromSd(kTestSamplePath, g_test_sample))
+        {
+            DiagnosticLog("Test sample loaded");
+            g_sample_player.SetSample(&g_test_sample);
+            g_sample_player.Play();
+        }
+        else
+        {
+            DiagnosticLog("Test sample not loaded (missing or unsupported test.wav)");
+        }
+    }
 
 #if defined(AUDIO_INTERFACE)
     AudioOutputUSB g_audio_output_usb;
@@ -45,6 +69,7 @@ namespace
 
         AudioMemory(8);
         g_audio_mixer.gain(0, 1.0f);
+        g_audio_mixer.gain(1, 1.0f);
     }
 
     void KernelInit()
@@ -57,6 +82,7 @@ namespace
 
         DiagnosticLog("Playback engine initialized");
         DiagnosticLog("Storage initialized");
+        LoadTestSample();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
 
