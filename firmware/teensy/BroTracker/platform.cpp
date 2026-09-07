@@ -32,7 +32,7 @@ namespace
     // Test sample loaded from SD at startup; see LoadTestSample().
     Sample g_test_sample;
 
-    const char kTestSamplePath[] = "test.wav";
+    const char kTestSamplePath[] = "Samples/test.wav";
 
     void LoadTestSample()
     {
