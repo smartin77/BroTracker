@@ -212,26 +212,24 @@ The scheduler may be advanced from the audio processing boundary as audio sample
 
 This does not make the physical audio output latency part of the scheduler timeline.
 
-```text
-             Audio sample processing
-                      |
-                      v
-               Audio block boundary
-                      |
-              +-------+-------+
-              |               |
-              v               v
-        process samples   advance logical
-                            timeline
-                                |
-                                v
-                            Scheduler
-                                |
-                         +------+------+
-                         |             |
-                         v             v
-                       Audio          MIDI
-```
+            Audio sample processing
+                    |
+                    v
+            Audio block boundary
+                    |
+            +-------+-------+
+            |               |
+            v               v
+    process samples   advance logical
+                        timeline
+                            |
+                            v
+                        Scheduler
+                            |
+                        +------+------+
+                        |             |
+                        v             v
+                    Audio          MIDI
 
 The scheduler therefore represents logical playback time, while the physical audio output path may introduce additional latency after the audio samples have been generated.
 
