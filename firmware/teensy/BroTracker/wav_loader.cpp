@@ -278,4 +278,131 @@ namespace
         DiagnosticLogToSerial("WAV: Sample loaded successfully");
         return true;
     }
+
+    bool OpenWavPcmStream(const char* path, WavStreamInfo& out_info)
+    {
+        DiagnosticLogToSerial("=== WAV Stream Parser ===");
+
+        out_info.file = SD.open(path, FILE_READ);
+        if (!out_info.file)
+        {
+            DiagnosticLogToSerial("WAV: Failed to open file");
+            return false;
+        }
+
+        DiagnosticLogToSerial("WAV: File opened successfully");
+        File& file = out_info.file;
+
+        char riff_tag[4] = {0};
+        std::uint32_t riff_size = 0;
+        char wave_tag[4] = {0};
+
+        if (!ReadExact(file, riff_tag, 4) || !ReadExact(file, &riff_size, 4) ||
+            !ReadExact(file, wave_tag, 4))
+        {
+            DiagnosticLogToSerial("WAV: Failed to read RIFF/WAVE header");
+            file.close();
+            return false;
+        }
+
+        if (!MatchesTag(riff_tag, "RIFF") || !MatchesTag(wave_tag, "WAVE"))
+        {
+            DiagnosticLogToSerial("WAV: Invalid RIFF/WAVE header");
+            file.close();
+            return false;
+        }
+
+        DiagnosticLogToSerial("WAV: RIFF/WAVE header valid");
+
+        bool have_fmt = false;
+        std::uint16_t audio_format = 0;
+        std::uint16_t channel_count = 0;
+        std::uint32_t sample_rate = 0;
+        std::uint16_t bits_per_sample = 0;
+
+        std::uint32_t data_chunk_offset = 0;
+        std::uint32_t data_chunk_size = 0;
+        bool found_data = false;
+
+        while (file.available())
+        {
+            char chunk_id[4] = {0};
+            std::uint32_t chunk_size = 0;
+
+            if (!ReadExact(file, chunk_id, 4) || !ReadExact(file, &chunk_size, 4))
+            {
+                DiagnosticLogToSerial("WAV: Failed to read chunk header");
+                break;
+            }
+
+            if (MatchesTag(chunk_id, "fmt "))
+            {
+                std::uint8_t fmt_buffer[16] = {0};
+                if (chunk_size < sizeof(fmt_buffer) || !ReadExact(file, fmt_buffer, sizeof(fmt_buffer)))
+                {
+                    DiagnosticLogToSerial("WAV: Failed to read fmt chunk");
+                    break;
+                }
+
+                std::memcpy(&audio_format, fmt_buffer + 0, 2);
+                std::memcpy(&channel_count, fmt_buffer + 2, 2);
+                std::memcpy(&sample_rate, fmt_buffer + 4, 4);
+                std::memcpy(&bits_per_sample, fmt_buffer + 14, 2);
+
+                DiagnosticLogFormatted("WAV: fmt Format=%u Channels=%u Rate=%lu Bits=%u",
+                    (unsigned int)audio_format, (unsigned int)channel_count,
+                    (unsigned long)sample_rate, (unsigned int)bits_per_sample);
+
+                have_fmt = true;
+                SkipBytes(file, chunk_size - sizeof(fmt_buffer));
+            }
+            else if (MatchesTag(chunk_id, "data"))
+            {
+                if (!have_fmt)
+                {
+                    DiagnosticLogToSerial("WAV: data chunk found before fmt chunk");
+                    break;
+                }
+
+                if (audio_format != kPcmAudioFormat ||
+                    channel_count != kSupportedChannelCount ||
+                    sample_rate != kSupportedSampleRateHz ||
+                    bits_per_sample != kSupportedBitsPerSample)
+                {
+                    DiagnosticLogFormatted("WAV: Unsupported format (Format=%u Channels=%u Rate=%lu Bits=%u)",
+                        (unsigned int)audio_format, (unsigned int)channel_count,
+                        (unsigned long)sample_rate, (unsigned int)bits_per_sample);
+                    break;
+                }
+
+                data_chunk_offset = file.position();
+                data_chunk_size = chunk_size;
+                found_data = true;
+                break;
+            }
+            else
+            {
+                SkipBytes(file, chunk_size + (chunk_size & 1));
+            }
+        }
+
+        if (!found_data)
+        {
+            DiagnosticLogToSerial("WAV: data chunk not found or validation failed");
+            file.close();
+            return false;
+        }
+
+        DiagnosticLogFormatted("WAV: Stream ready, data offset=%lu size=%lu bytes",
+            (unsigned long)data_chunk_offset, (unsigned long)data_chunk_size);
+
+        out_info.sample_rate_hz = sample_rate;
+        out_info.channel_count = static_cast<std::uint8_t>(channel_count);
+        out_info.bits_per_sample = static_cast<std::uint8_t>(bits_per_sample);
+        out_info.data_chunk_offset = data_chunk_offset;
+        out_info.data_chunk_size = data_chunk_size;
+        out_info.frame_count = data_chunk_size / sizeof(std::int16_t);
+
+        return true;
+    }
 }
