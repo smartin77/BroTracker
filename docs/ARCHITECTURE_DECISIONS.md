@@ -917,3 +917,37 @@ The design shall separate storage access from realtime audio processing:
 The initial implementation is a single-sample streaming proof-of-concept. Buffer size, underrun behaviour, multi-voice streaming, and final sample/voice architecture will be validated and decided incrementally based on measurements on Teensy 4.1.
 
 The PJRC `AudioPlaySdWav` implementation is used as a reference for bounded SD streaming, but its blocking SD access from the audio update callback is not adopted for BroTracker.
+
+### Validation
+
+The initial SD streaming access pattern has been validated on Teensy 4.1 using the reference SD card.
+
+The benchmark tested:
+
+- 1 to 8 concurrent open WAV streams
+- 4 KiB refill chunks
+- 8 KiB per-stream ring buffer
+- 44.1 kHz, 16-bit mono playback
+- 200% playback rate
+- 64 streaming passes per stream count
+- simulated audio interrupt load
+
+All tested stream counts from 1 through 8 completed with zero deadline misses and zero read failures.
+
+At 8 concurrent streams:
+
+- Worst refill latency: 3.7 ms
+- Worst pass time: 20.3 ms
+- Refill deadline: 23.2 ms
+- Realtime margin: 12%
+- Ring drain time: 46.4 ms
+- Audio cadence under simulated load: stable
+
+Note-on latency was measured separately:
+
+- Worst case: 19.2 ms
+- Minimum head cache indicated by the benchmark: approximately 3.4 KiB
+
+These results validate the feasibility of SD-backed streaming for the tested access pattern on the reference hardware. They do not define the final BroTracker voice-count requirement.
+
+Benchmark results are hardware- and SD-card-dependent and must be treated as a measured baseline rather than a permanent performance guarantee.

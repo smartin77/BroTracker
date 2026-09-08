@@ -71,16 +71,78 @@ Across the five runs, full-file throughput ranged from approximately **19,298 to
 
 The 4 KiB chunked-read benchmark produced effectively the same throughput as the full-file read benchmark.
 
+## Streaming Benchmark Results
+
+The SD card was tested using the BroTracker Phase 2 sample-streaming benchmark on Teensy 4.1.
+
+### Test configuration
+
+- Concurrent streams: 1–8
+- WAV format: 16-bit PCM, 44.1 kHz
+- Streaming chunk size: 4 KiB
+- Ring buffer per stream: 8 KiB
+- Playback model: 200% of native sample rate
+- Streaming passes: 64 per stream count
+- Audio-load test: enabled
+- Reference hardware: Teensy 4.1
+
+### Results
+
+All tested stream counts from 1 through 8 completed with:
+
+- zero deadline misses
+- zero read failures
+- stable simulated audio cadence
+
+At 8 concurrent streams:
+
+| Metric | Result |
+| --- | ---: |
+| Worst refill latency | 3.7 ms |
+| Worst pass time | 20.3 ms |
+| Refill deadline | 23.2 ms |
+| Realtime margin | 12% |
+| Ring drain time | 46.4 ms |
+| Audio cadence | Stable |
+
+### Note-on latency
+
+The benchmark measured open + seek + first refill latency separately.
+
+| Metric | Result |
+| --- | ---: |
+| Worst note-on latency | 19.2 ms |
+| Audio block period | 2.9 ms |
+| Minimum indicated head cache | ~3.4 KiB |
+
+The measured note-on latency indicates that a resident head cache is required if BroTracker is expected to provide reliable low-latency sample triggering.
+
 ### Interpretation
+
+The reference SD card can sustain the tested 1–8 concurrent streaming access pattern without deadline misses, including under simulated audio interrupt load.
+
+The result validates SD-backed sample streaming as a feasible approach for BroTracker.
+
+The benchmark does not establish a final BroTracker voice-count limit. The measured 8-stream result is a hardware and access-pattern baseline only.
+
+Future changes to buffer size, refill policy, sample format, playback rate, SD card, or voice architecture require revalidation.
 
 The measurements indicate that, on the reference card and current Teensy 4.1/SdFat configuration:
 
-- sequential SD reads are highly repeatable;
-- approximately **19.3 MiB/s** sequential read throughput is achievable;
-- 4 KiB sequential read operations introduce no significant throughput penalty in this benchmark;
-- no read errors occurred during the five test runs.
+sequential SD reads are highly repeatable;
+approximately 19.3 MiB/s sequential read throughput is achievable;
+4 KiB sequential read operations introduce no significant throughput penalty in this benchmark;
+no read errors occurred during the five test runs.
 
-These results should be considered a **reference baseline**, not a guaranteed performance requirement for arbitrary SD cards.
+The reference SD card can sustain the tested 1–8 concurrent streaming access pattern without deadline misses, including under simulated audio interrupt load.
+
+The result validates SD-backed sample streaming as a feasible approach for BroTracker.
+
+The benchmark does not establish a final BroTracker voice-count limit. The measured 8-stream result is a hardware and access-pattern baseline only.
+
+The measurements should be considered a reference baseline, not a guaranteed performance requirement for arbitrary SD cards.
+
+Future changes to buffer size, refill policy, sample format, playback rate, SD card, or voice architecture require revalidation.
 
 ## Supported WAV Files
 
