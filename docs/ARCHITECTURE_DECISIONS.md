@@ -895,3 +895,25 @@ PlatformIO build success verifies repository-side compilation. Physical Teensy e
 The main BroTracker firmware may continue to use Arduino `.ino` integration temporarily. Converting the main firmware to a more conventional `.cpp` structure is a separate architectural change and is not required by this decision.
 
 The build system should remain simple and incremental. Additional build tooling should be introduced only when it provides a clear practical benefit.
+
+## D0039 — SD-Backed Sample Streaming
+
+BroTracker samples must not require loading an entire PCM sample into RAM.
+
+Sample playback shall use bounded RAM buffering with SD-backed streaming for samples that do not fit the available realtime memory budget.
+
+The design shall separate storage access from realtime audio processing:
+
+- SD card I/O runs outside the realtime audio callback.
+- `AudioStream::update()` must never perform SD reads, file opens, seeks, or other blocking storage operations.
+- `KernelRun()` is the intended non-realtime servicing point for SD prefetch/refill work.
+- Audio playback consumes already-buffered sample data.
+- Scheduler timing remains independent of SD access, buffering, and storage latency.
+- Streaming buffers use statically allocated memory; runtime dynamic allocation is not used by the realtime sample path.
+- Short samples may remain fully resident in RAM.
+- Longer samples are streamed from SD through bounded buffers.
+- Underruns must never stall the audio callback or scheduler and must be explicitly measurable.
+
+The initial implementation is a single-sample streaming proof-of-concept. Buffer size, underrun behaviour, multi-voice streaming, and final sample/voice architecture will be validated and decided incrementally based on measurements on Teensy 4.1.
+
+The PJRC `AudioPlaySdWav` implementation is used as a reference for bounded SD streaming, but its blocking SD access from the audio update callback is not adopted for BroTracker.
