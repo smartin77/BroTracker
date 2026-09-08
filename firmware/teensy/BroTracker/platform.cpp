@@ -2,7 +2,6 @@
 
 #include "audio_test_source.h"
 #include "diagnostics.h"
-#include "sample.h"
 #include "sample_player.h"
 #include "wav_loader.h"
 
@@ -10,6 +9,7 @@
 #include <Audio.h>
 #include <SD.h>
 #include <scheduler.h>
+#include <utility>
 
 namespace BroTracker
 {
@@ -30,38 +30,27 @@ namespace
     AudioConnection g_patch_player_to_mixer(g_sample_player, 0, g_audio_mixer, 1);
     AudioConnection g_patch_mixer_to_mqs(g_audio_mixer, 0, g_audio_output_mqs, 0);
 
-    // Test sample loaded from SD at startup; see LoadTestSample().
-    Sample g_test_sample;
-
     const char kTestSamplePath[] = "Samples/test.wav";
 
-    void LoadTestSample()
+    // Tracks whether the finished/underrun report has already been printed,
+    // and whether streaming was ever observed playing (finished detection
+    // relies on the public IsStreamPlaying() transitioning true -> false).
+    bool g_stream_was_playing = false;
+    bool g_stream_finished_reported = false;
+
+    void OpenTestStream()
     {
-        File file = SD.open(kTestSamplePath, FILE_READ);
-        
-        if (!file)
+        WavStreamInfo info;
+        if (!OpenWavPcmStream(kTestSamplePath, info))
         {
-            Serial.println("Test sample: file not found (Samples/test.wav)");
-            DiagnosticLog("Test sample: file not found (Samples/test.wav)");
+            Serial.println("Test stream: failed to open Samples/test.wav");
             return;
         }
-        
-        Serial.println("Test sample: file found, attempting to load");
-        DiagnosticLog("Test sample: file found, attempting to load");
-        file.close();
-        
-        if (LoadWavSampleFromSd(kTestSamplePath, g_test_sample))
-        {
-            Serial.println("Test sample loaded successfully");
-            DiagnosticLog("Test sample loaded successfully");
-            g_sample_player.SetSample(&g_test_sample);
-            g_sample_player.Play();
-        }
-        else
-        {
-            Serial.println("Test sample: file found but WAV parsing failed");
-            DiagnosticLog("Test sample: file found but WAV parsing failed");
-        }
+
+        Serial.println("Test stream: opened successfully");
+        g_sample_player.SetStream(std::move(info));
+        g_sample_player.PlayStream();
+        Serial.println("Test stream: playback armed");
     }
 
 #if defined(AUDIO_INTERFACE)
@@ -98,7 +87,7 @@ namespace
 
         DiagnosticLog("Playback engine initialized");
         DiagnosticLog("Storage initialized");
-        LoadTestSample();
+        OpenTestStream();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
 
@@ -110,5 +99,21 @@ namespace
         // Kernel main loop.
         // Audio block processing and Scheduler advancement happen in
         // AudioTestSource::update(), driven by the Teensy Audio Library.
+
+        // SD refill for the streaming sample path; never called from
+        // AudioStream::update() or any other realtime/audio callback.
+        g_sample_player.ServiceStreaming();
+
+        if (g_sample_player.IsStreamPlaying())
+        {
+            g_stream_was_playing = true;
+        }
+        else if (g_stream_was_playing && !g_stream_finished_reported)
+        {
+            g_stream_finished_reported = true;
+            Serial.println("Test stream: finished");
+            Serial.print("Test stream: underrun count = ");
+            Serial.println(g_sample_player.StreamUnderrunCount());
+        }
     }
 }
