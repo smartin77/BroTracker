@@ -61,6 +61,19 @@ namespace BroTracker
         // buffered stream data available (excluding clean end-of-stream).
         std::uint32_t StreamUnderrunCount() const { return stream_underrun_count_; }
 
+        // Diagnostic snapshot captured from the first streaming audio block
+        // that contained buffered frames. Does not affect playback.
+        struct StreamDiagnostics
+        {
+            bool captured = false;
+            bool had_nonzero_sample = false;
+            std::int16_t first_sample = 0;
+            std::int16_t min_sample = 0;
+            std::int16_t max_sample = 0;
+        };
+
+        StreamDiagnostics GetStreamDiagnostics() const { return stream_diagnostics_; }
+
     private:
         // Legacy in-RAM sample playback.
         const Sample* sample_ = nullptr;
@@ -85,6 +98,10 @@ namespace BroTracker
         std::uint32_t ReadFrames(std::int16_t* dest, std::uint32_t frame_count);
         std::uint32_t ReadIntoRingBuffer(std::uint32_t frames_wanted);
 
+        // Closes the SD file (if open) and returns the stream to Idle.
+        // Must only be called from a non-realtime context.
+        void ReleaseStream();
+
         WavStreamInfo stream_info_;
         bool stream_open_ = false;
 
@@ -99,6 +116,8 @@ namespace BroTracker
 
         std::uint32_t stream_frames_read_ = 0;
         std::uint32_t stream_underrun_count_ = 0;
+
+        StreamDiagnostics stream_diagnostics_;
 
         std::int16_t ring_buffer_[kRingBufferFrames];
     };

@@ -90,8 +90,6 @@ namespace
         OpenTestStream();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
-
-        DiagnosticBlink(3);
     }
 
     void KernelRun()
@@ -114,6 +112,10 @@ namespace
             Serial.println("Test stream: finished");
             Serial.print("Test stream: underrun count = ");
             Serial.println(g_sample_player.StreamUnderrunCount());
+
+            // ServiceStreaming() above already closed the SD file for the
+            // finished stream, so the SD interface is clean at this point.
+            DiagnosticBlink(3);
         }
     }
 }

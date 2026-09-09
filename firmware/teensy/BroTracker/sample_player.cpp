@@ -24,6 +24,9 @@ namespace BroTracker
 
     void SamplePlayer::SetStream(WavStreamInfo&& info)
     {
+        if (stream_open_)
+            ReleaseStream();
+
         stream_info_ = std::move(info);
         stream_open_ = static_cast<bool>(stream_info_.file);
         stream_state_ = StreamState::Idle;
@@ -88,10 +91,27 @@ namespace BroTracker
         return frames_read;
     }
 
+    void SamplePlayer::ReleaseStream()
+    {
+        if (stream_info_.file)
+            stream_info_.file.close();
+
+        stream_open_ = false;
+        stream_state_ = StreamState::Idle;
+    }
+
     void SamplePlayer::ServiceStreaming()
     {
-        if (!stream_open_ || stream_state_ == StreamState::Idle || stream_state_ == StreamState::Finished)
+        if (!stream_open_ || stream_state_ == StreamState::Idle)
             return;
+
+        if (stream_state_ == StreamState::Finished)
+        {
+            // File close/release is SD I/O and must happen here, never in
+            // update(); this runs once because it clears stream_open_.
+            ReleaseStream();
+            return;
+        }
 
         if (!stream_eof_)
         {
@@ -147,6 +167,32 @@ namespace BroTracker
 
             for (; i < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES); ++i)
                 block->data[i] = 0;
+
+            // One-shot diagnostic: inspect (never modify) the first block
+            // that actually contains buffered frames.
+            if (!stream_diagnostics_.captured && frames_to_copy > 0)
+            {
+                std::int16_t min_sample = block->data[0];
+                std::int16_t max_sample = block->data[0];
+                bool had_nonzero = false;
+
+                for (std::uint32_t j = 0; j < frames_to_copy; ++j)
+                {
+                    const std::int16_t sample_value = block->data[j];
+                    if (sample_value != 0)
+                        had_nonzero = true;
+                    if (sample_value < min_sample)
+                        min_sample = sample_value;
+                    if (sample_value > max_sample)
+                        max_sample = sample_value;
+                }
+
+                stream_diagnostics_.first_sample = block->data[0];
+                stream_diagnostics_.min_sample = min_sample;
+                stream_diagnostics_.max_sample = max_sample;
+                stream_diagnostics_.had_nonzero_sample = had_nonzero;
+                stream_diagnostics_.captured = true;
+            }
 
             if (frames_to_copy < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES))
             {
