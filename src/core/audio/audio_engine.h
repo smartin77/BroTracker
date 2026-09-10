@@ -45,6 +45,16 @@
         */
         void Process(uint32_t sample_count);
 
+    /**
+    * @brief Get the number of processed audio samples.
+    *
+    *
+    * Provides access to the current logical audio processing
+    *  position for validation and testing.
+    * @return Number of audio samples processed since the last reset.
+    */
+    uint64_t GetProcessedSamples() const;
+
     private:
     // Logical number of audio samples processed by the engine.
     uint64_t processed_samples_ = 0;
