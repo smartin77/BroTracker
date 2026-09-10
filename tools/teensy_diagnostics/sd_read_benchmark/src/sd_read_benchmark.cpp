@@ -21,6 +21,19 @@
  *              - preserves previous benchmark result files
  *              - flashes the onboard LED three times on successful completion
  *
+ *              Phase 2 additionally measures the sample-streaming access
+ *              pattern that the BroTracker sample engine will actually use,
+ *              because sequential single-file throughput does not predict it:
+ *
+ *              - concurrent round-robin streaming from N open files
+ *              - per-refill and per-pass latency (min / avg / worst)
+ *              - refill deadline misses relative to the per-voice ring buffer
+ *              - realtime margin and estimated sustainable voice count
+ *              - note-on latency (open + seek + first chunk)
+ *              - random-seek read latency
+ *              - the same sweep repeated under a simulated audio interrupt
+ *                load, measuring audio-cadence jitter caused by SD activity
+ *
  *              This is an experimental diagnostic tool.
  *              It is not the final BroTracker Sample Loader.
  *
@@ -155,6 +168,72 @@ namespace
     constexpr std::uint32_t LED_FLASH_MS = 750;
     constexpr std::uint32_t LED_PAUSE_MS = 750;
 
+    // ---------------------------------------------------------------------
+    // Phase 2: streaming access pattern configuration
+    // ---------------------------------------------------------------------
+    //
+    // These values mirror the proposed BroTracker sample streaming design:
+    // one ring buffer per voice, refilled in fixed chunks from the main
+    // loop, with the audio path only ever reading from RAM.
+    //
+    // The sweep runs 1..STREAM_MAX_COUNT concurrently open files so the
+    // point at which the SD card stops keeping up can be observed rather
+    // than assumed.
+    // ---------------------------------------------------------------------
+
+    constexpr std::uint32_t STREAM_MAX_COUNT = 8;
+    constexpr std::uint32_t STREAM_CHUNK_SIZE = 4096;
+    constexpr std::uint32_t STREAM_RING_BYTES = 8192;
+    constexpr std::uint32_t STREAM_PASSES = 64;
+
+    // Worst-case consumption model: 44.1 kHz, 16-bit mono, played back at
+    // STREAM_PITCH_PERCENT of the native rate (200 = +12 semitones).
+    constexpr std::uint32_t STREAM_SAMPLE_RATE_HZ = 44100;
+    constexpr std::uint32_t STREAM_BYTES_PER_FRAME = 2;
+    constexpr std::uint32_t STREAM_PITCH_PERCENT = 200;
+
+    constexpr std::uint32_t NOTE_ON_TRIALS = 32;
+    constexpr std::uint32_t RANDOM_SEEK_TRIALS = 64;
+
+    // Simulated audio interrupt load. The Teensy Audio Library updates
+    // every AUDIO_BLOCK_FRAMES samples; this reproduces that cadence and
+    // priority without pulling in the Audio library, so SD-induced audio
+    // jitter can be measured by this tool alone.
+    constexpr bool STREAM_TEST_WITH_AUDIO_LOAD = true;
+    constexpr std::uint32_t AUDIO_BLOCK_FRAMES = 128;
+    constexpr std::uint32_t AUDIO_LOAD_VOICES = 8;
+    constexpr std::uint8_t AUDIO_LOAD_ISR_PRIORITY = 208;
+
+    constexpr std::uint32_t AudioBlockIntervalUs()
+    {
+        return (AUDIO_BLOCK_FRAMES * 1000000u) /
+               STREAM_SAMPLE_RATE_HZ;
+    }
+
+    constexpr std::uint32_t StreamBytesPerSecond()
+    {
+        return (STREAM_SAMPLE_RATE_HZ *
+                STREAM_BYTES_PER_FRAME *
+                STREAM_PITCH_PERCENT) / 100u;
+    }
+
+    // Audio time represented by one refill chunk. A full round-robin pass
+    // must complete within this budget or a voice will run dry.
+    constexpr std::uint32_t ChunkAudioUs()
+    {
+        return static_cast<std::uint32_t>(
+            (static_cast<std::uint64_t>(STREAM_CHUNK_SIZE) * 1000000ull) /
+            StreamBytesPerSecond());
+    }
+
+    // Time taken to drain a completely full ring buffer.
+    constexpr std::uint32_t RingDrainUs()
+    {
+        return static_cast<std::uint32_t>(
+            (static_cast<std::uint64_t>(STREAM_RING_BYTES) * 1000000ull) /
+            StreamBytesPerSecond());
+    }
+
     // The batch is deliberately kept fixed-size.
     // No fixed limit exists for the total number of files in the source
     // directory. Batches are processed until the complete directory scan
@@ -218,6 +297,67 @@ namespace
 
     std::uint8_t read_buffer[READ_CHUNK_SIZE];
 
+    // ---------------------------------------------------------------------
+    // Phase 2 state
+    // ---------------------------------------------------------------------
+
+    struct StreamCandidate
+    {
+        char path[256] = {};
+        std::uint32_t data_offset = 0;
+        std::uint32_t data_size = 0;
+    };
+
+    StreamCandidate stream_candidates[STREAM_MAX_COUNT];
+    std::uint32_t stream_candidate_count = 0;
+
+    // Per-voice refill destinations live in RAM2, matching the placement
+    // the real streaming engine is expected to use.
+    DMAMEM std::uint8_t stream_buffers[STREAM_MAX_COUNT][STREAM_CHUNK_SIZE];
+
+    File stream_handles[STREAM_MAX_COUNT];
+
+    struct StreamResult
+    {
+        std::uint32_t stream_count = 0;
+        std::uint32_t passes = 0;
+        std::uint64_t total_bytes = 0;
+        std::uint64_t total_us = 0;
+
+        std::uint32_t chunk_min_us = UINT32_MAX;
+        std::uint32_t chunk_max_us = 0;
+        std::uint64_t chunk_total_us = 0;
+        std::uint32_t chunk_count = 0;
+
+        std::uint32_t pass_max_us = 0;
+        std::uint64_t pass_total_us = 0;
+        std::uint32_t deadline_misses = 0;
+
+        std::uint32_t wraps = 0;
+        std::uint32_t read_failures = 0;
+        bool started = false;
+
+        std::uint32_t isr_count = 0;
+        std::uint32_t isr_max_interval_us = 0;
+    };
+
+    // Simulated audio interrupt state.
+    volatile std::uint32_t audio_isr_count = 0;
+    volatile std::uint32_t audio_isr_last_us = 0;
+    volatile std::uint32_t audio_isr_max_interval_us = 0;
+    volatile std::int32_t audio_isr_sink = 0;
+
+    IntervalTimer audio_load_timer;
+
+    // Deterministic pseudo-random source for the seek test.
+    std::uint32_t random_state = 0x12345678u;
+
+    std::uint32_t NextRandom()
+    {
+        random_state = (random_state * 1664525u) + 1013904223u;
+        return random_state;
+    }
+
     // Scan statistics.
     std::uint32_t files_found = 0;
     std::uint32_t sample_candidates = 0;
@@ -236,6 +376,11 @@ namespace
 
     std::uint64_t aggregate_chunk_time_us = 0;
     std::uint64_t aggregate_chunk_bytes = 0;
+
+    // Phase 2 headline results.
+    std::uint32_t max_sustainable_streams_idle = 0;
+    std::uint32_t max_sustainable_streams_loaded = 0;
+    std::uint32_t note_on_worst_us = 0;
 
     bool benchmark_ok = true;
     bool clock_synced_from_host = false;
@@ -315,6 +460,21 @@ namespace
 
         if (report_file)
             report_file.println(text);
+    }
+
+    void ReportPrintSigned(std::int32_t value)
+    {
+        if (value < 0)
+        {
+            ReportPrint(F("-"));
+
+            ReportPrint(static_cast<std::uint32_t>(
+                -static_cast<std::int64_t>(value)));
+        }
+        else
+        {
+            ReportPrint(static_cast<std::uint32_t>(value));
+        }
     }
 
     void FlushReport()
@@ -1128,6 +1288,782 @@ namespace
     }
 
     // ---------------------------------------------------------------------
+    // Phase 2: streaming access pattern benchmark
+    // ---------------------------------------------------------------------
+    //
+    // Sequential single-file throughput does not predict the behaviour of a
+    // polyphonic sampler. The real pattern is N concurrently open files,
+    // each advanced by a small chunk per service pass, with the card's read
+    // position jumping between unrelated file locations every time.
+    //
+    // This phase reproduces that pattern directly.
+    // ---------------------------------------------------------------------
+
+    void AudioLoadIsr()
+    {
+        const std::uint32_t now_us = micros();
+
+        if (audio_isr_count != 0)
+        {
+            const std::uint32_t interval =
+                now_us - audio_isr_last_us;
+
+            if (interval > audio_isr_max_interval_us)
+                audio_isr_max_interval_us = interval;
+        }
+
+        audio_isr_last_us = now_us;
+        ++audio_isr_count;
+
+        // Representative mixing workload: AUDIO_LOAD_VOICES voices summed
+        // into one audio block. The arithmetic is irrelevant; the purpose
+        // is to occupy the audio interrupt for a realistic duration so that
+        // SD-induced interference becomes visible as interval jitter.
+        std::int32_t accumulator = 0;
+
+        for (std::uint32_t voice = 0;
+             voice < AUDIO_LOAD_VOICES;
+             ++voice)
+        {
+            for (std::uint32_t frame = 0;
+                 frame < AUDIO_BLOCK_FRAMES;
+                 ++frame)
+            {
+                const std::uint32_t mixed =
+                    (frame + voice) * 2654435761u;
+
+                accumulator +=
+                    static_cast<std::int16_t>(mixed >> 16);
+            }
+        }
+
+        audio_isr_sink = accumulator;
+    }
+
+    void StartAudioLoad()
+    {
+        audio_isr_count = 0;
+        audio_isr_last_us = 0;
+        audio_isr_max_interval_us = 0;
+
+        audio_load_timer.begin(
+            AudioLoadIsr,
+            AudioBlockIntervalUs());
+
+        audio_load_timer.priority(
+            AUDIO_LOAD_ISR_PRIORITY);
+    }
+
+    void StopAudioLoad()
+    {
+        audio_load_timer.end();
+    }
+
+    // Reads exactly `size` bytes and reports how long the complete refill
+    // took, including any short reads issued by the filesystem layer.
+    bool TimedRead(
+        File& file,
+        std::uint8_t* destination,
+        std::size_t size,
+        std::uint32_t& elapsed_us)
+    {
+        const std::uint32_t start = micros();
+
+        std::uint8_t* output = destination;
+        std::size_t remaining = size;
+
+        while (remaining > 0)
+        {
+            const int count =
+                file.read(output, remaining);
+
+            if (count <= 0)
+            {
+                elapsed_us = micros() - start;
+                return false;
+            }
+
+            output += count;
+
+            remaining -=
+                static_cast<std::size_t>(count);
+        }
+
+        elapsed_us = micros() - start;
+        return true;
+    }
+
+    void RunConcurrentStreamTest(
+        std::uint32_t stream_count,
+        bool with_audio_load,
+        StreamResult& result)
+    {
+        result = StreamResult();
+        result.stream_count = stream_count;
+
+        if (stream_count == 0 ||
+            stream_count > stream_candidate_count)
+        {
+            return;
+        }
+
+        std::uint32_t stream_position[STREAM_MAX_COUNT] = {};
+
+        for (std::uint32_t i = 0; i < stream_count; ++i)
+        {
+            stream_handles[i] =
+                SD.open(
+                    stream_candidates[i].path,
+                    FILE_READ);
+
+            if (!stream_handles[i] ||
+                !stream_handles[i].seek(
+                    stream_candidates[i].data_offset))
+            {
+                for (std::uint32_t j = 0; j <= i; ++j)
+                {
+                    if (stream_handles[j])
+                        stream_handles[j].close();
+                }
+
+                ++result.read_failures;
+                return;
+            }
+
+            stream_position[i] =
+                stream_candidates[i].data_offset;
+        }
+
+        result.started = true;
+
+        if (with_audio_load)
+            StartAudioLoad();
+
+        const std::uint32_t deadline_us = ChunkAudioUs();
+        const std::uint32_t run_start = micros();
+
+        for (std::uint32_t pass = 0;
+             pass < STREAM_PASSES;
+             ++pass)
+        {
+            const std::uint32_t pass_start = micros();
+
+            for (std::uint32_t i = 0; i < stream_count; ++i)
+            {
+                const StreamCandidate& candidate =
+                    stream_candidates[i];
+
+                const std::uint32_t data_end =
+                    candidate.data_offset +
+                    candidate.data_size;
+
+                // A looping instrument seeks back to its loop point rather
+                // than stopping, so the wrap seek is part of the pattern.
+                if (stream_position[i] + STREAM_CHUNK_SIZE >
+                    data_end)
+                {
+                    if (!stream_handles[i].seek(
+                            candidate.data_offset))
+                    {
+                        ++result.read_failures;
+                        continue;
+                    }
+
+                    stream_position[i] =
+                        candidate.data_offset;
+
+                    ++result.wraps;
+                }
+
+                std::uint32_t elapsed_us = 0;
+
+                const bool ok =
+                    TimedRead(
+                        stream_handles[i],
+                        stream_buffers[i],
+                        STREAM_CHUNK_SIZE,
+                        elapsed_us);
+
+                if (!ok)
+                {
+                    ++result.read_failures;
+                    continue;
+                }
+
+                stream_position[i] += STREAM_CHUNK_SIZE;
+
+                result.total_bytes += STREAM_CHUNK_SIZE;
+                result.chunk_total_us += elapsed_us;
+                ++result.chunk_count;
+
+                if (elapsed_us < result.chunk_min_us)
+                    result.chunk_min_us = elapsed_us;
+
+                if (elapsed_us > result.chunk_max_us)
+                    result.chunk_max_us = elapsed_us;
+            }
+
+            const std::uint32_t pass_us =
+                micros() - pass_start;
+
+            result.pass_total_us += pass_us;
+
+            if (pass_us > result.pass_max_us)
+                result.pass_max_us = pass_us;
+
+            if (pass_us > deadline_us)
+                ++result.deadline_misses;
+
+            ++result.passes;
+        }
+
+        result.total_us = micros() - run_start;
+
+        if (with_audio_load)
+        {
+            StopAudioLoad();
+
+            result.isr_count = audio_isr_count;
+
+            result.isr_max_interval_us =
+                audio_isr_max_interval_us;
+        }
+
+        for (std::uint32_t i = 0; i < stream_count; ++i)
+        {
+            if (stream_handles[i])
+                stream_handles[i].close();
+        }
+    }
+
+    void PrintStreamResult(
+        const StreamResult& result,
+        bool with_audio_load)
+    {
+        ReportPrint(F("  Streams: "));
+        ReportPrintln(result.stream_count);
+
+        if (!result.started)
+        {
+            ReportPrintln(
+                F("    SKIPPED: could not open all streams"));
+
+            return;
+        }
+
+        const std::uint32_t deadline_us = ChunkAudioUs();
+
+        ReportPrint(F("    Passes: "));
+        ReportPrintln(result.passes);
+
+        ReportPrint(F("    Refills: "));
+        ReportPrintln(result.chunk_count);
+
+        ReportPrint(F("    Loop wraps: "));
+        ReportPrintln(result.wraps);
+
+        ReportPrint(F("    Bytes: "));
+        ReportPrintln(result.total_bytes);
+
+        ReportPrint(F("    Aggregate throughput: "));
+
+        ReportPrint(
+            ThroughputBytesPerSecond(
+                result.total_bytes,
+                result.total_us) /
+            1024ull);
+
+        ReportPrintln(F(" KiB/s"));
+
+        ReportPrint(F("    Refill min: "));
+
+        if (result.chunk_min_us == UINT32_MAX)
+            ReportPrintln(F("N/A"));
+        else
+        {
+            ReportPrint(result.chunk_min_us);
+            ReportPrintln(F(" us"));
+        }
+
+        ReportPrint(F("    Refill avg: "));
+
+        ReportPrint(
+            result.chunk_count != 0
+                ? static_cast<std::uint32_t>(
+                      result.chunk_total_us /
+                      result.chunk_count)
+                : 0u);
+
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Refill worst: "));
+        ReportPrint(result.chunk_max_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Pass avg: "));
+
+        ReportPrint(
+            result.passes != 0
+                ? static_cast<std::uint32_t>(
+                      result.pass_total_us /
+                      result.passes)
+                : 0u);
+
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Pass worst: "));
+        ReportPrint(result.pass_max_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Pass deadline: "));
+        ReportPrint(deadline_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Deadline misses: "));
+        ReportPrint(result.deadline_misses);
+        ReportPrint(F(" of "));
+        ReportPrintln(result.passes);
+
+        // Positive margin means the worst observed service pass still fit
+        // inside the audio time that one refill chunk represents.
+        ReportPrint(F("    Realtime margin: "));
+
+        if (deadline_us != 0)
+        {
+            const std::int32_t margin =
+                static_cast<std::int32_t>(
+                    ((static_cast<std::int64_t>(deadline_us) -
+                      static_cast<std::int64_t>(result.pass_max_us)) *
+                     100) /
+                    static_cast<std::int64_t>(deadline_us));
+
+            ReportPrintSigned(margin);
+        }
+        else
+        {
+            ReportPrint(static_cast<std::uint32_t>(0));
+        }
+
+        ReportPrintln(F(" %"));
+
+        ReportPrint(F("    Ring drain time: "));
+        ReportPrint(RingDrainUs());
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("    Worst refill vs ring drain: "));
+
+        if (result.chunk_max_us < RingDrainUs())
+            ReportPrintln(F("SAFE"));
+        else
+            ReportPrintln(F("UNDERRUN RISK"));
+
+        ReportPrint(F("    Estimated sustainable voices: "));
+
+        ReportPrintln(
+            result.chunk_max_us != 0
+                ? deadline_us / result.chunk_max_us
+                : 0u);
+
+        ReportPrint(F("    Read failures: "));
+        ReportPrintln(result.read_failures);
+
+        if (with_audio_load)
+        {
+            ReportPrint(F("    Audio ISR executions: "));
+            ReportPrintln(result.isr_count);
+
+            ReportPrint(F("    Audio ISR nominal interval: "));
+            ReportPrint(AudioBlockIntervalUs());
+            ReportPrintln(F(" us"));
+
+            ReportPrint(F("    Audio ISR worst interval: "));
+            ReportPrint(result.isr_max_interval_us);
+            ReportPrintln(F(" us"));
+
+            // Any interval beyond two nominal periods means the audio
+            // update was delayed long enough to drop a block.
+            ReportPrint(F("    Audio cadence: "));
+
+            if (result.isr_max_interval_us <
+                (AudioBlockIntervalUs() * 2u))
+            {
+                ReportPrintln(F("STABLE"));
+            }
+            else
+            {
+                ReportPrintln(F("DISTURBED BY SD ACTIVITY"));
+            }
+        }
+
+        ReportPrintln();
+    }
+
+    void RunStreamSweep(bool with_audio_load)
+    {
+        ReportPrintln();
+
+        if (with_audio_load)
+        {
+            ReportPrintln(F(
+                "Concurrent streaming sweep (simulated audio load):"));
+        }
+        else
+        {
+            ReportPrintln(F(
+                "Concurrent streaming sweep (idle CPU):"));
+        }
+
+        ReportPrintln();
+
+        std::uint32_t sustainable = 0;
+
+        for (std::uint32_t count = 1;
+             count <= stream_candidate_count;
+             ++count)
+        {
+            StreamResult result;
+
+            RunConcurrentStreamTest(
+                count,
+                with_audio_load,
+                result);
+
+            PrintStreamResult(result, with_audio_load);
+
+            if (result.started &&
+                result.read_failures == 0 &&
+                result.deadline_misses == 0)
+            {
+                sustainable = count;
+            }
+
+            if (result.read_failures != 0)
+                benchmark_ok = false;
+
+            FlushReport();
+        }
+
+        ReportPrint(F("  Highest stream count with zero deadline misses: "));
+        ReportPrintln(sustainable);
+
+        if (with_audio_load)
+            max_sustainable_streams_loaded = sustainable;
+        else
+            max_sustainable_streams_idle = sustainable;
+    }
+
+    void RunNoteOnLatencyTest()
+    {
+        ReportPrintln();
+        ReportPrintln(F(
+            "Note-on latency (open + seek + first refill):"));
+
+        if (stream_candidate_count == 0)
+        {
+            ReportPrintln(
+                F("  SKIPPED: no streaming candidates"));
+
+            return;
+        }
+
+        std::uint32_t min_us = UINT32_MAX;
+        std::uint32_t max_us = 0;
+        std::uint64_t total_us = 0;
+        std::uint32_t trials = 0;
+        std::uint32_t failures = 0;
+
+        for (std::uint32_t trial = 0;
+             trial < NOTE_ON_TRIALS;
+             ++trial)
+        {
+            const StreamCandidate& candidate =
+                stream_candidates[
+                    trial % stream_candidate_count];
+
+            const std::uint32_t start = micros();
+
+            File file =
+                SD.open(candidate.path, FILE_READ);
+
+            if (!file ||
+                !file.seek(candidate.data_offset))
+            {
+                if (file)
+                    file.close();
+
+                ++failures;
+                continue;
+            }
+
+            std::uint32_t read_us = 0;
+
+            const bool ok =
+                TimedRead(
+                    file,
+                    stream_buffers[0],
+                    STREAM_CHUNK_SIZE,
+                    read_us);
+
+            const std::uint32_t elapsed_us =
+                micros() - start;
+
+            file.close();
+
+            if (!ok)
+            {
+                ++failures;
+                continue;
+            }
+
+            total_us += elapsed_us;
+            ++trials;
+
+            if (elapsed_us < min_us)
+                min_us = elapsed_us;
+
+            if (elapsed_us > max_us)
+                max_us = elapsed_us;
+        }
+
+        ReportPrint(F("  Trials: "));
+        ReportPrintln(trials);
+
+        ReportPrint(F("  Failures: "));
+        ReportPrintln(failures);
+
+        if (trials == 0)
+            return;
+
+        ReportPrint(F("  Min: "));
+        ReportPrint(min_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("  Avg: "));
+
+        ReportPrint(
+            static_cast<std::uint32_t>(
+                total_us / trials));
+
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("  Worst: "));
+        ReportPrint(max_us);
+        ReportPrintln(F(" us"));
+
+        note_on_worst_us = max_us;
+
+        // A note must sound in the next audio block, so anything above one
+        // audio block period has to be covered by a RAM-resident head cache.
+        ReportPrint(F("  Audio block period: "));
+        ReportPrint(AudioBlockIntervalUs());
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("  Head cache required: "));
+
+        if (max_us <= AudioBlockIntervalUs())
+            ReportPrintln(F("NO"));
+        else
+            ReportPrintln(F("YES"));
+
+        // Minimum head cache that covers the worst observed note-on cost.
+        ReportPrint(F("  Minimum head cache to cover worst case: "));
+
+        ReportPrint(
+            static_cast<std::uint32_t>(
+                (static_cast<std::uint64_t>(max_us) *
+                 StreamBytesPerSecond()) /
+                1000000ull));
+
+        ReportPrintln(F(" bytes"));
+    }
+
+    void RunRandomSeekTest()
+    {
+        ReportPrintln();
+        ReportPrintln(F(
+            "Random seek + refill latency (single open file):"));
+
+        if (stream_candidate_count == 0)
+        {
+            ReportPrintln(
+                F("  SKIPPED: no streaming candidates"));
+
+            return;
+        }
+
+        const StreamCandidate& candidate =
+            stream_candidates[0];
+
+        if (candidate.data_size <= STREAM_CHUNK_SIZE)
+        {
+            ReportPrintln(
+                F("  SKIPPED: candidate too small"));
+
+            return;
+        }
+
+        File file =
+            SD.open(candidate.path, FILE_READ);
+
+        if (!file)
+        {
+            ReportPrintln(
+                F("  SKIPPED: open failed"));
+
+            return;
+        }
+
+        const std::uint32_t range =
+            candidate.data_size - STREAM_CHUNK_SIZE;
+
+        std::uint32_t min_us = UINT32_MAX;
+        std::uint32_t max_us = 0;
+        std::uint64_t total_us = 0;
+        std::uint32_t trials = 0;
+        std::uint32_t failures = 0;
+
+        for (std::uint32_t trial = 0;
+             trial < RANDOM_SEEK_TRIALS;
+             ++trial)
+        {
+            const std::uint32_t offset =
+                candidate.data_offset +
+                ((NextRandom() % range) & ~511u);
+
+            const std::uint32_t start = micros();
+
+            if (!file.seek(offset))
+            {
+                ++failures;
+                continue;
+            }
+
+            std::uint32_t read_us = 0;
+
+            const bool ok =
+                TimedRead(
+                    file,
+                    stream_buffers[0],
+                    STREAM_CHUNK_SIZE,
+                    read_us);
+
+            const std::uint32_t elapsed_us =
+                micros() - start;
+
+            if (!ok)
+            {
+                ++failures;
+                continue;
+            }
+
+            total_us += elapsed_us;
+            ++trials;
+
+            if (elapsed_us < min_us)
+                min_us = elapsed_us;
+
+            if (elapsed_us > max_us)
+                max_us = elapsed_us;
+        }
+
+        file.close();
+
+        ReportPrint(F("  Trials: "));
+        ReportPrintln(trials);
+
+        ReportPrint(F("  Failures: "));
+        ReportPrintln(failures);
+
+        if (trials == 0)
+            return;
+
+        ReportPrint(F("  Min: "));
+        ReportPrint(min_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("  Avg: "));
+
+        ReportPrint(
+            static_cast<std::uint32_t>(
+                total_us / trials));
+
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("  Worst: "));
+        ReportPrint(max_us);
+        ReportPrintln(F(" us"));
+    }
+
+    void RunStreamingBenchmark()
+    {
+        ReportPrintln();
+        ReportPrintln(F(
+            "=========================================="));
+
+        ReportPrintln(F(
+            "Phase 2: sample streaming access pattern"));
+
+        ReportPrintln(F(
+            "=========================================="));
+
+        ReportPrintln();
+
+        ReportPrint(F("Streaming candidates: "));
+        ReportPrintln(stream_candidate_count);
+
+        if (stream_candidate_count == 0)
+        {
+            ReportPrintln(F(
+                "SKIPPED: no valid WAV file large enough to stream."));
+
+            return;
+        }
+
+        ReportPrint(F("Refill chunk size: "));
+        ReportPrint(STREAM_CHUNK_SIZE);
+        ReportPrintln(F(" bytes"));
+
+        ReportPrint(F("Ring buffer per voice: "));
+        ReportPrint(STREAM_RING_BYTES);
+        ReportPrintln(F(" bytes"));
+
+        ReportPrint(F("Consumption model: "));
+        ReportPrint(STREAM_SAMPLE_RATE_HZ);
+        ReportPrint(F(" Hz, 16-bit mono, pitch "));
+        ReportPrint(STREAM_PITCH_PERCENT);
+        ReportPrintln(F(" %"));
+
+        ReportPrint(F("Consumption rate: "));
+        ReportPrint(StreamBytesPerSecond());
+        ReportPrintln(F(" bytes/s per voice"));
+
+        ReportPrint(F("Refill deadline: "));
+        ReportPrint(ChunkAudioUs());
+        ReportPrintln(F(" us"));
+
+        ReportPrint(F("Passes per stream count: "));
+        ReportPrintln(STREAM_PASSES);
+
+        FlushReport();
+
+        RunStreamSweep(false);
+
+        FlushReport();
+
+        if (STREAM_TEST_WITH_AUDIO_LOAD)
+        {
+            RunStreamSweep(true);
+            FlushReport();
+        }
+
+        RunNoteOnLatencyTest();
+        FlushReport();
+
+        RunRandomSeekTest();
+        FlushReport();
+    }
+
+    // ---------------------------------------------------------------------
     // Batch processing
     // ---------------------------------------------------------------------
 
@@ -1196,6 +2132,26 @@ namespace
 
             ++batch_valid;
             ++valid_wav;
+
+            // Retain the first few sufficiently large files so Phase 2 can
+            // stream from several distinct locations on the card.
+            if (stream_candidate_count < STREAM_MAX_COUNT &&
+                wav.data_size > (STREAM_CHUNK_SIZE * 2u))
+            {
+                StreamCandidate& candidate =
+                    stream_candidates[stream_candidate_count];
+
+                std::snprintf(
+                    candidate.path,
+                    sizeof(candidate.path),
+                    "%s",
+                    batch[i].path);
+
+                candidate.data_offset = wav.data_offset;
+                candidate.data_size = wav.data_size;
+
+                ++stream_candidate_count;
+            }
 
             ReportPrint(F("  VALID: "));
             ReportPrintln(batch[i].path);
@@ -1621,6 +2577,41 @@ namespace
         ReportPrint(F("Chunked read failures: "));
         ReportPrintln(
             chunked_read_failures);
+
+        ReportPrintln();
+        ReportPrintln(
+            F("Streaming summary:"));
+
+        ReportPrint(F("  Streaming candidates: "));
+        ReportPrintln(stream_candidate_count);
+
+        ReportPrint(
+            F("  Max concurrent streams (idle): "));
+
+        ReportPrintln(
+            max_sustainable_streams_idle);
+
+        ReportPrint(
+            F("  Max concurrent streams (audio load): "));
+
+        if (STREAM_TEST_WITH_AUDIO_LOAD)
+            ReportPrintln(max_sustainable_streams_loaded);
+        else
+            ReportPrintln(F("not tested"));
+
+        ReportPrint(F("  Worst note-on latency: "));
+        ReportPrint(note_on_worst_us);
+        ReportPrintln(F(" us"));
+
+        ReportPrintln();
+        ReportPrintln(F(
+            "NOTE: the streaming figures above are a measured baseline for"));
+
+        ReportPrintln(F(
+            "the reference SD card only. They do not define a BroTracker"));
+
+        ReportPrintln(F(
+            "voice-count requirement."));
     }
 
     // ---------------------------------------------------------------------
@@ -1745,6 +2736,8 @@ void setup()
     FlushReport();
 
     ScanSourceDirectory();
+
+    RunStreamingBenchmark();
 
     PrintAggregateResults();
 

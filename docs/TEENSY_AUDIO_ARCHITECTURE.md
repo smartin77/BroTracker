@@ -212,26 +212,24 @@ The scheduler may be advanced from the audio processing boundary as audio sample
 
 This does not make the physical audio output latency part of the scheduler timeline.
 
-```text
-             Audio sample processing
-                      |
-                      v
-               Audio block boundary
-                      |
-              +-------+-------+
-              |               |
-              v               v
-        process samples   advance logical
-                            timeline
-                                |
-                                v
-                            Scheduler
-                                |
-                         +------+------+
-                         |             |
-                         v             v
-                       Audio          MIDI
-```
+            Audio sample processing
+                    |
+                    v
+            Audio block boundary
+                    |
+            +-------+-------+
+            |               |
+            v               v
+    process samples   advance logical
+                        timeline
+                            |
+                            v
+                        Scheduler
+                            |
+                        +------+------+
+                        |             |
+                        v             v
+                    Audio          MIDI
 
 The scheduler therefore represents logical playback time, while the physical audio output path may introduce additional latency after the audio samples have been generated.
 
@@ -545,3 +543,38 @@ Dynamic CPU frequency changes during active audio processing are not part of the
 Realtime overload must instead be handled through CPU budgeting, voice management, DSP quality policies or other deterministic software mechanisms.
 
 Realtime playback timing must not depend on CPU frequency, whether the Teensy is running at the reference frequency or at a validated higher performance configuration.
+
+### SD-Backed Sample Streaming
+
+Teda za poslednú existujúcu ### sekciu v tomto dokumente. Nezakladal by som kvôli tomu novú ## kapitolu, pretože toto je zatiaľ konkrétna architektonická téma v rámci audio architektúry.
+
+Text ešte raz:
+
+SD-Backed Sample Streaming
+
+Sample storage is not part of the realtime audio path.
+
+WAV/sample data that cannot be kept fully in realtime RAM shall be streamed from SD using bounded prefetch buffers.
+
+The architecture separates SD data production from audio consumption:
+
+KernelRun() / non-realtime context
+        |
+        | SD reads / prefetch
+        v
+   sample buffer
+        |
+        v
+AudioStream::update()
+        |
+        | buffered sample data only
+        v
+   audio output
+
+AudioStream::update() must not perform SD I/O or block waiting for storage.
+
+SD latency must never affect scheduler advancement or tracker timing. Buffer underruns are treated as an audio-storage fault, not a timing fault.
+
+The initial implementation will validate this model with a single streaming sample before introducing multi-voice streaming or more complex buffering policies.
+
+A ešte jedna vec: toto by som zatiaľ naozaj nechal ako poslednú sekciu dokumentu. Nešiel by som teraz prerábať existujúcu štruktúru TEENSY_AUDIO_ARCHITECTURE.md. Je to naše nové architektonické pravidlo a prirodzene sa k nemu neskôr môžeme vracať.
