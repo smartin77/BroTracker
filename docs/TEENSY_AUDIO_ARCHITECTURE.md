@@ -63,23 +63,104 @@ This boundary allows the same audio engine architecture to run on Teensy and on 
 
 ## Realtime Audio Output
 
-The primary realtime audio path should be a native Teensy audio output path.
+The primary realtime audio path is a native Teensy 4.1 audio output path.
 
-The preferred architecture is:
+The initial preferred hardware path is:
 
     BroTracker Audio Engine
         |
        I2S
         |
-       DMA
-        |
-    DAC / Audio Codec
+    PT8211
         |
     Physical audio output
 
-This path keeps audio generation, realtime scheduling and the physical audio clock within the Teensy realtime environment.
+PT8211 is the initial reference DAC for native Teensy audio output.
 
-A Teensy 4.1 board does not provide a conventional built-in stereo headphone output by itself. A suitable external DAC, codec or audio hardware is therefore required for a native physical audio output.
+The base BroTracker system must nevertheless remain functional without PT8211 or another external DAC.
+
+Native audio output hardware is therefore an optional hardware capability, not a prerequisite for the BroTracker core or basic tracker operation.
+
+The platform audio boundary must allow additional native audio hardware without requiring changes to the shared BroTracker audio engine.
+
+Potential future native audio backends include:
+
+- other I2S DACs;
+- audio codecs;
+- headphone/line-out hardware;
+- other Teensy-compatible audio output hardware.
+
+### USB Audio
+
+USB Audio is a mandatory supported host capability.
+
+The intended path is:
+
+    BroTracker Audio Engine
+        |
+    USB Audio
+        |
+       Host
+        |
+    Host audio system / DAC
+
+USB Audio must remain an output interface and transport mechanism.
+
+It must not become the authoritative BroTracker realtime clock.
+
+The Teensy scheduler and audio timeline remain authoritative.
+
+USB Audio must coexist architecturally with USB MIDI and other supported USB functionality.
+
+### User-Configurable Audio Processing
+
+BroTracker may eventually support user-configurable audio processing paths.
+
+A future implementation could allow users to construct audio paths from reusable processing components, for example:
+
+    Source
+      |
+    Mixer
+      |
+    Filter
+      |
+    Effect
+      |
+    Output
+
+The exact model is intentionally not defined yet.
+
+Any such system must remain subordinate to the BroTracker architecture.
+
+In particular:
+
+- the BroTracker scheduler remains authoritative;
+- the BroTracker sample timeline remains authoritative;
+- realtime execution constraints remain mandatory;
+- platform-specific audio components remain behind the audio boundary;
+- user-configurable audio graphs must not introduce uncontrolled realtime behaviour.
+
+### PJRC Audio System Design Tool / Audio Library
+
+The PJRC Audio System Design Tool and associated Teensy Audio Library shall be investigated as a potential source of reusable audio processing components and architecture ideas.
+
+This is a future investigation, not an adopted implementation decision.
+
+The investigation should determine whether selected PJRC audio components can be integrated or wrapped as BroTracker audio backends or processing nodes while preserving the BroTracker architecture.
+
+The investigation must specifically evaluate:
+
+- compatibility with the BroTracker audio engine;
+- realtime processing behaviour on Teensy 4.1;
+- memory and CPU requirements;
+- DMA and buffer requirements;
+- interaction with the BroTracker scheduler and sample timeline;
+- suitability for user-configurable audio paths;
+- whether components can be isolated behind a clean BroTracker audio abstraction.
+
+PJRC Audio Library components must not become mandatory dependencies of the BroTracker core merely to provide optional audio functionality.
+
+The goal is to use proven Teensy audio building blocks where they provide clear benefit, while keeping BroTracker's architecture and realtime control authoritative.
 
 ## Audio Processing Blocks
 

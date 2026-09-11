@@ -951,3 +951,75 @@ Note-on latency was measured separately:
 These results validate the feasibility of SD-backed streaming for the tested access pattern on the reference hardware. They do not define the final BroTracker voice-count requirement.
 
 Benchmark results are hardware- and SD-card-dependent and must be treated as a measured baseline rather than a permanent performance guarantee.
+
+## D0040 — Teensy 4.1 First and Adaptive Hardware Capability
+
+Teensy 4.1 =< is the only supported Teensy hardware platform for BroTracker.
+
+BroTracker development, validation and realtime performance decisions shall be made **Teensy 4.1 first**.
+
+BroTracker must operate on a **bare Teensy 4.1 board** without requiring optional hardware for basic tracker operation.
+
+Lower Teensy models are not supported targets.
+
+Optional hardware shall be treated as capability expansion rather than as a prerequisite for the base system.
+
+Examples include:
+
+- additional PSRAM;
+- external DACs or audio codecs;
+- PT8211;
+- other supported audio hardware.
+
+Where hardware capabilities can be detected reliably, BroTracker should adapt to the available hardware at runtime.
+
+### PSRAM
+
+BroTracker should detect available external PSRAM and use it efficiently.
+
+The implementation must support Teensy 4.1 configurations with:
+
+- no additional PSRAM;
+- 8 MB PSRAM;
+- 16 MB PSRAM.
+
+The exact allocation strategy is an implementation decision, but additional memory must increase available BroTracker resources rather than creating a separate firmware architecture.
+
+### Audio Hardware
+
+The base BroTracker audio architecture must not require a specific external audio device.
+
+The preferred native Teensy audio path is:
+
+    Teensy 4.1
+        |
+       I2S
+        |
+    PT8211 / compatible DAC
+        |
+    Physical audio output
+
+When compatible native audio hardware is not available, BroTracker shall be able to provide audio through an alternative supported output path, including USB Audio when connected to a host.
+
+### Hardware Capability Principle
+
+BroTracker should behave like a tunable system:
+
+    Bare Teensy 4.1
+        -> base functionality
+
+    + PSRAM
+        -> additional memory capacity
+
+    + larger PSRAM
+        -> additional usable memory capacity
+
+    + PT8211 / DAC / codec
+        -> native physical audio output
+
+    + USB host
+        -> host audio and other host integration
+
+Additional hardware must not change the fundamental tracker, scheduler or realtime architecture.
+
+The core system must remain deterministic and functional on the minimum supported hardware configuration.
