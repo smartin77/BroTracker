@@ -188,7 +188,7 @@ It must not become the authoritative timing source for the BroTracker realtime e
 
 A combined USB configuration may also expose MIDI and other USB interfaces alongside USB Audio, subject to the selected Teensy USB configuration and platform implementation.
 
-## USB Audio and Host Audio Output
+### Host-Side USB Audio Routing
 
 When BroTracker is connected to an ArkOS or another Linux-based host, the host may enumerate BroTracker as a USB Audio device.
 
