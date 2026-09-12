@@ -1045,3 +1045,102 @@ The core system must remain deterministic and functional on the minimum supporte
 - The fundamental principle is:
 
 **Host helps Teensy; Teensy never waits for the host.**
+
+## D0042 — Instrument Module Architecture
+
+BroTracker shall use a modular instrument architecture.
+
+The initial core instrument types shall be:
+
+- **Sample Instrument** — plays PCM sample data through the BroTracker audio engine.
+- **MIDI Instrument** — represents an external MIDI-controlled instrument and produces MIDI events through the common realtime scheduling model.
+- **Native Synth Instrument** — a built-in software synthesizer based on a simple three-oscillator architecture.
+
+These instrument types form the initial BroTracker instrument foundation and shall not require an external plugin system.
+
+The Native Synth Instrument should provide a practical general-purpose synthesis capability rather than attempting to emulate a specific commercial synthesizer.
+
+The initial architecture should allow the Native Synth Instrument to provide multiple oscillator waveforms, pitch/detune control, filtering and envelope-based sound shaping. The exact synthesis feature set remains an implementation decision.
+
+Additional specialized instruments may be implemented as optional instrument modules.
+
+Potential future modules include:
+
+- AY / YM-style chip synthesis;
+- SID-style synthesis;
+- TB-303-style synthesis;
+- FM synthesis;
+- wavetable synthesis;
+- other specialized or retro-oriented synthesis engines.
+
+Optional instrument modules must use the same BroTracker instrument architecture and must not require changes to the tracker, scheduler or unrelated audio subsystems.
+
+BroTracker shall not require a dynamic runtime plugin system for instrument modules.
+
+For Teensy 4.1, instrument modules may be compiled into the firmware while remaining logically replaceable subsystems.
+
+The term **Instrument Module** therefore describes an architectural subsystem boundary. It does not imply dynamic loading of external plugins.
+
+The architecture should allow individual instrument implementations to be added, removed or replaced without rewriting the overall Audio Engine or tracker architecture.
+
+The realtime scheduler remains authoritative for all instrument-triggering events.
+
+Audio-producing instruments consume the common realtime event model and produce audio through the Audio Engine.
+
+MIDI Instruments use the same realtime event model to produce MIDI events without becoming a separate sequencing system.
+
+The fundamental principle is:
+
+**Instrument defines how a musical event is realized. Scheduler defines when it happens.**
+
+## D0043 — Loadable Binary Instrument Modules
+
+BroTracker shall support optional instrument modules distributed as --precompiled binary modules--.
+
+Instrument modules provide a mechanism for extending the BroTracker instrument system without requiring the module implementation to be part of the main BroTracker source tree.
+
+A module is loaded by a BroTracker module loader and exposed through a defined Instrument Module interface.
+
+This allows both open-source and proprietary instrument implementations to be distributed independently. A module developer may therefore distribute a closed-source instrument implementation without providing its source code.
+
+The module architecture shall provide:
+
+- a defined Instrument Module interface;
+- module identification and version information;
+- capability information;
+- controlled loading of module code and data;
+- lifecycle operations such as initialization and reset;
+- realtime note/event input;
+- instrument control;
+- audio rendering where applicable.
+
+The exact module ABI, memory model, binary layout and loader implementation are intentionally deferred to a later implementation decision.
+
+`.BIN` and `.HEX` may be used as module distribution or packaging formats where appropriate, subject to the requirements of the target platform and module loader. They must not be interpreted as arbitrary executable files that BroTracker can execute without validation.
+
+Instrument modules must operate within the realtime constraints of the reference platform:
+
+- they must not block realtime processing;
+- they must not perform non-realtime storage operations from the realtime audio path;
+- they must respect available CPU and memory resources;
+- they must not interfere with scheduler timing;
+- they must not change the authority of the BroTracker realtime scheduler.
+
+Optional modules must remain optional. BroTracker's core functionality must remain usable without any additional instrument modules installed.
+
+Users may select which optional instrument modules are installed and available for use.
+
+The architecture should allow independently distributed instruments such as:
+
+- AY/YM-family instruments;
+- SID-family instruments;
+- TB-303-style instruments;
+- FM instruments;
+- wavetable instruments;
+- future proprietary or open-source instruments.
+
+The specific synthesis technology and implementation remain the responsibility of each instrument module.
+
+Module compatibility shall depend on the BroTracker Instrument Module interface and its versioning rules rather than on the internal implementation of the instrument.
+
+The exact ABI versioning, binary format, executable memory placement, module validation, authentication, licensing and other loader mechanisms remain future implementation decisions.
