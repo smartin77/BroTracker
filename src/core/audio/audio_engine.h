@@ -3,6 +3,52 @@
 #include <cstdint>
 
 /**
+ * @brief Abstract audio output interface.
+ *
+ * AudioOutput defines the platform-independent contract for audio hardware
+ * or software output devices. Concrete implementations (e.g., PT8211 DAC,
+ * USB Audio, loopback) inherit this interface and provide device-specific
+ * initialization, reset, and sample processing.
+ *
+ * The audio engine delegates all output operations to an AudioOutput instance,
+ * keeping the core engine logic free of platform/device-specific code.
+ */
+class AudioOutput
+{
+public:
+    virtual ~AudioOutput() = default;
+
+    /**
+     * @brief Initialize the audio output device.
+     *
+     * Performs any device-specific setup required before processing begins.
+     * Must not perform blocking I/O or real-time-unsafe operations.
+     *
+     * @return true if initialization succeeded, false otherwise.
+     */
+    virtual bool Initialize() = 0;
+
+    /**
+     * @brief Reset the audio output device state.
+     *
+     * Resets any internal buffers, filters, or processing state to a known
+     * clean condition. Does not reinitialize the device itself.
+     */
+    virtual void Reset() = 0;
+
+    /**
+     * @brief Process a block of audio samples for output.
+     *
+     * Receives a block of mixed/final audio samples and transmits them to
+     * the output device. The realtime scheduling boundary is enforced here;
+     * the implementation must complete within a bounded time.
+     *
+     * @param sample_count Number of audio samples to process.
+     */
+    virtual void Process(uint32_t sample_count) = 0;
+};
+
+/**
 * @brief Core audio processing interface.
 *
 * AudioEngine provides the boundary between the BroTracker scheduler
