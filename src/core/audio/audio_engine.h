@@ -101,7 +101,21 @@ public:
     */
     uint64_t GetProcessedSamples() const;
 
+    /**
+     * @brief Attach an audio output device to the engine.
+     *
+     * The output device receives all processed samples via its Process()
+     * callback. If no output is attached (output is nullptr), processing
+     * continues normally without delegation.
+     *
+     * @param output Pointer to an AudioOutput instance, or nullptr to detach.
+     */
+    void SetOutput(AudioOutput* output);
+
     private:
     // Logical number of audio samples processed by the engine.
     uint64_t processed_samples_ = 0;
+
+    // Optional audio output device.
+    AudioOutput* output_ = nullptr;
 };
