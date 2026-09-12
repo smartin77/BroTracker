@@ -1144,3 +1144,42 @@ The specific synthesis technology and implementation remain the responsibility o
 Module compatibility shall depend on the BroTracker Instrument Module interface and its versioning rules rather than on the internal implementation of the instrument.
 
 The exact ABI versioning, binary format, executable memory placement, module validation, authentication, licensing and other loader mechanisms remain future implementation decisions.
+
+## D0044 — Generic MIDI Controller Support
+
+BroTracker shall provide initial MIDI controller support through the standard MIDI protocol rather than through device-specific controller drivers.
+
+The initial implementation shall accept standard MIDI messages that are common to generic MIDI keyboards and controllers.
+
+Initial supported input includes:
+
+- `NOTE_ON`;
+- `NOTE_OFF`;
+- MIDI channel information;
+- note velocity;
+- MIDI `START`;
+- MIDI `STOP`;
+- MIDI `CONTINUE`, where supported by the transport implementation.
+
+The initial implementation shall not require a dedicated driver for individual MIDI controller models.
+
+BroTracker should therefore work with compatible standard MIDI controllers regardless of manufacturer or model, provided that the device exposes the required standard MIDI messages through a supported MIDI transport.
+
+Device-specific protocols, proprietary controller extensions and vendor-specific MIDI messages are outside the initial implementation scope.
+
+The following controls are explicitly deferred from the initial MIDI controller implementation:
+
+- modulation / MIDI Control Change handling;
+- pitch bend;
+- aftertouch;
+- other advanced controller and expression messages.
+
+MIDI controller input must enter the common BroTracker realtime event architecture.
+
+MIDI transport events such as `START`, `STOP` and `CONTINUE` must be handled by the realtime timing and synchronization architecture rather than by UI code or device-specific controller logic.
+
+Controller input must not create an independent timing mechanism. The BroTracker realtime scheduler remains the authoritative timing mechanism according to the existing scheduling and synchronization architecture.
+
+The initial implementation should therefore establish a small generic MIDI controller interface that can later be extended with additional standard MIDI message types without introducing model-specific drivers.
+
+The exact MIDI transport implementation and platform-specific device handling remain implementation details, provided that the generic MIDI message interface and realtime timing principles are preserved.
