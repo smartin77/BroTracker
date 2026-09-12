@@ -13,9 +13,19 @@ void AudioEngine::Reset()
 void AudioEngine::Process(uint32_t sample_count)
 {
     processed_samples_ += sample_count;
+
+    if (output_ != nullptr)
+    {
+        output_->Process(sample_count);
+    }
 }
 
 uint64_t AudioEngine::GetProcessedSamples() const
 {
     return processed_samples_;
+}
+
+void AudioEngine::SetOutput(AudioOutput* output)
+{
+    output_ = output;
 }
