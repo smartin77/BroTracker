@@ -822,19 +822,13 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 
 ### SD-Backed Sample Streaming
 
-Teda za poslednú existujúcu ### sekciu v tomto dokumente. Nezakladal by som kvôli tomu novú ## kapitolu, pretože toto je zatiaľ konkrétna architektonická téma v rámci audio architektúry.
-
-Text ešte raz:
-
-SD-Backed Sample Streaming
-
 Sample storage is not part of the realtime audio path.
 
 WAV/sample data that cannot be kept fully in realtime RAM shall be streamed from SD using bounded prefetch buffers.
 
 The architecture separates SD data production from audio consumption:
 
-KernelRun() / non-realtime context
+    KernelRun() / non-realtime context
         |
         | SD reads / prefetch
         v
@@ -852,5 +846,3 @@ AudioStream::update() must not perform SD I/O or block waiting for storage.
 SD latency must never affect scheduler advancement or tracker timing. Buffer underruns are treated as an audio-storage fault, not a timing fault.
 
 The initial implementation will validate this model with a single streaming sample before introducing multi-voice streaming or more complex buffering policies.
-
-A ešte jedna vec: toto by som zatiaľ naozaj nechal ako poslednú sekciu dokumentu. Nešiel by som teraz prerábať existujúcu štruktúru TEENSY_AUDIO_ARCHITECTURE.md. Je to naše nové architektonické pravidlo a prirodzene sa k nemu neskôr môžeme vracať.
