@@ -13,6 +13,10 @@ The project targets **Teensy 4.1** as the realtime engine and Linux-based handhe
 - MOD/XM support – rather use an external tool to convert to native BroTracker module
 - Modular architecture with clearly separated and replaceable subsystems
 - Simple and community-friendly development model
+- Modular instrument architecture with built-in core instruments and optional loadable instrument modules
+- Generic MIDI controller support without requiring device-specific drivers
+- Optional loadable hardware controller modules for enhanced device-specific functionality
+- Clear and transparent documentation to help future contributors, instrument developers and hardware manufacturers understand, extend and integrate with BroTracker
 
 ## Repository Structure
 
@@ -23,8 +27,13 @@ The repository is organized around clear architectural boundaries:
 - ui for host-side editing and interface logic
 - tools for utilities and import/export helpers
 - docs and assets for project documentation and resources
+- modular instrument architecture with built-in core instruments and optional loadable instrument modules
+- generic MIDI controller support without requiring device-specific drivers
+- optional loadable hardware controller modules for enhanced device-specific functionality
 
 Major runtime functionality is implemented as separate logical subsystems within the single BroTracker application. Subsystems are designed to remain independently testable and replaceable where practical.
+
+Optional instrument and hardware controller functionality may be provided as independently distributed binary modules. This allows third-party developers and hardware manufacturers to provide proprietary extensions without becoming part of the BroTracker core.
 
 ## Documentation
 
