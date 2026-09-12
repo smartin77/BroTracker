@@ -174,7 +174,7 @@ If a tracker event occurs part-way through an audio block, the engine must prese
 
 This allows tracker timing to remain independent of the selected audio block size.
 
-## USB Audio
+## USB Audio Integration
 
 Teensy 4.1 may also expose a USB Audio interface to a connected host.
 
