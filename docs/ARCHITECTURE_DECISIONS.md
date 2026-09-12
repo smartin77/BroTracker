@@ -1183,3 +1183,67 @@ Controller input must not create an independent timing mechanism. The BroTracker
 The initial implementation should therefore establish a small generic MIDI controller interface that can later be extended with additional standard MIDI message types without introducing model-specific drivers.
 
 The exact MIDI transport implementation and platform-specific device handling remain implementation details, provided that the generic MIDI message interface and realtime timing principles are preserved.
+
+## D0045 — Loadable Hardware Controller Modules
+
+BroTracker shall support optional hardware controller modules distributed as --precompiled binary modules--.
+
+Hardware Controller Modules extend the generic MIDI controller support with device-specific functionality without requiring the device implementation to become part of the BroTracker core.
+
+The generic MIDI layer defined by D0044 remains the common baseline.
+
+A Hardware Controller Module may provide additional functionality required by a particular controller, including:
+
+- device-specific MIDI message handling;
+- controller-specific controls and mappings;
+- device initialization;
+- device configuration;
+- proprietary communication protocols;
+- controller-specific feedback or display handling;
+- other functionality required by the supported hardware.
+
+A manufacturer may develop and distribute a proprietary Hardware Controller Module without providing its source code.
+
+The manufacturer may therefore distribute the module as a closed and independently installable binary component, including as a commercial product.
+
+Users may install purchased or otherwise obtained controller modules by copying them into the designated BroTracker controller-module directory.
+
+The BroTracker core shall not require knowledge of individual controller manufacturers or models.
+
+The intended architecture is:
+
+MIDI Transport
+      |
+      v
+Generic MIDI Layer
+      |
+      +----------------------+
+      |                      |
+Standard MIDI           Optional Controller
+messages                Module
+      |                      |
+      +----------+-----------+
+                 |
+                 v
+        BroTracker Controller
+             Interface
+                 |
+                 v
+          Tracker / UI / Core
+
+A controller module must use the defined BroTracker Hardware Controller Module interface and must not bypass the common realtime architecture.
+
+Controller modules must respect the realtime constraints of the reference platform and must not introduce blocking operations or an independent timing mechanism into realtime processing.
+
+Optional controller modules must remain optional. BroTracker must continue to operate with generic MIDI controllers without any device-specific modules installed.
+
+The architecture shall allow controller manufacturers to provide enhanced support for their own hardware while preserving generic MIDI compatibility for all other devices.
+
+The exact Hardware Controller Module ABI, module discovery mechanism, memory model, binary format, validation, versioning, authentication, licensing and security mechanisms remain future implementation decisions.
+
+The relationship between instrument modules and hardware controller modules should remain conceptually consistent:
+
+- --Instrument Module-- — adds an instrument or synthesis capability.
+- --Hardware Controller Module-- — adds device-specific controller capability.
+
+Both are optional extensions to the BroTracker system and may be distributed independently from the BroTracker core.
