@@ -215,6 +215,113 @@ The host therefore becomes an additional audio processing and buffering layer.
 
 This routing may be useful for monitoring, recording or other host integration, but it is not considered the primary BroTracker realtime audio path.
 
+## Audio Output Layer
+
+The Audio Engine is separated from concrete audio output hardware through an abstract audio output layer.
+The Audio Engine determines what audio should be produced. The audio output layer determines where the resulting audio is delivered.
+The Audio Engine must not depend directly on a specific output device or hardware implementation.
+
+The conceptual architecture is:
+
+    Tracker / Scheduler
+           ↓
+       AudioEngine
+           ↓
+        AudioBuffer
+           ↓
+      AudioOutput
+           ↓
+    +------+---------+
+    |                |
+    PT8211        USB Audio
+    backend        backend
+    |                |
+    Teensy I2S     USB Audio
+    |                |
+    physical DAC      Host
+
+Concrete output backends are replaceable modules behind the AudioOutput boundary.
+
+The initial output backends are:
+
+- Teensy PT8211 Audio Kit
+- USB Audio
+
+Additional output backends may be added later without requiring changes to the Audio Engine or scheduler.
+
+The Audio Engine must not contain PT8211-specific or USB Audio-specific implementation details.
+
+The architectural principle is:
+
+    Core determines what is played.
+    Backend determines where the audio goes.
+
+### Audio Output Modularity
+
+Audio functionality should be divided into clearly defined modules with explicit boundaries.
+
+The intended structure is conceptually:
+
+    Audio
+    ├── AudioEngine
+    ├── AudioOutput
+    │   ├── AudioOutputPT8211
+    │   ├── AudioOutputUSB
+    │   └── future output backends
+    ├── Mixer
+    ├── SamplePlayer
+    ├── Voice
+    ├── Effects
+    └── other audio modules
+
+Each significant audio subsystem should have its own file or set of files where practical.
+
+Individual modules should be replaceable without requiring unrelated parts of the Audio Engine to be rewritten.
+
+Examples:
+
+- changing DSP processing must not require changing an output backend;
+- changing the sampler must not require changing the DAC implementation;
+- replacing the PT8211 backend must not require rewriting the Audio Engine;
+- adding USB Audio must not require changing the scheduler;
+- adding a future DAC should require adding a new backend rather than modifying the Audio Engine;
+- changing output selection should be handled by audio output configuration rather than by the Audio Engine itself.
+
+This modularity is an architectural requirement, not merely an implementation preference.
+
+### Audio Output Selection
+
+Audio output selection is exposed through the UI `OPT` section.
+
+The UI configures audio output selection but does not implement audio processing or hardware output.
+
+The output selection model is:
+
+    OPT
+    └── Audio Output
+         ├── Auto
+         ├── Teensy PT8211
+         ├── USB Audio
+         └── future devices
+
+`Auto` is the preferred default selection mode.
+
+When `Auto` is selected, available output backends are evaluated according to their defined priority.
+
+The initial automatic priority is:
+
+1. Teensy PT8211 Audio Kit, when detected and available;
+2. USB Audio;
+3. future available audio backends according to their defined priority.
+
+The priority system must remain extensible so that additional output devices can be introduced later without restructuring the Audio Engine.
+
+The user may explicitly select an output backend in `OPT` instead of using `Auto`.
+
+Explicit output selection must not alter the realtime authority of the Teensy scheduler or audio timeline.
+
+PT8211 therefore becomes the preferred/default native output path when available, but USB Audio remains a supported output backend and is not deprecated or deferred.
+
 ## Realtime Timing
 
 The Teensy realtime scheduler remains authoritative for BroTracker playback timing.

@@ -1029,9 +1029,9 @@ The core system must remain deterministic and functional on the minimum supporte
 - Teensy 4.1 is the authoritative realtime platform.
 - ArkOS handheld is the primary UI/UX host.
 - The Teensy exclusively owns the BroTracker application/realtime clock, playback timing, scheduler, audio timeline, MIDI timing and synchronization.
-- The host may provide wall-clock information such as date and time, but must never become the application timing authority.
+- The host may provide wall-clock information such as date and time, but wall-clock time must never become the BroTracker application or realtime timing authority.
 - The host should offload as much non-realtime work from the Teensy as practical.
-- Host-side processing must never block, delay, pace or otherwise burden Teensy realtime execution.
+- Host-side processing should assist the Teensy wherever practical, but must never block, delay, pace or otherwise burden Teensy realtime execution.
 - Teensy must never wait for the host to continue realtime playback.
 - UI rendering, input handling, project/file management, configuration, import/export, caching and other non-realtime work should be performed on the host whenever practical.
 - If the host application is delayed, disconnected or restarted, Teensy realtime playback must continue independently.
@@ -1041,7 +1041,7 @@ The core system must remain deterministic and functional on the minimum supporte
         - Linux/macOS — supported targets after the ArkOS implementation is established; platform-specific audio and graphics systems require validation;
         - Android — nice-to-have;
         - standalone applications without Teensy — nice-to-have.
-- Host capabilities are therefore opportunistic, while Teensy realtime execution is mandatory.
+- Host capabilities are therefore opportunistic and platform-dependent, while Teensy realtime execution is mandatory.
 - The fundamental principle is:
 
 **Host helps Teensy; Teensy never waits for the host.**
