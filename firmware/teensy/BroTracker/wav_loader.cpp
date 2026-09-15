@@ -35,7 +35,7 @@ namespace
         DiagnosticLogToSerial(buffer);
     }
 
-    bool ReadExact(File& file, void* buffer, std::size_t size)
+    bool ReadExact(SdReader& file, void* buffer, std::size_t size)
     {
         const int result = file.read(reinterpret_cast<std::uint8_t*>(buffer), size);
         return result >= 0 && static_cast<std::size_t>(result) == size;
@@ -46,7 +46,7 @@ namespace
         return std::memcmp(tag, expected, 4) == 0;
     }
 
-    void SkipBytes(File& file, std::uint32_t count)
+    void SkipBytes(SdReader& file, std::uint32_t count)
     {
         if (count > 0)
             file.seek(file.position() + count);
@@ -57,8 +57,8 @@ namespace
     {
         DiagnosticLogToSerial("=== WAV Loader Diagnostics ===");
         
-        File file = SD.open(path, FILE_READ);
-        if (!file)
+        SdReader file;
+        if (!file.open(path))
         {
             DiagnosticLogToSerial("WAV: Failed to open file");
             return false;
@@ -283,15 +283,14 @@ namespace
     {
         DiagnosticLogToSerial("=== WAV Stream Parser ===");
 
-        out_info.file = SD.open(path, FILE_READ);
-        if (!out_info.file)
+        if (!out_info.file.open(path))
         {
             DiagnosticLogToSerial("WAV: Failed to open file");
             return false;
         }
 
         DiagnosticLogToSerial("WAV: File opened successfully");
-        File& file = out_info.file;
+        SdReader& file = out_info.file;
 
         char riff_tag[4] = {0};
         std::uint32_t riff_size = 0;

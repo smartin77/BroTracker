@@ -36,6 +36,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <diagnostics.h>
+#include <sd_access.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -147,7 +148,7 @@ namespace
     }
 
     bool WritePattern(
-        File& file,
+        BroTracker::SdWriter& file,
         std::size_t size,
         std::size_t start_offset = 0)
     {
@@ -188,7 +189,7 @@ namespace
     }
 
     bool VerifyPattern(
-        File& file,
+        BroTracker::SdReader& file,
         std::size_t size,
         std::size_t start_offset = 0)
     {
@@ -245,12 +246,8 @@ namespace
     {
         SD.remove(TEST_FILE);
 
-        File file =
-            SD.open(
-                TEST_FILE,
-                FILE_WRITE);
-
-        if (!file)
+        BroTracker::SdWriter file;
+        if (!file.open(TEST_FILE))
         {
             return false;
         }
@@ -266,25 +263,20 @@ namespace
             return false;
         }
 
-        file.flush();
         file.close();
 
-        file =
-            SD.open(
-                TEST_FILE,
-                FILE_READ);
-
-        if (!file)
+        BroTracker::SdReader reader;
+        if (!reader.open(TEST_FILE))
         {
             return false;
         }
 
         const bool verify_ok =
             VerifyPattern(
-                file,
+                reader,
                 size);
 
-        file.close();
+        reader.close();
 
         return verify_ok;
     }
@@ -292,12 +284,8 @@ namespace
     bool AppendAndVerify(
         std::size_t original_size)
     {
-        File file =
-            SD.open(
-                TEST_FILE,
-                FILE_WRITE);
-
-        if (!file)
+        BroTracker::SdWriter file;
+        if (!file.open(TEST_FILE))
         {
             return false;
         }
@@ -314,33 +302,28 @@ namespace
             return false;
         }
 
-        file.flush();
         file.close();
 
-        file =
-            SD.open(
-                TEST_FILE,
-                FILE_READ);
-
-        if (!file)
+        BroTracker::SdReader reader;
+        if (!reader.open(TEST_FILE))
         {
             return false;
         }
 
         const bool first_half_ok =
             VerifyPattern(
-                file,
+                reader,
                 original_size,
                 0);
 
         const bool second_half_ok =
             first_half_ok &&
             VerifyPattern(
-                file,
+                reader,
                 original_size,
                 original_size);
 
-        file.close();
+        reader.close();
 
         return first_half_ok &&
                second_half_ok;
@@ -368,12 +351,8 @@ namespace
             return false;
         }
 
-        File file =
-            SD.open(
-                RENAMED_FILE,
-                FILE_READ);
-
-        if (!file)
+        BroTracker::SdReader file;
+        if (!file.open(RENAMED_FILE))
         {
             return false;
         }
@@ -472,12 +451,8 @@ namespace
 
         SD.remove(TEST_FILE);
 
-        File file =
-            SD.open(
-                TEST_FILE,
-                FILE_WRITE);
-
-        if (!file)
+        BroTracker::SdWriter file;
+        if (!file.open(TEST_FILE))
         {
             PrintResult(
                 "Create persistence file",
@@ -491,7 +466,6 @@ namespace
                 file,
                 PERSISTENCE_SIZE);
 
-        file.flush();
         file.close();
 
         PrintResult(
@@ -504,12 +478,8 @@ namespace
             return false;
         }
 
-        file =
-            SD.open(
-                TEST_FILE,
-                FILE_READ);
-
-        if (!file)
+        BroTracker::SdReader reader;
+        if (!reader.open(TEST_FILE))
         {
             PrintResult(
                 "Reopen persistence file",
@@ -521,10 +491,10 @@ namespace
 
         const bool verify_ok =
             VerifyPattern(
-                file,
+                reader,
                 PERSISTENCE_SIZE);
 
-        file.close();
+        reader.close();
 
         PrintResult(
             "Verify after close/reopen",
