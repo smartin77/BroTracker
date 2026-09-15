@@ -1247,3 +1247,37 @@ The relationship between instrument modules and hardware controller modules shou
 - --Hardware Controller Module-- — adds device-specific controller capability.
 
 Both are optional extensions to the BroTracker system and may be distributed independently from the BroTracker core.
+
+## D0046 — SD Read/Write Exclusivity
+
+BroTracker shall treat SD-card read and write operations as mutually exclusive activities.
+
+SD-card reading and SD-card writing must never occur concurrently.
+
+During Tune or Sample playback, BroTracker shall not perform SD-card write operations. SD access during realtime sample playback is therefore read-only.
+
+SD writes may begin only after the active SD read operation has been interrupted, completed or otherwise released.
+
+The normal BroTracker playback path shall therefore use the SD card for reading only. Writing during playback is not permitted.
+
+Benchmark and diagnostic tools may use both SD reading and writing, but they must explicitly alternate between read and write phases.
+
+For example:
+
+    READ
+      ↓
+    stop/release READ
+      ↓
+    WRITE result chunk
+      ↓
+    stop/release WRITE
+      ↓
+    READ
+      ↓
+    ...
+
+A benchmark must never combine SD read and write activity concurrently, including through separate modules, streams or file handles.
+
+The SD access layer shall provide separate read and write responsibilities and enforce the mutual-exclusion rule.
+
+The exact implementation of SD access locking, ownership, buffering and benchmark result storage remains an implementation decision.
