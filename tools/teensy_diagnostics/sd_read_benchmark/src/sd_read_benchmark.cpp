@@ -599,8 +599,9 @@ namespace
         return "unknown validation failure";
     }
 
+    template <typename FileLike>
     bool ReadExact(
-        File& file,
+        FileLike& file,
         void* destination,
         std::size_t size)
     {
@@ -722,9 +723,9 @@ namespace
         const char* path,
         WavInfo& wav)
     {
-        File file = SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return ValidationResult::OpenFailed;
 
         const std::uint32_t file_size =
@@ -933,12 +934,12 @@ namespace
     {
         const std::uint32_t open_start = micros();
 
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
+        const bool open_ok = file.open(path);
 
         const std::uint32_t open_end = micros();
 
-        if (!file)
+        if (!open_ok)
             return false;
 
         const std::uint32_t close_start = micros();
@@ -978,10 +979,9 @@ namespace
         std::uint32_t& elapsed_us,
         std::uint64_t& bytes_read)
     {
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return false;
 
         if (!file.seek(wav.data_offset))
@@ -1039,10 +1039,9 @@ namespace
         std::uint32_t& elapsed_us,
         std::uint64_t& bytes_read)
     {
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return false;
 
         if (!file.seek(wav.data_offset))
@@ -1828,14 +1827,12 @@ namespace
 
             const std::uint32_t start = micros();
 
-            File file =
-                SD.open(candidate.path, FILE_READ);
+            BroTracker::SdReader file;
 
-            if (!file ||
+            if (!file.open(candidate.path) ||
                 !file.seek(candidate.data_offset))
             {
-                if (file)
-                    file.close();
+                file.close();
 
                 ++failures;
                 continue;
@@ -1958,10 +1955,9 @@ namespace
             return;
         }
 
-        File file =
-            SD.open(candidate.path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(candidate.path))
         {
             ReportPrintln(
                 F("  SKIPPED: open failed"));
@@ -2260,12 +2256,9 @@ namespace
             return;
         }
 
-        File directory =
-            SD.open(
-                BENCHMARK_SOURCE_PATH,
-                FILE_READ);
+        BroTracker::SdReader directory;
 
-        if (!directory ||
+        if (!directory.open(BENCHMARK_SOURCE_PATH) ||
             !directory.isDirectory())
         {
             ReportPrint(F(

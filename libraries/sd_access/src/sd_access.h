@@ -126,6 +126,12 @@ namespace BroTracker
         std::uint64_t size() { return file_.size(); }
         bool isDirectory() { return file_.isDirectory(); }
 
+        // Returns the next entry of a directory opened via open(). The
+        // returned File is a transient sub-handle of this already-open
+        // reader (not an independent SD.open()), so it is not itself
+        // wrapped in SdReader; callers must still close() it themselves.
+        File openNextFile() { return file_.openNextFile(); }
+
     private:
         File file_;
         bool holds_lock_ = false;
