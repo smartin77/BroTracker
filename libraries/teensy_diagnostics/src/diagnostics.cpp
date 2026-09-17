@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TimeLib.h>
+#include <sd_access.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +18,16 @@ constexpr std::uint32_t kHostTimeSyncTimeoutMs = 1500;
 constexpr std::uint32_t kLedFlashMs = 750;
 constexpr std::uint32_t kLedPauseMs = 750;
 bool diagnostics_ready = false;
+
+// Opaque handle for a tool-specific sequential log file. Only the path is
+// retained (D0046): each log write opens the SD writer, appends and
+// closes again immediately, rather than holding a writer open for the
+// tool's entire run, which would otherwise block SD reads (e.g. sample
+// streaming) for as long as the tool kept running.
+struct ToolLogHandle
+{
+    char path[80] = {};
+};
 
 void SetCompileTimeClock()
 {
@@ -155,14 +166,13 @@ bool TrySyncClockFromHost()
     return false;
 }
 
-void WriteTimestamp(File& log_file)
+void FormatTimestamp(char* buffer, std::size_t size)
 {
-    char timestamp[32] = {};
     const time_t current = now();
 
     std::snprintf(
-        timestamp,
-        sizeof(timestamp),
+        buffer,
+        size,
         "%04d-%02d-%02d %02d:%02d:%02d",
         year(current),
         month(current),
@@ -170,72 +180,84 @@ void WriteTimestamp(File& log_file)
         hour(current),
         minute(current),
         second(current));
-
-    //log_file.print("Timestamp: ");
-    log_file.println(timestamp);
 }
 
-File* OpenToolLogFileInternal(const char* tool_name)
+ToolLogHandle* OpenToolLogFileInternal(const char* tool_name)
 {
     if (!diagnostics_ready || tool_name == nullptr)
         return nullptr;
 
+    ToolLogHandle* handle = new (std::nothrow) ToolLogHandle();
+    if (handle == nullptr)
+        return nullptr;
+
     // Find the next available sequence number
     unsigned int sequence = 1;
-    char buffer[64];
 
     for (sequence = 1; sequence <= 9999; ++sequence)
     {
         std::snprintf(
-            buffer,
-            sizeof(buffer),
+            handle->path,
+            sizeof(handle->path),
             "%s/%s-%04u.log",
             kLogDirectory,
             tool_name,
             sequence);
 
-        if (!SD.exists(buffer))
+        if (!SD.exists(handle->path))
             break;
     }
 
-    // Open the new log file
-    File* log_file = new File(SD.open(buffer, FILE_WRITE));
-
-    if (log_file && *log_file)
+    BroTracker::SdWriter writer;
+    if (!writer.open(handle->path))
     {
-        // Write initial timestamp header for this tool run
-        log_file->println("=== Tool Log Start ===");
-        WriteTimestamp(*log_file);
-        log_file->println("");
-        log_file->flush();
-        return log_file;
+        delete handle;
+        return nullptr;
     }
 
-    // Failed to open file
-    delete log_file;
-    return nullptr;
+    char timestamp[32];
+    FormatTimestamp(timestamp, sizeof(timestamp));
+
+    // Write initial timestamp header for this tool run
+    writer.println("=== Tool Log Start ===");
+    writer.println(timestamp);
+    writer.println("");
+
+    return handle;
 }
 
-void CloseToolLogFileInternal(File* log_file)
+void CloseToolLogFileInternal(ToolLogHandle* handle)
 {
-    if (log_file)
+    if (handle == nullptr)
+        return;
+
+    BroTracker::SdWriter writer;
+    if (writer.open(handle->path))
     {
-        log_file->println("");
-        log_file->println("=== Tool Log End ===");
-        log_file->flush();
-        log_file->close();
-        delete log_file;
+        writer.println("");
+        writer.println("=== Tool Log End ===");
     }
+
+    delete handle;
 }
 
-bool ToolLogMessageInternal(File* log_file, const char* message)
+bool ToolLogMessageInternal(ToolLogHandle* handle, const char* message)
 {
-    if (!log_file || !*log_file || message == nullptr)
+    if (handle == nullptr || message == nullptr)
         return false;
 
-    WriteTimestamp(*log_file);
-    log_file->println(message);
-    log_file->flush();
+    // Opening can fail if an SD read is active elsewhere (D0046); the
+    // message is then dropped from the SD log but the caller's own
+    // Serial output (done separately by callers) is unaffected.
+    BroTracker::SdWriter writer;
+    if (!writer.open(handle->path))
+        return false;
+
+    char timestamp[32];
+    FormatTimestamp(timestamp, sizeof(timestamp));
+
+    writer.println(timestamp);
+    writer.println(message);
     return true;
 }
 }  // namespace (close anonymous namespace)
@@ -271,17 +293,19 @@ namespace BroTracker
         if (!diagnostics_ready)
             return false;
 
-        File log_file = SD.open(kLogPath, FILE_WRITE);
-
-        if (!log_file)
+        // Opening can fail if an SD read is active elsewhere (D0046),
+        // e.g. a sample stream or a WAV file being loaded; the message is
+        // then simply not persisted rather than racing the active read.
+        SdWriter writer;
+        if (!writer.open(kLogPath))
             return false;
 
-        WriteTimestamp(log_file);
-        log_file.println(message);
-        log_file.flush();
-        const bool write_succeeded = log_file;
-        log_file.close();
-        return write_succeeded;
+        char timestamp[32];
+        FormatTimestamp(timestamp, sizeof(timestamp));
+
+        writer.println(timestamp);
+        writer.println(message);
+        return true;
     }
 
     void DiagnosticBlink(unsigned int count)
@@ -298,7 +322,8 @@ namespace BroTracker
         }
     }
 
-    // Opaque handle versions that wrap the File* implementations from anonymous namespace
+    // Opaque handle versions that wrap the ToolLogHandle implementations
+    // from the anonymous namespace above.
     void* OpenToolLogFile(const char* tool_name)
     {
         return OpenToolLogFileInternal(tool_name);
@@ -306,11 +331,11 @@ namespace BroTracker
 
     void CloseToolLogFile(void* log_file_handle)
     {
-        CloseToolLogFileInternal(static_cast<File*>(log_file_handle));
+        CloseToolLogFileInternal(static_cast<ToolLogHandle*>(log_file_handle));
     }
 
     bool ToolLogMessage(void* log_file_handle, const char* message)
     {
-        return ToolLogMessageInternal(static_cast<File*>(log_file_handle), message);
+        return ToolLogMessageInternal(static_cast<ToolLogHandle*>(log_file_handle), message);
     }
 }

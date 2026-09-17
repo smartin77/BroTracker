@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SD.h>
+#include <sd_access.h>
 
 #include "sample.h"
 
@@ -18,9 +19,14 @@ namespace BroTracker
     bool LoadWavSampleFromSd(const char* path, Sample& out_sample);
 
     // Metadata for an open WAV PCM stream, returned by OpenWavPcmStream().
+    //
+    // `file` is an SdReader rather than a raw File: it holds the shared SD
+    // read lock (see sd_access.h / D0046) for as long as the stream stays
+    // open, which is what keeps SD writes out of the SD device for the
+    // entire lifetime of active sample playback.
     struct WavStreamInfo
     {
-        File file;
+        SdReader file;
         std::uint32_t sample_rate_hz = 0;
         std::uint8_t channel_count = 0;
         std::uint8_t bits_per_sample = 0;

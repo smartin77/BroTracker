@@ -44,6 +44,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TimeLib.h>
+#include <sd_access.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -293,7 +294,16 @@ namespace
         std::uint32_t chunk_failures = 0;
     };
 
-    File report_file;
+    // Report text is buffered in RAM and flushed to SD via SdWriter
+    // between read phases (D0046): the benchmark performs many SD reads
+    // while building this report, so the report file must never be held
+    // open as a persistent writer for the whole run. FlushReport() is a
+    // best-effort operation: if an SD read is active when it is called, it
+    // leaves the buffer intact and simply retries on the next call.
+    constexpr std::size_t kReportBufferSize = 32768;
+    char g_report_filename[96] = {};
+    char g_report_buffer[kReportBufferSize];
+    std::size_t g_report_buffer_used = 0;
 
     std::uint8_t read_buffer[READ_CHUNK_SIZE];
 
@@ -315,7 +325,9 @@ namespace
     // the real streaming engine is expected to use.
     DMAMEM std::uint8_t stream_buffers[STREAM_MAX_COUNT][STREAM_CHUNK_SIZE];
 
-    File stream_handles[STREAM_MAX_COUNT];
+    // SdReader (not a raw File) so concurrent stream reads are registered
+    // with the shared D0046 exclusivity guard like every other SD reader.
+    BroTracker::SdReader stream_handles[STREAM_MAX_COUNT];
 
     struct StreamResult
     {
@@ -389,77 +401,84 @@ namespace
     // Reporting
     // ---------------------------------------------------------------------
 
+    void AppendReport(const char* text)
+    {
+        if (text == nullptr)
+            return;
+
+        const std::size_t space = kReportBufferSize - g_report_buffer_used;
+        std::size_t length = std::strlen(text);
+
+        if (length > space)
+            length = space;
+
+        std::memcpy(g_report_buffer + g_report_buffer_used, text, length);
+        g_report_buffer_used += length;
+    }
+
     void ReportPrint(const char* text)
     {
         Serial.print(text);
-
-        if (report_file)
-            report_file.print(text);
+        AppendReport(text);
     }
 
     void ReportPrint(const __FlashStringHelper* text)
     {
         Serial.print(text);
-
-        if (report_file)
-            report_file.print(text);
+        AppendReport(reinterpret_cast<const char*>(text));
     }
 
     void ReportPrint(std::uint32_t value)
     {
         Serial.print(value);
 
-        if (report_file)
-            report_file.print(value);
+        char buffer[16];
+        std::snprintf(buffer, sizeof(buffer), "%lu", static_cast<unsigned long>(value));
+        AppendReport(buffer);
     }
 
     void ReportPrint(std::uint64_t value)
     {
         Serial.print(value);
 
-        if (report_file)
-            report_file.print(value);
+        char buffer[24];
+        std::snprintf(buffer, sizeof(buffer), "%llu", static_cast<unsigned long long>(value));
+        AppendReport(buffer);
     }
 
 
     void ReportPrintln(std::uint32_t value)
     {
-        Serial.println(value);
-
-        if (report_file)
-            report_file.println(value);
+        ReportPrint(value);
+        Serial.println();
+        AppendReport("\r\n");
     }
 
     void ReportPrintln(std::uint64_t value)
     {
-        Serial.println(value);
-
-        if (report_file)
-            report_file.println(value);
+        ReportPrint(value);
+        Serial.println();
+        AppendReport("\r\n");
     }
 
     void ReportPrintln()
     {
         Serial.println();
-
-        if (report_file)
-            report_file.println();
+        AppendReport("\r\n");
     }
 
     void ReportPrintln(const char* text)
     {
-        Serial.println(text);
-
-        if (report_file)
-            report_file.println(text);
+        ReportPrint(text);
+        Serial.println();
+        AppendReport("\r\n");
     }
 
     void ReportPrintln(const __FlashStringHelper* text)
     {
-        Serial.println(text);
-
-        if (report_file)
-            report_file.println(text);
+        ReportPrint(text);
+        Serial.println();
+        AppendReport("\r\n");
     }
 
     void ReportPrintSigned(std::int32_t value)
@@ -477,10 +496,20 @@ namespace
         }
     }
 
+    // Attempts to persist the buffered report text to SD. Fails (and keeps
+    // the buffer intact) if an SD read is currently active elsewhere; the
+    // next successful FlushReport() call will include this text too.
     void FlushReport()
     {
-        if (report_file)
-            report_file.flush();
+        if (g_report_buffer_used == 0)
+            return;
+
+        BroTracker::SdWriter writer;
+        if (!writer.open(g_report_filename))
+            return;
+
+        writer.write(g_report_buffer, g_report_buffer_used);
+        g_report_buffer_used = 0;
     }
 
     // ---------------------------------------------------------------------
@@ -570,8 +599,9 @@ namespace
         return "unknown validation failure";
     }
 
+    template <typename FileLike>
     bool ReadExact(
-        File& file,
+        FileLike& file,
         void* destination,
         std::size_t size)
     {
@@ -693,9 +723,9 @@ namespace
         const char* path,
         WavInfo& wav)
     {
-        File file = SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return ValidationResult::OpenFailed;
 
         const std::uint32_t file_size =
@@ -904,12 +934,12 @@ namespace
     {
         const std::uint32_t open_start = micros();
 
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
+        const bool open_ok = file.open(path);
 
         const std::uint32_t open_end = micros();
 
-        if (!file)
+        if (!open_ok)
             return false;
 
         const std::uint32_t close_start = micros();
@@ -949,10 +979,9 @@ namespace
         std::uint32_t& elapsed_us,
         std::uint64_t& bytes_read)
     {
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return false;
 
         if (!file.seek(wav.data_offset))
@@ -1010,10 +1039,9 @@ namespace
         std::uint32_t& elapsed_us,
         std::uint64_t& bytes_read)
     {
-        File file =
-            SD.open(path, FILE_READ);
+        BroTracker::SdReader file;
 
-        if (!file)
+        if (!file.open(path))
             return false;
 
         if (!file.seek(wav.data_offset))
@@ -1361,8 +1389,10 @@ namespace
 
     // Reads exactly `size` bytes and reports how long the complete refill
     // took, including any short reads issued by the filesystem layer.
+    // Templated so it works with both a raw File and an SdReader.
+    template <typename FileLike>
     bool TimedRead(
-        File& file,
+        FileLike& file,
         std::uint8_t* destination,
         std::size_t size,
         std::uint32_t& elapsed_us)
@@ -1407,14 +1437,21 @@ namespace
             return;
         }
 
+        // Whole test is one D0046 read phase: no SD write may occur while
+        // any of these concurrent streams are open.
+        BroTracker::SdReadScope read_scope;
+        if (!read_scope)
+        {
+            ++result.read_failures;
+            return;
+        }
+
         std::uint32_t stream_position[STREAM_MAX_COUNT] = {};
 
         for (std::uint32_t i = 0; i < stream_count; ++i)
         {
-            stream_handles[i] =
-                SD.open(
-                    stream_candidates[i].path,
-                    FILE_READ);
+            stream_handles[i].open(
+                stream_candidates[i].path);
 
             if (!stream_handles[i] ||
                 !stream_handles[i].seek(
@@ -1422,8 +1459,7 @@ namespace
             {
                 for (std::uint32_t j = 0; j <= i; ++j)
                 {
-                    if (stream_handles[j])
-                        stream_handles[j].close();
+                    stream_handles[j].close();
                 }
 
                 ++result.read_failures;
@@ -1531,8 +1567,7 @@ namespace
 
         for (std::uint32_t i = 0; i < stream_count; ++i)
         {
-            if (stream_handles[i])
-                stream_handles[i].close();
+            stream_handles[i].close();
         }
     }
 
@@ -1766,6 +1801,16 @@ namespace
             return;
         }
 
+        // Whole test is one D0046 read phase.
+        BroTracker::SdReadScope read_scope;
+        if (!read_scope)
+        {
+            ReportPrintln(
+                F("  SKIPPED: SD writer active"));
+
+            return;
+        }
+
         std::uint32_t min_us = UINT32_MAX;
         std::uint32_t max_us = 0;
         std::uint64_t total_us = 0;
@@ -1782,14 +1827,12 @@ namespace
 
             const std::uint32_t start = micros();
 
-            File file =
-                SD.open(candidate.path, FILE_READ);
+            BroTracker::SdReader file;
 
-            if (!file ||
+            if (!file.open(candidate.path) ||
                 !file.seek(candidate.data_offset))
             {
-                if (file)
-                    file.close();
+                file.close();
 
                 ++failures;
                 continue;
@@ -1902,10 +1945,19 @@ namespace
             return;
         }
 
-        File file =
-            SD.open(candidate.path, FILE_READ);
+        // Whole test is one D0046 read phase.
+        BroTracker::SdReadScope read_scope;
+        if (!read_scope)
+        {
+            ReportPrintln(
+                F("  SKIPPED: SD writer active"));
 
-        if (!file)
+            return;
+        }
+
+        BroTracker::SdReader file;
+
+        if (!file.open(candidate.path))
         {
             ReportPrintln(
                 F("  SKIPPED: open failed"));
@@ -2189,12 +2241,24 @@ namespace
 
     void ScanSourceDirectory()
     {
-        File directory =
-            SD.open(
-                BENCHMARK_SOURCE_PATH,
-                FILE_READ);
+        // Whole scan is one D0046 read phase: it opens/reads the source
+        // directory plus every candidate WAV file it validates and
+        // benchmarks. ReportPrint calls made during the scan only buffer
+        // text in RAM (see AppendReport); FlushReport() will persist it to
+        // SD once this scope ends.
+        BroTracker::SdReadScope read_scope;
+        if (!read_scope)
+        {
+            ReportPrintln(F(
+                "ERROR: SD read unavailable (writer active)."));
 
-        if (!directory ||
+            benchmark_ok = false;
+            return;
+        }
+
+        BroTracker::SdReader directory;
+
+        if (!directory.open(BENCHMARK_SOURCE_PATH) ||
             !directory.isDirectory())
         {
             ReportPrint(F(
@@ -2434,13 +2498,17 @@ namespace
         if (filename[0] == '\0')
             return false;
 
-        report_file =
-            SD.open(
-                filename,
-                FILE_WRITE);
+        // The filename is resolved once here; actual SD writes happen
+        // later via FlushReport(), which opens/appends/closes through
+        // SdWriter between read phases (D0046) instead of holding this
+        // file open as a persistent writer for the whole benchmark run.
+        std::snprintf(
+            g_report_filename,
+            sizeof(g_report_filename),
+            "%s",
+            filename);
 
-        if (!report_file)
-            return false;
+        g_report_buffer_used = 0;
 
         ReportPrintln(
             F("BroTracker SD Read Benchmark"));
@@ -2753,7 +2821,6 @@ void setup()
             F("BENCHMARK: PASS"));
 
         FlushReport();
-        report_file.close();
 
         Serial.println();
         Serial.println(
@@ -2771,7 +2838,6 @@ void setup()
             F("BENCHMARK: FAIL"));
 
         FlushReport();
-        report_file.close();
 
         Serial.println();
         Serial.println(
