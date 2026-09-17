@@ -117,7 +117,7 @@ namespace BroTracker
             }
         }
 
-        explicit operator bool() const { return static_cast<bool>(file_); }
+        explicit operator bool() { return static_cast<bool>(file_); }
 
         int read(void* buffer, std::size_t size) { return file_.read(buffer, size); }
         bool seek(std::uint32_t position) { return file_.seek(position); }
@@ -182,7 +182,7 @@ namespace BroTracker
             }
         }
 
-        explicit operator bool() const { return static_cast<bool>(file_); }
+        explicit operator bool() { return static_cast<bool>(file_); }
 
         std::size_t write(const void* buffer, std::size_t size)
         {
