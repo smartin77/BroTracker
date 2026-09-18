@@ -49,7 +49,14 @@ namespace BroTracker
         // refill chunk (head cache).
         void PlayStream();
 
+        // Starts playback of an already primed stream.
+        //
+        // The stream must be in Primed state. This operation only changes the
+        // playback state; it performs no SD I/O.
+        void StartStream();
+
         bool IsStreamPlaying() const { return stream_state_ == StreamState::Playing; }
+        bool IsStreamPrimed() const { return stream_state_ == StreamState::Primed; }
 
         // Refills the streaming ring buffer from SD in bounded chunks.
         // Must be called periodically from a non-realtime context (e.g.
@@ -85,6 +92,7 @@ namespace BroTracker
         {
             Idle,
             Priming,
+            Primed,
             Playing,
             Finished,
         };
