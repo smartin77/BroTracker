@@ -51,6 +51,15 @@ namespace BroTracker
         stream_state_ = StreamState::Priming;
     }
 
+    void SamplePlayer::StartStream()
+    {
+        if (!stream_open_)
+            return;
+
+        if (stream_state_ == StreamState::Primed)
+            stream_state_ = StreamState::Playing;
+    }
+
     std::uint32_t SamplePlayer::ReadFrames(std::int16_t* dest, std::uint32_t frame_count)
     {
         if (frame_count == 0)
@@ -58,6 +67,7 @@ namespace BroTracker
 
         const std::size_t bytes_wanted = static_cast<std::size_t>(frame_count) * sizeof(std::int16_t);
         const int bytes_read = stream_info_.file.read(reinterpret_cast<std::uint8_t*>(dest), bytes_wanted);
+
         if (bytes_read <= 0)
             return 0;
 
@@ -144,8 +154,9 @@ namespace BroTracker
         if (stream_state_ == StreamState::Priming)
         {
             const std::uint32_t buffered = ring_write_index_ - ring_read_index_;
+
             if (buffered >= kRefillChunkFrames || stream_eof_)
-                stream_state_ = StreamState::Playing;
+                stream_state_ = StreamState::Primed;
         }
     }
 

@@ -22,15 +22,32 @@ namespace
     // USB type includes an audio interface.
     Scheduler g_scheduler;
     AudioTestSource g_audio_test_source(g_scheduler);
-    SamplePlayer g_sample_player;
+    SamplePlayer g_sample_player_a;
+    SamplePlayer g_sample_player_b;
     AudioMixer4 g_audio_mixer;
     AudioOutputMQS g_audio_output_mqs;
 
     AudioConnection g_patch_source_to_mixer(g_audio_test_source, 0, g_audio_mixer, 0);
-    AudioConnection g_patch_player_to_mixer(g_sample_player, 0, g_audio_mixer, 1);
+    AudioConnection g_patch_player_a_to_mixer(g_sample_player_a, 0, g_audio_mixer, 1);
+    AudioConnection g_patch_player_b_to_mixer(g_sample_player_b, 0, g_audio_mixer, 2);
     AudioConnection g_patch_mixer_to_mqs(g_audio_mixer, 0, g_audio_output_mqs, 0);
 
-    const char kTestSamplePath[] = "Samples/test.wav";
+    constexpr bool kEnableAudioTestTone = false;
+
+    const char kTest1SamplePath[] = "Samples/test.wav";
+    const char kTest2SamplePath[] = "Samples/test2.wav";
+    const char kTest3SamplePath[] = "Samples/test3.wav";
+
+    enum class TestPlaybackState
+    {
+        Test1,
+        Test2,
+        Test3,
+        SimultaneousTest,
+        Done
+    };
+
+    TestPlaybackState g_test_playback_state = TestPlaybackState::Test1;
 
     // Tracks whether the finished/underrun report has already been printed,
     // and whether streaming was ever observed playing (finished detection
@@ -38,19 +55,27 @@ namespace
     bool g_stream_was_playing = false;
     bool g_stream_finished_reported = false;
 
-    void OpenTestStream()
+    bool OpenAndPlayStream(SamplePlayer& player, const char* path)
     {
         WavStreamInfo info;
-        if (!OpenWavPcmStream(kTestSamplePath, info))
+
+        if (!OpenWavPcmStream(path, info))
         {
-            Serial.println("Test stream: failed to open Samples/test.wav");
-            return;
+            Serial.print("Test stream: failed to open ");
+            Serial.println(path);
+            return false;
         }
 
-        Serial.println("Test stream: opened successfully");
-        g_sample_player.SetStream(std::move(info));
-        g_sample_player.PlayStream();
-        Serial.println("Test stream: playback armed");
+        Serial.print("Test stream: opened ");
+        Serial.println(path);
+
+        player.SetStream(std::move(info));
+        player.PlayStream();
+
+        Serial.print("Test stream: playback armed ");
+        Serial.println(path);
+
+        return true;
     }
 
 #if defined(AUDIO_INTERFACE)
@@ -72,9 +97,17 @@ namespace
         digitalWrite(LED_BUILTIN, LOW);
         DiagnosticsInitialize();
 
+        #if defined(AUDIO_INTERFACE)
+            Serial.println("USB AUDIO: ENABLED");
+        #else
+            Serial.println("USB AUDIO: DISABLED");
+        #endif
+
         AudioMemory(8);
-        g_audio_mixer.gain(0, 1.0f);
+
+        g_audio_mixer.gain(0, kEnableAudioTestTone ? 1.0f : 0.0f);
         g_audio_mixer.gain(1, 1.0f);
+        g_audio_mixer.gain(2, 1.0f);
     }
 
     void KernelInit()
@@ -87,7 +120,7 @@ namespace
 
         DiagnosticLog("Playback engine initialized");
         DiagnosticLog("Storage initialized");
-        OpenTestStream();
+        OpenAndPlayStream(g_sample_player_a, kTest1SamplePath);
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }
@@ -100,22 +133,79 @@ namespace
 
         // SD refill for the streaming sample path; never called from
         // AudioStream::update() or any other realtime/audio callback.
-        g_sample_player.ServiceStreaming();
+        g_sample_player_a.ServiceStreaming();
+        g_sample_player_b.ServiceStreaming();
 
-        if (g_sample_player.IsStreamPlaying())
+        if (g_test_playback_state == TestPlaybackState::SimultaneousTest)
+        {
+            // Both streams must be fully primed before either one starts.
+            if (g_sample_player_a.IsStreamPrimed() &&
+                g_sample_player_b.IsStreamPrimed())
+            {
+                g_sample_player_a.StartStream();
+                g_sample_player_b.StartStream();
+            }
+        }
+        else if (g_sample_player_a.IsStreamPrimed())
+        {
+            g_sample_player_a.StartStream();
+        }
+
+        if (g_sample_player_a.IsStreamPlaying() || g_sample_player_b.IsStreamPlaying())
         {
             g_stream_was_playing = true;
         }
         else if (g_stream_was_playing && !g_stream_finished_reported)
         {
             g_stream_finished_reported = true;
-            Serial.println("Test stream: finished");
-            Serial.print("Test stream: underrun count = ");
-            Serial.println(g_sample_player.StreamUnderrunCount());
 
-            // ServiceStreaming() above already closed the SD file for the
+            Serial.println("Test stream: finished");
+
+            Serial.print("Test stream A: underrun count = ");
+            Serial.println(g_sample_player_a.StreamUnderrunCount());
+
+            Serial.print("Test stream B: underrun count = ");
+            Serial.println(g_sample_player_b.StreamUnderrunCount());
+
+            // ServiceStreaming() above already closed the SD files for the
             // finished stream, so the SD interface is clean at this point.
             DiagnosticBlink(3);
+
+            if (g_test_playback_state == TestPlaybackState::Test1)
+            {
+                g_test_playback_state = TestPlaybackState::Test2;
+
+                g_stream_was_playing = false;
+                g_stream_finished_reported = false;
+
+                OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
+            }
+            else if (g_test_playback_state == TestPlaybackState::Test2)
+            {
+                g_test_playback_state = TestPlaybackState::Test3;
+
+                g_stream_was_playing = false;
+                g_stream_finished_reported = false;
+
+                OpenAndPlayStream(g_sample_player_a, kTest3SamplePath);
+            }
+            else if (g_test_playback_state == TestPlaybackState::Test3)
+            {
+                g_test_playback_state = TestPlaybackState::SimultaneousTest;
+
+                g_stream_was_playing = false;
+                g_stream_finished_reported = false;
+
+                OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
+                OpenAndPlayStream(g_sample_player_b, kTest3SamplePath);
+            }
+            else if (g_test_playback_state == TestPlaybackState::SimultaneousTest)
+            {
+                g_test_playback_state = TestPlaybackState::Done;
+
+                Serial.println("Test stream: simultaneous playback finished");
+                DiagnosticBlink(5);
+            }
         }
     }
 }

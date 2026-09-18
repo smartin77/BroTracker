@@ -67,18 +67,12 @@ namespace BroTracker
         SdReader(const SdReader&) = delete;
         SdReader& operator=(const SdReader&) = delete;
 
-        SdReader(SdReader&& other) noexcept
-            : file_(other.file_), holds_lock_(other.holds_lock_)
-        {
-            other.holds_lock_ = false;
-        }
-
         SdReader& operator=(SdReader&& other) noexcept
         {
             if (this != &other)
             {
                 close();
-                file_ = other.file_;
+                file_ = std::move(other.file_);
                 holds_lock_ = other.holds_lock_;
                 other.holds_lock_ = false;
             }
