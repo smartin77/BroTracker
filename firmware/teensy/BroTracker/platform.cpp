@@ -38,6 +38,8 @@ namespace
     const char kTest2SamplePath[] = "Samples/test2.wav";
     const char kTest3SamplePath[] = "Samples/test3.wav";
 
+    constexpr unsigned int kSimultaneousTestLoops = 4;
+
     enum class TestPlaybackState
     {
         Test1,
@@ -48,6 +50,7 @@ namespace
     };
 
     TestPlaybackState g_test_playback_state = TestPlaybackState::Test1;
+    unsigned int g_simultaneous_test_loop = 0;
 
     // Tracks whether the finished/underrun report has already been printed,
     // and whether streaming was ever observed playing (finished detection
@@ -201,10 +204,23 @@ namespace
             }
             else if (g_test_playback_state == TestPlaybackState::SimultaneousTest)
             {
-                g_test_playback_state = TestPlaybackState::Done;
+                ++g_simultaneous_test_loop;
 
-                Serial.println("Test stream: simultaneous playback finished");
-                DiagnosticBlink(5);
+                if (g_simultaneous_test_loop < kSimultaneousTestLoops)
+                {
+                    g_stream_was_playing = false;
+                    g_stream_finished_reported = false;
+
+                    OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
+                    OpenAndPlayStream(g_sample_player_b, kTest3SamplePath);
+                }
+                else
+                {
+                    g_test_playback_state = TestPlaybackState::Done;
+
+                    Serial.println("Test stream: simultaneous playback finished");
+                    DiagnosticBlink(3);
+                }
             }
         }
     }
