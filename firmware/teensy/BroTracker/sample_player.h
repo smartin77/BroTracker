@@ -44,6 +44,13 @@ namespace BroTracker
         // previous file; call only from a non-realtime context.
         void SetStream(WavStreamInfo&& info);
 
+        // Configures the playback rate of the current stream. The rate is
+        // converted to Q16.16 here so update() uses integer arithmetic only.
+        // Call after SetStream() and before PlayStream(), or while the stream
+        // is Primed. Rates up to 2.0 are supported by the current SD buffer
+        // sizing and benchmarked refill configuration.
+        bool SetStreamPlaybackRate(float rate);
+
         // Associates a WAV PCM stream with the next slot and arms it for
         // prebuffering. May close the previous next-slot file; call only
         // from a non-realtime context.
@@ -117,6 +124,10 @@ namespace BroTracker
         static constexpr std::uint32_t kRingBufferFrames = 4096;
         static constexpr std::uint32_t kRingBufferMask = kRingBufferFrames - 1;
         static constexpr std::uint32_t kRefillChunkFrames = 2048;
+        static constexpr std::uint32_t kPlaybackRateFractionBits = 16;
+        static constexpr std::uint32_t kPlaybackRateOne = 1u << kPlaybackRateFractionBits;
+        static constexpr std::uint32_t kPlaybackRateFractionMask = kPlaybackRateOne - 1;
+        static constexpr float kMaximumPlaybackRate = 2.0f;
 
         struct StreamSlot
         {
@@ -132,6 +143,8 @@ namespace BroTracker
 
             std::uint32_t frames_read = 0;
             std::uint32_t underrun_count = 0;
+            std::uint32_t playback_rate_q16 = kPlaybackRateOne;
+            std::uint32_t source_fraction_q16 = 0;
 
             StreamDiagnostics diagnostics;
 

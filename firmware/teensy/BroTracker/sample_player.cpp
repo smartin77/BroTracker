@@ -32,6 +32,28 @@ namespace BroTracker
         slot.info = std::move(info);
         slot.open = static_cast<bool>(slot.info.file);
         ResetSlot(slot);
+        slot.playback_rate_q16 = kPlaybackRateOne;
+    }
+
+    bool SamplePlayer::SetStreamPlaybackRate(float rate)
+    {
+        StreamSlot& slot = current_stream_;
+
+        if (!slot.open ||
+            (slot.state != StreamState::Idle && slot.state != StreamState::Primed) ||
+            !(rate > 0.0f) || rate > kMaximumPlaybackRate)
+        {
+            return false;
+        }
+
+        const float scaled_rate = rate * static_cast<float>(kPlaybackRateOne);
+        const std::uint32_t rate_q16 = static_cast<std::uint32_t>(scaled_rate + 0.5f);
+
+        if (rate_q16 == 0 || rate_q16 > 2u * kPlaybackRateOne)
+            return false;
+
+        slot.playback_rate_q16 = rate_q16;
+        return true;
     }
 
     void SamplePlayer::SetNextStream(WavStreamInfo&& info)
@@ -44,6 +66,7 @@ namespace BroTracker
         slot.info = std::move(info);
         slot.open = static_cast<bool>(slot.info.file);
         ResetSlot(slot);
+        slot.playback_rate_q16 = kPlaybackRateOne;
 
         if (!slot.open)
             return;
@@ -69,6 +92,8 @@ namespace BroTracker
         current_stream_.eof = next_stream_.eof;
         current_stream_.frames_read = next_stream_.frames_read;
         current_stream_.underrun_count = next_stream_.underrun_count;
+        current_stream_.playback_rate_q16 = next_stream_.playback_rate_q16;
+        current_stream_.source_fraction_q16 = next_stream_.source_fraction_q16;
         current_stream_.diagnostics = next_stream_.diagnostics;
 
         for (std::uint32_t i = 0; i < kRingBufferFrames; ++i)
@@ -76,6 +101,7 @@ namespace BroTracker
 
         next_stream_.open = false;
         ResetSlot(next_stream_);
+        next_stream_.playback_rate_q16 = kPlaybackRateOne;
 
         // State is published last. StartStream() can now enter Playing
         // without another seek, refill, or priming cycle.
@@ -160,6 +186,7 @@ namespace BroTracker
         slot.frames_read = 0;
         slot.eof = false;
         slot.underrun_count = 0;
+        slot.source_fraction_q16 = 0;
         slot.diagnostics = StreamDiagnostics{};
     }
 
@@ -238,26 +265,66 @@ namespace BroTracker
 
         if (slot.state == StreamState::Playing)
         {
-            const std::uint32_t available = slot.ring_write_index - slot.ring_read_index;
-            const std::uint32_t frames_to_copy = available < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES)
-                ? available : static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES);
+            std::uint32_t frames_generated = 0;
+            bool reached_eof = false;
 
-            std::uint32_t i = 0;
-            for (; i < frames_to_copy; ++i, ++slot.ring_read_index)
-                block->data[i] = slot.ring_buffer[slot.ring_read_index & kRingBufferMask];
+            while (frames_generated < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES))
+            {
+                const std::uint32_t available =
+                    slot.ring_write_index - slot.ring_read_index;
 
-            for (; i < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES); ++i)
+                if (available == 0)
+                {
+                    reached_eof = slot.eof;
+                    break;
+                }
+
+                const std::uint32_t next_source_position =
+                    slot.source_fraction_q16 + slot.playback_rate_q16;
+                const std::uint32_t source_frames_to_advance =
+                    next_source_position >> kPlaybackRateFractionBits;
+
+                // Until EOF is known, keep every source frame required for
+                // this output sample in the ring. A refill can then resume
+                // without losing the fractional source position.
+                if (!slot.eof && source_frames_to_advance > available)
+                    break;
+
+                block->data[frames_generated] =
+                    slot.ring_buffer[slot.ring_read_index & kRingBufferMask];
+                ++frames_generated;
+
+                slot.source_fraction_q16 =
+                    next_source_position & kPlaybackRateFractionMask;
+
+                if (slot.eof && source_frames_to_advance >= available)
+                {
+                    // The current sample is valid, but the requested advance
+                    // reaches or passes the final buffered source frame.
+                    slot.ring_read_index += available;
+                    reached_eof = true;
+                    break;
+                }
+
+                slot.ring_read_index += source_frames_to_advance;
+            }
+
+            for (std::uint32_t i = frames_generated;
+                 i < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES);
+                 ++i)
+            {
                 block->data[i] = 0;
+            }
 
             // One-shot diagnostic: inspect (never modify) the first block
             // that actually contains buffered frames.
-            if (!slot.diagnostics.captured && frames_to_copy > 0)
+            if (!slot.diagnostics.captured && frames_generated > 0)
             {
                 std::int16_t min_sample = block->data[0];
                 std::int16_t max_sample = block->data[0];
                 bool had_nonzero = false;
 
-                for (std::uint32_t j = 0; j < frames_to_copy; ++j)
+                for (std::uint32_t j = 0; j < frames_generated; ++j)
                 {
                     const std::int16_t sample_value = block->data[j];
                     if (sample_value != 0)
@@ -275,14 +342,15 @@ namespace BroTracker
                 slot.diagnostics.captured = true;
             }
 
-            if (frames_to_copy < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES))
+            if (reached_eof)
             {
-                // Clean end of stream vs. SD not keeping up: only the latter
-                // is an underrun.
-                if (slot.eof && available == frames_to_copy)
-                    slot.state = StreamState::Finished;
-                else
-                    ++slot.underrun_count;
+                slot.state = StreamState::Finished;
+            }
+            else if (frames_generated < static_cast<std::uint32_t>(AUDIO_BLOCK_SAMPLES))
+            {
+                // Count an underrun only when a complete output block could
+                // not be generated and the stream did not end cleanly.
+                ++slot.underrun_count;
             }
         }
         else if (playing_ && sample_ != nullptr)

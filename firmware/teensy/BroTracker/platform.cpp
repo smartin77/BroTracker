@@ -38,6 +38,11 @@ namespace
     const char kTest2SamplePath[] = "Samples/test2.wav";
     const char kTest3SamplePath[] = "Samples/test3.wav";
 
+    constexpr float kTest1SourceBpm = 137.915757f;
+    constexpr float kTargetBpm = 155.0f;
+    constexpr float kTest1PlaybackRate =
+        kTargetBpm / kTest1SourceBpm;
+
     constexpr unsigned int kSimultaneousTestLoops = 4;
 
     enum class TestPlaybackState
@@ -62,7 +67,10 @@ namespace
     bool g_simultaneous_next_open_attempted = false;
     bool g_simultaneous_next_primed_reported = false;
 
-    bool OpenAndPlayStream(SamplePlayer& player, const char* path)
+    bool OpenAndPlayStream(
+        SamplePlayer& player,
+        const char* path,
+        float playback_rate = 1.0f)
     {
         WavStreamInfo info;
 
@@ -77,6 +85,14 @@ namespace
         Serial.println(path);
 
         player.SetStream(std::move(info));
+
+        if (!player.SetStreamPlaybackRate(playback_rate))
+        {
+            Serial.print("Test stream: failed to set playback rate for ");
+            Serial.println(path);
+            return false;
+        }
+
         player.PlayStream();
 
         Serial.print("Test stream: playback armed ");
@@ -127,7 +143,16 @@ namespace
 
         DiagnosticLog("Playback engine initialized");
         DiagnosticLog("Storage initialized");
-        OpenAndPlayStream(g_sample_player_a, kTest1SamplePath);
+        Serial.print("Test stream: Test1 source BPM = ");
+        Serial.print(kTest1SourceBpm, 6);
+        Serial.print(", target BPM = ");
+        Serial.print(kTargetBpm, 1);
+        Serial.print(", playback rate = ");
+        Serial.println(kTest1PlaybackRate, 6);
+        OpenAndPlayStream(
+            g_sample_player_a,
+            kTest1SamplePath,
+            kTest1PlaybackRate);
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }
