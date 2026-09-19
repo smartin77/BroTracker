@@ -11,15 +11,14 @@ namespace BroTracker
     //
     // Supports two independent playback modes:
     //
-    //   - Legacy in-RAM playback via SetSample()/Play(), retained for the
-    //     current platform.cpp wiring. No looping, no sample-rate
-    //     conversion.
+    //   - Legacy in-RAM playback via SetSample()/Play(). No looping or
+    //     sample-rate conversion.
     //
     //   - SD-streamed playback via SetStream()/PlayStream(), which consumes
     //     PCM data from a bounded ring buffer filled by ServiceStreaming().
-    //     All SD I/O happens in ServiceStreaming(), called from a
-    //     non-realtime context; update() only ever reads already-buffered
-    //     PCM data, never the SD card.
+    //     All SD I/O stays in non-realtime stream setup, restart, and
+    //     servicing operations; update() only reads already-buffered PCM
+    //     data, never the SD card.
     //
     // If a stream is actively playing, it takes priority in update() over
     // the legacy in-RAM sample.
@@ -41,12 +40,14 @@ namespace BroTracker
 
         // Associates a WAV PCM stream (see OpenWavPcmStream()) with this
         // player. Takes ownership of the open file handle in `info`. Does
-        // not start playback; call PlayStream() to arm it.
+        // not start playback; call PlayStream() to arm it. May close the
+        // previous file; call only from a non-realtime context.
         void SetStream(WavStreamInfo&& info);
 
         // Restarts stream playback from the first PCM frame. Playback does
         // not begin until ServiceStreaming() has buffered an initial
-        // refill chunk (head cache).
+        // refill chunk (head cache), followed by StartStream(). Seeks the
+        // file; call only from a non-realtime context.
         void PlayStream();
 
         // Starts playback of an already primed stream.
@@ -55,8 +56,8 @@ namespace BroTracker
         // playback state; it performs no SD I/O.
         void StartStream();
 
-        bool IsStreamPlaying() const { return stream_state_ == StreamState::Playing; }
-        bool IsStreamPrimed() const { return stream_state_ == StreamState::Primed; }
+        bool IsStreamPlaying() const { return current_stream_.state == StreamState::Playing; }
+        bool IsStreamPrimed() const { return current_stream_.state == StreamState::Primed; }
 
         // Refills the streaming ring buffer from SD in bounded chunks.
         // Must be called periodically from a non-realtime context (e.g.
@@ -66,7 +67,10 @@ namespace BroTracker
 
         // Number of audio blocks output with less than a full block of
         // buffered stream data available (excluding clean end-of-stream).
-        std::uint32_t StreamUnderrunCount() const { return stream_underrun_count_; }
+        std::uint32_t StreamUnderrunCount() const
+        {
+            return current_stream_.underrun_count;
+        }
 
         // Diagnostic snapshot captured from the first streaming audio block
         // that contained buffered frames. Does not affect playback.
@@ -79,7 +83,7 @@ namespace BroTracker
             std::int16_t max_sample = 0;
         };
 
-        StreamDiagnostics GetStreamDiagnostics() const { return stream_diagnostics_; }
+        StreamDiagnostics GetStreamDiagnostics() const { return current_stream_.diagnostics; }
 
     private:
         // Legacy in-RAM sample playback.
@@ -103,31 +107,42 @@ namespace BroTracker
         static constexpr std::uint32_t kRingBufferMask = kRingBufferFrames - 1;
         static constexpr std::uint32_t kRefillChunkFrames = 2048;
 
-        std::uint32_t ReadFrames(std::int16_t* dest, std::uint32_t frame_count);
-        std::uint32_t ReadIntoRingBuffer(std::uint32_t frames_wanted);
+        struct StreamSlot
+        {
+            WavStreamInfo info;
+            bool open = false;
 
-        // Closes the SD file (if open) and returns the stream to Idle.
-        // Must only be called from a non-realtime context.
-        void ReleaseStream();
+            // During playback, servicing writes the write index and update()
+            // writes the read index; each side only reads the other index.
+            volatile StreamState state = StreamState::Idle;
+            volatile std::uint32_t ring_write_index = 0;
+            volatile std::uint32_t ring_read_index = 0;
+            volatile bool eof = false;
 
-        WavStreamInfo stream_info_;
-        bool stream_open_ = false;
+            std::uint32_t frames_read = 0;
+            std::uint32_t underrun_count = 0;
 
-        // ring_write_index_ is written only by ServiceStreaming(); ring_read_index_
-        // is written only by update(). Each side only reads the other's index,
-        // making this a single-producer/single-consumer ring buffer without
-        // needing an atomic type.
-        volatile StreamState stream_state_ = StreamState::Idle;
-        volatile std::uint32_t ring_write_index_ = 0;
-        volatile std::uint32_t ring_read_index_ = 0;
-        volatile bool stream_eof_ = false;
+            StreamDiagnostics diagnostics;
 
-        std::uint32_t stream_frames_read_ = 0;
-        std::uint32_t stream_underrun_count_ = 0;
+            std::int16_t ring_buffer[kRingBufferFrames];
+        };
 
-        StreamDiagnostics stream_diagnostics_;
+        std::uint32_t ReadFrames(
+            StreamSlot& slot,
+            std::int16_t* dest,
+            std::uint32_t frame_count);
 
-        std::int16_t ring_buffer_[kRingBufferFrames];
+        std::uint32_t ReadIntoRingBuffer(
+            StreamSlot& slot,
+            std::uint32_t frames_wanted);
+
+        // Resets playback state without closing or replacing the owned file.
+        void ResetSlot(StreamSlot& slot);
+        // File release and servicing must run only in non-realtime contexts.
+        void ReleaseSlot(StreamSlot& slot);
+        void ServiceSlot(StreamSlot& slot);
+
+        StreamSlot current_stream_;
     };
 }
 
