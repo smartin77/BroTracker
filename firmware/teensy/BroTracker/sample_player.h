@@ -44,6 +44,11 @@ namespace BroTracker
         // previous file; call only from a non-realtime context.
         void SetStream(WavStreamInfo&& info);
 
+        // Associates a WAV PCM stream with the next slot and arms it for
+        // prebuffering. May close the previous next-slot file; call only
+        // from a non-realtime context.
+        void SetNextStream(WavStreamInfo&& info);
+
         // Restarts stream playback from the first PCM frame. Playback does
         // not begin until ServiceStreaming() has buffered an initial
         // refill chunk (head cache), followed by StartStream(). Seeks the
@@ -58,6 +63,7 @@ namespace BroTracker
 
         bool IsStreamPlaying() const { return current_stream_.state == StreamState::Playing; }
         bool IsStreamPrimed() const { return current_stream_.state == StreamState::Primed; }
+        bool IsNextStreamPrimed() const { return next_stream_.state == StreamState::Primed; }
 
         // Refills the streaming ring buffer from SD in bounded chunks.
         // Must be called periodically from a non-realtime context (e.g.
@@ -143,6 +149,7 @@ namespace BroTracker
         void ServiceSlot(StreamSlot& slot);
 
         StreamSlot current_stream_;
+        StreamSlot next_stream_;
     };
 }
 

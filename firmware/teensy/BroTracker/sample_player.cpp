@@ -34,6 +34,24 @@ namespace BroTracker
         ResetSlot(slot);
     }
 
+    void SamplePlayer::SetNextStream(WavStreamInfo&& info)
+    {
+        StreamSlot& slot = next_stream_;
+
+        if (slot.open)
+            ReleaseSlot(slot);
+
+        slot.info = std::move(info);
+        slot.open = static_cast<bool>(slot.info.file);
+        ResetSlot(slot);
+
+        if (!slot.open)
+            return;
+
+        slot.info.file.seek(slot.info.data_chunk_offset);
+        slot.state = StreamState::Priming;
+    }
+
     void SamplePlayer::PlayStream()
     {
         StreamSlot& slot = current_stream_;
@@ -126,6 +144,7 @@ namespace BroTracker
     void SamplePlayer::ServiceStreaming()
     {
         ServiceSlot(current_stream_);
+        ServiceSlot(next_stream_);
     }
 
     void SamplePlayer::ServiceSlot(StreamSlot& slot)

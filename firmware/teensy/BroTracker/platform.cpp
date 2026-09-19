@@ -57,6 +57,8 @@ namespace
     // relies on the public IsStreamPlaying() transitioning true -> false).
     bool g_stream_was_playing = false;
     bool g_stream_finished_reported = false;
+    bool g_next_stream_open_attempted = false;
+    bool g_next_stream_primed_reported = false;
 
     bool OpenAndPlayStream(SamplePlayer& player, const char* path)
     {
@@ -152,6 +154,26 @@ namespace
         else if (g_sample_player_a.IsStreamPrimed())
         {
             g_sample_player_a.StartStream();
+        }
+
+        if (g_test_playback_state == TestPlaybackState::Test2 &&
+            g_sample_player_a.IsStreamPlaying())
+        {
+            if (!g_next_stream_open_attempted)
+            {
+                g_next_stream_open_attempted = true;
+
+                WavStreamInfo next_info;
+                if (OpenWavPcmStream(kTest3SamplePath, next_info))
+                    g_sample_player_a.SetNextStream(std::move(next_info));
+            }
+
+            if (!g_next_stream_primed_reported &&
+                g_sample_player_a.IsNextStreamPrimed())
+            {
+                g_next_stream_primed_reported = true;
+                Serial.println("Test stream: next stream primed while current is playing");
+            }
         }
 
         if (g_sample_player_a.IsStreamPlaying() || g_sample_player_b.IsStreamPlaying())
