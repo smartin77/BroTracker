@@ -22,14 +22,24 @@ The project targets **Teensy 4.1** as the realtime engine and Linux-based handhe
 
 The repository is organized around clear architectural boundaries:
 
-- core for platform-independent tracker logic, shared data structures and realtime concepts
-- firmware for Teensy 4.1-specific runtime and hardware integration
-- ui for host-side editing and interface logic
-- tools for utilities and import/export helpers
-- docs and assets for project documentation and resources
-- modular instrument architecture with built-in core instruments and optional loadable instrument modules
-- generic MIDI controller support without requiring device-specific drivers
-- optional loadable hardware controller modules for enhanced device-specific functionality
+- `src/core/` contains the platform-independent tracker logic and data
+  structures referred to as the BroTracker core.
+- `firmware/teensy/` contains the Teensy 4.1 firmware and hardware
+  integration.
+- `src/ui/` and `src/renderer/` contain the current shared UI and framebuffer
+  rendering code. The top-level `ui/` directory is reserved for host UI
+  clients and platform integration as those are implemented.
+- `tools/ui_preview/` contains the current host-side UI preview tool. It
+  renders the UI programmatically into the 640 × 480 BroTracker framebuffer
+  and can save the result as `assets/ui_main_screen.bmp`.
+- `assets/` contains project resources such as fonts and preview input data.
+  `assets/ui_main_screen.bmp`, when generated, is a preview artifact rather
+  than the source of the UI.
+- `tests/` contains host-side tests for platform-independent components.
+- `docs/` contains the project architecture, design decisions and other
+  contributor documentation.
+- `libraries/` contains reusable components shared by firmware, host tools or
+  diagnostics where appropriate.
 
 Major runtime functionality is implemented as separate logical subsystems within the single BroTracker application. Subsystems are designed to remain independently testable and replaceable where practical.
 

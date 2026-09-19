@@ -18,7 +18,26 @@ The initial implementation prioritizes USB MIDI.
 
 Direct physical DIN MIDI connections on the Teensy are planned but intentionally deferred.
 
-The MIDI subsystem must remain independent of the physical transport. The core generates MIDI events, while platform-specific MIDI backends are responsible for transmitting them through the available hardware or operating-system interface.
+The MIDI subsystem must remain independent of the physical transport. The
+core consumes and produces transport-independent MIDI events, while
+platform-specific MIDI backends are responsible for receiving and transmitting
+them through the available hardware or operating-system interface.
+
+### Future MIDI over Ethernet
+
+Teensy 4.1 provides Ethernet capability, so Ethernet may become an additional
+MIDI transport in a future BroTracker implementation.
+
+No MIDI-over-network protocol or implementation is selected by this document.
+The eventual choice must follow research and evaluation of applicable official
+or established specifications and protocols. It must also be practical within
+Teensy 4.1 CPU, memory, buffering, latency and realtime constraints.
+
+Where practical, Ethernet MIDI should enter and leave BroTracker through the
+same transport-independent MIDI boundary as USB, future DIN MIDI and host MIDI
+backends. Tracker, scheduler and instrument logic must not become coupled to a
+particular network transport. The exact protocol and implementation remain a
+future architecture decision.
 
 ## MIDI OUT Priority
 
@@ -76,6 +95,56 @@ On Teensy, the initial MIDI input implementation will use the available USB MIDI
 Host platforms may support additional MIDI input devices through their native or common MIDI APIs.
 
 Specific host MIDI devices are not part of the core architecture.
+
+## External Instrument State
+
+BroTracker plans to support saving and restoring the state of external MIDI instruments.
+
+This is intentionally designed as a general instrument capability rather than a SysEx-specific feature. Different hardware may provide different ways to capture and restore its state.
+
+### Manufacturer SysEx
+
+BroTracker plans to support both sending and receiving MIDI System Exclusive (SysEx) messages.
+
+For many existing MIDI synthesizers, manufacturer-specific SysEx is the standard way to transfer patches or other device state.
+
+For example, a Novation Bass Station II instrument module could store the SysEx patch data used by a Tune. When the Tune is later loaded with a compatible Bass Station II connected, BroTracker could send the stored patch back to the synthesizer before playback begins.
+
+Device-specific SysEx behaviour should belong to the appropriate instrument or device module. The generic MIDI subsystem should transport SysEx data without containing manufacturer-specific knowledge about its contents.
+
+### MIDI-CI Property Exchange
+
+Modern MIDI devices may provide a more standardized way to discover capabilities and exchange device state through MIDI Capability Inquiry (MIDI-CI) and Property Exchange.
+
+Where supported by the hardware, BroTracker may use MIDI-CI Property Exchange features such as Device State instead of manufacturer-specific SysEx handling.
+
+This provides a future path for compatible devices without removing support for the large amount of existing MIDI hardware that relies on traditional SysEx.
+
+The exact MIDI-CI and Property Exchange implementation will be designed later according to the official MIDI specifications and the capabilities of Teensy 4.1.
+
+### State Restore and Playback
+
+External instrument state should normally be restored when a Tune or instrument is loaded or initialized.
+
+The intended workflow is:
+
+1. Load the Tune and its instruments.
+2. Identify the connected compatible MIDI device.
+3. Restore the required External Instrument State where available.
+4. Begin normal playback.
+5. Control the instrument during playback using realtime MIDI messages such as notes, note states and CC messages.
+
+Large SysEx or device-state transfers are therefore not intended to be part of the normal realtime playback path.
+
+Future devices may have valid reasons to use SysEx, Property Exchange or other state-related messages during playback, but such behaviour should be implemented only when specifically required.
+
+### Implementation Limits
+
+SysEx messages and other device-state transfers can vary greatly in size.
+
+Their buffering and transfer must respect Teensy 4.1 memory limits and must not interfere with BroTracker's realtime operation.
+
+The exact buffering strategy, External Instrument State storage format, device-module API and automatic restore workflow remain future design decisions.
 
 ## Host MIDI
 

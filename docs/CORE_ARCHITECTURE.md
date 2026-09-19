@@ -72,7 +72,8 @@ Manual input to a muted channel remains independent of pattern event suppression
 
 The audio subsystem is responsible for audio generation and playback.
 
-The MIDI subsystem is responsible for MIDI event output and hardware-specific MIDI transport.
+The MIDI subsystem is responsible for MIDI event input and output through
+hardware or platform-specific MIDI transports.
 
 The storage subsystem is responsible for accessing persistent tracker and sample data.
 

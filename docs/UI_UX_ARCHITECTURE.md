@@ -158,6 +158,17 @@ BroTracker uses a pseudo-text-mode visual language:
 
 The BroTracker bitmap font is part of the project assets and is rendered at native pixel resolution.
 
+## Current Host-Side Preview
+
+The current host-side UI preview tool is located in `tools/ui_preview/`.
+It uses the shared UI and renderer code to draw the interface
+programmatically into the canonical 640 × 480 BroTracker framebuffer.
+
+The tool can save the rendered result as `assets/ui_main_screen.bmp`.
+That BMP is an output/preview artifact for inspecting the renderer; it is not
+the source of the UI. UI layout and appearance remain defined by the renderer,
+UI code, font and input data.
+
 ## Main Pattern Screen
 
 The main pattern screen is the primary working screen of BroTracker.

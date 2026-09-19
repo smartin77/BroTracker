@@ -4,13 +4,28 @@ BroTracker uses a simple layered repository structure that reflects its headless
 
 ## Repository layout
 
-- core/: shared engine logic, timing primitives and data models
-- libraries/: reusable BroTracker components, separated by platform dependency
-- firmware/: Teensy 4.1-specific firmware and application integration code
-- ui/: host-side user interface and editor client
-- tools/: scripts, converters and utilities that support development or import/export workflows
-- docs/: design documents, goals, roadmap and architecture notes
-- assets/: media and project resources
+- `src/core/`: platform-independent tracker logic, shared data structures and
+  core data handling. This is the current physical location of the logical
+  `core/` layer named in the architecture documentation.
+- `libraries/`: reusable BroTracker components, separated by platform
+  dependency.
+- `firmware/teensy/`: Teensy 4.1 firmware, realtime application integration
+  and hardware-specific adapters.
+- `src/ui/` and `src/renderer/`: the current shared UI drawing and framebuffer
+  implementation.
+- `ui/`: reserved for host UI clients and their platform integration as those
+  clients are implemented.
+- `tools/ui_preview/`: the current host-side UI preview/rendering tool. It
+  renders the BroTracker UI programmatically into the canonical 640 × 480
+  framebuffer and can write `assets/ui_main_screen.bmp`.
+- `assets/`: project resources such as fonts and preview input data. A
+  generated `assets/ui_main_screen.bmp` is an output/preview artifact, not UI
+  source.
+- `tests/`: dependency-free host-side tests for platform-independent
+  components.
+- `docs/`: the documentation index, architecture decisions, design
+  principles, specifications, roadmap and reference material.
+- `tools/`: development, preview and hardware-diagnostic tools.
 
 ## Architectural boundaries
 
@@ -21,11 +36,17 @@ BroTracker uses a simple layered repository structure that reflects its headless
 
 ## Platform Separation
 
-The `core/` directory contains platform-independent tracker logic.
+The logical `core/` layer currently resides in `src/core/` and contains
+platform-independent tracker logic.
 
-The `firmware/` directory contains the Teensy 4.1-specific realtime runtime and hardware integration.
+The `firmware/teensy/` directory contains the Teensy 4.1-specific realtime
+runtime and hardware integration.
 
-The `ui/` directory contains host-side UI, rendering and interaction logic.
+Shared UI rendering currently lives in `src/ui/` and `src/renderer/`.
+The top-level `ui/` directory is reserved for future host-client platform
+integration. The current executable host-side UI view is the preview tool in
+`tools/ui_preview/`; it is a renderer development tool rather than the
+realtime authority or a second UI source.
 
 Platform-specific host implementations should be kept separate from the shared core. This includes:
 

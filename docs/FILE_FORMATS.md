@@ -87,6 +87,28 @@ For example, a creator may document which external synthesizer was used, which M
 
 Descriptions should not be unnecessarily constrained by the memory requirements of the realtime portion of the project.
 
+### Future External Instrument State
+
+BroTracker plans to allow a Tune or instrument to preserve the state required by an external hardware instrument.
+
+The stored External Instrument State should not be tied to one specific MIDI technology. Different devices may use different mechanisms to capture and restore their state.
+
+Examples include:
+
+- manufacturer-specific SysEx patch or state dumps
+- MIDI-CI Property Exchange Device State
+- other future state mechanisms supported by the device
+
+For example, a Novation Bass Station II instrument could use a manufacturer-specific SysEx patch dump. A compatible modern MIDI device could instead provide its state through MIDI-CI Property Exchange.
+
+When the Tune is loaded again with compatible hardware connected, BroTracker could restore the stored instrument state before playback begins. Normal playback would then continue using notes, CC and other realtime MIDI messages.
+
+The amount of state that can be captured and restored depends on the capabilities of each device. BroTracker therefore cannot guarantee complete state restoration for every external MIDI instrument.
+
+The External Instrument State storage format has not yet been designed.
+
+The format should remain flexible enough to support different state mechanisms without requiring the BroTracker Tune format to be redesigned for each new MIDI technology.
+
 ## BTM — BroTracker Module
 
 BTM is a single-file container for a complete BTP project.

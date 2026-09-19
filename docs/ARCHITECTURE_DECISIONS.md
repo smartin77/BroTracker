@@ -1281,3 +1281,283 @@ A benchmark must never combine SD read and write activity concurrently, includin
 The SD access layer shall provide separate read and write responsibilities and enforce the mutual-exclusion rule.
 
 The exact implementation of SD access locking, ownership, buffering and benchmark result storage remains an implementation decision.
+
+## D0047 — External Instrument State
+
+BroTracker plans to support saving and restoring the state of external hardware instruments.
+
+External Instrument State is independent of the mechanism used to capture, store or restore that state.
+
+Possible mechanisms include:
+
+- manufacturer-specific SysEx
+- MIDI-CI Property Exchange and Device State
+- other future mechanisms supported by the hardware
+
+For example, an older synthesizer such as a Novation Bass Station II may use a manufacturer-specific SysEx patch dump. A modern MIDI device may provide its state through MIDI-CI Property Exchange instead.
+
+BroTracker should treat both as different ways of restoring the state required by an external instrument rather than designing the Tune or instrument architecture specifically around SysEx.
+
+### Restore Before Playback
+
+External instrument state should normally be restored when a Tune or instrument is loaded or initialized, before normal playback begins.
+
+During playback, BroTracker should use the appropriate realtime MIDI messages such as notes, note states and Control Change (CC) messages.
+
+SysEx or Property Exchange should therefore not become part of the normal realtime sequencing path unless a future device or feature has a specific reason to require it.
+
+### Future Decisions
+
+The following remain future design decisions:
+
+- External Instrument State storage format
+- SysEx buffering and transfer implementation
+- MIDI-CI and Property Exchange implementation
+- instrument/device module API for state capture and restore
+- device discovery and capability detection
+ automatic state restore workflow
+
+## D0048 — MIDI over Ethernet
+
+BroTracker plans to support MIDI over Ethernet.
+
+Teensy 4.1 provides Ethernet hardware support, making network MIDI a natural future capability for the reference hardware.
+
+### Network MIDI 2.0
+
+Network MIDI 2.0 is an important candidate for BroTracker's future Ethernet MIDI implementation.
+
+It is an official MIDI specification designed to transport Universal MIDI Packets (UMP) over IP networks and provides a modern path for both MIDI 1.0 and MIDI 2.0 communication over Ethernet and other IP-based networks.
+
+Before selecting the Ethernet MIDI implementation, BroTracker should evaluate Network MIDI 2.0 and other relevant established protocols.
+
+The evaluation should consider:
+
+- Teensy 4.1 Ethernet hardware support
+- CPU and memory requirements
+- latency and timing behaviour
+- buffering requirements
+- reliability during realtime operation
+- compatibility with existing MIDI hardware and software
+- MIDI 1.0 and MIDI 2.0 interoperability
+
+### Future Decision
+
+No MIDI-over-Ethernet protocol is selected yet.
+
+The final protocol and implementation should be chosen after the relevant specifications have been researched and tested against BroTracker's realtime requirements and the capabilities of Teensy 4.1.
+
+## D0049 — Manufacturer-Supplied Proprietary Instrument Modules
+
+BroTracker should allow hardware manufacturers to provide their own instrument modules for communication with their devices.
+
+A manufacturer may use a proprietary protocol for transferring device state, patches, banks or other instrument-specific data. The protocol and its implementation do not need to be open source or publicly documented.
+
+Instead, BroTracker will define a public interface and technical specification that manufacturer-supplied modules must follow.
+
+This allows a manufacturer to develop, distribute or sell a closed module together with its synthesizer or other hardware while keeping the proprietary communication protocol private.
+
+### Precompiled Modules
+
+Manufacturer-supplied implementations may be distributed as precompiled modules.
+
+BroTracker does not need access to the module's source code or the internal manufacturer protocol. The module only needs to implement the BroTracker module interface and follow its technical and runtime requirements.
+
+The interface should provide the functionality required for communication between BroTracker and the external instrument, including where applicable:
+
+- device identification and compatibility
+- device capability reporting
+- External Instrument State capture and restore
+- patch and bank transfer
+- instrument initialization
+- MIDI or other supported device communication
+
+The exact module API, binary format, loading mechanism and compatibility rules remain future design decisions.
+
+### BroTracker Requirements
+
+A proprietary module must not bypass BroTracker's architectural and realtime requirements.
+
+Manufacturer modules must follow the BroTracker specification for:
+
+- memory and resource limits
+- realtime behaviour
+- communication with the BroTracker core
+- supported module lifecycle
+- error handling and failure isolation
+- compatibility with the target platform
+
+The BroTracker core should not require knowledge of the manufacturer's proprietary protocol.
+
+### Manufacturer Cooperation
+
+Where possible, the BroTracker project should actively cooperate with hardware manufacturers interested in supporting their devices.
+
+This cooperation may include defining and testing the software interface, hardware communication requirements, module behaviour and compatibility with BroTracker.
+
+A manufacturer may keep its device protocol and module implementation proprietary while still providing first-class BroTracker integration through the published BroTracker module specification.
+
+BroTracker's own core and official open-source components remain governed by the project's open-source license. Support for a proprietary manufacturer module does not require the manufacturer's proprietary implementation or protocol to become part of the BroTracker source code.
+
+## D0050 — Open Core, Open Ecosystem
+
+BroTracker itself is an open-source project licensed under GPLv3.
+
+The BroTracker ecosystem, however, should be open to both open-source and proprietary extensions.
+
+BroTracker should provide documented and stable interfaces that allow third parties to develop instruments, synthesizers, hardware integrations and other compatible modules without requiring those third parties to publish their own source code or intellectual property.
+
+A BroTracker extension may therefore be:
+
+- open-source or closed-source
+- free or commercial
+- developed by the BroTracker community
+- developed by an independent developer
+- developed by a hardware or software manufacturer
+
+The choice belongs to the developer of the extension.
+
+### One Ecosystem
+
+BroTracker should not treat commercial and community development as competing models.
+
+An independent developer should be able to create and freely distribute a BroTracker synthesizer.
+
+A hardware manufacturer should be able to provide an official proprietary instrument module for its synthesizer.
+
+A software company should be able to develop and sell a commercial BroTracker instrument while protecting its DSP algorithms and other intellectual property.
+
+All of these should be first-class participants in the BroTracker ecosystem as long as they follow the published BroTracker interfaces and technical requirements.
+
+### Public Interface, Private Implementation
+
+BroTracker's interfaces and specifications should be publicly documented.
+
+Third-party implementations using those interfaces do not need to expose their internal implementation.
+
+The boundary between BroTracker and third-party modules must therefore be designed so that proprietary modules can be supported without requiring proprietary code to become part of the BroTracker core.
+
+The exact technical and licensing mechanism for this boundary must be established before the third-party module ABI is finalized.
+
+### Project Principle
+
+BroTracker should remain open-source without requiring everything built around BroTracker to be open-source.
+
+The goal is to create an ecosystem that is useful to users, attractive to independent developers and practical for commercial hardware and software manufacturers.
+
+Technical architecture and licensing decisions should avoid unnecessarily excluding any of these groups.
+
+## D0051 — Loadable Code and Extended Memory
+
+BroTracker is expected to support an increasing number of optional features, instruments, device integrations and third-party modules.
+
+The complete implementation of every supported feature should not be required to fit permanently into the Teensy 4.1 firmware flash.
+
+BroTracker should therefore be designed so that optional functionality can eventually be provided as precompiled loadable code where the target platform and available memory architecture allow it.
+
+This may include:
+
+- optional BroTracker functionality
+- instrument and synthesizer modules
+- hardware and manufacturer integrations
+- device-specific support
+- future third-party extensions
+
+### Teensy 4.1 Memory Limits
+
+The reference Teensy 4.1 hardware has limited internal flash and may be equipped with additional external memory such as PSRAM.
+
+BroTracker should make effective use of the available memory hierarchy instead of requiring every possible module to be permanently linked into the main firmware image.
+
+Where technically possible, precompiled code may be loaded from storage into suitable available memory when a module is needed and unloaded when it is no longer required.
+
+This could allow BroTracker to support a larger collection of functionality than can fit simultaneously into the main firmware image.
+
+### Implementation Not Yet Decided
+
+The exact implementation has not yet been selected.
+
+Before introducing loadable executable modules, the project must evaluate:
+
+- which Teensy 4.1 memory regions can safely and efficiently be used for loaded code
+- whether external PSRAM is suitable for any part of this mechanism
+- executable-code requirements and limitations of the i.MX RT1062
+- module loading and relocation
+- memory allocation and fragmentation
+- module lifecycle and unloading
+- performance and realtime behaviour
+- failure isolation
+- module compatibility and versioning
+- interaction with the future BroTracker module ABI
+
+The implementation may use different strategies for different types of modules.
+
+BroTracker should therefore not assume that all precompiled modules will be loaded or executed from the same type of memory.
+
+The final design will be selected only after the relevant Teensy 4.1 and i.MX RT1062 hardware capabilities have been researched, implemented experimentally and measured.
+
+## D0052 — Platform Compatibility and Resource Visibility
+
+BroTracker may eventually run its complete engine and application logic on platforms other than Teensy 4.1.
+
+Future versions may therefore support modules, instruments and features that use resources or platform capabilities unavailable on the Teensy 4.1 reference hardware.
+
+BroTracker should allow such platform-specific functionality without pretending that it remains compatible with Teensy hardware.
+
+### Teensy Compatibility
+
+Teensy 4.1 remains an important reference target for BroTracker.
+
+The system should be able to determine whether the modules and functionality used by a Tune can run on the Teensy configuration for which the Tune is being prepared.
+
+Where practical, BroTracker should track relevant resource requirements such as:
+
+- firmware or loadable-code requirements
+- RAM and extended-memory requirements
+- required hardware capabilities
+- required platform or operating system
+- module and instrument compatibility
+
+The exact resource accounting system will be designed later.
+
+### Resource Visibility in the UI
+
+The UI/UX should provide a clear overview of the resources and compatibility requirements of the currently loaded Tune and its modules.
+
+When working with a Teensy-compatible target, the user should be able to see whether additional modules can still be loaded within the available hardware limits.
+
+If a module cannot fit within the selected Teensy hardware configuration, BroTracker should clearly report that limitation rather than allowing the user to unknowingly create a Tune that cannot run on the target hardware.
+
+The exact UI representation is a future UI/UX decision.
+
+### Platform-Specific Modules
+
+BroTracker may support modules that are available only on a specific platform.
+
+For example, a future instrument may be designed exclusively for the Windows version of BroTracker and may have no Teensy-compatible implementation.
+
+Such modules are valid parts of the BroTracker ecosystem, but their platform requirements must be explicitly declared.
+
+The UI must clearly identify platform-specific modules before they are loaded or used.
+
+For example:
+
+> **Windows only — this module is not available on Teensy hardware.**
+
+A Tune using such a module must also be clearly identified as no longer fully compatible with the Teensy target unless a compatible alternative is available.
+
+### Compatibility Must Be Explicit
+
+BroTracker should never silently hide the difference between portable and platform-specific functionality.
+
+A module should declare the platforms and hardware configurations it supports, and BroTracker should use this information when presenting modules, loading Tunes and checking target compatibility.
+
+Future desktop or other high-resource versions of BroTracker may exceed the capabilities of Teensy 4.1, but this must not make Teensy compatibility ambiguous.
+
+Users should always be able to determine whether a Tune is:
+
+- compatible with the selected Teensy hardware target
+- compatible only with another supported platform
+- using functionality that requires replacement before it can run on Teensy
+
+The exact module metadata, compatibility model, resource accounting and UI presentation remain future design decisions.
