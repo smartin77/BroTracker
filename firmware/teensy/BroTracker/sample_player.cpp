@@ -52,6 +52,37 @@ namespace BroTracker
         slot.state = StreamState::Priming;
     }
 
+    bool SamplePlayer::PromoteNextStream()
+    {
+        if (!next_stream_.open || next_stream_.state != StreamState::Primed)
+            return false;
+
+        // Publish Idle first so update() cannot consume the current slot
+        // while its file and buffered state are being replaced.
+        current_stream_.state = StreamState::Idle;
+        ReleaseSlot(current_stream_);
+
+        current_stream_.info = std::move(next_stream_.info);
+        current_stream_.open = next_stream_.open;
+        current_stream_.ring_write_index = next_stream_.ring_write_index;
+        current_stream_.ring_read_index = next_stream_.ring_read_index;
+        current_stream_.eof = next_stream_.eof;
+        current_stream_.frames_read = next_stream_.frames_read;
+        current_stream_.underrun_count = next_stream_.underrun_count;
+        current_stream_.diagnostics = next_stream_.diagnostics;
+
+        for (std::uint32_t i = 0; i < kRingBufferFrames; ++i)
+            current_stream_.ring_buffer[i] = next_stream_.ring_buffer[i];
+
+        next_stream_.open = false;
+        ResetSlot(next_stream_);
+
+        // State is published last. StartStream() can now enter Playing
+        // without another seek, refill, or priming cycle.
+        current_stream_.state = StreamState::Primed;
+        return true;
+    }
+
     void SamplePlayer::PlayStream()
     {
         StreamSlot& slot = current_stream_;

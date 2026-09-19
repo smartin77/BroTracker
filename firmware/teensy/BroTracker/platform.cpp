@@ -192,9 +192,9 @@ namespace
             Serial.print("Test stream B: underrun count = ");
             Serial.println(g_sample_player_b.StreamUnderrunCount());
 
-            // ServiceStreaming() above already closed the SD files for the
-            // finished stream, so the SD interface is clean at this point.
-            DiagnosticBlink(3);
+            // Keep the prebuffered Test2 -> Test3 transition free of blinking.
+            if (g_test_playback_state != TestPlaybackState::Test2)
+                DiagnosticBlink(3);
 
             if (g_test_playback_state == TestPlaybackState::Test1)
             {
@@ -207,12 +207,20 @@ namespace
             }
             else if (g_test_playback_state == TestPlaybackState::Test2)
             {
-                g_test_playback_state = TestPlaybackState::Test3;
+                if (g_sample_player_a.PromoteNextStream())
+                {
+                    g_sample_player_a.StartStream();
+                    g_test_playback_state = TestPlaybackState::Test3;
+                    g_stream_was_playing = true;
+                    g_stream_finished_reported = false;
 
-                g_stream_was_playing = false;
-                g_stream_finished_reported = false;
-
-                OpenAndPlayStream(g_sample_player_a, kTest3SamplePath);
+                    Serial.println("Test stream: promoted prebuffered next stream");
+                }
+                else
+                {
+                    g_test_playback_state = TestPlaybackState::Done;
+                    Serial.println("Test stream: next stream promotion failed");
+                }
             }
             else if (g_test_playback_state == TestPlaybackState::Test3)
             {

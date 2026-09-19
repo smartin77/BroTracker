@@ -49,6 +49,11 @@ namespace BroTracker
         // from a non-realtime context.
         void SetNextStream(WavStreamInfo&& info);
 
+        // Replaces the current stream with an already primed next stream.
+        // Closes the old current file but performs no read, seek, or refill.
+        // Call only from a non-realtime context.
+        bool PromoteNextStream();
+
         // Restarts stream playback from the first PCM frame. Playback does
         // not begin until ServiceStreaming() has buffered an initial
         // refill chunk (head cache), followed by StartStream(). Seeks the
