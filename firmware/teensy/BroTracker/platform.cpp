@@ -38,6 +38,11 @@ namespace
     const char kTest2SamplePath[] = "Samples/test2.wav";
     const char kTest3SamplePath[] = "Samples/test3.wav";
 
+    constexpr float kTest1SourceBpm = 137.915757f;
+    constexpr float kTargetBpm = 155.0f;
+    constexpr float kTest1PlaybackRate =
+        kTargetBpm / kTest1SourceBpm;
+
     constexpr unsigned int kSimultaneousTestLoops = 4;
 
     enum class TestPlaybackState
@@ -57,8 +62,15 @@ namespace
     // relies on the public IsStreamPlaying() transitioning true -> false).
     bool g_stream_was_playing = false;
     bool g_stream_finished_reported = false;
+    bool g_next_stream_open_attempted = false;
+    bool g_next_stream_primed_reported = false;
+    bool g_simultaneous_next_open_attempted = false;
+    bool g_simultaneous_next_primed_reported = false;
 
-    bool OpenAndPlayStream(SamplePlayer& player, const char* path)
+    bool OpenAndPlayStream(
+        SamplePlayer& player,
+        const char* path,
+        float playback_rate = 1.0f)
     {
         WavStreamInfo info;
 
@@ -73,6 +85,14 @@ namespace
         Serial.println(path);
 
         player.SetStream(std::move(info));
+
+        if (!player.SetStreamPlaybackRate(playback_rate))
+        {
+            Serial.print("Test stream: failed to set playback rate for ");
+            Serial.println(path);
+            return false;
+        }
+
         player.PlayStream();
 
         Serial.print("Test stream: playback armed ");
@@ -123,7 +143,16 @@ namespace
 
         DiagnosticLog("Playback engine initialized");
         DiagnosticLog("Storage initialized");
-        OpenAndPlayStream(g_sample_player_a, kTest1SamplePath);
+        Serial.print("Test stream: Test1 source BPM = ");
+        Serial.print(kTest1SourceBpm, 6);
+        Serial.print(", target BPM = ");
+        Serial.print(kTargetBpm, 1);
+        Serial.print(", playback rate = ");
+        Serial.println(kTest1PlaybackRate, 6);
+        OpenAndPlayStream(
+            g_sample_player_a,
+            kTest1SamplePath,
+            kTest1PlaybackRate);
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }
@@ -154,6 +183,67 @@ namespace
             g_sample_player_a.StartStream();
         }
 
+        if (g_test_playback_state == TestPlaybackState::Test2 &&
+            g_sample_player_a.IsStreamPlaying())
+        {
+            if (!g_next_stream_open_attempted)
+            {
+                g_next_stream_open_attempted = true;
+
+                WavStreamInfo next_info;
+                if (OpenWavPcmStream(kTest3SamplePath, next_info))
+                    g_sample_player_a.SetNextStream(std::move(next_info));
+            }
+
+            if (!g_next_stream_primed_reported &&
+                g_sample_player_a.IsNextStreamPrimed())
+            {
+                g_next_stream_primed_reported = true;
+                Serial.println("Test stream: next stream primed while current is playing");
+            }
+        }
+
+        const bool simultaneous_pair_playing =
+            g_sample_player_a.IsStreamPlaying() &&
+            g_sample_player_b.IsStreamPlaying();
+
+        const bool simultaneous_iteration_needs_next =
+            g_simultaneous_test_loop + 1 < kSimultaneousTestLoops;
+
+        if (g_test_playback_state == TestPlaybackState::SimultaneousTest &&
+            simultaneous_iteration_needs_next &&
+            simultaneous_pair_playing)
+        {
+            if (!g_simultaneous_next_open_attempted)
+            {
+                g_simultaneous_next_open_attempted = true;
+
+                WavStreamInfo next_info_a;
+                WavStreamInfo next_info_b;
+
+                if (OpenWavPcmStream(kTest2SamplePath, next_info_a) &&
+                    OpenWavPcmStream(kTest3SamplePath, next_info_b))
+                {
+                    g_sample_player_a.SetNextStream(std::move(next_info_a));
+                    g_sample_player_b.SetNextStream(std::move(next_info_b));
+                }
+                else
+                {
+                    g_test_playback_state = TestPlaybackState::Done;
+                    Serial.println("Test stream: simultaneous next stream preparation failed");
+                }
+            }
+
+            if (!g_simultaneous_next_primed_reported &&
+                g_sample_player_a.IsNextStreamPrimed() &&
+                g_sample_player_b.IsNextStreamPrimed())
+            {
+                g_simultaneous_next_primed_reported = true;
+                Serial.print("Test stream: simultaneous next streams primed for iteration ");
+                Serial.println(g_simultaneous_test_loop + 2);
+            }
+        }
+
         if (g_sample_player_a.IsStreamPlaying() || g_sample_player_b.IsStreamPlaying())
         {
             g_stream_was_playing = true;
@@ -170,10 +260,6 @@ namespace
             Serial.print("Test stream B: underrun count = ");
             Serial.println(g_sample_player_b.StreamUnderrunCount());
 
-            // ServiceStreaming() above already closed the SD files for the
-            // finished stream, so the SD interface is clean at this point.
-            DiagnosticBlink(3);
-
             if (g_test_playback_state == TestPlaybackState::Test1)
             {
                 g_test_playback_state = TestPlaybackState::Test2;
@@ -185,12 +271,20 @@ namespace
             }
             else if (g_test_playback_state == TestPlaybackState::Test2)
             {
-                g_test_playback_state = TestPlaybackState::Test3;
+                if (g_sample_player_a.PromoteNextStream())
+                {
+                    g_sample_player_a.StartStream();
+                    g_test_playback_state = TestPlaybackState::Test3;
+                    g_stream_was_playing = true;
+                    g_stream_finished_reported = false;
 
-                g_stream_was_playing = false;
-                g_stream_finished_reported = false;
-
-                OpenAndPlayStream(g_sample_player_a, kTest3SamplePath);
+                    Serial.println("Test stream: promoted prebuffered next stream");
+                }
+                else
+                {
+                    g_test_playback_state = TestPlaybackState::Done;
+                    Serial.println("Test stream: next stream promotion failed");
+                }
             }
             else if (g_test_playback_state == TestPlaybackState::Test3)
             {
@@ -208,11 +302,28 @@ namespace
 
                 if (g_simultaneous_test_loop < kSimultaneousTestLoops)
                 {
-                    g_stream_was_playing = false;
-                    g_stream_finished_reported = false;
+                    if (g_simultaneous_next_primed_reported &&
+                        g_sample_player_a.IsNextStreamPrimed() &&
+                        g_sample_player_b.IsNextStreamPrimed() &&
+                        g_sample_player_a.PromoteNextStream() &&
+                        g_sample_player_b.PromoteNextStream())
+                    {
+                        g_sample_player_a.StartStream();
+                        g_sample_player_b.StartStream();
 
-                    OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
-                    OpenAndPlayStream(g_sample_player_b, kTest3SamplePath);
+                        g_stream_was_playing = true;
+                        g_stream_finished_reported = false;
+                        g_simultaneous_next_open_attempted = false;
+                        g_simultaneous_next_primed_reported = false;
+
+                        Serial.print("Test stream: promoted simultaneous streams for iteration ");
+                        Serial.println(g_simultaneous_test_loop + 1);
+                    }
+                    else
+                    {
+                        g_test_playback_state = TestPlaybackState::Done;
+                        Serial.println("Test stream: simultaneous next stream promotion failed");
+                    }
                 }
                 else
                 {
