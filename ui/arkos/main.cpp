@@ -63,6 +63,37 @@ int main(int, char*[])
 
     LogInfo("BroTracker framebuffer displayed.");
 
+    SDL_GameController* game_controller = nullptr;
+    SDL_Joystick* joystick = nullptr;
+    const bool input_subsystems_initialized =
+        SDL_InitSubSystem(
+            SDL_INIT_GAMECONTROLLER |
+            SDL_INIT_JOYSTICK) == 0;
+
+    if (input_subsystems_initialized)
+    {
+        for (int device_index = 0;
+             device_index < SDL_NumJoysticks();
+             ++device_index)
+        {
+            if (SDL_IsGameController(device_index))
+            {
+                game_controller =
+                    SDL_GameControllerOpen(device_index);
+
+                if (game_controller != nullptr)
+                    break;
+            }
+            else
+            {
+                joystick = SDL_JoystickOpen(device_index);
+
+                if (joystick != nullptr)
+                    break;
+            }
+        }
+    }
+
     bool quit_requested = false;
 
     while (!quit_requested)
@@ -71,7 +102,10 @@ int main(int, char*[])
 
         while (SDL_PollEvent(&event) != 0)
         {
-            if (event.type == SDL_QUIT)
+            if (event.type == SDL_QUIT ||
+                event.type == SDL_KEYDOWN ||
+                event.type == SDL_CONTROLLERBUTTONDOWN ||
+                event.type == SDL_JOYBUTTONDOWN)
             {
                 quit_requested = true;
                 break;
@@ -79,6 +113,19 @@ int main(int, char*[])
         }
 
         SDL_Delay(16);
+    }
+
+    if (game_controller != nullptr)
+        SDL_GameControllerClose(game_controller);
+
+    if (joystick != nullptr)
+        SDL_JoystickClose(joystick);
+
+    if (input_subsystems_initialized)
+    {
+        SDL_QuitSubSystem(
+            SDL_INIT_GAMECONTROLLER |
+            SDL_INIT_JOYSTICK);
     }
 
     return 0;
