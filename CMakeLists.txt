@@ -4,6 +4,12 @@ project(BroTracker)
 
 set(CMAKE_CXX_STANDARD 17)
 
+option(
+    BROTRACKER_BUILD_ARKOS_UI
+    "Build the SDL2 ArkOS/Linux UI client"
+    OFF
+)
+
 # Platform-independent tracker core, shared by the UI executable and tests.
 add_library(BroTrackerCore STATIC
     src/core/logger.cpp
@@ -34,6 +40,46 @@ add_executable(BroTrackerUIPreview
 
 target_link_libraries(BroTrackerUIPreview PRIVATE BroTrackerCore)
 target_include_directories(BroTrackerUIPreview PRIVATE src)
+
+if(BROTRACKER_BUILD_ARKOS_UI)
+    find_package(SDL2 CONFIG QUIET)
+
+    if(TARGET SDL2::SDL2)
+        set(BROTRACKER_SDL2_TARGET SDL2::SDL2)
+        if(TARGET SDL2::SDL2main)
+            set(BROTRACKER_SDL2_MAIN_TARGET SDL2::SDL2main)
+        endif()
+    elseif(TARGET SDL2::SDL2-static)
+        set(BROTRACKER_SDL2_TARGET SDL2::SDL2-static)
+        if(TARGET SDL2::SDL2main)
+            set(BROTRACKER_SDL2_MAIN_TARGET SDL2::SDL2main)
+        endif()
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+        set(BROTRACKER_SDL2_TARGET PkgConfig::SDL2)
+    endif()
+
+    add_executable(BroTrackerArkOSUI
+        ui/arkos/main.cpp
+        ui/sdl/sdl_display_backend.cpp
+        src/ui/font.cpp
+        src/ui/text_renderer.cpp
+        src/ui/pattern_screen.cpp
+        src/renderer/framebuffer.cpp
+    )
+
+    target_link_libraries(BroTrackerArkOSUI PRIVATE
+        BroTrackerCore
+        ${BROTRACKER_SDL2_MAIN_TARGET}
+        ${BROTRACKER_SDL2_TARGET}
+    )
+
+    target_include_directories(BroTrackerArkOSUI PRIVATE
+        src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+endif()
 
 enable_testing()
 
