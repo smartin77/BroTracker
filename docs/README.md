@@ -19,5 +19,6 @@ Project documentation is located in the `docs` directory.
 - [BroTracker File Formats](./FILE_FORMATS.md)
 - [Reference Engines](./REFERENCE_ENGINES.md)
 - [Reference SD Card](./REFERENCE_SD_CARD.md)
+- [Platform Deployment](./PLATFORM_DEPLOYMENT.md)
 - [Roadmap](./ROADMAP.md)
 - [TODO List](./TODO_LIST.md)
