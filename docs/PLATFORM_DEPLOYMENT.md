@@ -84,26 +84,36 @@ Exact controller and launcher integration remains under active bring-up.
 ## Application Location
 
 The current development checkout may live under a user's home directory.
-This is appropriate for development but should not become a deployment
-requirement.
+This is appropriate for development but is not the deployment location.
 
-BroTracker should not depend on fixed paths such as:
+On Linux systems, the canonical BroTracker application root is:
+
+    /opt/BroTracker
+
+BroTracker must not depend directly on platform-specific locations such as:
 
 - `/home/ark/BroTracker`
 - `/roms`
 - `/roms/ports`
 - `/ports`
-- `/opt/brotracker`
 
-The physical installation path is a platform/deployment concern.
+The physical storage backing `/opt/BroTracker` may differ between platforms.
 
-A stable logical installation root such as /opt/BroTracker is being considered. The physical storage backing this path may differ by platform. On ArkOS it could map to persistent Ports/EASYROMS storage, while another Linux environment could provide it directly or mount a dedicated filesystem there.
+On a conventional Linux installation, BroTracker may be installed directly
+under `/opt/BroTracker`.
 
-Application resources should be addressable relative to an installation root
-or through paths supplied by the platform layer or launcher.
+On platforms such as ArkOS, the actual BroTracker files may reside on
+persistent storage such as the Ports/EASYROMS filesystem. The platform
+installation process may then expose that installation through
+`/opt/BroTracker`, for example by using an appropriate filesystem mapping or
+symbolic link.
 
-This allows the same BroTracker application layout to be placed differently
-on ArkOS, another Linux distribution or a future dedicated BroTracker system.
+This keeps the application-visible path stable while allowing each platform
+to choose the physical storage appropriate for its environment.
+
+Application resources should therefore be addressed relative to
+`/opt/BroTracker` rather than through ArkOS-specific, distribution-specific
+or user-home paths.
 
 ## Persistent Storage
 
@@ -158,50 +168,41 @@ or partitions on others.
 
 BroTracker should not require them to share the same physical location.
 
-## Relocatable Deployment
+## Platform Storage Mapping
 
-A desirable deployment property is that a BroTracker installation can be
-relocated without recompiling the application or changing core logic.
+The BroTracker application uses `/opt/BroTracker` as its canonical Linux
+application root.
 
-A conceptual package could contain:
+This does not require the application files to be physically stored on the
+root filesystem.
 
-    BroTracker/
+A platform may map `/opt/BroTracker` to another storage location when
+appropriate. This allows platforms with persistent user or application
+storage outside the root filesystem to keep BroTracker there while preserving
+the same application-visible layout.
+
+A conceptual installation may contain:
+
+    /opt/BroTracker/
         bin/
         assets/
         modules/
 
-Persistent data may either live below the same installation root or be
-provided through a separate data root.
-
-The final directory structure is not yet decided.
+The mapping mechanism is a platform deployment responsibility and must remain
+transparent to BroTracker application logic.
 
 ## Dedicated Boot-Only System
 
-A future BroTracker-oriented boot-only Linux system remains a possible target.
+A dedicated BroTracker system should use the same `/opt/BroTracker`
+application root exposed to BroTracker.
 
-Such a system should not need to imitate ArkOS directory conventions merely
-for compatibility with BroTracker.
+Its physical implementation may differ from a conventional Linux
+installation. For example, `/opt/BroTracker` could be backed by a dedicated
+filesystem or other application storage while persistent user data resides
+separately.
 
-For example, a dedicated system could keep application files in a read-only
-system area while keeping user data on a separate persistent filesystem.
-
-Conceptually:
-
-    system/application storage
-        BroTracker executable
-        bundled assets
-        system modules
-
-    persistent data storage
-        projects
-        samples
-        configuration
-        user-installed content
-
-The actual mount points and partition layout remain future decisions.
-
-The important goal is that BroTracker itself does not require ArkOS-specific
-filesystem paths.
+The dedicated system therefore does not need to reproduce ArkOS directory
+conventions such as `/roms` or `/roms/ports`.
 
 ## Recovery and Reinstallation
 
@@ -218,14 +219,14 @@ less risky for user-created content.
 
 The following areas remain intentionally undecided:
 
-- final ArkOS package layout;
+- physical backing location for `/opt/BroTracker` on each supported platform;
+- mechanism used to expose persistent platform storage as `/opt/BroTracker`;
 - whether application binaries and persistent data share the same storage;
 - exact configuration directory;
 - module installation locations;
 - handling of read-only application storage;
 - boot-only system partition layout;
 - package/update mechanism;
-- platform discovery of installation and data roots;
 - migration between ArkOS, dArkOS and future BroTracker systems.
 
 These questions should be resolved from further implementation and hardware
