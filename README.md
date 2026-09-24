@@ -68,3 +68,6 @@ BroTracker is developed as an open-source community project. Contributions, idea
 BroTracker is licensed under the GNU General Public License v3.0 (or later).
 
 See the `LICENSE` file for details.
+
+Disclaimer:
+"Try to avoid developing on Windows! I liked Windows 11 until I started developing real apps on this piece of shit!"
