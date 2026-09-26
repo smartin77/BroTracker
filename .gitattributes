@@ -1,0 +1,4 @@
+tools/arkos/*.sh text eol=lf
+deploy/arkos/*.sh text eol=lf
+assets/fonts/*.btf text eol=lf
+deploy/arkos/assets/fonts/*.btf text eol=lf
