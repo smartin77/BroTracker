@@ -73,6 +73,9 @@ namespace BroTracker
         // playback state; it performs no SD I/O.
         void StartStream();
 
+        // Main-loop only: stop current/queued streams and release both files.
+        void StopStreams();
+
         bool IsStreamPlaying() const { return current_stream_.state == StreamState::Playing; }
         bool IsStreamPrimed() const { return current_stream_.state == StreamState::Primed; }
         bool IsNextStreamPrimed() const { return next_stream_.state == StreamState::Primed; }

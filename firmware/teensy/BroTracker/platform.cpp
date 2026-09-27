@@ -10,6 +10,7 @@
 #include <SD.h>
 #include <scheduler.h>
 #include <utility>
+#include <cstring>
 
 namespace BroTracker
 {
@@ -51,7 +52,9 @@ namespace
         Test2,
         Test3,
         SimultaneousTest,
-        Done
+        Done,
+        Idle,
+        Error
     };
 
     TestPlaybackState g_test_playback_state = TestPlaybackState::Test1;
@@ -99,6 +102,93 @@ namespace
         Serial.println(path);
 
         return true;
+    }
+
+    // TEMPORARY USB CDC bring-up exchange, not the tracker protocol.
+    // All parsing, USB writes and SD operations run in KernelRun/KernelInit.
+    void StopSequence()
+    {
+        g_sample_player_a.StopStreams();
+        g_sample_player_b.StopStreams();
+        g_test_playback_state = TestPlaybackState::Idle;
+        g_stream_was_playing = false;
+        g_stream_finished_reported = false;
+    }
+
+    void FailSequence()
+    {
+        StopSequence();
+        g_test_playback_state = TestPlaybackState::Error;
+        Serial.println("BTTEST1 ERROR playback");
+    }
+
+    bool StartSequence()
+    {
+        StopSequence();
+        g_simultaneous_test_loop = 0;
+        g_next_stream_open_attempted = false;
+        g_next_stream_primed_reported = false;
+        g_simultaneous_next_open_attempted = false;
+        g_simultaneous_next_primed_reported = false;
+        g_test_playback_state = TestPlaybackState::Test1;
+        if (!OpenAndPlayStream(g_sample_player_a, kTest1SamplePath, kTest1PlaybackRate))
+        {
+            FailSequence();
+            return false;
+        }
+        return true;
+    }
+
+    void ReportSequence()
+    {
+        switch (g_test_playback_state)
+        {
+        case TestPlaybackState::Done: Serial.println("BTTEST1 STATE DONE"); break;
+        case TestPlaybackState::Idle: Serial.println("BTTEST1 STATE IDLE"); break;
+        case TestPlaybackState::Error: Serial.println("BTTEST1 STATE ERROR"); break;
+        default: Serial.println("BTTEST1 STATE PLAYING"); break;
+        }
+    }
+
+    void ServiceBringUpSerial()
+    {
+        static char line[64];
+        static unsigned int used = 0;
+        static bool overflow = false;
+        if (!Serial)
+        {
+            used = 0;
+            overflow = false;
+            return;
+        }
+        // Bounded work leaves time for SD refill, even with noisy input.
+        for (unsigned int budget = 0; budget < 128 && Serial.available(); ++budget)
+        {
+            const char c = static_cast<char>(Serial.read());
+            if (c == '\r') continue;
+            if (c != '\n')
+            {
+                if (used + 1 < sizeof(line)) line[used++] = c;
+                else overflow = true;
+                continue;
+            }
+            line[used] = '\0';
+            if (overflow) Serial.println("BTTEST1 ERROR line-too-long");
+            else if (std::strcmp(line, "BTTEST1 HELLO") == 0 ||
+                     std::strcmp(line, "BTTEST1 STATUS") == 0) ReportSequence();
+            else if (std::strcmp(line, "BTTEST1 START") == 0)
+            {
+                if (StartSequence()) Serial.println("BTTEST1 STARTED");
+            }
+            else if (std::strcmp(line, "BTTEST1 STOP") == 0)
+            {
+                StopSequence();
+                Serial.println("BTTEST1 STOPPED");
+            }
+            else Serial.println("BTTEST1 ERROR command");
+            used = 0;
+            overflow = false;
+        }
     }
 
 #if defined(AUDIO_INTERFACE)
@@ -149,10 +239,7 @@ namespace
         Serial.print(kTargetBpm, 1);
         Serial.print(", playback rate = ");
         Serial.println(kTest1PlaybackRate, 6);
-        OpenAndPlayStream(
-            g_sample_player_a,
-            kTest1SamplePath,
-            kTest1PlaybackRate);
+        StartSequence();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }
@@ -162,6 +249,8 @@ namespace
         // Kernel main loop.
         // Audio block processing and Scheduler advancement happen in
         // AudioTestSource::update(), driven by the Teensy Audio Library.
+
+        ServiceBringUpSerial();
 
         // SD refill for the streaming sample path; never called from
         // AudioStream::update() or any other realtime/audio callback.
@@ -229,7 +318,7 @@ namespace
                 }
                 else
                 {
-                    g_test_playback_state = TestPlaybackState::Done;
+                    FailSequence();
                     Serial.println("Test stream: simultaneous next stream preparation failed");
                 }
             }
@@ -267,7 +356,8 @@ namespace
                 g_stream_was_playing = false;
                 g_stream_finished_reported = false;
 
-                OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
+                if (!OpenAndPlayStream(g_sample_player_a, kTest2SamplePath))
+                    FailSequence();
             }
             else if (g_test_playback_state == TestPlaybackState::Test2)
             {
@@ -282,7 +372,7 @@ namespace
                 }
                 else
                 {
-                    g_test_playback_state = TestPlaybackState::Done;
+                    FailSequence();
                     Serial.println("Test stream: next stream promotion failed");
                 }
             }
@@ -293,8 +383,9 @@ namespace
                 g_stream_was_playing = false;
                 g_stream_finished_reported = false;
 
-                OpenAndPlayStream(g_sample_player_a, kTest2SamplePath);
-                OpenAndPlayStream(g_sample_player_b, kTest3SamplePath);
+                if (!OpenAndPlayStream(g_sample_player_a, kTest2SamplePath) ||
+                    !OpenAndPlayStream(g_sample_player_b, kTest3SamplePath))
+                    FailSequence();
             }
             else if (g_test_playback_state == TestPlaybackState::SimultaneousTest)
             {
@@ -321,7 +412,7 @@ namespace
                     }
                     else
                     {
-                        g_test_playback_state = TestPlaybackState::Done;
+                        FailSequence();
                         Serial.println("Test stream: simultaneous next stream promotion failed");
                     }
                 }
@@ -330,6 +421,7 @@ namespace
                     g_test_playback_state = TestPlaybackState::Done;
 
                     Serial.println("Test stream: simultaneous playback finished");
+                    Serial.println("BTTEST1 DONE");
                     DiagnosticBlink(3);
                 }
             }
