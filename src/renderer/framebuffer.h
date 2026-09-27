@@ -25,6 +25,7 @@ public:
 
     std::uint32_t Width() const;
     std::uint32_t Height() const;
+    const Color* PixelData() const;
 
     void Clear(Color color);
 

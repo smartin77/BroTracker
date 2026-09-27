@@ -30,6 +30,11 @@ std::uint32_t Framebuffer::Height() const
     return height;
 }
 
+const Color* Framebuffer::PixelData() const
+{
+    return pixels.data();
+}
+
 void Framebuffer::Clear(Color color)
 {
     for (auto& pixel : pixels)
