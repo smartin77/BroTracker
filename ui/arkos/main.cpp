@@ -308,6 +308,14 @@ int main(int, char*[])
             }
         }
 
+        if (!quit_requested && !display.Present(framebuffer))
+        {
+            WriteSdlFailure(
+                bring_up_log,
+                "event-loop framebuffer Present: failure");
+            quit_requested = true;
+        }
+
         SDL_Delay(16);
     }
 
