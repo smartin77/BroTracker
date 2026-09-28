@@ -11,6 +11,8 @@
 
 #include <cstdio>
 
+#include "bringup_serial.h"
+
 #include "core/constants.h"
 #include "core/logger.h"
 #include "core/tune_loader.h"
@@ -282,7 +284,29 @@ int main(int, char*[])
             "controller/joystick open result: unavailable");
     }
 
+    BringUpSerial serial(bring_up_log);
     bool quit_requested = false;
+    bool start_requested = false;
+    bool exit_pending = false;
+    Uint32 exit_started = 0;
+    auto request_exit = [&]()
+    {
+        if (exit_pending) return;
+        WriteBringUpDiagnostic(bring_up_log, "exit requested");
+        if (serial.Finished())
+            quit_requested = true;
+        else if (serial.Stop())
+        {
+            exit_pending = true;
+            exit_started = SDL_GetTicks();
+        }
+        else
+        {
+            WriteBringUpDiagnostic(bring_up_log,
+                "exiting disconnected: remote playback cannot be stopped");
+            quit_requested = true;
+        }
+    };
 
     WriteBringUpDiagnostic(
         bring_up_log,
@@ -290,30 +314,73 @@ int main(int, char*[])
 
     while (!quit_requested)
     {
-        SDL_Event event;
-
-        while (SDL_PollEvent(&event) != 0)
+        serial.Tick(SDL_GetTicks());
+        if (start_requested && serial.StartCancelled() && !exit_pending)
         {
-            if (event.type == SDL_QUIT ||
-                event.type == SDL_KEYDOWN ||
-                event.type == SDL_CONTROLLERBUTTONDOWN ||
-                event.type == SDL_JOYBUTTONDOWN)
+            // No START bytes reached the device. Allow a fresh first press
+            // after reconnection rather than treating it as a stop/exit press.
+            WriteBringUpDiagnostic(bring_up_log,
+                "START was not sent; waiting for reconnect and a new press");
+            start_requested = false;
+        }
+        if (exit_pending)
+        {
+            if (serial.Stopped())
             {
-                WriteBringUpDiagnostic(
-                    bring_up_log,
-                    "received exit event, SDL event type: ",
-                    static_cast<int>(event.type));
+                WriteBringUpDiagnostic(bring_up_log, "STOP acknowledged; exiting");
                 quit_requested = true;
-                break;
+            }
+            else if (!serial.Connected() || SDL_GetTicks() - exit_started >= 12500)
+            {
+                WriteBringUpDiagnostic(bring_up_log,
+                    "STOP unconfirmed (disconnect/timeout); exiting");
+                quit_requested = true;
             }
         }
+        SDL_Event event;
+
+        while (!quit_requested && SDL_PollEvent(&event) != 0)
+        {
+            if (event.type == SDL_QUIT)
+            {
+                request_exit();
+                break;
+            }
+            // SDL also emits joystick events for mapped controllers. Count
+            // each physical press once, and ignore keyboard auto-repeat.
+            const bool pressed =
+                (event.type == SDL_KEYDOWN && event.key.repeat == 0) ||
+                event.type == SDL_CONTROLLERBUTTONDOWN ||
+                (event.type == SDL_JOYBUTTONDOWN && game_controller == nullptr);
+            if (pressed && !exit_pending)
+            {
+                WriteBringUpDiagnostic(bring_up_log, "input press, SDL event type: ",
+                    static_cast<int>(event.type));
+                if (start_requested)
+                    request_exit();
+                else if (serial.Start())
+                    start_requested = true;
+                else
+                    WriteBringUpDiagnostic(bring_up_log,
+                        "press ignored: waiting for Teensy handshake");
+            }
+        }
+
+        // Temporary bring-up status overlay; leave the tracker layout alone.
+        framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16, 16, 16});
+        DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
+        DrawFixedText(framebuffer, 8, 456,
+            exit_pending ? "Waiting for STOP acknowledgement" :
+            start_requested ? "Press again to stop and exit" :
+            "USB TEST: first connected press starts WAV sequence",
+            Color{255, 255, 255});
 
         if (!quit_requested && !display.Present(framebuffer))
         {
             WriteSdlFailure(
                 bring_up_log,
                 "event-loop framebuffer Present: failure");
-            quit_requested = true;
+            request_exit();
         }
 
         SDL_Delay(16);

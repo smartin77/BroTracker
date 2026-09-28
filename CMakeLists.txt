@@ -62,6 +62,7 @@ if(BROTRACKER_BUILD_ARKOS_UI)
 
     add_executable(BroTrackerArkOSUI
         ui/arkos/main.cpp
+        ui/arkos/bringup_serial.cpp
         ui/sdl/sdl_display_backend.cpp
         src/ui/font.cpp
         src/ui/text_renderer.cpp
@@ -99,3 +100,14 @@ add_test(
     COMMAND BroTrackerTests
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+# Exercise the real nonblocking Linux transport using a pseudo-terminal.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(BroTrackerBringUpSerialTests
+        tests/test_bringup_serial.cpp
+        ui/arkos/bringup_serial.cpp
+    )
+    target_include_directories(BroTrackerBringUpSerialTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME BroTrackerBringUpSerialTests COMMAND BroTrackerBringUpSerialTests)
+    set_tests_properties(BroTrackerBringUpSerialTests PROPERTIES TIMEOUT 20)
+endif()

@@ -132,6 +132,21 @@ namespace BroTracker
             slot.state = StreamState::Playing;
     }
 
+    void SamplePlayer::StopStreams()
+    {
+        // Publish silence before touching buffers/files. Never keep audio
+        // interrupts disabled across SD operations.
+        AudioNoInterrupts();
+        current_stream_.state = StreamState::Idle;
+        next_stream_.state = StreamState::Idle;
+        playing_ = false;
+        AudioInterrupts();
+        ReleaseSlot(current_stream_);
+        ReleaseSlot(next_stream_);
+        ResetSlot(current_stream_);
+        ResetSlot(next_stream_);
+    }
+
     std::uint32_t SamplePlayer::ReadFrames(
         StreamSlot& slot,
         std::int16_t* dest,
