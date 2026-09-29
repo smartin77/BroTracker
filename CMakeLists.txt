@@ -127,4 +127,6 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check.sh
             $<TARGET_FILE:BroTrackerAlsaBridge>)
     set_tests_properties(BroTrackerAlsaBridgeChecks PROPERTIES TIMEOUT 15)
+    add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
+    add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
 endif()

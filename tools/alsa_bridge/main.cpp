@@ -10,6 +10,8 @@
 #include <cstring>
 #include <poll.h>
 #include <stdexcept>
+#include <memory>
+#include "discovery.h"
 
 namespace
 {
@@ -93,6 +95,118 @@ struct Pcm
         snd_output_close(output);
     }
 };
+
+struct Control
+{
+    snd_ctl_t* handle = nullptr;
+    ~Control() { if (handle) snd_ctl_close(handle); }
+};
+
+std::vector<discovery::Endpoint> Enumerate()
+{
+    std::vector<discovery::Endpoint> endpoints;
+    int card = -1;
+    while (!stopped)
+    {
+        Check(snd_card_next(&card), "enumerate ALSA cards");
+        if (card < 0) break;
+        Control control;
+        const std::string ctl_name = "hw:" + std::to_string(card);
+        int result = snd_ctl_open(&control.handle, ctl_name.c_str(), SND_CTL_NONBLOCK);
+        snd_ctl_card_info_t* info;
+        snd_ctl_card_info_alloca(&info);
+        if (result >= 0) result = snd_ctl_card_info(control.handle, info);
+        if (result < 0)
+        {
+            std::fprintf(stderr, "Discovery: %s unavailable: %s\n", ctl_name.c_str(), snd_strerror(result));
+            continue;
+        }
+        const std::string id = snd_ctl_card_info_get_id(info);
+        const std::string name = snd_ctl_card_info_get_name(info);
+        std::fprintf(stderr, "Discovered card %d: ID=%s name=%s\n", card, id.c_str(), name.c_str());
+        for (bool capture : {false, true})
+        {
+            discovery::Endpoint endpoint{card, id, name, "", capture};
+            if (!discovery::Matches(endpoint, capture)) continue;
+            int device = -1;
+            while (!stopped)
+            {
+                result = snd_ctl_pcm_next_device(control.handle, &device);
+                if (result < 0)
+                {
+                    std::fprintf(stderr, "Discovery: %s PCM enumeration failed: %s\n", id.c_str(), snd_strerror(result));
+                    break;
+                }
+                if (device < 0) break;
+                snd_pcm_info_t* pcm_info;
+                snd_pcm_info_alloca(&pcm_info);
+                snd_pcm_info_set_device(pcm_info, device);
+                snd_pcm_info_set_subdevice(pcm_info, 0);
+                snd_pcm_info_set_stream(pcm_info, capture ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK);
+                result = snd_ctl_pcm_info(control.handle, pcm_info);
+                if (result < 0)
+                {
+                    std::fprintf(stderr, "Discovery: %s device %d %s unavailable: %s\n", id.c_str(), device,
+                                 capture ? "capture" : "playback", snd_strerror(result));
+                    continue;
+                }
+                const unsigned int count = snd_pcm_info_get_subdevices_count(pcm_info);
+                for (unsigned int sub = 0; sub < count; ++sub)
+                {
+                    endpoint.pcm = std::string(capture ? "hw:CARD=" : "plughw:CARD=") + id +
+                        ",DEV=" + std::to_string(device) + ",SUBDEV=" + std::to_string(sub);
+                    endpoints.push_back(endpoint);
+                }
+            }
+        }
+    }
+    return endpoints;
+}
+
+void VerifyOpenedIdentity(snd_pcm_t* pcm, const discovery::Endpoint& expected)
+{
+    snd_pcm_info_t* info;
+    snd_pcm_info_alloca(&info);
+    Check(snd_pcm_info(pcm, info), "verify opened PCM identity");
+    const int card = snd_pcm_info_get_card(info);
+    if (card != expected.card) throw std::runtime_error("ALSA card changed during discovery/open");
+    Control control;
+    const std::string name = "hw:" + std::to_string(card);
+    Check(snd_ctl_open(&control.handle, name.c_str(), SND_CTL_NONBLOCK), "recheck selected card");
+    snd_ctl_card_info_t* card_info;
+    snd_ctl_card_info_alloca(&card_info);
+    Check(snd_ctl_card_info(control.handle, card_info), "recheck selected identity");
+    if (expected.id != snd_ctl_card_info_get_id(card_info) ||
+        expected.name != snd_ctl_card_info_get_name(card_info))
+        throw std::runtime_error("ALSA identity changed during discovery/open");
+}
+
+void OpenAutomatic(Pcm& destination, const std::vector<discovery::Endpoint>& endpoints, bool capture)
+{
+    std::unique_ptr<Pcm> winner;
+    const auto selected = discovery::Select(endpoints, capture, [&](const discovery::Endpoint& candidate)
+    {
+        if (stopped) throw std::runtime_error("Discovery interrupted");
+        auto probe = std::make_unique<Pcm>();
+        try
+        {
+            probe->Open(candidate.pcm.c_str(), capture ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK);
+            VerifyOpenedIdentity(probe->handle, candidate);
+        }
+        catch (const std::exception& error)
+        {
+            std::fprintf(stderr, "Rejected %s (ID=%s, name=%s): %s\n", candidate.pcm.c_str(),
+                         candidate.id.c_str(), candidate.name.c_str(), error.what());
+            return false;
+        }
+        if (!winner) winner = std::move(probe);
+        return true;
+    });
+    std::fprintf(stderr, "Selected %s: ID=%s name=%s PCM=%s\n", capture ? "capture" : "playback",
+                 selected.id.c_str(), selected.name.c_str(), selected.pcm.c_str());
+    destination.handle = winner->handle;
+    winner->handle = nullptr;
+}
 
 struct Bridge
 {
@@ -189,11 +303,12 @@ struct Bridge
 int main(int argc, char** argv)
 {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
-    if (argc != 3 || (argc > 1 && std::strcmp(argv[1], "--help") == 0))
+    const bool automatic = argc == 2 && std::strcmp(argv[1], "--auto") == 0;
+    if (!automatic && (argc != 3 || std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "--auto") == 0))
     {
-        std::fprintf(stderr, "Usage: %s CAPTURE_DEVICE PLAYBACK_DEVICE\n"
+        std::fprintf(stderr, "Usage: %s --auto | CAPTURE_DEVICE PLAYBACK_DEVICE\n"
             "Temporary stereo S16_LE 44100 Hz bridge. Use ALSA names, preferably CARD IDs.\n"
-            "Ctrl+C stops without draining. Devices are never selected implicitly.\n", argv[0]);
+            "--auto selects Teensy capture and Rockchip playback by identity. Ctrl+C stops without draining.\n", argv[0]);
         return argc == 2 && std::strcmp(argv[1], "--help") == 0 ? 0 : 2;
     }
     struct sigaction action{};
@@ -208,8 +323,17 @@ int main(int argc, char** argv)
     {
         Bridge bridge;
         // Report a busy output before taking ownership of the USB capture PCM.
-        bridge.playback.Open(argv[2], SND_PCM_STREAM_PLAYBACK);
-        if (!stopped) bridge.capture.Open(argv[1], SND_PCM_STREAM_CAPTURE);
+        if (automatic)
+        {
+            const auto endpoints = Enumerate();
+            if (!stopped) OpenAutomatic(bridge.playback, endpoints, false);
+            if (!stopped) OpenAutomatic(bridge.capture, endpoints, true);
+        }
+        else
+        {
+            bridge.playback.Open(argv[2], SND_PCM_STREAM_PLAYBACK);
+            if (!stopped) bridge.capture.Open(argv[1], SND_PCM_STREAM_CAPTURE);
+        }
         std::fprintf(stderr, "Queue capacity: %lu frames (%lu bytes). "
             "Buffer settings are NOT measured end-to-end latency.\n",
             static_cast<unsigned long>(kQueueFrames),
