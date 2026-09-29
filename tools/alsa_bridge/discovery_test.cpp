@@ -48,6 +48,35 @@ int main()
         int probes = 0;
         discovery::Select(cards, false, [&](const Endpoint&) { ++probes; return true; });
         CHECK(probes == 1);
+        // Regression: identical ID/name must not collapse two cards into one PCM.
+        const Endpoint first{1, "MIDIAudio", "Teensy MIDI/Audio",
+                             discovery::PcmName(1, 0, 0, true), true};
+        const Endpoint second{7, first.id, first.name,
+                              discovery::PcmName(7, 0, 0, true), true};
+        CHECK(first.pcm == "hw:CARD=1,DEV=0,SUBDEV=0");
+        CHECK(second.pcm == "hw:CARD=7,DEV=0,SUBDEV=0");
+        CHECK(first.pcm != second.pcm);
+        CHECK(discovery::PcmName(12, 3, 2, false) == "plughw:CARD=12,DEV=3,SUBDEV=2");
+        for (const auto& viable : {first, second})
+        {
+            std::vector<std::string> probed;
+            const auto selected = discovery::Select({first, second}, true, [&](const Endpoint& e) {
+                probed.push_back(e.pcm);
+                return e.pcm == viable.pcm;
+            });
+            CHECK(selected.card == viable.card);
+            CHECK(probed == std::vector<std::string>({first.pcm, second.pcm}));
+        }
+        bool ambiguous = false;
+        try { discovery::Select({first, second}, true, opens); }
+        catch (const std::runtime_error& e)
+        {
+            const std::string message = e.what();
+            ambiguous = message.find("Ambiguous viable Teensy") != std::string::npos &&
+                        message.find(first.pcm) != std::string::npos &&
+                        message.find(second.pcm) != std::string::npos;
+        }
+        CHECK(ambiguous);
         std::puts("ALSA discovery policy checks passed (simulated inventory/open results)");
         return 0;
     }

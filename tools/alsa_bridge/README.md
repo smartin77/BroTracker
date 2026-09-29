@@ -33,7 +33,9 @@ At startup ALSA control APIs enumerate current cards and PCM devices/subdevices.
 Capture matches ID `MIDIAudio` or card name `Teensy MIDI/Audio`; playback
 matches ID `rockchiprk817co` or name `rockchip,rk817-codec`, explicitly excluding
 Teensy. Capture uses discovered `hw:CARD=...,DEV=...,SUBDEV=...` endpoints;
-playback uses `plughw:CARD=...,DEV=...,SUBDEV=...`. The full discovered card
+playback uses `plughw:CARD=...,DEV=...,SUBDEV=...`. Here `CARD` is the numeric
+index enumerated at startup, not the ALSA ID: two cards can share the same ID.
+Device and subdevice numbers are also discovered, not hard-coded. The full discovered card
 identity and exact selected PCM string are logged. Only endpoints that open,
 accept the bridge format, and pass a post-open identity check are viable.
 The winning handles remain open. A listed but vanished/inaccessible/busy

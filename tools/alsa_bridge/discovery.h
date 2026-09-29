@@ -13,6 +13,13 @@ struct Endpoint
     bool capture;
 };
 
+// Address the enumerated card, not its potentially duplicated ALSA ID.
+inline std::string PcmName(int card, int device, unsigned int subdevice, bool capture)
+{
+    return std::string(capture ? "hw:CARD=" : "plughw:CARD=") + std::to_string(card) +
+        ",DEV=" + std::to_string(device) + ",SUBDEV=" + std::to_string(subdevice);
+}
+
 inline bool Matches(const Endpoint& endpoint, bool capture)
 {
     const bool teensy = endpoint.id == "MIDIAudio" || endpoint.name == "Teensy MIDI/Audio";

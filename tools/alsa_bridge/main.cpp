@@ -153,8 +153,7 @@ std::vector<discovery::Endpoint> Enumerate()
                 const unsigned int count = snd_pcm_info_get_subdevices_count(pcm_info);
                 for (unsigned int sub = 0; sub < count; ++sub)
                 {
-                    endpoint.pcm = std::string(capture ? "hw:CARD=" : "plughw:CARD=") + id +
-                        ",DEV=" + std::to_string(device) + ",SUBDEV=" + std::to_string(sub);
+                    endpoint.pcm = discovery::PcmName(card, device, sub, capture);
                     endpoints.push_back(endpoint);
                 }
             }
