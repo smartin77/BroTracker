@@ -10,6 +10,8 @@
 #include <SDL.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include "bringup_serial.h"
 
@@ -90,8 +92,9 @@ void WriteSdlFailure(
 
 int main(int, char*[])
 {
-    FILE* bring_up_log =
-        std::fopen(kBringUpLogPath, "w");
+    const char* append_log = std::getenv("BROTRACKER_APPEND_LOG");
+    FILE* bring_up_log = std::fopen(kBringUpLogPath,
+        append_log != nullptr && std::strcmp(append_log, "1") == 0 ? "a" : "w");
 
     if (bring_up_log == nullptr)
         LogError("Failed to open the ArkOS bring-up log.");

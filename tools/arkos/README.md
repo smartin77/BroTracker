@@ -111,3 +111,31 @@ This build included the then-uncommitted ui/arkos/main.cpp diagnostics,
 subsequently committed as 2cfb46d.
 The source file was not modified by the build. No console hardware test or
 repository transfer has been performed.
+
+## PortMaster UI plus live audio
+
+`install-port.sh` installs the existing checked `BroTrackerAlsaBridge` as well
+as the UI, launcher and assets (both executables mode 0755). Package generation
+verifies the versioned bridge ABI and copies it unchanged; ALSA is not linked
+into the UI. No EmulationStation process or system audio settings are changed.
+
+The Ports launcher starts the UI and a bridge supervisor together. Failed
+initial audio startup is attempted at most eight times, with two seconds
+between attempts, while the UI is alive. The existing bridge `Queue capacity:`
+line marks completed PCM configuration. After that marker, any bridge exit
+(including immediate capture-start failure) is logged without restart. This
+conservative boundary avoids replay/reconnect after a successful audio setup.
+Restart the application manually after a runtime USB unplug.
+
+The launcher truncates `/tmp/brotracker-arkos.log` once and appends its own and
+the bridge's diagnostics. `BROTRACKER_APPEND_LOG=1` tells the UI to append;
+a direct UI invocation without that flag still starts a fresh log. On UI exit
+or launcher TERM/INT/HUP, the supervisor stops/reaps its bridge or retry sleep,
+then the launcher stops/reaps the UI before `pm_finish`. Normal UI exit status
+is preserved; launcher signals return 128 plus the signal number.
+
+Run `bash tools/arkos/check-port-launcher.sh` for isolated stub-process checks
+of initial retries, shared logs, runtime-failure non-restart, missing audio,
+exit-code preservation and child cleanup before `pm_finish`. It temporarily
+uses the standard log path and restores the previous log afterwards. Real
+EmulationStation handoff, audio and USB hotplug still need R36H testing.

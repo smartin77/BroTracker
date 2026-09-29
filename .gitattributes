@@ -3,3 +3,4 @@ deploy/arkos/*.sh text eol=lf
 assets/fonts/*.btf text eol=lf
 deploy/arkos/assets/fonts/*.btf text eol=lf
 tools/alsa_bridge/*.sh text eol=lf
+tools/arkos/port/*.sh text eol=lf

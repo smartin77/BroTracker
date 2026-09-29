@@ -71,11 +71,53 @@ readelf -l "$binary" | grep 'Requesting program interpreter'
 printf 'NEEDED:\n%s\nRequired versions:\n%s\n' "$needed" "$versions"
 cat "$build_dir/arkos-dependencies.txt"
 
+# Verify the separately built, checked bridge already versioned in the package.
+# Keep ALSA out of the UI target and preserve this exact bridge executable.
+binary="$repo_root/deploy/arkos/BroTrackerAlsaBridge"
+readelf -h "$binary" | grep -q 'Machine:.*AArch64'
+readelf -l "$binary" | grep -q 'Requesting program interpreter: /lib/ld-linux-aarch64.so.1]'
+if readelf -d "$binary" | grep -Eq '\((RPATH|RUNPATH)\)'; then
+    echo 'Unexpected runtime search path in the executable' >&2
+    exit 1
+fi
+needed=$(readelf -d "$binary" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
+grep -qx 'libasound.so.2' <<< "$needed"
+while IFS= read -r library; do
+    case "$library" in
+        libasound.so.2|libstdc++.so.6|libgcc_s.so.1|libc.so.6|ld-linux-aarch64.so.1|libm.so.6|libpthread.so.0|libdl.so.2|librt.so.1) ;;
+        *) echo "Unexpected dependency: $library" >&2; exit 1 ;;
+    esac
+done <<< "$needed"
+
+versions=$(readelf --version-info "$binary" | grep -oE '(GLIBC|GLIBCXX|CXXABI)_[0-9.]+' | sort -Vu)
+while IFS= read -r version; do
+    case "$version" in
+        GLIBC_*) ceiling=2.30 ;;
+        GLIBCXX_*) ceiling=3.4.28 ;;
+        CXXABI_*) ceiling=1.3.12 ;;
+    esac
+    dpkg --compare-versions "${version#*_}" le "$ceiling" || {
+        echo "Unsupported symbol version: $version" >&2; exit 1;
+    }
+done <<< "$versions"
+
+# Resolve all dependencies and relocations against the matching Eoan libraries.
+ldd -r "$binary" > "$build_dir/alsa-bridge-dependencies.txt" 2>&1
+if grep -Eq 'not found|undefined symbol' "$build_dir/alsa-bridge-dependencies.txt"; then
+    cat "$build_dir/alsa-bridge-dependencies.txt" >&2
+    exit 1
+fi
+file "$binary"
+readelf -l "$binary" | grep 'Requesting program interpreter'
+printf 'NEEDED:\n%s\nRequired versions:\n%s\n' "$needed" "$versions"
+cat "$build_dir/alsa-bridge-dependencies.txt"
+
 # Stage application files only, after all checks passed. Never copy SDL2.
 mkdir -p "$package_dir/assets/fonts"
-cp "$binary" "$package_dir/BroTrackerArkOSUI"
+cp "$build_dir/BroTrackerArkOSUI" "$package_dir/BroTrackerArkOSUI"
+cp "$binary" "$package_dir/BroTrackerAlsaBridge"
 cp "$repo_root/assets/fonts/brotracker.btf" "$repo_root/assets/fonts/brotracker.bfm" "$package_dir/assets/fonts/"
 cp "$repo_root/assets/dummy_my_tune.json" "$package_dir/assets/"
 cp "$repo_root/tools/arkos/launch.sh" "$package_dir/launch.sh"
-chmod +x "$package_dir/BroTrackerArkOSUI" "$package_dir/launch.sh"
+chmod +x "$package_dir/BroTrackerArkOSUI" "$package_dir/BroTrackerAlsaBridge" "$package_dir/launch.sh"
 echo "Eoan ABI checks passed; staged at $package_dir. Console display/input still need a hardware test."
