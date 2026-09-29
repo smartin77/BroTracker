@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 # Stub processes only; never access real audio, USB, or a console.
 set -euo pipefail
+# Adopt/reap descendants of the deliberately SIGKILLed launcher, even on
+# test hosts whose PID 1 does not reap orphans. No production helper needed.
+if [[ ${LAUNCHER_TEST_SUBREAPER:-0} != 1 ]]; then
+    exec python3 - "$0" <<'PYTHON'
+import ctypes, os, subprocess, sys, time
+if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "PR_SET_CHILD_SUBREAPER")
+child = subprocess.Popen(["bash", sys.argv[1]],
+                         env=dict(os.environ, LAUNCHER_TEST_SUBREAPER="1"))
+result = None
+while True:
+    try:
+        pid, status = os.waitpid(-1, os.WNOHANG)
+    except ChildProcessError:
+        break
+    if pid == child.pid:
+        result = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+    if not pid:
+        time.sleep(0.02)
+sys.exit(result if result is not None else 1)
+PYTHON
+fi
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d)
 log=/tmp/brotracker-arkos.log
@@ -8,6 +30,10 @@ launcher_pid=
 [[ ! -e "$log" ]] || cp -p "$log" "$work/old-log"
 cleanup() {
     if [[ -n "$launcher_pid" ]]; then kill -TERM "$launcher_pid" 2>/dev/null || true; wait "$launcher_pid" 2>/dev/null || true; fi
+    for f in "$work/"*.pid; do
+        [[ -f "$f" ]] || continue
+        kill -TERM "$(cat "$f")" 2>/dev/null || true
+    done
     if [[ -f "$work/old-log" ]]; then cp -p "$work/old-log" "$log"; else rm -f "$log"; fi
     rm -rf -- "$work"
 }
@@ -18,7 +44,15 @@ cp "$repo/tools/arkos/port/BroTracker.sh" "$work/ports/BroTracker.sh"
 export XDG_DATA_HOME="$work/data" TEST_DIR="$work"
 cat > "$work/data/PortMaster/control.txt" <<'STUB'
 get_controls() { sdl_controllerconfig=test-mapping; }
-pm_platform_helper() { echo 'stub platform helper'; }
+interfere() {
+    if [[ ${HELPER_INTERFERENCE:-0} == 1 ]]; then
+        trap 'echo helper-exit-trap' EXIT
+        trap 'echo helper-term-trap' TERM
+        set -euo pipefail
+    fi
+}
+interfere
+pm_platform_helper() { echo 'stub platform helper'; interfere; }
 pm_finish() {
     for f in "$TEST_DIR"/*.pid; do
         [[ -f "$f" ]] || continue
@@ -36,10 +70,12 @@ echo $$ > "$TEST_DIR/ui.pid"
 echo 'stub UI append' >> /tmp/brotracker-arkos.log
 child=
 trap '[[ -z "$child" ]] || { kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; }; exit 143' TERM HUP INT
-if [[ "$UI_SECONDS" == exhausted ]]; then
-    # Wait for the actual budget-exhausted diagnostic, not a QEMU wall-time guess.
+if [[ "$UI_SECONDS" == exhausted || "$UI_SECONDS" == configured ]]; then
+    marker="audio startup retries exhausted"
+    [[ "$UI_SECONDS" != configured ]] || marker="Queue capacity:"
+    # Wait for the actual diagnostic, not a QEMU wall-time guess.
     for ((i=0; i<400; ++i)); do
-        if grep -q 'audio startup retries exhausted' /tmp/brotracker-arkos.log; then exit 7; fi
+        if grep -q "$marker" /tmp/brotracker-arkos.log; then exit 7; fi
         sleep 0.1 & child=$!
         echo "$child" > "$TEST_DIR/ui-sleep.pid"
         wait "$child"
@@ -86,6 +122,29 @@ run_case() {
     bash "$work/ports/BroTracker.sh" & launcher_pid=$!
     sleep 0.15
     record_children "$launcher_pid"
+    if [[ "$3" == killed ]]; then
+        sleep 0.5
+        record_children "$launcher_pid"
+        kill -KILL "$launcher_pid"
+        wait "$launcher_pid" 2>/dev/null || true
+        launcher_pid=
+        # The UI is not owned by the audio supervisor; end the orphan stub.
+        kill -TERM "$(cat "$work/ui.pid")" 2>/dev/null || true
+        for ((i=0; i<100; ++i)); do
+            alive=0
+            for f in "$work/"*.pid; do
+                [[ -f "$f" ]] || continue
+                if kill -0 "$(cat "$f")" 2>/dev/null; then alive=1; fi
+            done
+            ((alive == 0)) && break
+            sleep 0.1
+        done
+        [[ "$alive" == 0 && ! -f "$work/finished" ]]
+        grep -q 'main launcher disappeared' "$log"
+        grep -q 'audio supervisor stopped and children reaped' "$log"
+        echo "Launcher check passed: $1 / killed (all descendants reaped)"
+        return
+    fi
     if [[ "$3" == terminate ]]; then
         sleep 0.35
         record_children "$launcher_pid"
@@ -99,10 +158,12 @@ run_case() {
     grep -q 'Launcher: starting' "$log"
     grep -q 'stub UI append' "$log"
     grep -q 'stub platform helper' "$log"
+    grep -q 'Launcher: children reaped; UI/launcher status=' "$log"
+    ! grep -q 'helper-.*-trap' "$log"
     grep -q 'stub pm_finish' "$log"
     echo "Launcher check passed: $1 / $3"
 }
-run_case retry 5 normal
+run_case retry configured normal
 [[ $(cat "$work/count") == 3 ]]
 grep -q 'stub bridge stderr attempt=1' "$log"
 grep -q 'bridge-stopped' "$log"
@@ -116,6 +177,13 @@ run_case fail exhausted normal
 grep -q 'audio startup retries exhausted; UI remains usable' "$log"
 run_case fail 30 terminate
 run_case ready 30 terminate
+export HELPER_INTERFERENCE=1
+run_case retry configured normal
+[[ $(cat "$work/count") == 3 ]]
+run_case ready 30 terminate
+run_case ready 30 killed
+run_case fail 30 killed
+unset HELPER_INTERFERENCE
 mv "$work/ports/brotracker/BroTrackerAlsaBridge" "$work/bridge-disabled"
 run_case ready 0.2 normal
 grep -q 'missing/not executable' "$log"
