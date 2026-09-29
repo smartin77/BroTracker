@@ -23,6 +23,28 @@
 
 namespace
 {
+enum class BringUpAction { None, Start, StopExit };
+
+BringUpAction MapBringUpAction(const SDL_Event& event, SDL_JoystickID controller_id)
+{
+    // Use mapped buttons from the opened controller only. Raw joystick events
+    // have no reliable portable mapping and also duplicate controller events.
+    if (controller_id < 0 || event.type != SDL_CONTROLLERBUTTONDOWN ||
+        event.cbutton.which != controller_id)
+        return BringUpAction::None;
+    switch (event.cbutton.button)
+    {
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+    case SDL_CONTROLLER_BUTTON_B:
+        return BringUpAction::Start;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+    case SDL_CONTROLLER_BUTTON_X:
+        return BringUpAction::StopExit;
+    default:
+        return BringUpAction::None;
+    }
+}
+
 constexpr const char* kBringUpLogPath =
     "/tmp/brotracker-arkos.log";
 
@@ -183,7 +205,6 @@ int main(int, char*[])
     LogInfo("BroTracker framebuffer displayed.");
 
     SDL_GameController* game_controller = nullptr;
-    SDL_Joystick* joystick = nullptr;
     const int input_init_result = SDL_InitSubSystem(
         SDL_INIT_GAMECONTROLLER |
         SDL_INIT_JOYSTICK);
@@ -243,20 +264,9 @@ int main(int, char*[])
             }
             else
             {
-                joystick = SDL_JoystickOpen(device_index);
-
-                if (joystick != nullptr)
-                {
-                    WriteBringUpDiagnostic(
-                        bring_up_log,
-                        "joystick open result: success, device index ",
-                        device_index);
-                    break;
-                }
-
-                WriteSdlFailure(
-                    bring_up_log,
-                    "joystick open result: failure");
+                WriteBringUpDiagnostic(bring_up_log,
+                    "unmapped joystick ignored; SDL GameController mapping required, device index ",
+                    device_index);
             }
         }
 
@@ -266,8 +276,7 @@ int main(int, char*[])
                 bring_up_log,
                 "controller/joystick open result: no devices detected");
         }
-        else if (game_controller == nullptr &&
-                 joystick == nullptr)
+        else if (game_controller == nullptr)
         {
             WriteBringUpDiagnostic(
                 bring_up_log,
@@ -284,6 +293,10 @@ int main(int, char*[])
             "controller/joystick open result: unavailable");
     }
 
+    const SDL_JoystickID controller_id = game_controller != nullptr
+        ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller)) : -1;
+    WriteBringUpDiagnostic(bring_up_log,
+        "controls: mapped L1/B = START; R1/X = STOP/exit; keyboard/raw joystick/axes ignored");
     BringUpSerial serial(bring_up_log);
     bool quit_requested = false;
     bool start_requested = false;
@@ -293,8 +306,18 @@ int main(int, char*[])
     {
         if (exit_pending) return;
         WriteBringUpDiagnostic(bring_up_log, "exit requested");
-        if (serial.Finished())
+        if (!serial.Connected())
+        {
+            WriteBringUpDiagnostic(bring_up_log, start_requested
+                ? "exiting disconnected: remote playback unknown; STOP unavailable"
+                : "exiting while waiting; no STOP sent");
             quit_requested = true;
+        }
+        else if (serial.Finished())
+        {
+            WriteBringUpDiagnostic(bring_up_log, "exiting ready/completed; no STOP needed");
+            quit_requested = true;
+        }
         else if (serial.Stop())
         {
             exit_pending = true;
@@ -317,8 +340,8 @@ int main(int, char*[])
         serial.Tick(SDL_GetTicks());
         if (start_requested && serial.StartCancelled() && !exit_pending)
         {
-            // No START bytes reached the device. Allow a fresh first press
-            // after reconnection rather than treating it as a stop/exit press.
+            // No START bytes reached the device. Re-enable the START controls
+            // after reconnection; STOP/exit controls remain independent.
             WriteBringUpDiagnostic(bring_up_log,
                 "START was not sent; waiting for reconnect and a new press");
             start_requested = false;
@@ -343,26 +366,33 @@ int main(int, char*[])
         {
             if (event.type == SDL_QUIT)
             {
+                WriteBringUpDiagnostic(bring_up_log, "STOP/exit requested by SDL_QUIT");
                 request_exit();
                 break;
             }
-            // SDL also emits joystick events for mapped controllers. Count
-            // each physical press once, and ignore keyboard auto-repeat.
-            const bool pressed =
-                (event.type == SDL_KEYDOWN && event.key.repeat == 0) ||
-                event.type == SDL_CONTROLLERBUTTONDOWN ||
-                (event.type == SDL_JOYBUTTONDOWN && game_controller == nullptr);
-            if (pressed && !exit_pending)
+            const BringUpAction action = MapBringUpAction(event, controller_id);
+            if (action != BringUpAction::None)
             {
-                WriteBringUpDiagnostic(bring_up_log, "input press, SDL event type: ",
-                    static_cast<int>(event.type));
-                if (start_requested)
+                const char* button = SDL_GameControllerGetStringForButton(
+                    static_cast<SDL_GameControllerButton>(event.cbutton.button));
+                char diagnostic[160];
+                std::snprintf(diagnostic, sizeof(diagnostic), "%s requested by mapped button %s",
+                    action == BringUpAction::Start ? "START" : "STOP/exit", button);
+                WriteBringUpDiagnostic(bring_up_log, diagnostic);
+                if (exit_pending)
+                {
+                    WriteBringUpDiagnostic(bring_up_log, "action ignored: shutdown already pending");
+                }
+                else if (action == BringUpAction::StopExit)
                     request_exit();
+                else if (!serial.Connected())
+                    WriteBringUpDiagnostic(bring_up_log, "START ignored: waiting for Teensy handshake");
+                else if (start_requested && !serial.Finished())
+                    WriteBringUpDiagnostic(bring_up_log, "START ignored: test already starting/active");
                 else if (serial.Start())
                     start_requested = true;
                 else
-                    WriteBringUpDiagnostic(bring_up_log,
-                        "press ignored: waiting for Teensy handshake");
+                    WriteBringUpDiagnostic(bring_up_log, "START ignored: transport not ready");
             }
         }
 
@@ -371,8 +401,10 @@ int main(int, char*[])
         DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
         DrawFixedText(framebuffer, 8, 456,
             exit_pending ? "Waiting for STOP acknowledgement" :
-            start_requested ? "Press again to stop and exit" :
-            "USB TEST: first connected press starts WAV sequence",
+            controller_id < 0 ? "Mapped SDL GameController required" :
+            !serial.Connected() ? "Waiting for Teensy | R1 / X: exit" :
+            start_requested && !serial.Finished() ? "Test active | R1 / X: STOP + exit" :
+            "L1 / B: START | R1 / X: STOP if active + exit",
             Color{255, 255, 255});
 
         if (!quit_requested && !display.Present(framebuffer))
@@ -388,9 +420,6 @@ int main(int, char*[])
 
     if (game_controller != nullptr)
         SDL_GameControllerClose(game_controller);
-
-    if (joystick != nullptr)
-        SDL_JoystickClose(joystick);
 
     if (input_subsystems_initialized)
     {
