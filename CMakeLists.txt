@@ -111,3 +111,22 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME BroTrackerBringUpSerialTests COMMAND BroTrackerBringUpSerialTests)
     set_tests_properties(BroTrackerBringUpSerialTests PROPERTIES TIMEOUT 20)
 endif()
+
+# Standalone bring-up experiment; no ALSA dependency in the UI/default build.
+option(BROTRACKER_BUILD_ALSA_BRIDGE "Build the temporary Linux ALSA live bridge" OFF)
+if(BROTRACKER_BUILD_ALSA_BRIDGE)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "The ALSA bridge requires Linux")
+    endif()
+    find_package(ALSA REQUIRED)
+    add_executable(BroTrackerAlsaBridge tools/alsa_bridge/main.cpp)
+    target_include_directories(BroTrackerAlsaBridge PRIVATE ${ALSA_INCLUDE_DIRS})
+    target_link_libraries(BroTrackerAlsaBridge PRIVATE ${ALSA_LIBRARIES})
+    target_compile_options(BroTrackerAlsaBridge PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME BroTrackerAlsaBridgeChecks
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check.sh
+            $<TARGET_FILE:BroTrackerAlsaBridge>)
+    set_tests_properties(BroTrackerAlsaBridgeChecks PROPERTIES TIMEOUT 15)
+    add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
+    add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
+endif()

@@ -9,6 +9,7 @@ app="$ports/brotracker"
 port_launcher="$ports/BroTracker.sh"
 files=(
     BroTrackerArkOSUI
+    BroTrackerAlsaBridge
     launch.sh
     assets/dummy_my_tune.json
     assets/fonts/brotracker.btf
@@ -46,7 +47,7 @@ fi
 mkdir -p -- "$app/assets/fonts"
 for file in "${files[@]}"; do
     case "$file" in
-        BroTrackerArkOSUI|launch.sh) mode=0755 ;;
+        BroTrackerArkOSUI|BroTrackerAlsaBridge|launch.sh) mode=0755 ;;
         *) mode=0644 ;;
     esac
     install -m "$mode" -- "$package/$file" "$app/$file"

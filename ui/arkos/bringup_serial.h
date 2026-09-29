@@ -20,6 +20,8 @@ public:
     bool Stopped() const { return stopped_; }
     bool Finished() const;
     bool StartCancelled() const { return start_cancelled_; }
+    // Read-only UI state: queued or transmitted START still awaiting a response.
+    bool StartPending() const { return start_queued_ || pending_ == Command::Start; }
     const char* Status() const;
 
 private:
