@@ -1,81 +1,15 @@
 #include "bringup_serial.h"
-
-#include <cerrno>
 #include <cstring>
-#ifdef __linux__
-#include <cstdlib>
-#include <fcntl.h>
-#include <glob.h>
-#include <limits.h>
-#include <poll.h>
-#include <sys/ioctl.h>
-#include <termios.h>
-#include <unistd.h>
-
-namespace
-{
-bool ReadId(const char* directory, const char* name, const char* expected)
-{
-    char path[PATH_MAX + 32], value[32]{};
-    const int length = std::snprintf(path, sizeof(path), "%s/%s", directory, name);
-    if (length < 0 || static_cast<unsigned int>(length) >= sizeof(path)) return false;
-    FILE* file = std::fopen(path, "r");
-    if (!file) return false;
-    const bool matches = std::fscanf(file, "%31s", value) == 1 &&
-                         std::strcmp(value, expected) == 0;
-    std::fclose(file);
-    return matches;
-}
-
-bool FindTeensy(char* device, unsigned int capacity)
-{
-    glob_t ports{};
-    const int result = glob("/sys/class/tty/ttyACM*/device", 0, nullptr, &ports);
-    bool found = false;
-    if (result == 0)
-    {
-        for (unsigned int i = 0; i < ports.gl_pathc && !found; ++i)
-        {
-            char resolved[PATH_MAX];
-            if (!realpath(ports.gl_pathv[i], resolved)) continue;
-            while (char* slash = std::strrchr(resolved, '/'))
-            {
-                if (ReadId(resolved, "idVendor", "16c0") &&
-                    ReadId(resolved, "idProduct", "048a"))
-                {
-                    char tty[64]{};
-                    if (std::sscanf(ports.gl_pathv[i], "/sys/class/tty/%63[^/]", tty) == 1)
-                    {
-                        std::snprintf(device, capacity, "/dev/%s", tty);
-                        found = true;
-                    }
-                    break;
-                }
-                *slash = '\0';
-            }
-        }
-    }
-    globfree(&ports);
-    return found;
-}
-}
-#endif
 
 BringUpSerial::BringUpSerial(FILE* log, const char* test_device)
-    : log_(log), test_device_(test_device)
+    : transport_(MakeSerialTransport()), log_(log), test_device_(test_device)
 {
     Log("waiting for Teensy USB CDC 16c0:048a");
-#ifndef __linux__
-    Log("serial unavailable: this bring-up transport requires Linux");
-#endif
 }
 
-BringUpSerial::~BringUpSerial()
-{
-#ifdef __linux__
-    if (fd_ >= 0) close(fd_);
-#endif
-}
+BringUpSerial::BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport)
+    : transport_(std::move(transport)), log_(log), test_device_(nullptr) {}
+BringUpSerial::~BringUpSerial() = default;
 
 void BringUpSerial::Log(const char* message, const char* detail)
 {
@@ -87,7 +21,7 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
-    if (start_queued_ || (pending_ == Command::Start && tx_offset_ == 0))
+    if (start_queued_ || (pending_ == Command::Start && !start_write_attempted_))
     {
         start_cancelled_ = true;
         Log("START cancelled before transmission; press again after reconnect");
@@ -97,10 +31,8 @@ void BringUpSerial::Disconnect(const char* reason)
         start_unconfirmed_ = true;
         Log("START transmission attempted; playback unconfirmed, not replaying");
     }
-#ifdef __linux__
-    if (fd_ >= 0) close(fd_);
-#endif
-    fd_ = -1;
+    transport_->Close();
+    opened_ = false;
     connected_ = false;
     stopped_ = false;
     pending_ = Command::None;
@@ -161,6 +93,7 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
     tx_offset_ = 0;
     pending_ = command;
+    if (command == Command::Start) start_write_attempted_ = false;
     sent_at_ = now;
     Log("queued for TX:", verb);
 }
@@ -206,57 +139,37 @@ void BringUpSerial::OnLine()
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
-#ifdef __linux__
-    if (fd_ < 0)
+    if (!opened_)
     {
         if (attempted_ && now - last_attempt_ < 1000) return;
         attempted_ = true;
         last_attempt_ = now;
-        char device[PATH_MAX];
-        if (test_device_) std::snprintf(device, sizeof(device), "%s", test_device_);
-        else if (!FindTeensy(device, sizeof(device))) return;
-        fd_ = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-        if (fd_ < 0) { Log("open failed:", std::strerror(errno)); return; }
-        termios config{};
-        if (tcgetattr(fd_, &config) != 0) { Disconnect(std::strerror(errno)); return; }
-        cfmakeraw(&config);
-        config.c_cflag |= CLOCAL | CREAD;
-        config.c_cflag &= ~CRTSCTS;
-        cfsetispeed(&config, B115200);
-        cfsetospeed(&config, B115200);
-        if (tcsetattr(fd_, TCSANOW, &config) != 0 || tcflush(fd_, TCIOFLUSH) != 0)
-        { Disconnect(std::strerror(errno)); return; }
-        int bits = TIOCM_DTR | TIOCM_RTS;
-        // PTYs used by the host test have no modem lines.
-        if (ioctl(fd_, TIOCMBIS, &bits) < 0 && !(test_device_ && errno == ENOTTY))
-        { Disconnect(std::strerror(errno)); return; }
-        Log("opened:", device);
+        if (!transport_->Open(log_, test_device_)) return;
+        opened_ = true;
         Send(Command::Hello, now);
     }
-
-    pollfd port{fd_, POLLIN, 0};
-    const int ready = poll(&port, 1, 0);
-    if (ready < 0 && errno != EINTR) { Disconnect(std::strerror(errno)); return; }
-    if (port.revents & (POLLHUP | POLLERR | POLLNVAL))
-    { Disconnect("USB hangup"); return; }
+    if (!transport_->Healthy()) { Disconnect(transport_->Error()); return; }
     if (tx_offset_ < tx_size_)
     {
-        const auto count = write(fd_, tx_ + tx_offset_, tx_size_ - tx_offset_);
+        // An asynchronous transport may attempt transmission before reporting
+        // completion. A later disconnect must conservatively report UNKNOWN.
+        if (pending_ == Command::Start) start_write_attempted_ = true;
+        const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
         if (count > 0)
         {
             tx_offset_ += count;
             if (tx_offset_ == tx_size_) Log("TX complete:", tx_);
         }
-        else if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-        { Disconnect(std::strerror(errno)); return; }
+        else if (count < 0)
+        { Disconnect(transport_->Error()); return; }
     }
     // Bound receive work per SDL frame, including verbose firmware diagnostics.
     for (unsigned int budget = 0; budget < 1024; ++budget)
     {
         char c;
-        const auto count = read(fd_, &c, 1);
-        if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-        { Disconnect(std::strerror(errno)); return; }
+        const auto count = transport_->Read(&c, 1);
+        if (count < 0)
+        { Disconnect(transport_->Error()); return; }
         if (count <= 0) break;
         if (c == '\r') continue;
         if (c == '\n')
@@ -286,7 +199,4 @@ void BringUpSerial::Tick(std::uint32_t now)
         }
         else if (connected_ && now - sent_at_ >= 1000) Send(Command::Status, now);
     }
-#else
-    (void)now;
-#endif
 }

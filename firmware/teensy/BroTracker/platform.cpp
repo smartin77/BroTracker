@@ -162,9 +162,11 @@ namespace
             return;
         }
         // Bounded work leaves time for SD refill, even with noisy input.
-        for (unsigned int budget = 0; budget < 128 && Serial.available(); ++budget)
+        for (unsigned int budget = 0; budget < 128; ++budget)
         {
-            const char c = static_cast<char>(Serial.read());
+            const int raw = ReadStartupSerialByte();
+            if (raw < 0) break;
+            const char c = static_cast<char>(raw);
             if (c == '\r') continue;
             if (c != '\n')
             {

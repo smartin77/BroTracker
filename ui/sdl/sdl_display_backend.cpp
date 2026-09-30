@@ -69,12 +69,12 @@ bool SdlDisplayBackend::Initialize(
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
     window_ = SDL_CreateWindow(
-        "BroTracker",
+        title_,
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         static_cast<int>(width),
         static_cast<int>(height),
-        SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP);
+        SDL_WINDOW_SHOWN | (fullscreen_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 
     if (window_ == nullptr)
     {
@@ -103,7 +103,7 @@ bool SdlDisplayBackend::Initialize(
         return false;
     }
 
-    if (SDL_RenderSetLogicalSize(
+    if (fullscreen_ && SDL_RenderSetLogicalSize(
             renderer_,
             static_cast<int>(width),
             static_cast<int>(height)) != 0)

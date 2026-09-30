@@ -20,7 +20,8 @@ struct SDL_Window;
 class SdlDisplayBackend final : public DisplayBackend
 {
 public:
-    SdlDisplayBackend() = default;
+    explicit SdlDisplayBackend(const char* title = "BroTracker", bool fullscreen = true)
+        : title_(title), fullscreen_(fullscreen) {}
     ~SdlDisplayBackend() override;
 
     SdlDisplayBackend(const SdlDisplayBackend&) = delete;
@@ -36,6 +37,8 @@ public:
 private:
     void Shutdown();
 
+    const char* title_;
+    bool fullscreen_;
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* texture_ = nullptr;

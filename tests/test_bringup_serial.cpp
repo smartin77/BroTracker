@@ -1,5 +1,5 @@
 // Linux PTY integration test: no USB device or firmware upload required.
-#include "ui/arkos/bringup_serial.h"
+#include "ui/bringup_serial.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>

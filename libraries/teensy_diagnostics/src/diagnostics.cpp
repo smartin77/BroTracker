@@ -1,4 +1,5 @@
 #include "diagnostics.h"
+#include "host_clock_input.h"
 
 #include <Arduino.h>
 #include <SD.h>
@@ -18,6 +19,7 @@ constexpr std::uint32_t kHostTimeSyncTimeoutMs = 1500;
 constexpr std::uint32_t kLedFlashMs = 750;
 constexpr std::uint32_t kLedPauseMs = 750;
 bool diagnostics_ready = false;
+BroTracker::HostClockInput startup_serial_input;
 
 // Opaque handle for a tool-specific sequential log file. Only the path is
 // retained (D0046): each log write opens the SD writer, appends and
@@ -87,79 +89,25 @@ void SdDateTimeCallback(
     *ms10 = (second(current) & 1) ? 100 : 0;
 }
 
-bool TryParseUnixEpoch(
-    const char* text,
-    std::uint32_t& epoch_out)
-{
-    if (text == nullptr || text[0] == '\0')
-        return false;
-
-    const char* payload = text;
-
-    if (payload[0] == 'E' && payload[1] == 'P' &&
-        payload[2] == 'O' && payload[3] == 'C' &&
-        payload[4] == 'H' && payload[5] == ':')
-    {
-        payload += 6;
-    }
-    else if (payload[0] == 'T')
-    {
-        ++payload;
-    }
-
-    char* end = nullptr;
-    const unsigned long parsed = std::strtoul(payload, &end, 10);
-
-    if (end == payload || *end != '\0' || parsed < 946684800ul)
-        return false;
-
-    epoch_out = static_cast<std::uint32_t>(parsed);
-    return true;
-}
-
 bool TrySyncClockFromHost()
 {
     if (!Serial)
         return false;
 
-    char line[48] = {};
-    std::size_t index = 0;
     const std::uint32_t start = millis();
-
-    while (millis() - start < kHostTimeSyncTimeoutMs)
+    while (millis() - start < kHostTimeSyncTimeoutMs && !startup_serial_input.Full())
     {
-        while (Serial.available() > 0)
+        // Bound time even under continuously available serial input. If the
+        // handoff fills, do not consume another byte; KernelRun owns the rest.
+        if (Serial.available() <= 0) continue;
+        const int raw = Serial.read();
+        if (raw < 0) continue;
+        std::uint32_t epoch = 0;
+        if (startup_serial_input.Feed(static_cast<char>(raw), epoch))
         {
-            const int raw = Serial.read();
-
-            if (raw < 0)
-                continue;
-
-            const char character = static_cast<char>(raw);
-
-            if (character == '\r' || character == '\n')
-            {
-                if (index == 0)
-                    continue;
-
-                line[index] = '\0';
-                std::uint32_t epoch = 0;
-
-                if (TryParseUnixEpoch(line, epoch))
-                {
-                    setTime(static_cast<time_t>(epoch));
-                    Teensy3Clock.set(now());
-                    return true;
-                }
-
-                index = 0;
-                continue;
-            }
-
-            if (index + 1 < sizeof(line))
-                line[index++] = character;
-            else
-                index = 0;
+            setTime(static_cast<time_t>(epoch));
+            Teensy3Clock.set(now());
+            return true;
         }
     }
 
@@ -264,6 +212,12 @@ bool ToolLogMessageInternal(ToolLogHandle* handle, const char* message)
 
 namespace BroTracker
 {
+    int ReadStartupSerialByte()
+    {
+        const int deferred = startup_serial_input.ReadDeferred();
+        return deferred >= 0 ? deferred : Serial.read();
+    }
+
     bool DiagnosticsInitialize()
     {
         diagnostics_ready = false;
