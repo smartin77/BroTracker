@@ -1561,3 +1561,20 @@ Users should always be able to determine whether a Tune is:
 - using functionality that requires replacement before it can run on Teensy
 
 The exact module metadata, compatibility model, resource accounting and UI presentation remain future design decisions.
+
+## D0053 — BroTracker naming and role
+
+The host application providing the user interface for the Teensy 4.1
+BroTracker engine is named **BroTracker Terminal**.
+
+The application name is the same across all supported host platforms,
+including ArkOS, Windows, macOS and Linux. **BTX** is its shorthand
+for communication and documentation, not a separate application name.
+
+BroTracker Terminal handles presentation, user input and communication
+with the engine. It may also route Teensy USB audio to the host's
+selected audio output.
+
+Teensy 4.1 remains the engine responsible for sequencing, synthesis,
+audio processing and MIDI timing. Hosting the terminal on another
+platform does not transfer these responsibilities to that platform.
