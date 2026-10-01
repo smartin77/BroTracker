@@ -70,8 +70,8 @@ echo $$ > "$TEST_DIR/ui.pid"
 echo 'stub UI append' >> /tmp/brotracker-arkos.log
 child=
 trap '[[ -z "$child" ]] || { kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; }; exit 143' TERM HUP INT
-if [[ "$UI_SECONDS" == exhausted || "$UI_SECONDS" == configured ]]; then
-    marker="audio startup retries exhausted"
+if [[ "$UI_SECONDS" == recovered || "$UI_SECONDS" == configured ]]; then
+    marker="stub recovered audio configured"
     [[ "$UI_SECONDS" != configured ]] || marker="Queue capacity:"
     # Wait for the actual diagnostic, not a QEMU wall-time guess.
     for ((i=0; i<400; ++i)); do
@@ -94,14 +94,27 @@ cat > "$work/ports/brotracker/BroTrackerAlsaBridge" <<'STUB'
 count=0
 [[ ! -f "$TEST_DIR/count" ]] || read -r count < "$TEST_DIR/count"
 count=$((count+1)); echo "$count" > "$TEST_DIR/count"
+# An overlapping bridge fails the test, including its startup period.
+if ! mkdir "$TEST_DIR/bridge-active" 2>/dev/null; then
+    echo duplicate > "$TEST_DIR/duplicate"; exit 83
+fi
+trap 'rmdir "$TEST_DIR/bridge-active"' EXIT
 echo $$ > "$TEST_DIR/bridge.pid"
 echo "stub bridge stdout attempt=$count"
 echo "stub bridge stderr attempt=$count" >&2
-if [[ "$BRIDGE_MODE" == fail || ( "$BRIDGE_MODE" == retry && "$count" -lt 3 ) ]]; then
+if [[ "$BRIDGE_MODE" == fail || ( "$BRIDGE_MODE" == retry && "$count" -lt 3 ) ||
+      ( "$BRIDGE_MODE" == recover && "$count" -gt 1 && "$count" -lt 3 ) ||
+      ( "$BRIDGE_MODE" == prolonged && "$count" -gt 1 && "$count" -lt 12 ) ||
+      ( "$BRIDGE_MODE" == recovery_wait && "$count" -gt 1 ) ]]; then
     echo 'Device busy or Teensy absent'; exit 1
 fi
 echo 'Queue capacity: stub configured'
-if [[ "$BRIDGE_MODE" == runtime ]]; then echo 'stub runtime USB unplug'; exit 9; fi
+if [[ ( "$BRIDGE_MODE" == recover || "$BRIDGE_MODE" == prolonged || "$BRIDGE_MODE" == recovery_wait ) && "$count" == 1 ]]; then
+    echo 'stub runtime USB unplug'; exit 9
+fi
+if [[ "$BRIDGE_MODE" == recover || "$BRIDGE_MODE" == prolonged ]]; then
+    echo 'stub recovered audio configured'
+fi
 sleep 30 &
 child=$!
 echo "$child" > "$TEST_DIR/bridge-sleep.pid"
@@ -118,7 +131,12 @@ record_children() {
 }
 run_case() {
     export BRIDGE_MODE=$1 UI_SECONDS=$2
-    rm -f "$work/count" "$work/finished" "$work/orphan" "$work/"*.pid
+    rm -f "$work/count" "$work/finished" "$work/orphan" "$work/duplicate" "$work/"*.pid
+    cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$work/ports/BroTracker Terminal.sh"
+    # Accelerate only long recovery scenarios in the disposable launcher.
+    if [[ "$1" == recover || "$1" == prolonged ]]; then
+        sed -i 's/sleep "$backoff" \&/sleep 0.1 \&/' "$work/ports/BroTracker Terminal.sh"
+    fi
     bash "$work/ports/BroTracker Terminal.sh" & launcher_pid=$!
     sleep 0.15
     record_children "$launcher_pid"
@@ -154,7 +172,7 @@ run_case() {
     result=0; wait "$launcher_pid" || result=$?
     launcher_pid=
     [[ "$result" == "$expected" ]] || { cat "$log"; echo "wrong exit $result"; exit 1; }
-    [[ -f "$work/finished" && ! -f "$work/orphan" ]] || { cat "$log"; echo 'cleanup failure'; exit 1; }
+    [[ -f "$work/finished" && ! -f "$work/orphan" && ! -f "$work/duplicate" && ! -d "$work/bridge-active" ]] || { cat "$log"; echo 'cleanup failure'; exit 1; }
     grep -q 'Launcher: starting' "$log"
     grep -q 'stub UI append' "$log"
     grep -q 'stub platform helper' "$log"
@@ -167,14 +185,22 @@ run_case retry configured normal
 [[ $(cat "$work/count") == 3 ]]
 grep -q 'stub bridge stderr attempt=1' "$log"
 grep -q 'bridge-stopped' "$log"
-run_case runtime 1 normal
+run_case recover recovered normal
+[[ $(cat "$work/count") == 3 ]]
+grep -q 'initial startup configured; bridge exited status=9' "$log"
+grep -q 'audio runtime recovery failed status=1' "$log"
+grep -q 'stub recovered audio configured' "$log"
+run_case prolonged recovered normal
+[[ $(cat "$work/count") == 12 ]]
+grep -q 'audio runtime recovery attempt 11' "$log"
+grep -q 'audio runtime recovery waiting 16 seconds' "$log"
+# Runtime recovery remains interruptible while waiting after failed discovery.
+run_case recovery_wait 30 terminate
 [[ $(cat "$work/count") == 1 ]]
-grep -q 'no runtime restart' "$log"
+grep -q 'audio runtime recovery waiting 2 seconds' "$log"
+grep -q 'audio supervisor stopped and children reaped' "$log"
 run_case fail 3 normal
 [[ $(cat "$work/count") == 2 ]]
-run_case fail exhausted normal
-[[ $(cat "$work/count") == 8 ]]
-grep -q 'audio startup retries exhausted; UI remains usable' "$log"
 run_case fail 30 terminate
 run_case ready 30 terminate
 export HELPER_INTERFERENCE=1

@@ -47,7 +47,10 @@ an arbitrary device. It never falls back to USB/Teensy playback for speakers.
 This discovery happens once. If Teensy disappears during startup and no viable
 capture remains, startup fails. A runtime unplug reported by ALSA terminates
 the bridge, closes both handles and returns nonzero. There is no rediscovery or
-automatic reconnect; reconnect Teensy and rerun the command manually.
+automatic reconnect inside this standalone process; reconnect Teensy and rerun
+the command manually. The ArkOS PortMaster launcher separately supervises the
+bridge, reaps failed processes and retries fresh `--auto` discovery with capped
+backoff while BTX remains open. It never sends START.
 
 Explicit arguments remain available for diagnostics. The previously observed
 numeric pair was:

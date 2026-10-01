@@ -65,31 +65,39 @@ audio_supervisor() {
         printf 'Launcher: audio unavailable: BroTrackerAlsaBridge missing/not executable; UI remains usable\n'
         exit 0
     fi
-    for ((attempt=1; attempt<=8; ++attempt)); do
-        kill -0 "$ui_pid" 2>/dev/null || exit 0
-        printf 'Launcher: audio startup attempt %s/8\n' "$attempt"
+    phase="initial startup"
+    attempt=0
+    backoff=2
+    while kill -0 "$ui_pid" 2>/dev/null; do
+        attempt=$((attempt + 1))
+        printf 'Launcher: audio %s attempt %s; fresh --auto discovery\n' "$phase" "$attempt"
         line_count=$(wc -l < "$log")
         ./BroTrackerAlsaBridge --auto >> "$log" 2>&1 &
         bridge_pid=$!
         bridge_status=0
         wait_with_parent "$bridge_pid" || bridge_status=$?
         bridge_pid=
-        # Existing verified bridge marker, printed after PCM configuration.
-        # Be conservative: never restart after this point, even if capture
-        # start fails immediately afterwards or the process is killed.
+        # The bridge closes both PCMs before exit; wait reaps it before the
+        # next process re-enumerates numeric endpoints. Never replay START.
         if tail -n "+$((line_count + 1))" "$log" | grep -q '^Queue capacity:'; then
-            printf 'Launcher: configured bridge exited status=%s; no runtime restart (check bridge diagnostics)\n' "$bridge_status"
-            exit 0
+            printf 'Launcher: audio %s configured; bridge exited status=%s; entering runtime recovery\n' "$phase" "$bridge_status"
+            phase="runtime recovery"
+            attempt=0
+            backoff=2
+        else
+            printf 'Launcher: audio %s failed status=%s; UI remains usable\n' "$phase" "$bridge_status"
         fi
-        printf 'Launcher: audio initial startup failed status=%s\n' "$bridge_status"
-        if ((attempt == 8)); then break; fi
-        kill -0 "$ui_pid" 2>/dev/null || exit 0
-        sleep 2 &
+        kill -0 "$ui_pid" 2>/dev/null || break
+        printf 'Launcher: audio %s waiting %s seconds before rediscovery\n' "$phase" "$backoff"
+        sleep "$backoff" &
         delay_pid=$!
         wait_with_parent "$delay_pid" || true
         delay_pid=
+        # Cap the interval, not the number of attempts: a prolonged absence
+        # must still recover while BTX is open. Cleanup interrupts this wait.
+        ((backoff >= 16)) || backoff=$((backoff * 2))
     done
-    printf 'Launcher: audio startup retries exhausted; UI remains usable\n'
+
 }
 
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}

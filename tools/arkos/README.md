@@ -130,13 +130,16 @@ repository transfer has been performed.
 Package generation builds/tests and verifies both binaries; ALSA is not linked
 into the terminal. No EmulationStation process or system audio settings are changed.
 
-The Ports launcher starts the UI and a bridge supervisor together. Failed
-initial audio startup is attempted at most eight times, with two seconds
-between attempts, while the UI is alive. The existing bridge `Queue capacity:`
-line marks completed PCM configuration. After that marker, any bridge exit
-(including immediate capture-start failure) is logged without restart. This
-conservative boundary avoids replay/reconnect after a successful audio setup.
-Restart the application manually after a runtime USB unplug.
+The Ports launcher starts the UI and one bridge supervisor together. Initial
+startup and runtime recovery use a capped exponential backoff of 2, 4, 8,
+then 16 seconds between failed attempts. Attempts continue while BTX is open,
+including a prolonged Teensy absence. Each attempt runs a fresh `--auto`
+discovery with current numeric PCM addresses and unchanged identity/ambiguity
+checks. Only one bridge runs at a time; it closes its PCMs and is reaped before
+rediscovery. The bridge's `Queue capacity:` line marks PCM configuration;
+a subsequent exit switches logging to runtime recovery and resets the backoff.
+Bridge diagnostics record successful configuration, selected endpoints and
+failures. Audio recovery never sends START or changes firmware playback state.
 
 The launcher truncates `/tmp/brotracker-arkos.log` once and appends its own and
 the bridge's diagnostics. `BROTRACKER_APPEND_LOG=1` tells the UI to append;
@@ -146,7 +149,8 @@ then the launcher stops/reaps the UI before `pm_finish`. Normal UI exit status
 is preserved; launcher signals return 128 plus the signal number.
 
 Run `bash tools/arkos/check-port-launcher.sh` for isolated stub-process checks
-of initial retries, shared logs, runtime-failure non-restart, missing audio,
+of initial retries, runtime recovery after prolonged absence, duplicate prevention,
+shared logs, missing audio,
 exit-code preservation and child cleanup before `pm_finish`. It temporarily
 uses the standard log path and restores the previous log afterwards. Real
 EmulationStation handoff, audio and USB hotplug still need R36H testing.
@@ -179,8 +183,8 @@ checks without the audio supervisor can use `bash deploy/arkos/launch.sh`.
 Automatic audio capture accepts `BroTracker USB audio`, legacy
 `Teensy MIDI/Audio`, or legacy ALSA ID `MIDIAudio`. Numeric card/device/subdevice
 addresses come from current enumeration and post-open identity checks remain
-mandatory. If audio disconnects after successful startup, restart the Ports
-application manually; runtime audio restart behavior is unchanged.
+mandatory. After USB reconnect, the supervisor rediscovers audio automatically
+while BTX stays open; CDC reconnect remains independent and never replays START.
 
 On hardware, verify L1/B START/restart, R1/X STOP-and-stay then EXIT, audio,
 controller mapping and EmulationStation audio handoff. Local checks:
@@ -192,3 +196,68 @@ bash tools/arkos/check-port-launcher.sh
 
 Both use isolated temporary installations/stubs, never the handheld. The
 launcher check temporarily uses and restores `/tmp/brotracker-arkos.log`.
+
+## Read-only R36H USB diagnosis and recovery test
+
+The PC cannot determine the handheld's post-reboot hub/USB state. Before
+unplugging anything, collect the following on R36H over SSH; repeat after
+unplug/replug. These commands do not reset USB or change drivers/settings:
+
+```sh
+date
+lsusb
+# Inspect the actual USB device identity, independent of cached names:
+for dev in /sys/bus/usb/devices/*; do
+    [ -r "$dev/idVendor" ] && [ -r "$dev/idProduct" ] || continue
+    [ "$(cat "$dev/idVendor"):$(cat "$dev/idProduct")" = 16c0:048a ] || continue
+    echo "USB device: $dev"
+    for field in product serial authorized; do
+        [ ! -r "$dev/$field" ] || { printf '%s: ' "$field"; cat "$dev/$field"; }
+    done
+    ls -l "$dev"/"$(basename "$dev")":* 2>/dev/null
+ done
+cat /proc/asound/cards
+arecord -l
+aplay -l
+for node in /sys/class/tty/ttyACM* /sys/class/sound/card*; do
+    [ -e "$node" ] || continue
+    printf '%s -> ' "$node"; readlink -f "$node/device"
+done
+ls -l /dev/ttyACM* /dev/snd/* 2>/dev/null
+id
+# May require read permission; do not change system logging configuration:
+dmesg | tail -n 100
+cat /tmp/brotracker-arkos.log
+```
+
+No `16c0:048a` device in `lsusb` or USB sysfs means failure before BTX
+can discover it. USB present but no associated ttyACM/capture PCM points to
+interface enumeration/binding; correlate sysfs ancestry and kernel messages.
+If the associated interfaces exist, compare their permissions and identities
+with CDC open/handshake and bridge candidate/open errors in the shared log.
+A busy Rockchip output or ambiguous capture identity is a distinct audio error.
+Do not conclude that the reboot problem and audio recovery have the same cause.
+
+After a separately reviewed transfer, update and launch on the handheld:
+
+```sh
+bash tools/arkos/install-port.sh
+bash "/roms/ports/BroTracker Terminal.sh"
+```
+
+1. Reboot ArkOS with Teensy attached; collect the read-only snapshot before
+   any unplug. Launch BTX and check initial CDC/audio discovery. If absent,
+   unplug/replug and collect a second snapshot to locate the failed layer.
+2. With audio configured, START using L1/B. Unplug Teensy while BTX stays open.
+   Confirm responsive controls, CDC disconnect and logged runtime audio recovery.
+3. Leave it absent for several minutes: attempts must continue at the capped
+   interval, with one supervisor and at most one bridge. Reconnect; confirm
+   fresh PCM names, handshake and audio configuration without automatic START.
+   Press L1/B explicitly and verify live audio returns without restarting BTX.
+4. Repeat unplug/replug, then exit during a recovery backoff using R1/X or
+   window close. Confirm cleanup messages, `pm_finish`, and no remaining bridge
+   or supervisor (`ps -ef | grep -E 'BroTracker|audio_supervisor'`).
+
+These are pending physical checks, not evidence of post-reboot USB detection
+or subjective audio quality. Audio clicks and USB reset/power fixes are outside
+this change.
