@@ -57,7 +57,7 @@ namespace
         Error
     };
 
-    TestPlaybackState g_test_playback_state = TestPlaybackState::Test1;
+    TestPlaybackState g_test_playback_state = TestPlaybackState::Idle;
     unsigned int g_simultaneous_test_loop = 0;
 
     // Tracks whether the finished/underrun report has already been printed,
@@ -162,9 +162,11 @@ namespace
             return;
         }
         // Bounded work leaves time for SD refill, even with noisy input.
-        for (unsigned int budget = 0; budget < 128 && Serial.available(); ++budget)
+        for (unsigned int budget = 0; budget < 128; ++budget)
         {
-            const char c = static_cast<char>(Serial.read());
+            const int raw = ReadStartupSerialByte();
+            if (raw < 0) break;
+            const char c = static_cast<char>(raw);
             if (c == '\r') continue;
             if (c != '\n')
             {
@@ -239,7 +241,8 @@ namespace
         Serial.print(kTargetBpm, 1);
         Serial.print(", playback rate = ");
         Serial.println(kTest1PlaybackRate, 6);
-        StartSequence();
+        // Boot silently; only an explicit BTTEST1 START arms the sequence.
+        StopSequence();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }

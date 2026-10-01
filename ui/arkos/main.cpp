@@ -13,7 +13,8 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "bringup_serial.h"
+#include "ui/bringup_serial.h"
+#include "ui/bringup_controls.h"
 
 #include "core/constants.h"
 #include "core/logger.h"
@@ -25,8 +26,6 @@
 
 namespace
 {
-enum class BringUpAction { None, Start, StopExit };
-
 BringUpAction MapBringUpAction(const SDL_Event& event, SDL_JoystickID controller_id)
 {
     // Use mapped buttons from the opened controller only. Raw joystick events
@@ -301,94 +300,23 @@ int main(int, char*[])
     WriteBringUpDiagnostic(bring_up_log,
         "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
     BringUpSerial serial(bring_up_log);
-    bool quit_requested = false;
-    bool stop_pending = false;
-    bool exit_after_stop = false;
-    bool restart_pending = false;
-    Uint32 stop_started = 0;
-    auto request_stop = [&](bool exit_after)
-    {
-        // SDL_QUIT may upgrade an outstanding STOP to STOP-then-exit.
-        exit_after_stop = exit_after_stop || exit_after;
-        if (stop_pending) return;
-        if (!serial.Connected() || serial.Finished())
-        {
-            WriteBringUpDiagnostic(bring_up_log, "EXIT: waiting/ready/finished; no STOP sent");
-            quit_requested = true;
-        }
-        else if (serial.Stop())
-        {
-            stop_pending = true;
-            stop_started = SDL_GetTicks();
-            WriteBringUpDiagnostic(bring_up_log, exit_after_stop
-                ? "STOP queued; EXIT after acknowledgement"
-                : "STOP queued; remain in application after acknowledgement");
-        }
-    };
-    auto update_stop = [&]()
-    {
-        if (!stop_pending) return;
-        if (serial.Stopped())
-        {
-            WriteBringUpDiagnostic(bring_up_log, exit_after_stop
-                ? "STOP acknowledged; EXIT" : "STOP acknowledged; ready (R1/X now exits)");
-            stop_pending = false;
-            quit_requested = exit_after_stop;
-        }
-        else if (!serial.Connected() || (exit_after_stop && SDL_GetTicks() - stop_started >= 12500))
-        {
-            WriteBringUpDiagnostic(bring_up_log, exit_after_stop
-                ? "STOP unconfirmed (disconnect/timeout); EXIT"
-                : "STOP unconfirmed (disconnect/timeout); remaining in application");
-            stop_pending = false;
-            quit_requested = exit_after_stop;
-        }
-    };
-    auto request_control = [&](BringUpAction action, const char* button)
-    {
-        const bool active = serial.Connected() && !serial.Finished();
-        const char* requested = action == BringUpAction::Start
-            ? (active ? "RESTART" : "START") : (active ? "STOP" : "EXIT");
-        char diagnostic[160];
-        std::snprintf(diagnostic, sizeof(diagnostic), "%s requested by mapped button %s", requested, button);
-        WriteBringUpDiagnostic(bring_up_log, diagnostic);
-        if (stop_pending)
-        {
-            WriteBringUpDiagnostic(bring_up_log, "action ignored: STOP acknowledgement pending");
-            return;
-        }
-        if (action == BringUpAction::StopExit)
-            request_stop(false);
-        else if (!serial.Connected())
-            WriteBringUpDiagnostic(bring_up_log, "START ignored: waiting for Teensy handshake");
-        else if (serial.StartPending())
-            WriteBringUpDiagnostic(bring_up_log, "START/RESTART ignored: START response pending");
-        else if (serial.Start())
-        {
-            // Firmware START safely stops both players and resets to Test1.
-            restart_pending = active;
-            WriteBringUpDiagnostic(bring_up_log, active ? "RESTART queued via START" : "START queued");
-        }
-        else
-            WriteBringUpDiagnostic(bring_up_log, "START/RESTART ignored: transport not ready");
-    };
+    BringUpControls controls(serial, bring_up_log);
 
     WriteBringUpDiagnostic(
         bring_up_log,
         "entering event loop");
 
-    while (!quit_requested)
+    while (!controls.Quit())
     {
-        serial.Tick(SDL_GetTicks());
-        update_stop();
+        controls.Tick(SDL_GetTicks());
         SDL_Event event;
 
-        while (!quit_requested && SDL_PollEvent(&event) != 0)
+        while (!controls.Quit() && SDL_PollEvent(&event) != 0)
         {
             if (event.type == SDL_QUIT)
             {
                 WriteBringUpDiagnostic(bring_up_log, "EXIT requested by SDL_QUIT");
-                request_stop(true);
+                controls.Request(BringUpAction::Exit, "SDL_QUIT/display error", SDL_GetTicks());
                 break;
             }
             const BringUpAction action = MapBringUpAction(event, controller_id);
@@ -396,7 +324,9 @@ int main(int, char*[])
             {
                 const char* button = SDL_GameControllerGetStringForButton(
                     static_cast<SDL_GameControllerButton>(event.cbutton.button));
-                request_control(action, button);
+                char source[96];
+                std::snprintf(source, sizeof(source), "mapped button %s", button);
+                controls.Request(action, source, SDL_GetTicks());
             }
         }
 
@@ -404,20 +334,20 @@ int main(int, char*[])
         framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16, 16, 16});
         DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
         DrawFixedText(framebuffer, 8, 456,
-            stop_pending ? (exit_after_stop ? "STOP pending, then EXIT" : "STOP pending; please wait") :
+            controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             controller_id < 0 ? "Mapped SDL GameController required" :
             !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
-            serial.StartPending() ? (restart_pending ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
+            serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
             !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
             "L1 / B: START | R1 / X: EXIT",
             Color{255, 255, 255});
 
-        if (!quit_requested && !display.Present(framebuffer))
+        if (!controls.Quit() && !display.Present(framebuffer))
         {
             WriteSdlFailure(
                 bring_up_log,
                 "event-loop framebuffer Present: failure");
-            request_stop(true);
+            controls.Request(BringUpAction::Exit, "SDL_QUIT/display error", SDL_GetTicks());
         }
 
         SDL_Delay(16);

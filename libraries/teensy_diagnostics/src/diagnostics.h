@@ -5,6 +5,10 @@ namespace BroTracker
     // Initialize diagnostics and SD card infrastructure
     bool DiagnosticsInitialize();
 
+    // Foreground serial consumer: drains bytes retained during clock sync
+    // before reading live USB CDC. Returns -1 when neither has input.
+    int ReadStartupSerialByte();
+
     // Log a message to the initialization log (for startup diagnostics)
     bool DiagnosticLog(const char* message);
 

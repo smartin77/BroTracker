@@ -10,6 +10,20 @@ option(
     OFF
 )
 
+option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
+if(BROTRACKER_BUILD_WINDOWS_TERMINAL AND NOT WIN32)
+    message(FATAL_ERROR "BroTracker Windows Terminal requires Windows")
+endif()
+
+# Shared temporary host protocol and controls; platform transport linked separately.
+add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp)
+target_include_directories(BroTrackerBringUp PUBLIC src)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)
+else()
+    set(BROTRACKER_SERIAL_TRANSPORT src/ui/serial_unavailable.cpp)
+endif()
+
 # Platform-independent tracker core, shared by the UI executable and tests.
 add_library(BroTrackerCore STATIC
     src/core/logger.cpp
@@ -41,7 +55,7 @@ add_executable(BroTrackerUIPreview
 target_link_libraries(BroTrackerUIPreview PRIVATE BroTrackerCore)
 target_include_directories(BroTrackerUIPreview PRIVATE src)
 
-if(BROTRACKER_BUILD_ARKOS_UI)
+if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL)
     find_package(SDL2 CONFIG QUIET)
 
     if(TARGET SDL2::SDL2)
@@ -60,9 +74,12 @@ if(BROTRACKER_BUILD_ARKOS_UI)
         set(BROTRACKER_SDL2_TARGET PkgConfig::SDL2)
     endif()
 
+endif()
+
+if(BROTRACKER_BUILD_ARKOS_UI)
     add_executable(BroTrackerArkOSUI
         ui/arkos/main.cpp
-        ui/arkos/bringup_serial.cpp
+        ${BROTRACKER_SERIAL_TRANSPORT}
         ui/sdl/sdl_display_backend.cpp
         src/ui/font.cpp
         src/ui/text_renderer.cpp
@@ -71,7 +88,7 @@ if(BROTRACKER_BUILD_ARKOS_UI)
     )
 
     target_link_libraries(BroTrackerArkOSUI PRIVATE
-        BroTrackerCore
+        BroTrackerCore BroTrackerBringUp
         ${BROTRACKER_SDL2_MAIN_TARGET}
         ${BROTRACKER_SDL2_TARGET}
     )
@@ -82,7 +99,35 @@ if(BROTRACKER_BUILD_ARKOS_UI)
     )
 endif()
 
+if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
+    find_package(Threads REQUIRED)
+    add_executable(BroTrackerTerminal WIN32
+        ui/windows/main.cpp ui/windows/serial_transport.cpp ui/windows/audio_bridge.cpp
+        ui/sdl/sdl_display_backend.cpp
+        src/ui/font.cpp src/ui/text_renderer.cpp src/ui/pattern_screen.cpp
+        src/renderer/framebuffer.cpp)
+    target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp
+        ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}
+        setupapi advapi32 ole32 uuid avrt Threads::Threads)
+endif()
+
 enable_testing()
+add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp)
+target_include_directories(BroTrackerHostClockInputTests PRIVATE libraries/teensy_diagnostics/src)
+add_test(NAME BroTrackerHostClockInputTests COMMAND BroTrackerHostClockInputTests)
+add_executable(BroTrackerBringUpControlsTests tests/test_bringup_controls.cpp)
+target_link_libraries(BroTrackerBringUpControlsTests PRIVATE BroTrackerBringUp)
+add_test(NAME BroTrackerBringUpControlsTests COMMAND BroTrackerBringUpControlsTests)
+if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
+    add_executable(BroTrackerWindowsAudioTests tests/test_windows_audio_buffer.cpp)
+    target_include_directories(BroTrackerWindowsAudioTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME BroTrackerWindowsAudioTests COMMAND BroTrackerWindowsAudioTests)
+    add_executable(BroTrackerWindowsInputTests tests/test_windows_input.cpp)
+    target_include_directories(BroTrackerWindowsInputTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(BroTrackerWindowsInputTests PRIVATE BroTrackerBringUp ${BROTRACKER_SDL2_TARGET})
+    add_test(NAME BroTrackerWindowsInputTests COMMAND BroTrackerWindowsInputTests)
+endif()
 
 add_executable(BroTrackerTests
     tests/test_main.cpp
@@ -105,9 +150,10 @@ add_test(
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(BroTrackerBringUpSerialTests
         tests/test_bringup_serial.cpp
-        ui/arkos/bringup_serial.cpp
+        ${BROTRACKER_SERIAL_TRANSPORT}
     )
     target_include_directories(BroTrackerBringUpSerialTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(BroTrackerBringUpSerialTests PRIVATE BroTrackerBringUp)
     add_test(NAME BroTrackerBringUpSerialTests COMMAND BroTrackerBringUpSerialTests)
     set_tests_properties(BroTrackerBringUpSerialTests PROPERTIES TIMEOUT 20)
 endif()

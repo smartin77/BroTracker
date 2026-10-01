@@ -2,14 +2,15 @@
 
 #include <cstdint>
 #include <cstdio>
+#include "serial_transport.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
-// Tick performs bounded, nonblocking I/O. Linux discovers USB 16c0:048a;
-// other hosts retain a buildable UI with serial unavailable.
+// Shared command ordering, parser and timeouts; platform transport owns I/O.
 class BringUpSerial
 {
 public:
     explicit BringUpSerial(FILE* log, const char* test_device = nullptr);
+    BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport);
     ~BringUpSerial();
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
@@ -30,7 +31,8 @@ private:
     void Disconnect(const char* reason);
     void Send(Command command, std::uint32_t now);
     void OnLine();
-    int fd_ = -1;
+    std::unique_ptr<SerialTransport> transport_;
+    bool opened_ = false;
     FILE* log_;
     const char* test_device_;
     bool connected_ = false;
@@ -41,6 +43,7 @@ private:
     bool stop_queued_ = false;
     bool start_cancelled_ = false;
     bool start_unconfirmed_ = false;
+    bool start_write_attempted_ = false;
     std::uint32_t last_attempt_ = 0;
     std::uint32_t sent_at_ = 0;
     bool attempted_ = false;
