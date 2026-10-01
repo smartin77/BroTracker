@@ -57,7 +57,7 @@ namespace
         Error
     };
 
-    TestPlaybackState g_test_playback_state = TestPlaybackState::Test1;
+    TestPlaybackState g_test_playback_state = TestPlaybackState::Idle;
     unsigned int g_simultaneous_test_loop = 0;
 
     // Tracks whether the finished/underrun report has already been printed,
@@ -241,7 +241,8 @@ namespace
         Serial.print(kTargetBpm, 1);
         Serial.print(", playback rate = ");
         Serial.println(kTest1PlaybackRate, 6);
-        StartSequence();
+        // Boot silently; only an explicit BTTEST1 START arms the sequence.
+        StopSequence();
         DiagnosticLog("MIDI initialized");
         DiagnosticLog("BroTracker ready");
     }

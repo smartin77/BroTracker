@@ -41,6 +41,10 @@ also works. Keep the DLLs and assets beside the packaged executable.
   request actions. Pending START/restart duplicates are suppressed. During STOP,
   further commands are suppressed; exit can upgrade it to STOP-then-exit.
 
+Firmware boots in IDLE with both sample players stopped. HELLO/STATUS report
+IDLE until an explicit START; connecting the terminal does not start playback.
+There is no terminal-detection delay or automatic playback fallback.
+
 Firmware START already stops both streams and restarts Test1, so restart uses the
 existing START command. The temporary **BTTEST1** exchange is shared with ArkOS:
 HELLO, STATUS, START, STOP, six-second command timeout, one-second reconnect and
@@ -72,12 +76,18 @@ its own location, normally:
 
 All terminal/protocol/transport diagnostics are flushed. Windows connection
 stages carry UTC and monotonic millisecond timestamps: discovery, COM open/setup,
-HELLO write, boot playback landmark and first STATE reply. Direct runs start a new
+HELLO write, playback-arm landmark and first STATE reply. Direct runs start a new
 log. A future supervisor can initialize this same log and set
 `BROTRACKER_APPEND_LOG=1` before launching to preserve earlier bridge lines. No
 Windows audio bridge is implemented here.
 
 ## Checks
+
+Python is an **optional development dependency** for the hardware/UI test scripts
+below. BroTracker Terminal does not require Python to launch or run, and the
+Windows build/package helper does not invoke these Python tests. Keep the reusable scripts in
+`tools/windows/`; their logs and scratch directories under `build/` are generated
+test outputs and may be removed between runs.
 
 ```powershell
 ctest --test-dir build --output-on-failure
@@ -96,9 +106,9 @@ repeat suppression and acknowledged shutdown. It also reopens the device without
 resetting it, and checks Ctrl+X. It always closes the application afterwards.
 Physical replug is separate from reopening a handle. The reconnect test allows
 five minutes for each user action and probes the live UI with WM_NULL. It requires
-a PLAYING handshake before it sends any START, then exercises normal controls.
+an IDLE handshake before it sends any START, then exercises normal controls.
 The timestamped reconnect transcript is saved to `build/windows-physical-reconnect.log`. This does not measure audio
-quality or timing. Python is only a development-test dependency, not a runtime DLL.
+quality or timing. Python is not a runtime requirement for BroTracker Terminal.
 
 Shared control tests run on Windows and Eoan. Existing Linux PTY tests still
 exercise the production Linux transport, partial replies, ordering, reconnect,
@@ -113,14 +123,14 @@ Layout follows `docs/PROJECT_STRUCTURE.md`: Windows host integration in
 in `ui/sdl/`, scripts here, generated runnable package in `deploy/windows/`.
 The Windows target does not compile or include anything under `ui/arkos/`.
 
-## Boot-time reconnect investigation
+## Historical boot-time reconnect investigation (autoplay firmware)
 
 The previously captured real reconnect log showed COM discovery/open and HELLO
 transmission succeeding, followed by the shared six-second reply timeout. The
 next HELLO received STATE PLAYING before the first sample finished. It did not
 wait for the complete autoplay sequence.
 
-The matching source explains how an early HELLO can be lost: PlatformInit calls
+The then-current source explained how an early HELLO could be lost: PlatformInit calls
 DiagnosticsInitialize, whose TrySyncClockFromHost consumes serial lines for up
 to 1500 ms and discards non-epoch input. BTTEST1 is serviced later in KernelRun,
 including during playback. This is a boot-time serial-consumer conflict, not a
@@ -135,5 +145,7 @@ finished; no STATE reply arrived and the six-second timeout expired. Reopening
 and sending HELLO again received STATE PLAYING in the same logged millisecond,
 8.11 s after initial discovery. The UI probe maximum was 37.2 ms and no automatic
 START was sent. Space/restart, Enter/STOP and both exit paths passed afterward.
-The lost-first-HELLO behavior remains visible; this change diagnoses it rather
-than modifying firmware's clock-sync consumer or shared retry behavior.
+These measurements describe the older autoplay firmware. The subsequent static
+startup handoff preserves early commands while retaining clock synchronization.
+Current firmware also boots IDLE and requires an explicit START; the Windows
+delays, retry policy and controls remain unchanged. Replug checks now expect IDLE.

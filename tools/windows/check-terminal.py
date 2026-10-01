@@ -106,9 +106,9 @@ try:
         wait_for(lambda: responsive(lambda: 'disconnected/error:' in text()), 'physical USB disconnect detected', 300)
         wait_for(lambda: responsive(lambda: text().count('handshake accepted') >= 2), 'physical USB reconnect handshake', 300)
         after_disconnect = text().split('disconnected/error:', 1)[1]
-        assert 'RX: BTTEST1 STATE PLAYING' in after_disconnect, 'handshake did not report startup playback'
+        assert 'RX: BTTEST1 STATE IDLE' in after_disconnect, 'handshake did not report idle startup'
         assert 'START requested' not in text() and 'queued for TX: START' not in text(), 'automatic START replay'
-        print('PASS: startup playback handshake; no automatic START replay; max UI probe %.1f ms' % (max(response_times)*1000), flush=True)
+        print('PASS: idle startup handshake; no automatic START replay; max UI probe %.1f ms' % (max(response_times)*1000), flush=True)
         (repo / 'build/windows-physical-reconnect.log').write_text(text())
         for line in after_disconnect.splitlines():
             if 'tick=' in line: print(line, flush=True)
