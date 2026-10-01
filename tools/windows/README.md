@@ -2,7 +2,8 @@
 
 Native SDL2 client for the Teensy engine; **BTX** is shorthand, not the
 application name. The fixed, non-resizable client area is 640x480. This milestone
-has no host audio, scaling, fullscreen, firmware changes or final tracker protocol.
+routes USB audio through a Windows-only WASAPI worker. It adds no scaling,
+fullscreen, firmware changes or final tracker protocol.
 
 ## Build and package
 
@@ -79,7 +80,59 @@ stages carry UTC and monotonic millisecond timestamps: discovery, COM open/setup
 HELLO write, playback-arm landmark and first STATE reply. Direct runs start a new
 log. A future supervisor can initialize this same log and set
 `BROTRACKER_APPEND_LOG=1` before launching to preserve earlier bridge lines. No
-Windows audio bridge is implemented here.
+external audio bridge process or Python runtime is required; the in-process
+WASAPI worker shares this log and is joined before the file closes.
+
+## USB audio routing
+
+Before audible testing, **disable Windows "Listen to this device"** on the
+Teensy/BroTracker recording endpoint to avoid duplicate playback. The terminal
+never changes Listen, volume, device defaults or persistent audio settings.
+Launch the same packaged executable; routing starts automatically, independently
+of BTTEST1. Firmware remains IDLE until Space sends START.
+
+The Windows-only `audio_bridge.cpp` worker enumerates active capture endpoints
+and matches their container IDs to present USB devices with VID/PID `16c0:048a`.
+It logs the underlying USB instance (including serial), container, endpoint ID
+and display name. Cached `Teensy MIDI/Audio` and new `BroTracker USB audio` names
+both work; names are diagnostic only. No unrelated microphone fallback is used.
+Multiple matching capture endpoints are rejected. The output is the current
+**default multimedia render endpoint**; an output belonging to a matching
+BroTracker USB container is rejected to prevent routing back into the board.
+An unverifiable container identity fails closed.
+
+Both clients use WASAPI shared mode with stereo float32 at 44,100 Hz and
+`AUTOCONVERTPCM | SRC_DEFAULT_QUALITY`, letting Windows convert sample format,
+channel layout and rate to/from the endpoint mix formats. Unsupported
+initialization fails explicitly; there is no silent format fallback. The log
+reports each mix format, requested client format and actual buffer sizes.
+The worker requests 20 ms buffers and waits for WASAPI capture/render events,
+using the Windows MMCSS Audio scheduling class when available. Its fixed 8192-frame stereo
+queue targets 1323 frames, using occupancy-driven fractional interpolation
+(up to +/-3000 ppm) to accommodate independent capture/render clock drift.
+These settings are configuration, **not measured end-to-end latency**.
+
+Silent capture packets become zeros. Capture discontinuities clear/re-prime
+the queue; starvation inserts silence and re-primes, and overflow discards
+oldest frames rather than allowing latency to grow. Counters include non-silent
+capture, render submissions, silence-fill, drops, discontinuities and empty
+render buffers. A startup discontinuity or initial silence-fill is normal.
+The audio processing loop performs no application allocations, discovery or
+file writes; the SDL thread periodically logs atomic counters. Discovery and
+setup/teardown diagnostics run on the worker outside audio processing.
+
+Disconnect/invalidation, a stalled stream or an endpoint/default-output change
+releases both clients and rediscoveries run with interruptible backoff bounded
+at 8 seconds (1, 2, 4, 8 seconds after consecutive startup failures). The UI and
+CDC controls continue operating. Audio recovery never sends START or changes
+engine state. A new default multimedia output is acquired automatically; this
+milestone has no endpoint selector. Exiting retains the acknowledged CDC STOP
+path, then stops and joins audio before closing the shared log. No worker
+process is launched.
+
+Shared-mode conversion and property behavior follow Microsoft's
+[stream flags](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audclnt-streamflags-xxx-constants)
+and [endpoint properties](https://learn.microsoft.com/en-us/windows/win32/coreaudio/device-properties).
 
 ## Checks
 
@@ -97,6 +150,14 @@ python tools/windows/check-startup-errors.py
 python tools/windows/check-terminal.py --hardware
 # Also waits for a user-operated USB unplug/replug:
 python tools/windows/check-terminal.py --hardware --reconnect
+# Listen must be disabled; sends START/restart/STOP and checks audio counters:
+python tools/windows/check-audio.py --hardware
+# Start unplugged and verify exit interrupts discovery backoff:
+python tools/windows/check-audio.py --hardware --absent-exit
+# Start with Teensy unplugged; follow printed connect/replug/output prompts:
+python tools/windows/check-audio.py --hardware --physical --default-change
+# Start connected and test physical recovery plus output change:
+python tools/windows/check-audio.py --hardware --reconnect --default-change
 ```
 
 The hardware script launches the packaged app with the toolchain removed from
@@ -109,6 +170,14 @@ five minutes for each user action and probes the live UI with WM_NULL. It requir
 an IDLE handshake before it sends any START, then exercises normal controls.
 The timestamped reconnect transcript is saved to `build/windows-physical-reconnect.log`. This does not measure audio
 quality or timing. Python is not a runtime requirement for BroTracker Terminal.
+
+The audio test probes UI responsiveness while waiting and verifies non-silent
+capture/render flow plus joined-worker/acknowledged-STOP shutdown. It does not
+measure acoustic quality or latency. Default-output changes and physical USB
+replug are user-operated; the script never changes system settings. The CTest
+audio buffer test simulates ten minutes of +/-1000 ppm drift, stereo separation,
+silence, starvation and bounded overflow. Physical stereo fidelity and prolonged
+hardware drift/quality checks remain listening/manual tests.
 
 Shared control tests run on Windows and Eoan. Existing Linux PTY tests still
 exercise the production Linux transport, partial replies, ordering, reconnect,
@@ -149,3 +218,29 @@ These measurements describe the older autoplay firmware. The subsequent static
 startup handoff preserves early commands while retaining clock synchronization.
 Current firmware also boots IDLE and requires an explicit START; the Windows
 delays, retry policy and controls remain unchanged. Replug checks now expect IDLE.
+
+## Live USB product-name diagnostic
+
+The audio endpoint label is not the USB product descriptor. To read the actual
+connected `16c0:048a` device through a USB hub GET_DESCRIPTOR request, without
+opening CDC/audio streams or changing any device settings:
+
+```powershell
+$env:PATH = "D:/dev/msys64/ucrt64/bin;$env:PATH"
+g++ -std=c++17 tools/windows/check-usb-product.cpp -lsetupapi -o build/check-usb-product.exe
+./build/check-usb-product.exe
+```
+
+This optional development helper is not shipped in the runtime package. It
+prints the product/serial strings and raw descriptor bytes, and reports missing
+matches, inaccessible hubs or descriptor failures. It enumerates current hubs;
+no USB port topology is hard-coded. Multiple matches are reported separately.
+
+On the post-reboot check for serial `17681760`, a successful descriptor read
+returned `BroTracker USB audio` (42 bytes), exactly matching the product string
+in `.pio/build/teensy41/firmware.elf`. Windows simultaneously displayed
+`Digital Audio Interface (2- Teensy MIDI/Audio)`. This establishes a retained
+Windows endpoint label, not an old product name in the running firmware; it
+does not establish that every byte of the flashed firmware equals the local
+artifact. No registry, driver, serial, VID/PID or firmware change is needed to
+make bridge discovery work, because discovery uses USB/container identity.

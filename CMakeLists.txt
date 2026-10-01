@@ -102,14 +102,14 @@ endif()
 if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
     find_package(Threads REQUIRED)
     add_executable(BroTrackerTerminal WIN32
-        ui/windows/main.cpp ui/windows/serial_transport.cpp
+        ui/windows/main.cpp ui/windows/serial_transport.cpp ui/windows/audio_bridge.cpp
         ui/sdl/sdl_display_backend.cpp
         src/ui/font.cpp src/ui/text_renderer.cpp src/ui/pattern_screen.cpp
         src/renderer/framebuffer.cpp)
     target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp
         ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}
-        setupapi advapi32 Threads::Threads)
+        setupapi advapi32 ole32 uuid avrt Threads::Threads)
 endif()
 
 enable_testing()
@@ -120,6 +120,9 @@ add_executable(BroTrackerBringUpControlsTests tests/test_bringup_controls.cpp)
 target_link_libraries(BroTrackerBringUpControlsTests PRIVATE BroTrackerBringUp)
 add_test(NAME BroTrackerBringUpControlsTests COMMAND BroTrackerBringUpControlsTests)
 if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
+    add_executable(BroTrackerWindowsAudioTests tests/test_windows_audio_buffer.cpp)
+    target_include_directories(BroTrackerWindowsAudioTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME BroTrackerWindowsAudioTests COMMAND BroTrackerWindowsAudioTests)
     add_executable(BroTrackerWindowsInputTests tests/test_windows_input.cpp)
     target_include_directories(BroTrackerWindowsInputTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(BroTrackerWindowsInputTests PRIVATE BroTrackerBringUp ${BROTRACKER_SDL2_TARGET})

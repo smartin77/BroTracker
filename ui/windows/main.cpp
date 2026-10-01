@@ -7,6 +7,7 @@
 #include <memory>
 #include "input.h"
 #include "diagnostics.h"
+#include "audio_bridge.h"
 #include "core/constants.h"
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
@@ -59,12 +60,18 @@ int main(int, char*[]) try {
     SdlDisplayBackend display("BroTracker Terminal", false);
     if (!display.Initialize(640, 480)) return failure("SDL initialization failed");
     std::fprintf(log.get(), "SDL driver=%s; fixed window 640x480; RGB24 framebuffer\n", SDL_GetCurrentVideoDriver());
+    std::unique_ptr<WindowsAudioBridge> audio;
+    try { audio = std::make_unique<WindowsAudioBridge>(log.get()); }
+    catch (const std::exception& error) {
+        WindowsDiagnostic(log.get(), "Windows audio disabled", error.what());
+    }
     BringUpSerial serial(log.get());
     BringUpControls controls(serial, log.get());
     std::fprintf(log.get(), "Controls: Space START/RESTART; Enter STOP (stay); Ctrl+X/window close EXIT\n");
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
+        if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
             const auto action = MapWindowsAction(event);
@@ -85,6 +92,7 @@ int main(int, char*[]) try {
         }
         SDL_Delay(16);
     }
+    if (audio) audio->Stop(); // Join before the shared log closes; CDC STOP has completed.
     std::fprintf(log.get(), "BroTracker Terminal clean shutdown\n");
     // Serial worker is destroyed (and handle closed) before the shared FILE.
     return display_failed ? ReportFailure(log.get(), "Presentation failed; terminal stopped safely", log_path.u8string()) : 0;

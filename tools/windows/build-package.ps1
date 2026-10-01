@@ -13,6 +13,11 @@ function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXI
     "-DCMAKE_MAKE_PROGRAM=$ToolchainBin/mingw32-make.exe" `
     "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON
 Check-Exit
+# A compiler-path change can make CMake regenerate the cache and discard -D
+# options on that first pass. Reapply target options before building/packaging.
+& "$ToolchainBin/cmake.exe" -S $repo -B $build `
+    "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON
+Check-Exit
 & "$ToolchainBin/cmake.exe" --build $build --parallel 4
 Check-Exit
 & "$ToolchainBin/ctest.exe" --test-dir $build --output-on-failure
