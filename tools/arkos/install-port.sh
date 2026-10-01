@@ -3,10 +3,11 @@ set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 package="$repo_root/deploy/arkos"
-launcher="$repo_root/tools/arkos/port/BroTracker.sh"
+launcher="$repo_root/tools/arkos/port/BroTracker Terminal.sh"
 ports=/roms/ports
 app="$ports/brotracker"
-port_launcher="$ports/BroTracker.sh"
+port_launcher="$ports/BroTracker Terminal.sh"
+legacy_launcher="$ports/BroTracker.sh"
 obsolete="$app/BroTrackerArkOSUI"
 files=(
     BroTrackerTerminal
@@ -29,7 +30,7 @@ for dir in "$app" "$app/assets" "$app/assets/fonts"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
 done
-targets=("$port_launcher" "$obsolete")
+targets=("$port_launcher" "$legacy_launcher" "$obsolete")
 for file in "${files[@]}"; do
     targets+=("$app/$file")
 done
@@ -39,11 +40,13 @@ for target in "${targets[@]}"; do
 done
 
 # Use a unique backup name; never overwrite an earlier launcher backup.
-if [[ -f "$port_launcher" ]]; then
-    backup=$(mktemp "$ports/BroTracker.sh.bak.XXXXXX")
-    cp -p -- "$port_launcher" "$backup"
-    echo "Previous launcher saved as: $backup"
-fi
+for existing in "$port_launcher" "$legacy_launcher"; do
+    if [[ -f "$existing" ]]; then
+        backup=$(mktemp "$existing.bak.XXXXXX")
+        cp -p -- "$existing" "$backup"
+        echo "Previous launcher saved as: $backup"
+    fi
+done
 
 mkdir -p -- "$app/assets/fonts"
 for file in "${files[@]}"; do
@@ -54,6 +57,8 @@ for file in "${files[@]}"; do
     install -m "$mode" -- "$package/$file" "$app/$file"
 done
 install -m 0755 -- "$launcher" "$port_launcher"
+# Retire the legacy Ports entry only after the new launcher installs successfully.
+rm -f -- "$legacy_launcher"
 # Remove only the old executable, after the replacement package/launcher succeed.
 rm -f -- "$obsolete"
 

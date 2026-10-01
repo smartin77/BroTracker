@@ -40,7 +40,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'cat "$log" >&2' ERR
 mkdir -p "$work/ports/brotracker" "$work/data/PortMaster"
-cp "$repo/tools/arkos/port/BroTracker.sh" "$work/ports/BroTracker.sh"
+cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$work/ports/BroTracker Terminal.sh"
 export XDG_DATA_HOME="$work/data" TEST_DIR="$work"
 cat > "$work/data/PortMaster/control.txt" <<'STUB'
 get_controls() { sdl_controllerconfig=test-mapping; }
@@ -119,7 +119,7 @@ record_children() {
 run_case() {
     export BRIDGE_MODE=$1 UI_SECONDS=$2
     rm -f "$work/count" "$work/finished" "$work/orphan" "$work/"*.pid
-    bash "$work/ports/BroTracker.sh" & launcher_pid=$!
+    bash "$work/ports/BroTracker Terminal.sh" & launcher_pid=$!
     sleep 0.15
     record_children "$launcher_pid"
     if [[ "$3" == killed ]]; then

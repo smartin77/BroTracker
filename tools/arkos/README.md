@@ -158,16 +158,20 @@ these commands **on ArkOS from that checkout** (no compiler or firmware upload):
 
 ```sh
 bash tools/arkos/install-port.sh
-# Launch via the existing Ports entry, or test its exact launch path:
-bash /roms/ports/BroTracker.sh
+# Launch via the BroTracker Terminal Ports entry, or test its exact launch path:
+bash "/roms/ports/BroTracker Terminal.sh"
 # After exiting, inspect the shared diagnostics:
 cat /tmp/brotracker-arkos.log
 ```
 
-The existing entry remains `/roms/ports/BroTracker.sh` and the application
-location remains `/roms/ports/brotracker/`. The installer backs up the old
-launcher, installs the six packaged application files and updated Ports
-launcher, then removes only `/roms/ports/brotracker/BroTrackerArkOSUI`.
+The source launcher is `tools/arkos/port/BroTracker Terminal.sh`, installed as
+`/roms/ports/BroTracker Terminal.sh`. The application directory remains
+`/roms/ports/brotracker/`. The installer saves unique backups of any existing
+new or legacy `BroTracker.sh` launcher, installs the six packaged application
+files and new launcher, then removes the legacy launcher only after successful
+installation. Repeated updates leave one active BroTracker Ports entry and
+preserve previous backups. It also removes only the obsolete application
+executable `/roms/ports/brotracker/BroTrackerArkOSUI`.
 It rejects symlink/non-file destinations before writing. User data, extra
 files and previous launcher backups remain in place. Direct display/CDC
 checks without the audio supervisor can use `bash deploy/arkos/launch.sh`.
