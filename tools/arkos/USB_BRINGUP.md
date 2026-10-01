@@ -1,10 +1,14 @@
-# Temporary ArkOS / Teensy WAV control test
+# BroTracker Terminal (BTX): ArkOS / Teensy WAV control test
 
 This is a disposable `BTTEST1` USB CDC bring-up exchange, not BroTracker's
 final communication protocol. Keep `USB_MIDI_AUDIO_SERIAL` selected.
 No audio is transported by these commands.
 
-The Linux UI discovers USB VID:PID `16c0:048a` through sysfs and opens the
+BroTracker Terminal uses **BTX** as communication shorthand; the temporary
+protocol on the wire remains `BTTEST1`. Its ArkOS executable is
+`BroTrackerTerminal`.
+
+The Linux terminal discovers USB VID:PID `16c0:048a` through sysfs and opens the
 associated `/dev/ttyACM*` at 115200 with DTR asserted. It retries once a second;
 permissions/open errors, transmitted commands, received lines, completion and
 timeouts are flushed to `/tmp/brotracker-arkos.log`. The console user must

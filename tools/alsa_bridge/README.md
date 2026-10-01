@@ -18,7 +18,7 @@ bash tools/arkos/run-in-eoan.sh cmake -E chdir /build/alsa-bridge ctest --output
 
 The executable is `$BROTRACKER_EOAN_ROOT/build/alsa-bridge/BroTrackerAlsaBridge`.
 ALSA headers/library (`libasound2-dev`) must be present in that root. The new
-CMake option defaults OFF; neither existing Windows nor ArkOS UI builds gain
+CMake option defaults OFF; neither Windows nor ArkOS terminal binaries gain
 an ALSA dependency. Do not enable it on Windows.
 
 ## R36H test (after a separately reviewed transfer)
@@ -30,7 +30,8 @@ From the checkout on R36H:
 ```
 
 At startup ALSA control APIs enumerate current cards and PCM devices/subdevices.
-Capture matches ID `MIDIAudio` or card name `Teensy MIDI/Audio`; playback
+Capture matches ID `MIDIAudio` or card name `BroTracker USB audio` or
+legacy `Teensy MIDI/Audio`; playback
 matches ID `rockchiprk817co` or name `rockchip,rk817-codec`, explicitly excluding
 Teensy. Capture uses discovered `hw:CARD=...,DEV=...,SUBDEV=...` endpoints;
 playback uses `plughw:CARD=...,DEV=...,SUBDEV=...`. Here `CARD` is the numeric
@@ -91,7 +92,8 @@ final block, ring wrap, invalid-device reporting and SIGINT shutdown. Physical
 sound quality, both samples staying in sync, long-run drift, device-busy and
 unplug behavior, and actual latency still require R36H hardware testing.
 
-Discovery policy tests use simulated inventories/open results for renumbered
+Discovery policy tests cover new and legacy USB product names and the legacy
+`MIDIAudio` ID, using simulated inventories/open results for renumbered
 cards, duplicate identities, vanished/busy candidates, absent endpoints and
 rejection of Teensy speaker output. They do not prove physical ALSA enumeration
 or hot-unplug behavior on R36H; those still require hardware verification.

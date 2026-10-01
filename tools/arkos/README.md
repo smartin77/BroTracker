@@ -1,6 +1,10 @@
-# ArkOS Eoan ARM64 build and deployment
+# BroTracker Terminal (BTX) on ArkOS Eoan ARM64
 
-The first display test targets the console's Ubuntu 19.10 (Eoan) runtime:
+The ArkOS host application is **BroTracker Terminal**; **BTX** is communication
+shorthand (D0053), not a separate application name. Windows uses the same target
+name in its own build/package; ArkOS deploys to `deploy/arkos/`.
+
+The display test targets the console's Ubuntu 19.10 (Eoan) runtime:
 glibc 2.30, libstdc++6 9.2.1-9ubuntu2, and system SDL2 2.0.10.
 Build inside a minimal Eoan ARM64 root under QEMU user emulation in WSL2.
 No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
@@ -30,7 +34,7 @@ sudo cp /etc/resolv.conf "$BROTRACKER_EOAN_ROOT/etc/resolv.conf"
 cd /mnt/d/dev/smartin77/BroTracker
 bash tools/arkos/run-in-eoan.sh apt-get update
 bash tools/arkos/run-in-eoan.sh apt-get install -y --no-install-recommends \
-  g++ make cmake pkg-config libsdl2-dev file binutils
+  g++ make cmake pkg-config libsdl2-dev libasound2-dev file binutils
 ```
 
 The runner uses a private mount namespace; /workspace is the read-only
@@ -44,19 +48,24 @@ binfmt_misc so ARM64 subprocesses execute inside chroot.
 bash tools/arkos/run-in-eoan.sh
 ```
 
-This builds every existing CMake target in /build/brotracker and runs CTest.
+This enables the ArkOS terminal and standalone ALSA bridge, builds all enabled
+CMake targets in /build/brotracker and runs CTest. The existing
+`BROTRACKER_BUILD_ARKOS_UI` option now creates `BroTrackerTerminal`; enable only
+one platform terminal option in each build tree.
 The repository's CMake features work with Eoan's 3.13.4; the minimum is 3.13.
 No newer target libc or SDL2 is installed to obtain CMake.
 
 The script requires the matching compiler/runtime/development package versions,
-selects Eoan's pkg-config SDL2 files, and checks BroTrackerArkOSUI for:
+selects Eoan's pkg-config SDL2 files, and checks BroTrackerTerminal for:
 
 - AArch64 ELF and /lib/ld-linux-aarch64.so.1 interpreter;
 - dynamic system SDL2 dependency, expected system libraries, and no RPATH/RUNPATH;
 - required GLIBC <= 2.30, GLIBCXX <= 3.4.28, and CXXABI <= 1.3.12;
 - dependency and relocation resolution with ldd -r in the Eoan root.
 
-Only after those checks pass does it stage the executable, launch.sh, font
+The freshly built `BroTrackerAlsaBridge` is checked similarly for system
+`libasound.so.2`, matching symbol versions and relocations. Only after all
+checks pass does it stage both executables, launch.sh, font
 descriptor plus its required brotracker.bfm bitmap data, and test tune at
 /package/arkos inside the build root. The dependency report
 stays in /build/brotracker/arkos-dependencies.txt. No SDL2 library is packaged.
@@ -72,13 +81,15 @@ After a successful build, from WSL in the checkout:
 ```sh
 mkdir -p deploy/arkos
 cp -a "$BROTRACKER_EOAN_ROOT/package/arkos/." deploy/arkos/
+# After the new package has passed checks and been copied:
+rm -f -- deploy/arkos/BroTrackerArkOSUI
 ```
 
 The package includes the current working-tree sources, including any uncommitted
 edits. Review the source and package together before a later commit and
 repository transfer. Committing or pushing is not part of the build scripts.
 When later adding the package to Git from Windows, record executable modes for
-BroTrackerArkOSUI and launch.sh with git update-index --chmod=+x after git add.
+BroTrackerTerminal, BroTrackerAlsaBridge and launch.sh with git update-index --chmod=+x after git add.
 The LF attributes also cover the packaged launcher and BTF descriptor.
 
 On the console, run from the transferred checkout:
@@ -114,10 +125,10 @@ repository transfer has been performed.
 
 ## PortMaster UI plus live audio
 
-`install-port.sh` installs the existing checked `BroTrackerAlsaBridge` as well
-as the UI, launcher and assets (both executables mode 0755). Package generation
-verifies the versioned bridge ABI and copies it unchanged; ALSA is not linked
-into the UI. No EmulationStation process or system audio settings are changed.
+`install-port.sh` installs the checked `BroTrackerTerminal`,
+`BroTrackerAlsaBridge`, launcher and assets (both executables mode 0755).
+Package generation builds/tests and verifies both binaries; ALSA is not linked
+into the terminal. No EmulationStation process or system audio settings are changed.
 
 The Ports launcher starts the UI and a bridge supervisor together. Failed
 initial audio startup is attempted at most eight times, with two seconds
@@ -139,3 +150,41 @@ of initial retries, shared logs, runtime-failure non-restart, missing audio,
 exit-code preservation and child cleanup before `pm_finish`. It temporarily
 uses the standard log path and restores the previous log afterwards. Real
 EmulationStation handoff, audio and USB hotplug still need R36H testing.
+
+## Update an existing ArkOS installation
+
+After transferring the reviewed checkout/package through the repository, run
+these commands **on ArkOS from that checkout** (no compiler or firmware upload):
+
+```sh
+bash tools/arkos/install-port.sh
+# Launch via the existing Ports entry, or test its exact launch path:
+bash /roms/ports/BroTracker.sh
+# After exiting, inspect the shared diagnostics:
+cat /tmp/brotracker-arkos.log
+```
+
+The existing entry remains `/roms/ports/BroTracker.sh` and the application
+location remains `/roms/ports/brotracker/`. The installer backs up the old
+launcher, installs the six packaged application files and updated Ports
+launcher, then removes only `/roms/ports/brotracker/BroTrackerArkOSUI`.
+It rejects symlink/non-file destinations before writing. User data, extra
+files and previous launcher backups remain in place. Direct display/CDC
+checks without the audio supervisor can use `bash deploy/arkos/launch.sh`.
+
+Automatic audio capture accepts `BroTracker USB audio`, legacy
+`Teensy MIDI/Audio`, or legacy ALSA ID `MIDIAudio`. Numeric card/device/subdevice
+addresses come from current enumeration and post-open identity checks remain
+mandatory. If audio disconnects after successful startup, restart the Ports
+application manually; runtime audio restart behavior is unchanged.
+
+On hardware, verify L1/B START/restart, R1/X STOP-and-stay then EXIT, audio,
+controller mapping and EmulationStation audio handoff. Local checks:
+
+```sh
+bash tools/arkos/check-install-port.sh
+bash tools/arkos/check-port-launcher.sh
+```
+
+Both use isolated temporary installations/stubs, never the handheld. The
+launcher check temporarily uses and restores `/tmp/brotracker-arkos.log`.

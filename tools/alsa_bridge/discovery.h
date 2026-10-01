@@ -22,7 +22,8 @@ inline std::string PcmName(int card, int device, unsigned int subdevice, bool ca
 
 inline bool Matches(const Endpoint& endpoint, bool capture)
 {
-    const bool teensy = endpoint.id == "MIDIAudio" || endpoint.name == "Teensy MIDI/Audio";
+    const bool teensy = endpoint.id == "MIDIAudio" || endpoint.name == "Teensy MIDI/Audio" ||
+                        endpoint.name == "BroTracker USB audio";
     const bool rockchip = endpoint.id == "rockchiprk817co" || endpoint.name == "rockchip,rk817-codec";
     return endpoint.capture == capture && (capture ? teensy : rockchip && !teensy);
 }

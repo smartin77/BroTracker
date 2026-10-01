@@ -63,7 +63,7 @@ pm_finish() {
     return 99
 }
 STUB
-cat > "$work/ports/brotracker/BroTrackerArkOSUI" <<'STUB'
+cat > "$work/ports/brotracker/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
 [[ "$BROTRACKER_APPEND_LOG" == 1 && "$SDL_GAMECONTROLLERCONFIG" == test-mapping ]] || exit 80
 echo $$ > "$TEST_DIR/ui.pid"

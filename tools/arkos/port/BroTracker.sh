@@ -6,7 +6,7 @@ app_dir="$launcher_dir/brotracker"
 log=/tmp/brotracker-arkos.log
 : > "$log" || exit 1
 exec >> "$log" 2>&1
-printf 'Launcher: starting BroTracker UI and audio\n'
+printf 'Launcher: starting BroTracker Terminal (BTX) and audio\n'
 ui_pid=
 audio_pid=
 cleanup() {
@@ -113,7 +113,7 @@ fi
 cd -- "$app_dir" || exit 1
 
 if type pm_platform_helper >/dev/null 2>&1; then
-    pm_platform_helper "$app_dir/BroTrackerArkOSUI"
+    pm_platform_helper "$app_dir/BroTrackerTerminal"
 fi
 
 # PortMaster helpers may replace traps or enable errexit. Establish our
@@ -127,7 +127,7 @@ trap 'cleanup 129' HUP
 launcher_pid=$BASHPID
 
 # Direct UI runs keep their normal fresh log; only this launch appends.
-BROTRACKER_APPEND_LOG=1 ./BroTrackerArkOSUI &
+BROTRACKER_APPEND_LOG=1 ./BroTrackerTerminal &
 ui_pid=$!
 audio_supervisor &
 audio_pid=$!

@@ -7,8 +7,9 @@ launcher="$repo_root/tools/arkos/port/BroTracker.sh"
 ports=/roms/ports
 app="$ports/brotracker"
 port_launcher="$ports/BroTracker.sh"
+obsolete="$app/BroTrackerArkOSUI"
 files=(
-    BroTrackerArkOSUI
+    BroTrackerTerminal
     BroTrackerAlsaBridge
     launch.sh
     assets/dummy_my_tune.json
@@ -28,7 +29,7 @@ for dir in "$app" "$app/assets" "$app/assets/fonts"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
 done
-targets=("$port_launcher")
+targets=("$port_launcher" "$obsolete")
 for file in "${files[@]}"; do
     targets+=("$app/$file")
 done
@@ -47,12 +48,14 @@ fi
 mkdir -p -- "$app/assets/fonts"
 for file in "${files[@]}"; do
     case "$file" in
-        BroTrackerArkOSUI|BroTrackerAlsaBridge|launch.sh) mode=0755 ;;
+        BroTrackerTerminal|BroTrackerAlsaBridge|launch.sh) mode=0755 ;;
         *) mode=0644 ;;
     esac
     install -m "$mode" -- "$package/$file" "$app/$file"
 done
 install -m 0755 -- "$launcher" "$port_launcher"
+# Remove only the old executable, after the replacement package/launcher succeed.
+rm -f -- "$obsolete"
 
-echo "Installed BroTracker in $app"
+echo "Installed BroTracker Terminal (BTX) in $app"
 echo "Ports launcher: $port_launcher"

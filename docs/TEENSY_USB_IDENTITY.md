@@ -37,15 +37,14 @@ device cache even when the actual USB product descriptor has changed.
 Verify the descriptor separately from Device Manager/audio endpoint labels;
 do not rename devices through the registry or local settings.
 
-ArkOS CDC discovery also uses VID/PID and remains compatible. The current
-ALSA bridge's automatic capture discovery accepts only ALSA ID `MIDIAudio`
-or card name `Teensy MIDI/Audio`. If both change after enumeration, `--auto`
-will reject the renamed capture device as no usable Teensy capture endpoint.
-The exact new ALSA ID must be observed on hardware; it is not assumed here.
-Explicit capture/playback PCM arguments bypass that automatic identity match
-and remain available, using freshly enumerated card numbers. Rockchip output
-matching is unaffected. Migrating ArkOS automatic audio discovery is a
-separate task; its source and deployment package are unchanged here.
+ArkOS CDC discovery also uses VID/PID and remains compatible. The ALSA bridge
+accepts card name `BroTracker USB audio`, legacy `Teensy MIDI/Audio`, or legacy
+ALSA ID `MIDIAudio`. The generated ALSA ID for the renamed device does not need
+to be predicted: product-name matching supports it independently of that ID.
+PCM card/device/subdevice numbers are enumerated at runtime, and opened
+endpoints must retain the enumerated card identity. Ambiguous viable matches
+are rejected; Rockchip output matching and USB-output exclusion are preserved.
+Explicit capture/playback PCM arguments remain available for diagnostics.
 
 ## Validation and post-flash check
 
@@ -67,7 +66,7 @@ After a separate user flash, physically unplug/replug and verify:
    and supports START, restart, STOP and reconnect as before. Confirm host
    clock synchronization and preservation of an early BTTEST1 HELLO.
 3. Audio capture/playback and MIDI still enumerate and function. On ArkOS,
-   record the actual ALSA card name/ID before migrating automatic discovery;
-   do not treat existing `--auto` discovery as compatible without checking.
+   record the actual ALSA card name/ID and verify `--auto` selects the renamed
+   device and Rockchip playback. Discovery coverage alone is not hardware proof.
 
 These post-flash hardware checks have not been performed for this rename.
