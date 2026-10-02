@@ -261,3 +261,103 @@ bash "/roms/ports/BroTracker Terminal.sh"
 These are pending physical checks, not evidence of post-reboot USB detection
 or subjective audio quality. Audio clicks and USB reset/power fixes are outside
 this change.
+
+## BroTracker Diagnostics Ports entry
+
+The installer also installs `tools/arkos/port/BroTracker Diagnostics.sh` as
+`/roms/ports/BroTracker Diagnostics.sh` (0755), backing up any existing entry.
+It starts the unchanged normal Terminal launcher, controls and audio supervisor.
+It never sends START, resets USB, changes audio routing, or requires SSH.
+After transferring the reviewed checkout, run on ArkOS:
+
+```sh
+bash tools/arkos/install-port.sh
+# Prefer selecting BroTracker Diagnostics from the Ports menu:
+bash "/roms/ports/BroTracker Diagnostics.sh"
+```
+
+Each invocation creates a private, collision-safe directory at
+`$HOME/BroTracker/diagnostics/YYYYMMDD-HHMMSS.XXXXXX/`. Previous runs remain
+untouched. Do not launch the normal and diagnostic entries simultaneously:
+the normal launcher uses one shared `/tmp/brotracker-arkos.log` and audio device.
+
+- `collector.log`: startup date, uptime, kernel, identity, executable SHA-256
+  hashes, collection failures, shutdown status and run path.
+- `snapshots.log`: USB sysfs identities and interface drivers, ttyACM/ALSA
+  ancestry and permissions, detection changes, capture/playback listings and
+  read-only per-card mixer contents. Snapshots occur approximately every five
+  seconds; collection duration can extend this interval.
+- `kernel-N.log`: full available kernel rings, saved initially before BTX
+  starts and whenever the polled ring changes. This preserves existing early
+  boot USB/audio evidence before EmulationStation launches the entry. It is
+  read-only polling, not a privileged kernel follower: inaccessible or already
+  overwritten messages cannot be recovered, and rapid ring wrap can lose events.
+- `btx-stream.log`: incremental copies approximately once per second, including
+  PCM configuration, discontinuities, runtime recovery and shutdown summaries.
+  `btx-final.log` saves the final shared log after normal launcher cleanup.
+- `exit-status`: present only after orderly finalization. Its absence after a
+  reboot/power loss marks an interrupted run; previously written snapshots,
+  kernel rings and stream data remain useful.
+
+Collected output is written throughout the run and filesystem-flushed each
+collector cycle using available `sync`; nothing waits entirely for shutdown.
+This reduces loss but cannot guarantee storage survival during sudden power
+failure. Missing tools/read permissions are recorded without preventing BTX;
+no `lsusb`, `rg`, Python, sudo or extra packages are required on the handheld.
+If the persistent directory cannot be created, the wrapper reports the error
+and still launches BTX normally, without persistent diagnostic collection.
+HUP is ignored so network/session loss does not end the run. Normal exit or
+TERM/INT stops/reaps the launcher and diagnostic worker/retry sleep. The normal
+launcher still performs its own bridge cleanup and `pm_finish`.
+
+### Handheld checklist (no SSH or keyboard needed)
+
+Use a separate cold boot/run for each layout below. Connect the devices before
+powering on; do not unplug anything before collecting the first snapshot.
+Keep power supply, sample, listening level and other conditions constant.
+
+| Run | Wiring at boot |
+| --- | --- |
+| 1 | T4.1 directly connected through OTG; no hub or Wi-Fi dongle |
+| 2 | Only the powered hub and T4.1 on OTG |
+| 3 | Powered hub with T4.1 and Wi-Fi dongle |
+| 4 | Original chained-hub arrangement; record hub order, ports and supplies |
+
+For **each** run:
+
+1. After EmulationStation loads, immediately select **BroTracker Diagnostics**
+   from Ports. Wait 20 seconds without unplugging or pressing START. Record the
+   wiring, boot time, UI waiting/ready state, and whether it connects unaided.
+   The initial kernel snapshot collects retained boot evidence even though the
+   diagnostic entry starts later.
+2. If ready, press **L1/B** once, listen through a full sequence, and record
+   clean/distorted/silent audio and whether both samples stay synchronized.
+   Note the approximate elapsed time and visible UI state. If still waiting,
+   record that instead; do not substitute a reboot before the recovery test.
+3. While diagnostics/BTX stays open, unplug **only T4.1** for at least 30 seconds
+   (one run should use several minutes), then reconnect it to the same port.
+   Wait at least 20 seconds for CDC and fresh audio discovery. Connecting must
+   not automatically START. Record time to ready and any USB/audio differences.
+4. Press **L1/B** explicitly after ready, listen again and record whether audio
+   recovered and whether distortion changed. Optionally press L1/B while playing
+   to check restart. Press **R1/X** while playing to STOP and stay; after STOP
+   acknowledgement press R1/X again to EXIT. If ready/finished/waiting, R1/X
+   exits directly. Do not power off until Ports returns.
+5. Record the observed result on paper/phone, with layout/run order and elapsed
+   times, to match the unique run directory later. Diagnostic files cannot
+   determine subjective distortion. If testing recovery-exit cleanup separately,
+   exit while T4.1 is absent and verify Ports returns promptly.
+
+For an unexpected reboot, preserve the interrupted directory and start a new
+run after boot; never reuse/delete the earlier directory. Retrieve the whole
+`$HOME/BroTracker/diagnostics/` folder later when network access is available.
+No diagnostic entry changes USB boot enumeration, hub power or audio buffers.
+
+Local-only checks (Python is needed only by the existing development lifecycle
+suite, not by the installed diagnostic entry):
+
+```sh
+bash tools/arkos/check-diagnostics.sh
+bash tools/arkos/check-install-port.sh
+bash tools/arkos/check-port-launcher.sh
+```

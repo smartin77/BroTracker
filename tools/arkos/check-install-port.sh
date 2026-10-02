@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/repo/tools/arkos/port" "$work/repo/deploy" "$work/ports/brotracker"
 cp -a "$repo/deploy/arkos" "$work/repo/deploy/"
-cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$work/repo/tools/arkos/port/"
+cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/repo/tools/arkos/port/"
 # Change only the destination in a disposable copy; production paths stay fixed.
 sed "s|^ports=/roms/ports$|ports=$work/ports|" "$repo/tools/arkos/install-port.sh" > "$work/repo/tools/arkos/install-port.sh"
 installer="$work/repo/tools/arkos/install-port.sh"
@@ -36,6 +36,8 @@ for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh; do
 done
 cmp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$new_launcher"
 [[ $(stat -c %a "$new_launcher") == 755 ]]
+cmp "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/ports/BroTracker Diagnostics.sh"
+[[ $(stat -c %a "$work/ports/BroTracker Diagnostics.sh") == 755 ]]
 cmp "$app/user-song.json" "$work/user-original"
 cmp "$app/custom-tool" "$work/tool-original"
 # Repeated update backs up only the new entry and preserves legacy backups.
