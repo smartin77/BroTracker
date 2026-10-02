@@ -16,6 +16,11 @@ mkdir -p "$work/ports/brotracker" "$work/bin" "$work/home" "$work/sys" "$work/pr
 mkdir -p "$work/sys/bus/usb/devices/fixture"
 printf '16c0\n' > "$work/sys/bus/usb/devices/fixture/idVendor"
 printf '048a\n' > "$work/sys/bus/usb/devices/fixture/idProduct"
+printf '480\n' > "$work/sys/bus/usb/devices/fixture/speed"
+mkdir -p "$work/proc/asound/card1/pcm0c/sub0"
+printf 'Capture: Running, Momentary freq = 44100\n' > "$work/proc/asound/card1/stream0"
+printf 'state: RUNNING\n' > "$work/proc/asound/card1/pcm0c/sub0/status"
+printf 'rate: 44100\n' > "$work/proc/asound/card1/pcm0c/sub0/hw_params"
 cp "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/ports/"
 # Fixture roots avoid collecting the development host's devices.
 sed -i "s|/sys/|$work/sys/|g; s|/proc/asound|$work/proc/asound|g; s|/dev/ttyACM|$work/dev/ttyACM|g; s|/dev/snd|$work/dev/snd|g; s/sleep 1 /sleep 0.1 /; s/command_report arecord -l/command_report unavailable-diagnostic-test-tool -l/" "$work/ports/BroTracker Diagnostics.sh"
@@ -75,6 +80,9 @@ for run in "${runs[@]}"; do
     grep -q 'missing tool: unavailable-diagnostic-test-tool' "$run/snapshots.log"
     grep -q 'early boot USB enumeration' "$run/kernel-1.log"
     grep -q 'USB/CDC/ALSA inventory changed' "$run/snapshots.log"
+    grep -q 'Momentary freq = 44100' "$run/snapshots.log"
+    grep -q 'state: RUNNING' "$run/snapshots.log"
+    grep -q 'speed: 480' "$run/snapshots.log"
 done
 # Collector worker and its sleep must be reaped, not just the normal launcher.
 if ps -eo args | grep -F "$work/ports/BroTracker Diagnostics.sh" | grep -v grep; then

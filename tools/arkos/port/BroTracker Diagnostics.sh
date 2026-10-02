@@ -36,11 +36,20 @@ inventory() {
     for dev in /sys/bus/usb/devices/*; do
         [[ -r "$dev/idVendor" ]] || continue
         printf '\nUSB %s\n' "$dev"
-        for field in idVendor idProduct product serial; do read_file "$dev/$field"; done
+        for field in idVendor idProduct product serial speed busnum devnum; do read_file "$dev/$field"; done
         for interface in "$dev":*; do
             [[ -e "$interface" ]] || continue
             printf 'interface %s driver: ' "$interface"
             readlink -f "$interface/driver" 2>&1 || echo '[unbound/unreadable]'
+            for field in bInterfaceNumber bAlternateSetting bInterfaceClass bInterfaceSubClass; do
+                read_file "$interface/$field"
+            done
+            for endpoint in "$interface"/ep_*; do
+                [[ -d "$endpoint" ]] || continue
+                for field in bEndpointAddress bmAttributes wMaxPacketSize bInterval interval type; do
+                    [[ ! -e "$endpoint/$field" ]] || read_file "$endpoint/$field"
+                done
+            done
         done
     done
     for node in /sys/class/tty/ttyACM* /sys/class/sound/card*; do
@@ -60,6 +69,12 @@ snapshot() {
         cat "$run/inventory.next"
         cp -- "$run/inventory.next" "$run/inventory.last"
     fi
+    # Driver-reported USB packet interval/current frequency and live PCM
+    # state complement negotiated userspace settings; never write proc/sysfs.
+    for file in /proc/asound/card*/stream* /proc/asound/card*/pcm*/sub*/hw_params /proc/asound/card*/pcm*/sub*/status; do
+        [[ -e "$file" ]] || continue
+        read_file "$file"
+    done
     command_report arecord -l
     command_report aplay -l
     for card in /sys/class/sound/card[0-9]*; do
