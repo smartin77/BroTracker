@@ -71,11 +71,20 @@ audio_supervisor() {
     while kill -0 "$ui_pid" 2>/dev/null; do
         attempt=$((attempt + 1))
         printf 'Launcher: audio %s attempt %s; fresh --auto discovery\n' "$phase" "$attempt"
+        if [[ -n "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] && type btx_diag_event >/dev/null 2>&1; then
+            btx_diag_event bridge_recovery_attempt "phase=$phase attempt=$attempt" - supervisor-source
+        fi
         line_count=$(wc -l < "$log")
         ./BroTrackerAlsaBridge --auto >> "$log" 2>&1 &
         bridge_pid=$!
+        if [[ -n "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] && type btx_diag_event >/dev/null 2>&1; then
+            btx_diag_event bridge_process_start "phase=$phase" "$bridge_pid" supervisor-source
+        fi
         bridge_status=0
         wait_with_parent "$bridge_pid" || bridge_status=$?
+        if [[ -n "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] && type btx_diag_event >/dev/null 2>&1; then
+            btx_diag_event bridge_process_end "status=$bridge_status" "$bridge_pid" supervisor-source
+        fi
         bridge_pid=
         # The bridge closes both PCMs before exit; wait reaps it before the
         # next process re-enumerates numeric endpoints. Never replay START.

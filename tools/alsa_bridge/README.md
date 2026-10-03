@@ -100,3 +100,63 @@ Discovery policy tests cover new and legacy USB product names and the legacy
 cards, duplicate identities, vanished/busy candidates, absent endpoints and
 rejection of Teensy speaker output. They do not prove physical ALSA enumeration
 or hot-unplug behavior on R36H; those still require hardware verification.
+
+## Opt-in diagnostic capture recording
+
+Ordinary Terminal launches do not record or create a timeline. **BroTracker
+Diagnostics** supplies `BROTRACKER_DIAGNOSTICS_DIR` to the existing supervisor
+and bridge; for a deliberate standalone diagnostic, set that variable to an
+existing writable directory. No second capture handle is opened.
+
+Each bridge process records exactly the successful capture reads, before queue
+or playback processing, as interleaved PCM S16_LE stereo 44100 Hz. Initial
+silence is included: the cap counts captured frames starting with the first
+read, not the START command or first sound. The maximum is 7,938,000 frames /
+31,752,000 PCM bytes / 31,752,044 bytes including the 44-byte WAV header.
+
+A preallocated 2 MiB lock-free SPSC ring carries unchanged bytes to a dedicated
+writer. The audio producer does no recording disk I/O, allocation or blocking
+lock/wait. The writer handles short writes/EINTR, drains the accepted prefix,
+and rewrites/fsyncs the header before closing. On ring overflow it stops
+accepting immediately rather than joining PCM across an unreported gap; the
+prefix is finalized and marked incomplete. Open, thread or write failures are
+logged and disable recording without disabling audio. A failed disk/header
+write can leave an invalid WAV; the timeline never marks it complete.
+
+Every recovered bridge instance uses a unique `capture-PID-XXXXXX.wav` path
+without overwrite. Failed attempts before capture start create no WAV. Normal
+exit and exception unwinding on USB failure join the writer; duration limit
+and overflow finalize the WAV while audio continues. The lightweight worker
+continues draining xrun event notes until shutdown. WAVs cannot be promised
+finalized after SIGKILL, power loss or abrupt storage removal. File storage can
+still fail or stall; joining must finish pending writes, so a stuck filesystem
+can delay shutdown. Recording can alter system load and needs hardware testing.
+
+`events.tsv` links every WAV to its bridge PID, selected PCMs, source start/end,
+limit/overflow/failure and written frame count. Audio xruns are passed via a
+bounded 64-note queue, with source time and recorded-frame offset; note loss is
+reported explicitly. No timeline writes occur in the audio producer. Multiple
+producers serialize entire records using file locks. Tab/newline/backslash
+characters in details are escaped. Fields are wall_time (ISO-8601 with zone),
+monotonic_time (boot-relative seconds including suspend), source,
+bridge_instance, event, details. The writer uses CLOCK_BOOTTIME; shell producers
+use `/proc/uptime`. Source events are stamped when generated; existing UI/CDC
+log lines are explicitly delayed `collector-observation` events, not claimed
+as source timestamps. Their original request, command and response text remains
+in details. Finalized runs sort records by monotonic timestamp after producers
+have stopped; the live append-only manifest may contain delayed events out of
+order. No START is sent as part of recording or recovery.
+
+Each captured WAV is evidence of bytes received by ALSA, not proof of USB packet
+cadence, physical audio output, or measured end-to-end latency. A capture xrun
+can omit source samples; its event identifies the recorded-frame boundary.
+
+Recorder setup (allocation, file/header creation, setup timeline flush and
+thread creation) completes before `snd_pcm_start(capture)`. After successful
+capture start only bounded notes are queued for `capture_start` and
+`recording_start`, preserving source timestamps without synchronous file I/O.
+A capture-start failure produces `capture_start_failure` and
+`recording_cancelled`; the unused zero-frame WAV is removed instead of being
+presented as a completed capture. Completion rechecks the published queue after
+observing the completion flag, so normal end, limit and overflow drain all
+accepted bytes even if the initial empty observation was stale.

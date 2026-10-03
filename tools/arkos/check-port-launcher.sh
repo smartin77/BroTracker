@@ -66,6 +66,7 @@ STUB
 cat > "$work/ports/brotracker/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
 [[ "$BROTRACKER_APPEND_LOG" == 1 && "$SDL_GAMECONTROLLERCONFIG" == test-mapping ]] || exit 80
+[[ -z "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] || exit 84
 echo $$ > "$TEST_DIR/ui.pid"
 echo 'stub UI append' >> /tmp/brotracker-arkos.log
 child=

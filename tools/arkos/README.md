@@ -382,3 +382,32 @@ conditions. Compare stream momentary frequency, active alternate settings,
 endpoint intervals and both PCM states around each marked listening interval.
 If these remain identical, raw USB/captured PCM evidence is still needed to
 separate device packet generation, host USB capture and Rockchip output faults.
+
+### Diagnostic PCM recordings and timeline
+
+Diagnostics now opts the existing bridge into [bounded WAV capture recording](../alsa_bridge/README.md#opt-in-diagnostic-capture-recording).
+The normal Terminal entry remains recording-disabled. Each bridge after
+recovery creates a new unique WAV in the current persistent run directory;
+`events.tsv` identifies it by bridge PID/path, selected devices and recorded
+frame count. Recording includes initial silence and stops after 180 seconds
+of captured PCM (7,938,000 frames), independently of START. Overflow/write
+failures are explicit; audio keeps running. No recording or timeline filesystem
+writes occur in the audio loop. UI/CDC events are labeled delayed collector
+observations; source-timestamped bridge/supervisor events remain distinct.
+Finalization drains accepted bytes and joins the writer on normal exit or USB
+failure; SIGKILL/power loss cannot guarantee a finalized WAV.
+
+Short hardware collection procedure after separate review/transfer:
+
+1. Cold-boot with Teensy directly attached through OTG; launch **BroTracker
+   Diagnostics** promptly. Wait ready, press L1/B and play the complete sequence.
+2. Press R1/X to STOP and stay. Unplug/replug Teensy without closing BTX.
+3. Wait for CDC and audio bridge recovery, then explicitly L1/B and play again.
+   This uses a fresh bridge instance and WAV; recovery never sends START.
+4. STOP with R1/X and EXIT with the next R1/X. Wait for Ports to return, then
+   upload the **complete diagnostic run directory**, including all WAVs and
+   `events.tsv`. Note which listening interval sounded distorted or clean.
+
+Do not delay START beyond the 180-second capture cap; silence counts. The
+manifest and filenames remove the need to remember boot counts. No new
+handheld tools, SSH or keyboard are needed during collection.

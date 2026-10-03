@@ -1,5 +1,5 @@
 #!/bin/bash
-# Read-only diagnostics around the unchanged normal Ports launcher.
+# Diagnostic capture and read-only system evidence around the normal launcher.
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
 normal="$launcher_dir/BroTracker Terminal.sh"
 base="$HOME/BroTracker/diagnostics"
@@ -10,8 +10,24 @@ if ! mkdir -p -- "$base"; then
 fi
 stamp=$(date +%Y%m%d-%H%M%S 2>/dev/null) || stamp=undated
 run=$(mktemp -d "$base/$stamp.XXXXXX") || exec bash "$normal"
+export BROTRACKER_DIAGNOSTICS_DIR="$run"
+printf 'wall_time\tmonotonic_time\tsource\tbridge_instance\tevent\tdetails\n' > "$run/events.tsv"
+btx_diag_event() {
+    local kind=$1 details=$2 instance=${3:--} source=${4:-collector-observation} wall mono unused
+    details=${details//\\/\\\\}
+    details=${details//$'\t'/\\t}
+    details=${details//$'\n'/\\n}
+    details=${details//$'\r'/\\r}
+    wall=$(date +%Y-%m-%dT%H:%M:%S%z)
+    read -r mono unused < /proc/uptime
+    if command -v flock >/dev/null; then
+        ( flock -x 9; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$wall" "$mono" "$source" "$instance" "$kind" "$details" >&9 ) 9>> "$BROTRACKER_DIAGNOSTICS_DIR/events.tsv"
+    else echo 'Timeline unavailable: missing flock'; fi
+}
+export -f btx_diag_event
 exec >> "$run/collector.log" 2>&1
 printf 'Diagnostic run: %s\n' "$run"
+btx_diag_event run_start "directory=$run" - diagnostics-source
 log=/tmp/brotracker-arkos.log
 owner=$BASHPID
 normal_pid=
@@ -101,6 +117,19 @@ copy_log() {
     # Append bytes promptly; the normal launcher remains the sole /tmp writer.
     if ((size > offset)); then
         head -c "$size" "$log" | tail -c "+$((offset + 1))" >> "$run/btx-stream.log"
+        while IFS= read -r line; do
+            kind=log_observation
+            case "$line" in
+                *'audio '*attempt*) kind=bridge_recovery_attempt ;;
+                *'USB bring-up:'*'TX:'*) kind=command_transmitted ;;
+                *'USB bring-up:'*'RX:'*) kind=response_observed ;;
+                *'requested'*) kind=control_request ;;
+                *'disconnect'*|*'Disconnected'*) kind=disconnect_observed ;;
+                *'connected'*|*'handshake'*) kind=connection_observed ;;
+                *'Discontinuity:'*) kind=alsa_xrun_observed ;;
+            esac
+            btx_diag_event "$kind" "$line"
+        done < <(head -c "$size" "$log" | tail -c "+$((offset + 1))")
         offset=$size
     fi
 }
@@ -119,6 +148,10 @@ finish() {
     [[ ! -f "$log" ]] || cp -- "$log" "$run/btx-final.log"
     printf 'Finalized %s; launcher status=%s\n' "$(date -Iseconds 2>/dev/null)" "$result"
     printf '%s\n' "$result" > "$run/exit-status"
+    btx_diag_event run_end "launcher_status=$result" - diagnostics-source
+    # Producers are reaped; order source timestamps for the finalized manifest.
+    { head -n 1 "$run/events.tsv"; tail -n +2 "$run/events.tsv" | sort -s -t $'\t' -k2,2n; } > "$run/events.sorted"
+    mv -- "$run/events.sorted" "$run/events.tsv"
     flush
     exit "$result"
 }
