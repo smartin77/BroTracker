@@ -26,6 +26,7 @@ cp "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/ports/"
 sed -i "s|/sys/|$work/sys/|g; s|/proc/asound|$work/proc/asound|g; s|/dev/ttyACM|$work/dev/ttyACM|g; s|/dev/snd|$work/dev/snd|g; s/sleep 1 /sleep 0.1 /; s/command_report arecord -l/command_report unavailable-diagnostic-test-tool -l/" "$work/ports/BroTracker Diagnostics.sh"
 cat > "$work/ports/BroTracker Terminal.sh" <<'STUB'
 #!/bin/bash
+[[ "$BROTRACKER_DIAGNOSTICS_DIR" == "$HOME/BroTracker/diagnostics/"* ]] || exit 84
 echo $$ > "$TEST_DIR/normal.pid"
 : > /tmp/brotracker-arkos.log
 printf 'Queue capacity: fixture\nDiscontinuity: fixture\n' >> /tmp/brotracker-arkos.log
@@ -83,6 +84,10 @@ for run in "${runs[@]}"; do
     grep -q 'Momentary freq = 44100' "$run/snapshots.log"
     grep -q 'state: RUNNING' "$run/snapshots.log"
     grep -q 'speed: 480' "$run/snapshots.log"
+    awk -F '\t' 'NF != 6 { exit 1 }' "$run/events.tsv"
+    grep -q 'run_start' "$run/events.tsv"
+    grep -q 'run_end' "$run/events.tsv"
+    tail -n +2 "$run/events.tsv" | sort -c -s -t $'\t' -k2,2n
 done
 # Collector worker and its sleep must be reaped, not just the normal launcher.
 if ps -eo args | grep -F "$work/ports/BroTracker Diagnostics.sh" | grep -v grep; then

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <memory>
 #include "discovery.h"
+#include "recording.h"
 
 namespace
 {
@@ -203,6 +204,7 @@ void OpenAutomatic(Pcm& destination, const std::vector<discovery::Endpoint>& end
     });
     std::fprintf(stderr, "Selected %s: ID=%s name=%s PCM=%s\n", capture ? "capture" : "playback",
                  selected.id.c_str(), selected.name.c_str(), selected.pcm.c_str());
+    recording::Event(std::getenv("BROTRACKER_DIAGNOSTICS_DIR"),capture ? "selected_capture" : "selected_playback", selected.pcm+" ID="+selected.id+" name="+selected.name);
     destination.handle = winner->handle;
     winner->handle = nullptr;
 }
@@ -210,6 +212,7 @@ void OpenAutomatic(Pcm& destination, const std::vector<discovery::Endpoint>& end
 struct Bridge
 {
     Pcm capture, playback;
+    std::unique_ptr<recording::Recorder> recorder;
     std::array<std::uint8_t, kQueueFrames * kFrameBytes> samples{};
     snd_pcm_uframes_t head = 0, queued = 0, high_water = 0;
     unsigned long long captured = 0, played = 0, discarded = 0;
@@ -217,6 +220,7 @@ struct Bridge
 
     ~Bridge()
     {
+        if (recorder) recorder->Finish();
         std::fprintf(stderr,
             "Summary: captured=%llu frames, submitted=%llu frames, "
             "capture_overruns=%u, playback_underruns=%u, suspends=%u, "
@@ -234,6 +238,7 @@ struct Bridge
             Check(static_cast<int>(result), reading ? "capture read" : "playback write");
         // Reset the pair together after a discontinuity. No stale queued PCM
         // is replayed, and no blocking resume/recovery loop delays Ctrl+C.
+        if (recorder) recorder->Xrun(reading ? "capture" : "playback", static_cast<int>(result));
         const bool capture_xrun = (reading && result == -EPIPE) ||
             snd_pcm_state(capture.handle) == SND_PCM_STATE_XRUN;
         const bool playback_xrun = (!reading && result == -EPIPE) ||
@@ -258,7 +263,20 @@ struct Bridge
 
     void Run()
     {
-        Check(snd_pcm_start(capture.handle), "start capture");
+        const char* dir=std::getenv("BROTRACKER_DIAGNOSTICS_DIR");
+        if(dir && *dir) {
+            try { recorder=std::make_unique<recording::Recorder>(dir); }
+            catch(const std::exception& e) {
+                std::fprintf(stderr,"Recording disabled: %s; audio continues\n",e.what());
+                recording::Event(dir,"recording_failure",e.what());
+            }
+        }
+        const int start_result=snd_pcm_start(capture.handle);
+        if(start_result<0) {
+            if(recorder) recorder->CaptureStartFailed(start_result);
+            Check(start_result,"start capture");
+        }
+        if(recorder) recorder->CaptureStarted(); // bounded notes only, no file I/O
         while (!stopped)
         {
             bool progress = false;
@@ -270,6 +288,7 @@ struct Bridge
                 if (Retry(result, true)) continue;
                 if (result > 0)
                 {
+                    if (recorder) recorder->Push(samples.data() + tail * kFrameBytes, static_cast<size_t>(result));
                     queued += result;
                     captured += result;
                     high_water = std::max(high_water, queued);
@@ -310,6 +329,8 @@ int main(int argc, char** argv)
             "--auto selects Teensy capture and Rockchip playback by identity. Ctrl+C stops without draining.\n", argv[0]);
         return argc == 2 && std::strcmp(argv[1], "--help") == 0 ? 0 : 2;
     }
+    const char* diagnostic_dir=std::getenv("BROTRACKER_DIAGNOSTICS_DIR");
+    recording::Event(diagnostic_dir,"bridge_start","--auto or explicit PCM startup");
     struct sigaction action{};
     action.sa_handler = OnSignal;
     sigemptyset(&action.sa_mask);
@@ -320,30 +341,36 @@ int main(int argc, char** argv)
     }
     try
     {
-        Bridge bridge;
-        // Report a busy output before taking ownership of the USB capture PCM.
-        if (automatic)
         {
-            const auto endpoints = Enumerate();
-            if (!stopped) OpenAutomatic(bridge.playback, endpoints, false);
-            if (!stopped) OpenAutomatic(bridge.capture, endpoints, true);
+            Bridge bridge;
+            // Report a busy output before taking ownership of the USB capture PCM.
+            if (automatic)
+            {
+                const auto endpoints = Enumerate();
+                if (!stopped) OpenAutomatic(bridge.playback, endpoints, false);
+                if (!stopped) OpenAutomatic(bridge.capture, endpoints, true);
+            }
+            else
+            {
+                recording::Event(diagnostic_dir,"selected_playback",argv[2]);
+                bridge.playback.Open(argv[2], SND_PCM_STREAM_PLAYBACK);
+                recording::Event(diagnostic_dir,"selected_capture",argv[1]);
+                if (!stopped) bridge.capture.Open(argv[1], SND_PCM_STREAM_CAPTURE);
+            }
+            std::fprintf(stderr, "Queue capacity: %lu frames (%lu bytes). "
+                "Buffer settings are NOT measured end-to-end latency.\n",
+                static_cast<unsigned long>(kQueueFrames),
+                static_cast<unsigned long>(kQueueFrames * kFrameBytes));
+            if (!stopped) bridge.Run();
+            std::fprintf(stderr, "Signal received; closing audio devices.\n");
         }
-        else
-        {
-            bridge.playback.Open(argv[2], SND_PCM_STREAM_PLAYBACK);
-            if (!stopped) bridge.capture.Open(argv[1], SND_PCM_STREAM_CAPTURE);
-        }
-        std::fprintf(stderr, "Queue capacity: %lu frames (%lu bytes). "
-            "Buffer settings are NOT measured end-to-end latency.\n",
-            static_cast<unsigned long>(kQueueFrames),
-            static_cast<unsigned long>(kQueueFrames * kFrameBytes));
-        if (!stopped) bridge.Run();
-        std::fprintf(stderr, "Signal received; closing audio devices.\n");
+        recording::Event(diagnostic_dir,"bridge_end","signal/normal shutdown");
         return 0;
     }
     catch (const std::exception& error)
     {
         std::fprintf(stderr, "Bridge failed: %s\n", error.what());
+        recording::Event(diagnostic_dir,"bridge_end",std::string("failure: ")+error.what());
         return 1;
     }
 }
