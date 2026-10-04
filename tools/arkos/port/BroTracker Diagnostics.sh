@@ -120,6 +120,9 @@ copy_log() {
         while IFS= read -r line; do
             kind=log_observation
             case "$line" in
+                *'USBTRACE1'*)
+                    kind=usb_tx_trace_observation
+                    printf '%s\n' "$line" >> "$run/usb-tx-trace.log" ;;
                 *'audio '*attempt*) kind=bridge_recovery_attempt ;;
                 *'USB bring-up:'*'TX:'*) kind=command_transmitted ;;
                 *'USB bring-up:'*'RX:'*) kind=response_observed ;;

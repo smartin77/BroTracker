@@ -7,7 +7,9 @@ from patch_core import prepare
 if env.BoardConfig().get("build.core") != "teensy4":
     raise RuntimeError("BroTracker USB audio patch supports only the Teensy4 core")
 framework = env.PioPlatform().get_package_dir("framework-arduinoteensy")
-original, patched = prepare(framework, env.subst("$BUILD_DIR"))
+defines=env.ParseFlags(env.GetProjectOption("build_flags")).get("CPPDEFINES",[])
+trace=any((d[0] if isinstance(d,(tuple,list)) else d)=="BROTRACKER_USB_TX_TRACE" for d in defines)
+original, patched = prepare(framework, env.subst("$BUILD_DIR"), trace=trace)
 def replace_core(node):
     if Path(node.srcnode().get_abspath()).resolve() == original:
         print("BroTracker USB audio: compiling isolated patched core:", patched)

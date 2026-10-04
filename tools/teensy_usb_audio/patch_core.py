@@ -18,7 +18,7 @@ def patch_bytes(source, version):
         raise RuntimeError("Expected exactly one USB transmit zero-fill expression")
     return source.replace(ORIGINAL, PATCHED, 1)
 
-def prepare(framework, build):
+def prepare(framework, build, trace=False):
     framework, build = Path(framework), Path(build)
     package = json.loads((framework / "package.json").read_text())
     if package.get("name") != "framework-arduinoteensy":
@@ -26,11 +26,17 @@ def prepare(framework, build):
     source = framework / "cores/teensy4/usb_audio.cpp"
     original = source.read_bytes()
     patched = patch_bytes(original, package.get("version"))
+    if trace:
+        from trace_core import trace_bytes
+        patched=trace_bytes(patched)
     destination = build / "core-patches/usb_audio.cpp"
     destination.parent.mkdir(parents=True, exist_ok=True)
     if not destination.exists() or destination.read_bytes() != patched:
         destination.write_bytes(patched)
-    receipt = {"framework_version": VERSION, "original_source": str(source),
+    if trace:
+        header=Path(__file__).resolve().parents[2]/"firmware/teensy/BroTracker/usb_tx_trace.h"
+        (destination.parent/"usb_tx_trace.h").write_bytes(header.read_bytes())
+    receipt = {"usb_tx_trace": trace,"framework_version": VERSION, "original_source": str(source),
                "original_sha256": SOURCE_SHA256,
                "patched_sha256": hashlib.sha256(patched).hexdigest(),
                "original_expression": ORIGINAL.decode(), "patched_expression": PATCHED.decode()}
