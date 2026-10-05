@@ -2,6 +2,23 @@
 #include <cstdint>
 #include <cstring>
 namespace BroTrackerUsbTrace {
+struct LifecycleEvent { uint32_t sequence, micros, type, a, b, c; };
+struct History {
+    LifecycleEvent first[32]{}, recent[96]{};
+    uint32_t total;
+    constexpr History():first{},recent{},total(0){} // USB starts before C++ constructors
+    void Add(uint32_t us,uint32_t type,uint32_t a,uint32_t b,uint32_t c) {
+        const uint32_t index=total++;
+        LifecycleEvent e{index,us,type,a,b,c};
+        if(index<32)first[index]=e;else recent[(index-32)%96]=e;
+    }
+    unsigned Count() const{return total<128?total:128;}
+    LifecycleEvent At(unsigned i) const {
+        if(i<32)return first[i];
+        unsigned start=total>128?(total-32)%96:0;
+        return recent[(start+i-32)%96];
+    }
+};
 constexpr unsigned kPackets=128, kPayload=180;
 struct Packet {
     uint32_t sequence, micros, cycles, updates, discards;
@@ -34,6 +51,7 @@ static_assert(sizeof(Buffer)<32*1024,"Bounded static trace storage");
 }
 #ifdef BROTRACKER_USB_TX_TRACE
 extern "C" {
+void brotracker_usb_history_snapshot(BroTrackerUsbTrace::History* out);
 bool brotracker_usb_trace_arm();
 void brotracker_usb_trace_freeze();
 void brotracker_usb_trace_release();

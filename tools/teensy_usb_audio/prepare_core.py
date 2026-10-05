@@ -14,5 +14,7 @@ def replace_core(node):
     if Path(node.srcnode().get_abspath()).resolve() == original:
         print("BroTracker USB audio: compiling isolated patched core:", patched)
         return env.File(str(patched))
+    if trace and Path(node.srcnode().get_abspath()).resolve()==(Path(framework)/"cores/teensy4/usb.c").resolve():
+        return env.File(str(patched.with_name("usb.c")))
     return node
 env.AddBuildMiddleware(replace_core)

@@ -36,9 +36,17 @@ def prepare(framework, build, trace=False):
     if trace:
         header=Path(__file__).resolve().parents[2]/"firmware/teensy/BroTracker/usb_tx_trace.h"
         (destination.parent/"usb_tx_trace.h").write_bytes(header.read_bytes())
+        from lifecycle_core import patch_usb, USB_SHA256
+        usb_source=framework/"cores/teensy4/usb.c"
+        usb_patched=patch_usb(usb_source.read_bytes())
+        (destination.parent/"usb.c").write_bytes(usb_patched)
+        (destination.parent/"usb_lifecycle_trace.h").write_bytes(header.with_name("usb_lifecycle_trace.h").read_bytes())
     receipt = {"usb_tx_trace": trace,"framework_version": VERSION, "original_source": str(source),
                "original_sha256": SOURCE_SHA256,
                "patched_sha256": hashlib.sha256(patched).hexdigest(),
                "original_expression": ORIGINAL.decode(), "patched_expression": PATCHED.decode()}
+    if trace:
+        receipt["usb_c_original_sha256"]=USB_SHA256
+        receipt["usb_c_patched_sha256"]=hashlib.sha256(usb_patched).hexdigest()
     (destination.parent / "receipt.json").write_text(json.dumps(receipt, indent=2)+"\n")
     return source.resolve(), destination.resolve()

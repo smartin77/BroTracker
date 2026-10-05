@@ -29,11 +29,12 @@ cat > "$work/ports/BroTracker Terminal.sh" <<'STUB'
 [[ "$BROTRACKER_DIAGNOSTICS_DIR" == "$HOME/BroTracker/diagnostics/"* ]] || exit 84
 echo $$ > "$TEST_DIR/normal.pid"
 : > /tmp/brotracker-arkos.log
-printf 'Queue capacity: fixture\nDiscontinuity: fixture\nUSB bring-up: RX: USBTRACE1 BEGIN s=1 arm_us=100 packets=128 pre_dma=1\nUSB bring-up: RX: USBTRACE1 END s=1 packets=128\n' >> /tmp/brotracker-arkos.log
+printf 'Queue capacity: fixture\nDiscontinuity: fixture\nUSB bring-up: RX: USBLIFE1 BEGIN total=2 retained=2 omitted=0\nUSBLIFE1 END\nUSBTRACE1 BEGIN s=1 arm_us=100 packets=128 pre_dma=1\nUSB bring-up: RX: USBTRACE1 END s=1 packets=128\n' >> /tmp/brotracker-arkos.log
 sleep_pid=
 trap '[[ -z "$sleep_pid" ]] || { kill "$sleep_pid" 2>/dev/null; wait "$sleep_pid" 2>/dev/null; }; echo "Summary: stopped" >> /tmp/brotracker-arkos.log; exit 143' TERM INT
 sleep "${STUB_SECONDS:-0.8}" & sleep_pid=$!
 wait "$sleep_pid"
+echo 'USB bring-up: RX: USBLIFE1 FINAL_POLL_GAP' >> /tmp/brotracker-arkos.log
 echo 'Summary: complete' >> /tmp/brotracker-arkos.log
 exit 7
 STUB
@@ -68,6 +69,8 @@ run_case() {
     ! kill -0 "$(cat "$work/normal.pid")" 2>/dev/null
 }
 run_case normal
+first_runs=("$HOME/BroTracker/diagnostics/"*)
+grep -q 'USBLIFE1 FINAL_POLL_GAP' "${first_runs[0]}/usb-tx-trace.log"
 run_case normal
 export STUB_SECONDS=30
 run_case signal
@@ -88,6 +91,8 @@ for run in "${runs[@]}"; do
     grep -q 'run_start' "$run/events.tsv"
     grep -q 'run_end' "$run/events.tsv"
     grep -q 'usb_tx_trace_observation' "$run/events.tsv"
+    grep -q 'USBLIFE1 END' "$run/usb-tx-trace.log"
+    [[ -s "$run/diagnostics-launcher.sha256" ]]
     grep -q 'USBTRACE1 END s=1 packets=128' "$run/usb-tx-trace.log"
     tail -n +2 "$run/events.tsv" | sort -c -s -t $'\t' -k2,2n
 done

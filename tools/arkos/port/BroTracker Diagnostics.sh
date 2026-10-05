@@ -26,6 +26,10 @@ btx_diag_event() {
 }
 export -f btx_diag_event
 exec >> "$run/collector.log" 2>&1
+printf 'Trace collector revision: usb-lifecycle-v1\n'
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -- "${BASH_SOURCE[0]}" > "$run/diagnostics-launcher.sha256" 2>&1 || true
+fi
 printf 'Diagnostic run: %s\n' "$run"
 btx_diag_event run_start "directory=$run" - diagnostics-source
 log=/tmp/brotracker-arkos.log
@@ -120,7 +124,7 @@ copy_log() {
         while IFS= read -r line; do
             kind=log_observation
             case "$line" in
-                *'USBTRACE1'*)
+                *'USBTRACE1'*|*'USBLIFE1'*)
                     kind=usb_tx_trace_observation
                     printf '%s\n' "$line" >> "$run/usb-tx-trace.log" ;;
                 *'audio '*attempt*) kind=bridge_recovery_attempt ;;
@@ -148,7 +152,13 @@ finish() {
         kill -TERM "$worker_pid" 2>/dev/null || true
         wait "$worker_pid" 2>/dev/null || true
     fi
-    [[ ! -f "$log" ]] || cp -- "$log" "$run/btx-final.log"
+    if [[ -f "$log" ]]; then
+        cp -- "$log" "$run/btx-final.log"
+        # Rebuild from complete raw lines: also covers the collector's final
+        # polling gap and any line split across incremental byte reads.
+        grep -E 'USBTRACE1|USBLIFE1' "$run/btx-final.log" > "$run/usb-tx-trace.log" || true
+        btx_diag_event trace_final_snapshot "raw_lines=$(wc -l < "$run/usb-tx-trace.log") file=usb-tx-trace.log" - diagnostics-source
+    fi
     printf 'Finalized %s; launcher status=%s\n' "$(date -Iseconds 2>/dev/null)" "$result"
     printf '%s\n' "$result" > "$run/exit-status"
     btx_diag_event run_end "launcher_status=$result" - diagnostics-source

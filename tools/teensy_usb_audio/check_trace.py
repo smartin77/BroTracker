@@ -28,6 +28,7 @@ test=r'''
 #include <iostream>
 TestSerial Serial;
 static BroTrackerUsbTrace::Buffer buffer;
+extern "C" void brotracker_usb_history_snapshot(BroTrackerUsbTrace::History* out){*out=BroTrackerUsbTrace::History{};}
 extern "C" bool brotracker_usb_trace_arm(){return buffer.Arm(100);}
 extern "C" void brotracker_usb_trace_freeze(){if(buffer.armed)buffer.Freeze();}
 extern "C" void brotracker_usb_trace_release(){buffer.Release();}
@@ -50,13 +51,13 @@ int main(){
  for(unsigned i=0;i<900;++i)BroTracker::ServiceUsbTrace(false);
  Check(Serial.output.find("USBTRACE1 BEGIN s=1")!=std::string::npos && Serial.output.find("USBTRACE1 END s=1 packets=128")!=std::string::npos,"complete dump");
  unsigned lines=0;std::size_t start=0;while(start<Serial.output.size()){auto end=Serial.output.find('\n',start);Check(end!=std::string::npos && end-start<192,"bounded transport line");++lines;start=end+1;}
- Check(lines==898,"metadata and payload fragment count");
+ Check(lines==900,"metadata and payload fragment count");
  std::cout<<Serial.output; // captured fixture is reassembled by Python
  BroTracker::UsbTraceReplay();Serial.connected=false;BroTracker::ServiceUsbTrace(false);Serial.connected=true;Serial.output.clear();
  for(unsigned i=0;i<900;++i){BroTracker::ServiceUsbTrace(false);}Check(Serial.output.find("END s=1")!=std::string::npos,"reconnect replay retained trace");
  BroTracker::UsbTraceStart();Check(buffer.session==2 && buffer.count==0,"new START after retrieval");
  buffer.Capture(payload,176,0,true,1,0,0,0,0);BroTracker::UsbTraceFreeze();Check(buffer.frozen && buffer.count==1,"early STOP keeps prefix");
- Serial.output.clear();for(unsigned i=0;i<10;++i)BroTracker::ServiceUsbTrace(false);Check(Serial.output.find("END s=2 packets=1")!=std::string::npos,"partial trace dump");
+ Serial.output.clear();for(unsigned i=0;i<20;++i)BroTracker::ServiceUsbTrace(false);Check(Serial.output.find("END s=2 packets=1")!=std::string::npos,"partial trace dump");
 }
 '''
 (a.build/'trace_test.cpp').write_bytes(test.encode());exe=a.build/'trace_test.exe'
@@ -64,6 +65,7 @@ subprocess.run([a.cxx,'-std=c++14','-Wall','-Wextra','-DBROTRACKER_USB_TX_TRACE'
 out=subprocess.check_output([str(exe.resolve())],text=True);(a.build/'trace-fixture.log').write_text(out)
 chunks={};metadata={}
 for line in out.splitlines():
+ if not line.startswith("USBTRACE1 "):continue
  fields=line.split();tag=fields[1];pairs=dict(f.split('=',1) for f in fields[2:] if '=' in f)
  if tag=='P':metadata[int(pairs['i'])]=int(pairs['n'])
  if tag=='D':chunks[(int(pairs['i']),int(pairs['o']))]=bytes.fromhex(fields[-1]) if '=' not in fields[-1] else b''
@@ -110,7 +112,9 @@ uint8_t usb_audio_transmit_setting=1;
 uint16_t usb_audio_transmit_buffer[90];
 static BroTrackerUsbTrace::Buffer bt_trace;
 static uint32_t bt_sequence,bt_updates,bt_discards;
-static unsigned bt_copied;static bool bt_shortage;
+static unsigned bt_copied;static bool bt_shortage;static unsigned bt_last_state=~0u,bt_last_update_state=~0u;
+static unsigned allocation_failures;
+extern "C" void brotracker_usb_lifecycle_event(uint32_t type,uint32_t,uint32_t,uint32_t){if(type==9)++allocation_failures;}
 static uint32_t time_us=100;
 static uint32_t micros(){time_us+=1000;return time_us;}
 static uint32_t ARM_DWT_CYCCNT;
@@ -141,6 +145,7 @@ int main(){
  const auto& p=bt_trace.packets[2];Check(p.copied==40 && p.shortage && p.bytes==176 && p.updates==5 && p.discards==1);
  for(unsigned i=160;i<176;++i)Check(p.payload[i]==0);
  Check(submitted_bytes==p.bytes && std::memcmp(submitted,p.payload,p.bytes)==0);
+ input_left=input_right=nullptr;out.update();Check(allocation_failures==1);
  std::cout<<"Actual instrumented USB fill/update/tx-event host regression passed\n";
 }
 """

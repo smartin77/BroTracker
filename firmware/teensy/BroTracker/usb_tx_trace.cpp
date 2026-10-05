@@ -6,6 +6,19 @@ namespace BroTracker {
 namespace {
 unsigned line_index=0;
 bool dump_complete=false;
+BroTrackerUsbTrace::History history;
+bool history_ready=false,history_done=false;
+unsigned history_line=0;
+bool HistoryLine(char* out,unsigned size) {
+    if(!history_ready){brotracker_usb_history_snapshot(&history);history_ready=true;}
+    unsigned count=history.Count();
+    if(history_line==0)std::snprintf(out,size,"USBLIFE1 BEGIN total=%lu retained=%u omitted=%lu\n",(unsigned long)history.total,count,(unsigned long)(history.total-count));
+    else if(history_line<=count){
+        auto e=history.At(history_line-1);
+        std::snprintf(out,size,"USBLIFE1 E seq=%lu us=%lu type=%lu a=%lu b=%lu c=%lu\n",(unsigned long)e.sequence,(unsigned long)e.micros,(unsigned long)e.type,(unsigned long)e.a,(unsigned long)e.b,(unsigned long)e.c);
+    }else{std::snprintf(out,size,"USBLIFE1 END\n");return false;}
+    return true;
+}
 // Seven lines per packet: metadata plus six <=32-byte payload fragments.
 bool Format(char* out,unsigned size,unsigned line,const BroTrackerUsbTrace::Buffer& b) {
     if(line==0){std::snprintf(out,size,"USBTRACE1 BEGIN s=%lu arm_us=%lu packets=%u pre_dma=1\n",(unsigned long)b.session,(unsigned long)b.arm_micros,b.count);return true;}
@@ -25,17 +38,24 @@ bool Format(char* out,unsigned size,unsigned line,const BroTrackerUsbTrace::Buff
 }
 }
 void UsbTraceStart(){
-    if(dump_complete){brotracker_usb_trace_release();dump_complete=false;}
-    line_index=0;
+    if(dump_complete){brotracker_usb_trace_release();dump_complete=false;history_ready=false;}
+    line_index=0;history_line=0;history_done=false;
     if(!brotracker_usb_trace_arm())Serial.println("USBTRACE1 BUSY retained_trace=1");
 }
 void UsbTraceFreeze(){brotracker_usb_trace_freeze();}
-void UsbTraceReplay(){line_index=0;dump_complete=false;}
+void UsbTraceReplay(){line_index=0;dump_complete=false;history_line=0;history_done=false;}
 void ServiceUsbTrace(bool playing){
     if(playing)return;
     const auto* b=brotracker_usb_trace_buffer();if(!b->frozen)return;
     if(!Serial){UsbTraceReplay();return;}
     if(dump_complete)return;
+    if(!history_done){
+        char line[192];bool more=HistoryLine(line,sizeof(line));unsigned n=std::strlen(line);
+        if(Serial.availableForWrite()<int(n))return;
+        if(Serial.write(reinterpret_cast<const uint8_t*>(line),n)!=n)return;
+        ++history_line;if(!more)history_done=true;
+        return;
+    }
     char line[192];bool more=Format(line,sizeof(line),line_index,*b);unsigned n=std::strlen(line);
     if(Serial.availableForWrite()<int(n))return; // never wait for CDC space
     if(Serial.write(reinterpret_cast<const uint8_t*>(line),n)!=n)return;
