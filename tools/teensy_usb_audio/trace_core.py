@@ -5,12 +5,11 @@ def trace_bytes(patched):
         nonlocal text
         if text.count(old)!=1:raise RuntimeError('Incompatible USB trace anchor: '+old)
         text=text.replace(old,new,1)
-    insert('#include "debug/printf.h"','#include "debug/printf.h"\n#include "usb_tx_trace.h"')
+    insert('#include "debug/printf.h"','#include "debug/printf.h"\n#include "usb_tx_trace.h"\n#include "usb_lifecycle_trace.h"')
     insert('static void tx_event(transfer_t *t)\n{',r'''#ifdef BROTRACKER_USB_TX_TRACE
 static BroTrackerUsbTrace::Buffer bt_trace;
 static BroTrackerUsbTrace::History bt_history{};
 static unsigned bt_last_state=~0u,bt_last_update_state=~0u;
-extern "C" void brotracker_usb_lifecycle_event(uint32_t,uint32_t,uint32_t,uint32_t);
 static uint32_t bt_sequence, bt_updates, bt_discards;
 static unsigned bt_copied;
 static bool bt_shortage;

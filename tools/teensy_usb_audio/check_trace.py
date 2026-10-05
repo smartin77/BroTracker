@@ -8,6 +8,12 @@ original,patched=prepare(a.framework,a.build/'core',trace=True)
 source=original.read_bytes();assert patch_bytes(source,VERSION)==source.replace(ORIGINAL,PATCHED,1)
 text=patched.read_text();assert 'bt_trace.Capture' in text and text.index('bt_trace.Capture')<text.index('usb_prepare_transfer(&tx_transfer')
 assert '++bt_updates' in text and '++bt_discards' in text
+# The authoritative C-compatible declaration must precede the first caller.
+assert text.count('#include "usb_lifecycle_trace.h"') == 1
+assert '#include "usb_tx_trace.h"\n#include "usb_lifecycle_trace.h"' in text
+assert text.index('#include "usb_lifecycle_trace.h"') < text.index('void usb_audio_configure(void)')
+assert text.index('#include "usb_lifecycle_trace.h"') < text.index('brotracker_usb_lifecycle_event(6,')
+assert 'extern "C" void brotracker_usb_lifecycle_event(uint32_t,uint32_t,uint32_t,uint32_t);' not in text
 fixture=a.build/'fixture';fixture.mkdir(exist_ok=True)
 (fixture/'Arduino.h').write_text('''#pragma once
 #include <cstdint>
