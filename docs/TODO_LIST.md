@@ -10,6 +10,12 @@ Items may be added during development when a task is identified but is not impor
 
 ### Audio Diagnostics
 
+* [x] Resolve recurring Teensy USB audio cold-boot corruption; hardware validation
+  run `20261006-220244.Ph7ox3` passed. See the [validation record](../tools/teensy_usb_audio/README.md#hardware-validation-20261006-220244ph7ox3).
+* [ ] Investigate intermittent ArkOS audio clicks/pauses and ALSA capture/playback
+  xruns as a separate issue. Do not reopen the resolved cold-boot corruption
+  without new evidence; see the same validation record for remaining observations.
+
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 
   * Keep it available as a Teensy audio hardware verification tool.

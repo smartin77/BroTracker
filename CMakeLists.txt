@@ -6,11 +6,14 @@ set(CMAKE_CXX_STANDARD 17)
 
 option(
     BROTRACKER_BUILD_ARKOS_UI
-    "Build the SDL2 ArkOS/Linux UI client"
+    "Build BroTracker Terminal for ArkOS/Linux"
     OFF
 )
 
 option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
+if(BROTRACKER_BUILD_ARKOS_UI AND BROTRACKER_BUILD_WINDOWS_TERMINAL)
+    message(FATAL_ERROR "Select one platform build for BroTrackerTerminal")
+endif()
 if(BROTRACKER_BUILD_WINDOWS_TERMINAL AND NOT WIN32)
     message(FATAL_ERROR "BroTracker Windows Terminal requires Windows")
 endif()
@@ -77,7 +80,7 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 if(BROTRACKER_BUILD_ARKOS_UI)
-    add_executable(BroTrackerArkOSUI
+    add_executable(BroTrackerTerminal
         ui/arkos/main.cpp
         ${BROTRACKER_SERIAL_TRANSPORT}
         ui/sdl/sdl_display_backend.cpp
@@ -87,13 +90,13 @@ if(BROTRACKER_BUILD_ARKOS_UI)
         src/renderer/framebuffer.cpp
     )
 
-    target_link_libraries(BroTrackerArkOSUI PRIVATE
+    target_link_libraries(BroTrackerTerminal PRIVATE
         BroTrackerCore BroTrackerBringUp
         ${BROTRACKER_SDL2_MAIN_TARGET}
         ${BROTRACKER_SDL2_TARGET}
     )
 
-    target_include_directories(BroTrackerArkOSUI PRIVATE
+    target_include_directories(BroTrackerTerminal PRIVATE
         src
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
@@ -165,14 +168,18 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
         message(FATAL_ERROR "The ALSA bridge requires Linux")
     endif()
     find_package(ALSA REQUIRED)
+    find_package(Threads REQUIRED)
     add_executable(BroTrackerAlsaBridge tools/alsa_bridge/main.cpp)
     target_include_directories(BroTrackerAlsaBridge PRIVATE ${ALSA_INCLUDE_DIRS})
-    target_link_libraries(BroTrackerAlsaBridge PRIVATE ${ALSA_LIBRARIES})
+    target_link_libraries(BroTrackerAlsaBridge PRIVATE ${ALSA_LIBRARIES} Threads::Threads)
     target_compile_options(BroTrackerAlsaBridge PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME BroTrackerAlsaBridgeChecks
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check.sh
             $<TARGET_FILE:BroTrackerAlsaBridge>)
-    set_tests_properties(BroTrackerAlsaBridgeChecks PROPERTIES TIMEOUT 15)
+    set_tests_properties(BroTrackerAlsaBridgeChecks PROPERTIES TIMEOUT 30)
+    add_executable(BroTrackerRecordingTests tools/alsa_bridge/recording_test.cpp)
+    target_link_libraries(BroTrackerRecordingTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerRecordingTests COMMAND BroTrackerRecordingTests)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
 endif()

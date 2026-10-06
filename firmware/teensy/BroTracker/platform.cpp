@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "usb_tx_trace.h"
 
 #include "audio_test_source.h"
 #include "diagnostics.h"
@@ -117,6 +118,9 @@ namespace
 
     void FailSequence()
     {
+#ifdef BROTRACKER_USB_TX_TRACE
+        UsbTraceFreeze();
+#endif
         StopSequence();
         g_test_playback_state = TestPlaybackState::Error;
         Serial.println("BTTEST1 ERROR playback");
@@ -166,6 +170,9 @@ namespace
         {
             const int raw = ReadStartupSerialByte();
             if (raw < 0) break;
+#ifdef BROTRACKER_USB_TX_TRACE
+            UsbTraceProtocolActivity(false); // defer diagnostics during command input
+#endif
             const char c = static_cast<char>(raw);
             if (c == '\r') continue;
             if (c != '\n')
@@ -177,15 +184,34 @@ namespace
             line[used] = '\0';
             if (overflow) Serial.println("BTTEST1 ERROR line-too-long");
             else if (std::strcmp(line, "BTTEST1 HELLO") == 0 ||
-                     std::strcmp(line, "BTTEST1 STATUS") == 0) ReportSequence();
+                     std::strcmp(line, "BTTEST1 STATUS") == 0) {
+#ifdef BROTRACKER_USB_TX_TRACE
+                if(std::strcmp(line,"BTTEST1 HELLO")==0)UsbTraceReplay();
+#endif
+                ReportSequence();
+#ifdef BROTRACKER_USB_TX_TRACE
+                UsbTraceProtocolActivity(); // reply precedes a bounded dump slice
+#endif
+            }
             else if (std::strcmp(line, "BTTEST1 START") == 0)
             {
-                if (StartSequence()) Serial.println("BTTEST1 STARTED");
+                if (StartSequence()) {
+#ifdef BROTRACKER_USB_TX_TRACE
+                    UsbTraceStart();
+#endif
+                    Serial.println("BTTEST1 STARTED");
+                }
             }
             else if (std::strcmp(line, "BTTEST1 STOP") == 0)
             {
+#ifdef BROTRACKER_USB_TX_TRACE
+                UsbTraceFreeze();
+#endif
                 StopSequence();
                 Serial.println("BTTEST1 STOPPED");
+#ifdef BROTRACKER_USB_TX_TRACE
+                UsbTraceProtocolActivity();
+#endif
             }
             else Serial.println("BTTEST1 ERROR command");
             used = 0;
@@ -254,6 +280,11 @@ namespace
         // AudioTestSource::update(), driven by the Teensy Audio Library.
 
         ServiceBringUpSerial();
+#ifdef BROTRACKER_USB_TX_TRACE
+        ServiceUsbTrace(g_test_playback_state != TestPlaybackState::Idle &&
+            g_test_playback_state != TestPlaybackState::Done &&
+            g_test_playback_state != TestPlaybackState::Error);
+#endif
 
         // SD refill for the streaming sample path; never called from
         // AudioStream::update() or any other realtime/audio callback.
@@ -424,6 +455,9 @@ namespace
                     g_test_playback_state = TestPlaybackState::Done;
 
                     Serial.println("Test stream: simultaneous playback finished");
+#ifdef BROTRACKER_USB_TX_TRACE
+                    UsbTraceFreeze();
+#endif
                     Serial.println("BTTEST1 DONE");
                     DiagnosticBlink(3);
                 }

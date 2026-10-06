@@ -2,4 +2,4 @@
 set -e
 
 cd -- "$(dirname -- "$0")"
-exec ./BroTrackerArkOSUI
+exec ./BroTrackerTerminal

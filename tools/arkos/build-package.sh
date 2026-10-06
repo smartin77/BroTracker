@@ -7,7 +7,7 @@ build_dir=${BROTRACKER_ARKOS_BUILD_DIR:-/build/brotracker}
 package_dir=${BROTRACKER_ARKOS_PACKAGE_DIR:-/package/arkos}
 jobs=${BROTRACKER_BUILD_JOBS:-2}
 
-for tool in cmake make gcc g++ pkg-config readelf file dpkg-query; do
+for tool in cmake make gcc g++ pkg-config readelf file dpkg-query sha256sum; do
     command -v "$tool" >/dev/null || { echo "Missing build-root tool: $tool" >&2; exit 1; }
 done
 # Reject newer libraries rather than silently producing an incompatible package.
@@ -27,12 +27,13 @@ cmake -S "$repo_root" -B "$build_dir" -G "Unix Makefiles" \
     -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
     -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON \
     -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
-    -DBROTRACKER_BUILD_ARKOS_UI=ON
+    -DBROTRACKER_BUILD_ARKOS_UI=ON \
+    -DBROTRACKER_BUILD_ALSA_BRIDGE=ON
 # Verify every existing CMake target with Eoan's compiler and CMake.
 cmake --build "$build_dir" --parallel "$jobs"
 (cd "$build_dir" && ctest --output-on-failure)
 
-binary="$build_dir/BroTrackerArkOSUI"
+binary="$build_dir/BroTrackerTerminal"
 readelf -h "$binary" | grep -q 'Machine:.*AArch64'
 readelf -l "$binary" | grep -q 'Requesting program interpreter: /lib/ld-linux-aarch64.so.1]'
 if readelf -d "$binary" | grep -Eq '\((RPATH|RUNPATH)\)'; then
@@ -71,9 +72,8 @@ readelf -l "$binary" | grep 'Requesting program interpreter'
 printf 'NEEDED:\n%s\nRequired versions:\n%s\n' "$needed" "$versions"
 cat "$build_dir/arkos-dependencies.txt"
 
-# Verify the separately built, checked bridge already versioned in the package.
-# Keep ALSA out of the UI target and preserve this exact bridge executable.
-binary="$repo_root/deploy/arkos/BroTrackerAlsaBridge"
+# Verify the freshly built and tested bridge; ALSA stays out of the terminal.
+binary="$build_dir/BroTrackerAlsaBridge"
 readelf -h "$binary" | grep -q 'Machine:.*AArch64'
 readelf -l "$binary" | grep -q 'Requesting program interpreter: /lib/ld-linux-aarch64.so.1]'
 if readelf -d "$binary" | grep -Eq '\((RPATH|RUNPATH)\)'; then
@@ -114,10 +114,14 @@ cat "$build_dir/alsa-bridge-dependencies.txt"
 
 # Stage application files only, after all checks passed. Never copy SDL2.
 mkdir -p "$package_dir/assets/fonts"
-cp "$build_dir/BroTrackerArkOSUI" "$package_dir/BroTrackerArkOSUI"
+cp "$build_dir/BroTrackerTerminal" "$package_dir/BroTrackerTerminal"
 cp "$binary" "$package_dir/BroTrackerAlsaBridge"
 cp "$repo_root/assets/fonts/brotracker.btf" "$repo_root/assets/fonts/brotracker.bfm" "$package_dir/assets/fonts/"
 cp "$repo_root/assets/dummy_my_tune.json" "$package_dir/assets/"
 cp "$repo_root/tools/arkos/launch.sh" "$package_dir/launch.sh"
-chmod +x "$package_dir/BroTrackerArkOSUI" "$package_dir/BroTrackerAlsaBridge" "$package_dir/launch.sh"
+chmod 0755 "$package_dir/BroTrackerTerminal" "$package_dir/BroTrackerAlsaBridge" "$package_dir/launch.sh"
+# Retire only the previous application executable in an existing staging directory.
+[[ ! -L "$package_dir/BroTrackerArkOSUI" ]] || { echo 'Obsolete executable is a symlink' >&2; exit 1; }
+rm -f -- "$package_dir/BroTrackerArkOSUI"
+sha256sum "$package_dir/BroTrackerTerminal" "$package_dir/BroTrackerAlsaBridge"
 echo "Eoan ABI checks passed; staged at $package_dir. Console display/input still need a hardware test."

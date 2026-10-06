@@ -12,11 +12,25 @@ int main()
     try
     {
         // Dynamic card numbers are deliberately unrelated to the R36H snapshot.
-        const Endpoint teensy{7, "MIDIAudio", "Teensy MIDI/Audio", "hw:CARD=MIDIAudio,DEV=2,SUBDEV=0", true};
-        const Endpoint speaker{12, "rockchiprk817co", "rockchip,rk817-codec", "plughw:CARD=rockchiprk817co,DEV=3,SUBDEV=0", false};
+        const Endpoint teensy{7, "MIDIAudio", "Teensy MIDI/Audio", discovery::PcmName(7, 2, 0, true), true};
+        const Endpoint speaker{12, "rockchiprk817co", "rockchip,rk817-codec", discovery::PcmName(12, 3, 0, false), false};
+        // Product-name matching is independent of the generated ALSA card ID.
+        auto renamed = teensy;
+        renamed.card = 23; renamed.id = "USBaudio"; renamed.name = "BroTracker USB audio";
+        renamed.pcm = discovery::PcmName(renamed.card, 4, 1, true);
+        auto opens = [](const Endpoint&) { return true; };
+        CHECK(discovery::Select({renamed, speaker}, true, opens).pcm == renamed.pcm);
+        auto legacy_name = teensy; legacy_name.id = "MIDIAudio_renumbered";
+        CHECK(discovery::Matches(legacy_name, true));
+        auto legacy_id = teensy; legacy_id.name = "Another label";
+        CHECK(discovery::Matches(legacy_id, true));
+        auto unrelated = renamed; unrelated.name = "Unrelated microphone";
+        CHECK(!discovery::Matches(unrelated, true));
+        auto renamed_output = renamed; renamed_output.capture = false;
+        CHECK(!discovery::Matches(renamed_output, false));
+        CHECK(discovery::Select({renamed_output, speaker}, false, opens).pcm == speaker.pcm);
         auto usb_output = teensy; usb_output.capture = false;
         std::vector<Endpoint> cards{usb_output, teensy, speaker};
-        auto opens = [](const Endpoint&) { return true; };
         CHECK(discovery::Select(cards, true, opens).pcm == teensy.pcm);
         CHECK(discovery::Select(cards, false, opens).pcm == speaker.pcm);
         CHECK(!discovery::Matches(usb_output, false));
@@ -24,7 +38,7 @@ int main()
         CHECK(!discovery::Matches(conflicting, false));
         auto duplicate = teensy;
         duplicate.card = 19; duplicate.id = "MIDIAudio_1";
-        duplicate.pcm = "hw:CARD=MIDIAudio_1,DEV=0,SUBDEV=0";
+        duplicate.pcm = discovery::PcmName(19, 0, 0, true);
         cards.push_back(duplicate);
         // First match vanished or was busy at actual open: accept the survivor.
         CHECK(discovery::Select(cards, true, [&](const Endpoint& e) {
@@ -38,6 +52,11 @@ int main()
             CHECK(rejected);
         };
         expect_error(cards, true, true, "Ambiguous viable Teensy");
+        expect_error({renamed, teensy}, true, true, "Ambiguous viable Teensy");
+        expect_error({renamed_output}, false, true, "No usable Rockchip");
+        CHECK(discovery::Select({renamed, teensy}, true, [&](const Endpoint& e) {
+            return e.card == renamed.card;
+        }).pcm == renamed.pcm);
         auto second_output = speaker; second_output.pcm += "_second";
         expect_error({speaker, second_output}, false, true, "Ambiguous viable Rockchip");
         expect_error({}, true, true, "No usable Teensy");

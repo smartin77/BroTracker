@@ -31,7 +31,7 @@ The current ArkOS bring-up has successfully built:
 
 - the shared BroTracker code;
 - the UI renderer;
-- the ArkOS SDL2 UI executable;
+- BroTracker Terminal for ArkOS (`BroTrackerTerminal`);
 - the desktop-style UI preview target where applicable;
 - the host-side tests.
 

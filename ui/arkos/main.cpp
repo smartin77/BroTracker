@@ -1,7 +1,7 @@
 /*
  * BroTracker
  *
- * Description: Minimal ArkOS/Linux UI display client.
+ * Description: BroTracker Terminal (BTX) for ArkOS/Linux.
  *
  * Copyright (C) smARTin and BroTracker contributors
  * License: GPL-3.0
@@ -100,9 +100,9 @@ int main(int, char*[])
 
     WriteBringUpDiagnostic(
         bring_up_log,
-        "application entry");
+        "BroTracker Terminal (BTX): application entry");
 
-    LogInfo("BroTracker ArkOS UI starting.");
+    LogInfo("BroTracker Terminal (BTX) starting on ArkOS.");
 
     WriteBringUpDiagnostic(
         bring_up_log,
@@ -166,7 +166,7 @@ int main(int, char*[])
         bring_up_log,
         "main screen rendering: success");
 
-    SdlDisplayBackend display;
+    SdlDisplayBackend display("BroTracker Terminal");
 
     WriteBringUpDiagnostic(
         bring_up_log,
