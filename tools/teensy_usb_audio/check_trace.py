@@ -5,7 +5,7 @@ from patch_core import prepare,patch_bytes,VERSION,ORIGINAL,PATCHED
 p=argparse.ArgumentParser();p.add_argument('--framework',required=True,type=Path);p.add_argument('--build',required=True,type=Path);p.add_argument('--cxx',default='g++');a=p.parse_args()
 root=Path(__file__).resolve().parents[2];a.build.mkdir(parents=True,exist_ok=True)
 original,patched=prepare(a.framework,a.build/'core',trace=True)
-source=original.read_bytes();assert patch_bytes(source,VERSION)==source.replace(ORIGINAL,PATCHED,1)
+source=original.read_bytes();assert patch_bytes(source,VERSION).count(PATCHED)==1
 text=patched.read_text();assert 'bt_trace.Capture' in text and text.index('bt_trace.Capture')<text.index('usb_prepare_transfer(&tx_transfer')
 assert '++bt_updates' in text and '++bt_discards' in text
 # The authoritative C-compatible declaration must precede the first caller.
@@ -19,7 +19,9 @@ fixture=a.build/'fixture';fixture.mkdir(exist_ok=True)
 #include <cstdint>
 #include <cstring>
 #include <string>
-struct TestSerial { int space=256; bool connected=true; std::string output;
+extern uint32_t test_ms;
+inline uint32_t millis(){return test_ms;}
+struct TestSerial { int space=8192; bool connected=true; std::string output;
  operator bool() const {return connected;}
  int availableForWrite()const{return space;}
  unsigned write(const uint8_t* p,unsigned n){output.append(reinterpret_cast<const char*>(p),n);return n;}
@@ -32,13 +34,14 @@ test=r'''
 #include "usb_tx_trace.h"
 #include <stdexcept>
 #include <iostream>
-TestSerial Serial;
+TestSerial Serial;uint32_t test_ms=0;
 static BroTrackerUsbTrace::Buffer buffer;
 extern "C" void brotracker_usb_history_snapshot(BroTrackerUsbTrace::History* out){*out=BroTrackerUsbTrace::History{};}
 extern "C" bool brotracker_usb_trace_arm(){return buffer.Arm(100);}
 extern "C" void brotracker_usb_trace_freeze(){if(buffer.armed)buffer.Freeze();}
 extern "C" void brotracker_usb_trace_release(){buffer.Release();}
 extern "C" const BroTrackerUsbTrace::Buffer* brotracker_usb_trace_buffer(){return &buffer;}
+void Drain(unsigned ticks){for(unsigned i=0;i<ticks;++i){test_ms+=20;if(i%50==0)BroTracker::UsbTraceProtocolActivity();BroTracker::ServiceUsbTrace(false);}}
 void Check(bool b,const char* s){if(!b)throw std::runtime_error(s);}
 int main(){
  uint8_t payload[180];for(unsigned i=0;i<180;++i)payload[i]=i;
@@ -53,17 +56,26 @@ int main(){
  auto saved=buffer.packets[0];buffer.Capture(payload,180,45,false,999,0,0,0,0);Check(buffer.count==128 && buffer.packets[0].sequence==saved.sequence,"no overwrite");
  BroTracker::UsbTraceStart();Check(buffer.session==1,"pending trace survives restart");
  Serial.output.clear();Serial.space=0;BroTracker::ServiceUsbTrace(false);Check(Serial.output.empty(),"no wait when CDC full");
- Serial.space=256;BroTracker::ServiceUsbTrace(true);Check(Serial.output.empty(),"no dump during audio playback");
- for(unsigned i=0;i<900;++i)BroTracker::ServiceUsbTrace(false);
+ Serial.space=8192;BroTracker::ServiceUsbTrace(true);Check(Serial.output.empty(),"no dump during audio playback");
+ BroTracker::UsbTraceProtocolActivity();test_ms+=20;Serial.space=256;
+ BroTracker::ServiceUsbTrace(false);Check(Serial.output.empty(),"reserved reply space");
+ Serial.space=8192;
+ for(unsigned i=0;i<20;++i){test_ms+=20;BroTracker::ServiceUsbTrace(false);}
+ auto slice=Serial.output;unsigned slice_lines=0;for(char c:slice)if(c=='\n')++slice_lines;
+ Check(slice_lines==8,"fixed nonaccumulating per-command line credit");
+ test_ms+=100;BroTracker::ServiceUsbTrace(false);Check(Serial.output==slice,"no unsolicited credit refill");
+ BroTracker::UsbTraceProtocolActivity();BroTracker::UsbTraceProtocolActivity(false);test_ms+=19;
+ BroTracker::ServiceUsbTrace(false);Check(Serial.output==slice,"partial command priority/quiet interval");
+ BroTracker::UsbTraceReplay();Serial.output.clear();Drain(9000);
  Check(Serial.output.find("USBTRACE1 BEGIN s=1")!=std::string::npos && Serial.output.find("USBTRACE1 END s=1 packets=128")!=std::string::npos,"complete dump");
  unsigned lines=0;std::size_t start=0;while(start<Serial.output.size()){auto end=Serial.output.find('\n',start);Check(end!=std::string::npos && end-start<192,"bounded transport line");++lines;start=end+1;}
  Check(lines==900,"metadata and payload fragment count");
  std::cout<<Serial.output; // captured fixture is reassembled by Python
  BroTracker::UsbTraceReplay();Serial.connected=false;BroTracker::ServiceUsbTrace(false);Serial.connected=true;Serial.output.clear();
- for(unsigned i=0;i<900;++i){BroTracker::ServiceUsbTrace(false);}Check(Serial.output.find("END s=1")!=std::string::npos,"reconnect replay retained trace");
+ Drain(9000);Check(Serial.output.find("END s=1")!=std::string::npos,"reconnect replay retained trace");
  BroTracker::UsbTraceStart();Check(buffer.session==2 && buffer.count==0,"new START after retrieval");
  buffer.Capture(payload,176,0,true,1,0,0,0,0);BroTracker::UsbTraceFreeze();Check(buffer.frozen && buffer.count==1,"early STOP keeps prefix");
- Serial.output.clear();for(unsigned i=0;i<20;++i)BroTracker::ServiceUsbTrace(false);Check(Serial.output.find("END s=2 packets=1")!=std::string::npos,"partial trace dump");
+ Serial.output.clear();Drain(200);Check(Serial.output.find("END s=2 packets=1")!=std::string::npos,"partial trace dump");
 }
 '''
 (a.build/'trace_test.cpp').write_bytes(test.encode());exe=a.build/'trace_test.exe'

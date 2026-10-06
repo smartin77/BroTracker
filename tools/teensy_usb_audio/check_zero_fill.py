@@ -11,7 +11,7 @@ parser.add_argument('--cxx',default='g++')
 args=parser.parse_args()
 original,patched=prepare(args.framework,args.build)
 source=original.read_bytes()
-assert patched.read_bytes()==source.replace(ORIGINAL,PATCHED,1)
+assert patched.read_bytes()==patch_bytes(source,VERSION)
 for data,version in [(source,'unknown'),(source+b'\n',VERSION),(source+ORIGINAL,VERSION)]:
     try:patch_bytes(data,version)
     except RuntimeError:pass
@@ -60,4 +60,4 @@ exe=args.build/'zero_fill_test.exe'
 subprocess.run([args.cxx,'-std=c++14','-Wall','-Wextra','-Werror',str(cppfile),'-o',str(exe)],check=True)
 subprocess.run([str(exe.resolve())],check=True)
 assert hashlib.sha256(original.read_bytes()).hexdigest()==hashlib.sha256(source).hexdigest()
-print('Version/source rejection and generated one-expression copy verified; installed source unchanged.')
+print('Version/source rejection and generated guarded core copy verified; installed source unchanged.')

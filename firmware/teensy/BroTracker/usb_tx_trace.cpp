@@ -9,6 +9,18 @@ bool dump_complete=false;
 BroTrackerUsbTrace::History history;
 bool history_ready=false,history_done=false;
 unsigned history_line=0;
+unsigned dump_credit=0;
+uint32_t last_protocol_ms=0,last_emit_ms=0;
+// At most eight <192-byte lines between serviced protocol commands. Never
+// accumulate credit. Leave CDC space for replies and yield between lines.
+bool WriteDiagnostic(const char* line,unsigned n) {
+    const uint32_t now=millis();
+    if(!dump_credit || uint32_t(now-last_protocol_ms)<20 ||
+       uint32_t(now-last_emit_ms)<20)return false;
+    if(Serial.availableForWrite()<int(n+256))return false;
+    if(Serial.write(reinterpret_cast<const uint8_t*>(line),n)!=n)return false;
+    --dump_credit;last_emit_ms=now;return true;
+}
 bool HistoryLine(char* out,unsigned size) {
     if(!history_ready){brotracker_usb_history_snapshot(&history);history_ready=true;}
     unsigned count=history.Count();
@@ -38,12 +50,17 @@ bool Format(char* out,unsigned size,unsigned line,const BroTrackerUsbTrace::Buff
 }
 }
 void UsbTraceStart(){
+    dump_credit=0;
     if(dump_complete){brotracker_usb_trace_release();dump_complete=false;history_ready=false;}
     line_index=0;history_line=0;history_done=false;
     if(!brotracker_usb_trace_arm())Serial.println("USBTRACE1 BUSY retained_trace=1");
 }
 void UsbTraceFreeze(){brotracker_usb_trace_freeze();}
-void UsbTraceReplay(){line_index=0;dump_complete=false;history_line=0;history_done=false;}
+void UsbTraceReplay(){line_index=0;dump_complete=false;history_line=0;history_done=false;dump_credit=0;}
+void UsbTraceProtocolActivity(bool grant_dump){
+    last_protocol_ms=millis();
+    if(grant_dump)dump_credit=8;
+}
 void ServiceUsbTrace(bool playing){
     if(playing)return;
     const auto* b=brotracker_usb_trace_buffer();if(!b->frozen)return;
@@ -51,14 +68,12 @@ void ServiceUsbTrace(bool playing){
     if(dump_complete)return;
     if(!history_done){
         char line[192];bool more=HistoryLine(line,sizeof(line));unsigned n=std::strlen(line);
-        if(Serial.availableForWrite()<int(n))return;
-        if(Serial.write(reinterpret_cast<const uint8_t*>(line),n)!=n)return;
+        if(!WriteDiagnostic(line,n))return;
         ++history_line;if(!more)history_done=true;
         return;
     }
     char line[192];bool more=Format(line,sizeof(line),line_index,*b);unsigned n=std::strlen(line);
-    if(Serial.availableForWrite()<int(n))return; // never wait for CDC space
-    if(Serial.write(reinterpret_cast<const uint8_t*>(line),n)!=n)return;
+    if(!WriteDiagnostic(line,n))return;
     ++line_index;if(!more)dump_complete=true; // retained until next explicit START
 }
 }

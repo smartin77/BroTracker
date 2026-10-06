@@ -1,7 +1,7 @@
 # Teensy4 USB transmit shortage zero-fill fix
 
 The Teensy4 core declares the packet buffer as `uint16_t[]`, but `len` counts
-four-byte stereo frames. The default build applies only this change:
+four-byte stereo frames. The default build corrects this zero-fill operation:
 
 ```diff
 -memset(usb_audio_transmit_buffer + len, 0, num * 4);
@@ -10,7 +10,7 @@ four-byte stereo frames. The default build applies only this change:
 
 This uses the same frame addressing as the adjacent packet-copy operation.
 It preserves valid prefix bytes, clears both shortage channels and leaves no
-stale tail. Packet lengths/cadence and all other core code remain unchanged.
+stale tail. The zero-fill correction preserves packet lengths/cadence.
 It fixes corruption during shortages; it does **not** establish or resolve
 repeated starvation or whole-block omissions.
 
@@ -38,7 +38,7 @@ pio run -e teensy41
 
 Artifacts: `.pio/build/teensy41/firmware.hex` and `firmware.elf`. Build alone
 never flashes the device. Existing IDLE boot, USB descriptors, BTTEST1 and
-clock/audio ownership are not changed.
+clock/audio update ownership are not changed.
 
 ## Host regression
 
@@ -80,7 +80,7 @@ payloads and metadata: no heap, serial/SD writes, locks or waits.
 Storage freezes at 128 packets or an early STOP, completion or playback error.
 The main loop sends bounded `USBTRACE1` lines only when playback is inactive and
 CDC has space. Natural completion therefore also permits retrieval (after the
-existing completion blinks). Wait at least ten seconds after STOP/completion
+existing completion blinks). Wait 180 seconds after STOP/completion with the terminal connected
 before EXIT, and check for `USBTRACE1 END` in the collected log. An unretrieved
 trace is retained across another START (`BUSY`); after its END, the next START
 can arm a fresh session. HELLO replays retained data after CDC reconnect. Replay
@@ -112,8 +112,8 @@ replay, CDC backpressure, reconstruction and trace-disabled compilation.
 
 Collection: after separately building/flashing the opt-in firmware, cold boot
 with Teensy directly attached; launch BroTracker Diagnostics; L1/B START and
-play; R1/X STOP and wait ten seconds; unplug/replug while BTX stays open; wait
-for CDC/audio recovery; L1/B START and play; R1/X STOP and wait ten seconds;
+play; R1/X STOP and wait 180 seconds; unplug/replug while BTX stays open; wait
+for CDC/audio recovery; L1/B START and play; R1/X STOP and wait 180 seconds;
 R1/X EXIT. Upload the complete persistent diagnostic directory, including WAVs,
 `events.tsv` and `usb-tx-trace.log`. Do not initiate another START until the prior
 trace has been retrieved.
@@ -123,7 +123,7 @@ trace has been retrieved.
 The isolated replacement now also validates `cores/teensy4/usb.c` SHA-256
 `8cb03e83e90527e5574c7977bc8957edbc16f27c2b210c7949a507158f8bf78c`
 from framework 1.162.0 before generating its instrumented copy. Ordinary builds
-still replace only `usb_audio.cpp` for the zero-fill correction.
+still replace only `usb_audio.cpp` for zero-fill and unused-RX ownership corrections.
 
 History begins at USB initialization, independently of START. Its constexpr
 initialization avoids losing early evidence when C++ constructors run later. Static storage
@@ -196,7 +196,7 @@ bash tools/arkos/install-port.sh
 ```
 
 Collection available now: cold boot with powered Teensy attached; launch
-BroTracker Diagnostics; L1/B START/play; R1/X STOP; wait ten seconds; R1/X EXIT.
+BroTracker Diagnostics; L1/B START/play; R1/X STOP; wait 180 seconds; R1/X EXIT.
 Upload the complete diagnostic directory and check for `USBLIFE1 END` and
 `USBTRACE1 END`. Do not label this as a USB reinit experiment: no supported
 software reinit action is available in this core.
@@ -206,3 +206,109 @@ Additional host regression:
 ```powershell
 python tools/teensy_usb_audio/check_lifecycle.py --framework "$env:USERPROFILE/.platformio/packages/framework-arduinoteensy" --build build/usb-lifecycle-review/history-tests
 ```
+
+## Unused USB RX ownership correction and bounded dumps
+
+The fixed BroTracker graph contains AudioOutputUSB, MQS and a mono mixer, but
+no AudioInputUSB consumer. The core receive callback previously allocated
+incoming/ready stereo pairs anyway. With no input object's update service,
+those four blocks could remain retained across host bus reset, configuration
+and RX alternate changes. A zero-length completion alone could retain two.
+AudioMemory is still **8**. TX receiveWritable must copy the mixer block when
+it is shared by MQS and both USB channels. Four RX blocks plus two MQS queue
+blocks and one current mixer block leave one free block: the left copy succeeds,
+the right copy and replacement-right allocation fail, and no TX pair is queued.
+An update-entry count therefore does not establish that a block was queued.
+TX can retain four blocks (two stereo pairs) and MQS two mono blocks, before
+producer/transient demand; unused RX adds four more, exceeding the pool even
+before accounting for producers. This is a reproduced ownership defect, not
+proof that every historical shortage had this cause.
+
+The version/hash-validated ordinary and trace core copies now use a static
+consumer-active flag, set after AudioInputUSB::begin initializes its state.
+Receive callbacks return without allocating when that consumer was never
+constructed. With a static input consumer present, original RX processing,
+PCM, partial buffers and consumer release paths are unchanged. This follows
+the existing core's static graph lifetime; it adds no dynamic node/lifetime
+management. No AudioMemory increase, lifecycle reset or packet changes were
+made. The installed framework is unchanged.
+
+The native regression extracts actual allocator/release/receiveWritable,
+RX/TX callbacks, consumer updates and configuration functions, plus bus-reset
+and alternate-setting branches. Hardware/graph boundaries are stubbed. Its
+original negative control normalizes only the earlier zero-fill expression,
+so the retained-block/TX failure is isolated from that already fixed defect.
+It tests valid shared inputs, failed allocation, missing inputs, TX overflow,
+disabled queues, repeated lifecycle transitions, normal input PCM and ownership.
+
+Trace builds now grant **at most eight diagnostic lines per serviced HELLO,
+STATUS or STOP**, without accumulating unused grants. Replies are emitted
+first. Reading command bytes pauses diagnostic output; emission yields at
+least 20 ms after input and between lines and reserves 256 CDC bytes for replies.
+Normal host STATUS polling supplies further slices. No protocol bytes, poll
+intervals or the 6000 ms host timeout were changed. A full 128-packet trace with
+128 lifecycle records is about 1,030 lines: normally about 130 seconds with
+one-second STATUS polling. **Wait 180 seconds after STOP/completion** before
+another START, unplugging or exiting. A stalled/no-polling host pauses output;
+there is no unconditional completion-time guarantee. HELLO still requests a
+retained replay after reconnect. Natural completion still permits retrieval.
+
+The dump regression runs the production firmware parser, dump implementation
+and shared host protocol against a simulated driver queue and 100 ms SDL ticks.
+Original output causes a command timeout at 7,000 ms with roughly 71 KiB queued.
+Bounded output completes, including reconnect replay, with no protocol timeout.
+This is synthetic flow-control evidence, not a hardware timing measurement.
+
+```powershell
+python tools/teensy_usb_audio/check_ownership.py --framework "$env:USERPROFILE/.platformio/packages/framework-arduinoteensy" --build build/usb-ownership-review/ownership-tests
+python tools/teensy_usb_audio/check_dump.py --build build/usb-ownership-review/dump-bounded
+```
+
+### Single hardware validation batch
+
+Use one firmware build/upload, one handheld installation, then return one
+archive. These commands are for the user; they were not executed during this
+change. No new ArkOS executable is needed because host code/packages are unchanged.
+
+1. On the PC, build/upload `teensy41_usb_trace` once in VS Code or run
+   `pio run -e teensy41_usb_trace -t upload`. Do not switch to ordinary
+   `teensy41` for this diagnostic batch.
+2. After transferring the reviewed checkout, install once on ArkOS:
+   `cd "$HOME/BroTracker"` then `bash tools/arkos/install-port.sh`.
+   Shut ArkOS down. Move the flashed T4.1 to direct OTG and leave it attached
+   before powering ArkOS on. Do not unplug it during this cold-boot phase.
+3. From Ports launch **BroTracker Diagnostics** once. Wait up to 60 seconds for
+   Connected/idle, then another 15 seconds for bridge startup. Expect silent
+   IDLE boot, no automatic playback. If it never
+   connects, press R1/X once while waiting to exit and archive this failed run;
+   do not continue with START or repeat the installation/build.
+4. Press L1/B once. Expect playing. Listen through the sequence, including its
+   overlapping samples, and note clean/distorted/synchronized behavior. Allow
+   natural completion, or cap listening at 90 seconds: if still playing then,
+   press R1/X once for STOP and expect idle within ten seconds. If already
+   completed, do not press R1/X (that would exit). Leave BTX open and wait
+   **180 seconds from completion/acknowledged STOP** for the full cold-boot dump.
+   Expect responsive UI and no repeated CDC reopen/handshake cycle.
+5. Unplug T4.1 once, wait two seconds, reconnect it without closing Diagnostics.
+   Wait up to 60 seconds for Connected/idle, then another 15 seconds for bridge
+   recovery. Expect no automatic START. Press L1/B once and repeat step 4's
+   listening/completion-or-STOP behavior. Again wait **180 seconds** after
+   completion/acknowledged STOP; this also exercises natural-completion retrieval
+   when the sequence finishes normally.
+6. While idle/completed, press R1/X once to EXIT. Expect Ports to return within
+   30 seconds. Note each phase's playback quality, whether simultaneous samples
+   remained synchronized, and any waiting/reopen/STOP/exit failure.
+7. Upload **one archive of the complete new diagnostics directory**, including
+   both WAVs, btx logs, usb-tx-trace.log, events.tsv and collector/provenance files.
+   Each instance's recording limit still starts at capture, includes silence
+   and stops after 180 captured seconds; the long dump wait is intentionally
+   longer than the recording window. The active test audio is recorded before
+   that limit when these steps are followed.
+
+Failure contingency for steps 4?6: do not retry START repeatedly, reflash,
+reinstall, reset USB or restart BTX. If it is playing and responsive, press R1/X
+once for STOP; if idle/completed, leave it open for the remaining 180-second
+collection wait, then press R1/X once to exit. If waiting, R1/X exits directly.
+Record the step and symptom and upload the partial run in the same final archive.
+If the UI cannot exit, record that failure and use normal console shutdown as
+a last resort; interrupted WAV/trace finalization must not be assumed complete.

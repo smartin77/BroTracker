@@ -57,5 +57,5 @@ void brotracker_usb_trace_freeze();
 void brotracker_usb_trace_release();
 const BroTrackerUsbTrace::Buffer* brotracker_usb_trace_buffer();
 }
-namespace BroTracker { void UsbTraceStart(); void UsbTraceFreeze(); void UsbTraceReplay(); void ServiceUsbTrace(bool playing); }
+namespace BroTracker { void UsbTraceStart(); void UsbTraceFreeze(); void UsbTraceReplay(); void ServiceUsbTrace(bool playing); void UsbTraceProtocolActivity(bool grant_dump=true); }
 #endif

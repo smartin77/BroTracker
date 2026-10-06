@@ -1,4 +1,4 @@
-"""Version-locked one-expression patch; never writes the installed framework."""
+"""Version-locked USB audio patches; never writes the installed framework."""
 import hashlib
 import json
 from pathlib import Path
@@ -16,7 +16,21 @@ def patch_bytes(source, version):
         raise RuntimeError(f"Incompatible Teensy4 usb_audio.cpp SHA-256: {digest}; expected {SOURCE_SHA256}. Review source before updating patch.")
     if source.count(ORIGINAL) != 1:
         raise RuntimeError("Expected exactly one USB transmit zero-fill expression")
-    return source.replace(ORIGINAL, PATCHED, 1)
+    patched=source.replace(ORIGINAL, PATCHED, 1)
+    # RX callbacks exist even when the firmware graph has no AudioInputUSB.
+    # Only begin() establishes a consumer that can service/release RX blocks.
+    replacements=[
+        (b'bool AudioInputUSB::update_responsibility;',
+         b'static bool usb_audio_input_active = false;\nbool AudioInputUSB::update_responsibility;'),
+        (b'\treceive_flag = 0;\n\t// update_responsibility',
+         b'\treceive_flag = 0;\n\tusb_audio_input_active = true;\n\t// update_responsibility'),
+        (b'void usb_audio_receive_callback(unsigned int len)\n{',
+         b'void usb_audio_receive_callback(unsigned int len)\n{\n\tif (!usb_audio_input_active) return;')]
+    for old,new in replacements:
+        if patched.count(old)!=1:
+            raise RuntimeError("Incompatible USB input ownership patch anchor")
+        patched=patched.replace(old,new,1)
+    return patched
 
 def prepare(framework, build, trace=False):
     framework, build = Path(framework), Path(build)
@@ -41,7 +55,7 @@ def prepare(framework, build, trace=False):
         usb_patched=patch_usb(usb_source.read_bytes())
         (destination.parent/"usb.c").write_bytes(usb_patched)
         (destination.parent/"usb_lifecycle_trace.h").write_bytes(header.with_name("usb_lifecycle_trace.h").read_bytes())
-    receipt = {"usb_tx_trace": trace,"framework_version": VERSION, "original_source": str(source),
+    receipt = {"rx_requires_input_consumer": True,"usb_tx_trace": trace,"framework_version": VERSION, "original_source": str(source),
                "original_sha256": SOURCE_SHA256,
                "patched_sha256": hashlib.sha256(patched).hexdigest(),
                "original_expression": ORIGINAL.decode(), "patched_expression": PATCHED.decode()}

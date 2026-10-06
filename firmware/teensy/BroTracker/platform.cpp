@@ -170,6 +170,9 @@ namespace
         {
             const int raw = ReadStartupSerialByte();
             if (raw < 0) break;
+#ifdef BROTRACKER_USB_TX_TRACE
+            UsbTraceProtocolActivity(false); // defer diagnostics during command input
+#endif
             const char c = static_cast<char>(raw);
             if (c == '\r') continue;
             if (c != '\n')
@@ -186,6 +189,9 @@ namespace
                 if(std::strcmp(line,"BTTEST1 HELLO")==0)UsbTraceReplay();
 #endif
                 ReportSequence();
+#ifdef BROTRACKER_USB_TX_TRACE
+                UsbTraceProtocolActivity(); // reply precedes a bounded dump slice
+#endif
             }
             else if (std::strcmp(line, "BTTEST1 START") == 0)
             {
@@ -203,6 +209,9 @@ namespace
 #endif
                 StopSequence();
                 Serial.println("BTTEST1 STOPPED");
+#ifdef BROTRACKER_USB_TX_TRACE
+                UsbTraceProtocolActivity();
+#endif
             }
             else Serial.println("BTTEST1 ERROR command");
             used = 0;
