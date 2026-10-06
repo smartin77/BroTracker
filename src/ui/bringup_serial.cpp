@@ -73,6 +73,7 @@ const char* BringUpSerial::Status() const
 {
     if (!connected_)
     {
+        if (transport_->AccessDenied()) return "Teensy serial access denied - see log";
         if (start_cancelled_) return "Waiting - START cancelled (not sent)";
         if (start_unconfirmed_) return "Waiting - START result unknown";
         return "Waiting for Teensy USB";

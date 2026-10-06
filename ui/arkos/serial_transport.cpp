@@ -61,6 +61,9 @@ bool FindTeensy(char* device, unsigned int capacity)
 
 class LinuxSerialTransport final : public SerialTransport {
     int fd_ = -1;
+    bool access_denied_ = false;
+    int last_open_error_ = 0;
+    char last_error_device_[PATH_MAX]{};
     const char* error_ = "USB hangup";
     static void Log(FILE* log, const char* message, const char* detail) {
         if (log) { std::fprintf(log, "USB bring-up: %s %s\n", message, detail); std::fflush(log); }
@@ -70,9 +73,32 @@ public:
     bool Open(FILE* log, const char* test_device) override {
         char device[PATH_MAX];
         if (test_device) std::snprintf(device, sizeof(device), "%s", test_device);
-        else if (!FindTeensy(device, sizeof(device))) return false;
+        else if (!FindTeensy(device, sizeof(device))) {
+            access_denied_ = false;
+            last_open_error_ = 0;
+            last_error_device_[0] = 0;
+            return false;
+        }
         fd_ = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-        if (fd_ < 0) { Log(log, "open failed:", std::strerror(errno)); return false; }
+        if (fd_ < 0) {
+            const int error = errno;
+            access_denied_ = error == EACCES || error == EPERM;
+            if (error != last_open_error_ || std::strcmp(device, last_error_device_) != 0) {
+                if (log) {
+                    std::fprintf(log, "USB bring-up: open failed: %s: %s (errno=%d)\n",
+                                 device, std::strerror(error), error);
+                    if (access_denied_)
+                        std::fprintf(log, "USB bring-up: serial access denied; check port ownership and runtime user's groups. If dialout owns the port: sudo usermod -aG dialout <runtime-user>; restart sessions or reboot. Do not run BTX as root.\n");
+                    std::fflush(log);
+                }
+                last_open_error_ = error;
+                std::snprintf(last_error_device_, sizeof(last_error_device_), "%s", device);
+            }
+            return false;
+        }
+        access_denied_ = false;
+        last_open_error_ = 0;
+        last_error_device_[0] = 0;
         termios config{};
         if (tcgetattr(fd_, &config) != 0) { Log(log, "configuration failed:", std::strerror(errno)); Close(); return false; }
         cfmakeraw(&config);
@@ -89,6 +115,7 @@ public:
         Log(log, "opened:", device);
         return true;
     }
+    bool AccessDenied() const override { return access_denied_; }
     void Close() override { if (fd_ >= 0) close(fd_); fd_ = -1; }
     bool Healthy() override {
         pollfd port{fd_, POLLIN, 0};

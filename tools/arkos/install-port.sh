@@ -22,6 +22,22 @@ files=(
 
 fail() { echo "Error: $*" >&2; exit 1; }
 
+# Advisory only: sudo's effective user is not necessarily the Ports runtime user.
+runtime_user=${BROTRACKER_RUNTIME_USER:-${SUDO_USER:-${USER:-}}}
+if command -v getent >/dev/null && getent group dialout >/dev/null; then
+    if [[ -z "$runtime_user" || "$runtime_user" == root ]]; then
+        echo 'Advisory: runtime user is unknown; check dialout membership for the user running Ports.' >&2
+        echo 'Setup: sudo usermod -aG dialout <runtime-user>; restart existing sessions or reboot.' >&2
+    elif groups=$(id -nG "$runtime_user" 2>/dev/null); then
+        if [[ " $groups " != *" dialout "* ]]; then
+            echo "Advisory: Ports runtime user $runtime_user lacks dialout membership." >&2
+            printf 'Setup: sudo usermod -aG dialout %q; restart existing sessions or reboot.\n' "$runtime_user" >&2
+        fi
+    else
+        echo "Advisory: cannot check groups for runtime user $runtime_user; check dialout membership manually." >&2
+    fi
+fi
+
 # Check all sources and destinations before writing anything.
 [[ -d "$ports" ]] || fail "Ports directory is missing: $ports"
 [[ -f "$launcher" ]] || fail "Launcher is missing: $launcher"

@@ -20,7 +20,22 @@ printf 'user data\n' > "$app/user-song.json"
 printf 'unrelated executable\n' > "$app/custom-tool"
 cp "$app/user-song.json" "$work/user-original"
 cp "$app/custom-tool" "$work/tool-original"
-bash "$installer"
+# Simulate sudo installation for a non-root runtime account, without group changes.
+mkdir -p "$work/advisory-bin"
+cat > "$work/advisory-bin/getent" <<'STUB'
+#!/bin/bash
+[[ ${TEST_NO_DIALOUT:-0} == 0 && "$*" == 'group dialout' ]] && echo 'dialout:x:20:'
+STUB
+cat > "$work/advisory-bin/id" <<'STUB'
+#!/bin/bash
+[[ "$*" == '-nG ark' ]] || exit 1
+echo "ark video ${TEST_GROUPS:-}"
+STUB
+chmod +x "$work/advisory-bin/"*
+PATH="$work/advisory-bin:$PATH" SUDO_USER=ark USER=root bash "$installer" > "$work/advisory" 2>&1
+grep -q 'runtime user ark lacks dialout' "$work/advisory"
+grep -q 'sudo usermod -aG dialout ark' "$work/advisory"
+grep -q 'restart existing sessions or reboot' "$work/advisory"
 [[ ! -e "$app/BroTrackerArkOSUI" ]]
 backups=("$work/ports/"BroTracker.sh.bak.*)
 [[ ${#backups[@]} == 2 ]]
@@ -81,4 +96,12 @@ cmp "$app/user-song.json" "$work/user-original"
 grep -q 'exec ./BroTrackerTerminal' "$app/launch.sh"
 grep -q 'BROTRACKER_APPEND_LOG=1 ./BroTrackerTerminal' "$new_launcher"
 ! grep -q 'BroTrackerArkOSUI' "$app/launch.sh" "$new_launcher"
+# Membership and absent group suppress the advisory; root is not assumed runtime.
+rm -- "$app/BroTrackerArkOSUI" # remove the disposable unsafe-destination fixture
+PATH="$work/advisory-bin:$PATH" TEST_GROUPS=dialout SUDO_USER=ark USER=root bash "$installer" > "$work/member" 2>&1
+! grep -q 'Advisory:' "$work/member"
+PATH="$work/advisory-bin:$PATH" TEST_NO_DIALOUT=1 SUDO_USER=ark USER=root bash "$installer" > "$work/no-group" 2>&1
+! grep -q 'Advisory:' "$work/no-group"
+PATH="$work/advisory-bin:$PATH" SUDO_USER=root USER=root bash "$installer" > "$work/unknown-user" 2>&1
+grep -q 'runtime user is unknown' "$work/unknown-user"
 echo 'Installer/package upgrade checks passed (isolated temporary destination)'
