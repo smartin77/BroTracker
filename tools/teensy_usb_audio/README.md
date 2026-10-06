@@ -56,9 +56,31 @@ counts, preserved prefix, all-zero shortage channels, no stale tail, and guards
 before/after each packet. It also verifies rejection of unknown version and
 changed source. Expected:91 patched cases pass,87 original cases fail.
 
-Physical shortage/cold-boot behavior still needs a separately authorized flash
-and hardware check; the build and byte-level tests do not prove starvation is
-resolved.
+Native tests establish the byte-level correction; hardware validation of the
+combined zero-fill, unused-RX ownership and bounded-dump fixes is recorded below.
+
+## Hardware validation 20261006-220244.Ph7ox3
+
+The original recurring cold-boot distortion is **resolved in this hardware
+validation**, both before and after physical reconnect:
+
+- Both complete 128-packet pre-DMA traces contain 0 shortage packets and zero
+  shortage-filled frames, and match their captured WAV data.
+- Both WAVs have identical L/R channels; the previous recurring corruption
+  pattern is absent.
+- No CDC command timeouts occurred during bounded diagnostic dumps.
+- Sample-player underrun counters are zero.
+
+| Bridge session | Capture overruns | Playback underruns |
+| --- | ---: | ---: |
+| Cold boot | 3 | 1 |
+| Post-reconnect | 0 | 0 |
+
+The user heard brief pauses in the first playback and a pronounced click in the
+second. **Intermittent clicks/pauses and ArkOS ALSA xruns remain open**, separately
+from the resolved cold-boot corruption. This run does not resolve all audio
+defects or establish a causal relationship between those audible events and
+xruns. Follow-up is tracked in [TODO List](../../docs/TODO_LIST.md#audio-diagnostics).
 
 ## Opt-in 128-packet pre-DMA trace
 

@@ -362,26 +362,14 @@ bash tools/arkos/check-install-port.sh
 bash tools/arkos/check-port-launcher.sh
 ```
 
-### Cold-boot audio corruption comparison
+### USB audio validation status
 
-Ports diagnostics now also records USB speed/address, interface alternate
-settings and endpoint packet sizes/intervals, plus `/proc/asound/card*/stream*`
-and live capture/render `hw_params` and `status` every snapshot. Missing or
-permission-denied entries remain explicit. These are driver reports, not raw
-USB packet measurements; zero ALSA/sample-player xruns do not certify PCM data.
-
-One controlled comparison: cold-boot with T4.1 directly attached to OTG, open
-**BroTracker Diagnostics**, wait ready, press L1/B and listen for at least ten
-seconds. Record distorted/clean and elapsed time, then R1/X to STOP (stay open).
-Unplug T4.1 for five seconds and reconnect without exiting. Wait ready plus
-20 seconds, explicitly L1/B again and record the same observations. STOP then
-EXIT with R1/X twice. Repeat with a new boot with T4.1 absent until after
-EmulationStation loads. Retrieve both complete run directories afterwards.
-Do not reset USB, change rate/buffers/volume, or reinstall firmware between
-conditions. Compare stream momentary frequency, active alternate settings,
-endpoint intervals and both PCM states around each marked listening interval.
-If these remain identical, raw USB/captured PCM evidence is still needed to
-separate device packet generation, host USB capture and Rockchip output faults.
+The original cold-boot distortion is resolved in hardware validation run
+`20261006-220244.Ph7ox3`. The [USB audio validation record](../teensy_usb_audio/README.md#hardware-validation-20261006-220244ph7ox3)
+contains the trace/WAV results, xrun counters and listening observations.
+Intermittent clicks/pauses and ArkOS ALSA xruns remain a separate open issue;
+see [TODO tracking](../../docs/TODO_LIST.md#audio-diagnostics). Further collection
+can use the existing diagnostic PCM recordings and timeline below.
 
 ### Diagnostic PCM recordings and timeline
 
