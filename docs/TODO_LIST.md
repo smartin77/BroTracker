@@ -52,7 +52,8 @@ implementation and validation.
   block-relative offsets. This maps positions without reading pattern contents
   or advancing a separate timeline.
 * [ ] Integrate the timing, raw row-command and logical channel-state foundations
-  with instrument lookup, playback dispatch, sample triggering, transport and realtime firmware
+  with production instrument resolution, tracker-to-audio command preparation,
+  mixing, transport and realtime firmware
   integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
@@ -60,15 +61,18 @@ implementation and validation.
   Tick enumeration, sample offsets within processing blocks and logical looping
   pattern-position mapping are complete; raw row-command generation now exists in
   core playback (see below), as does logical note/instrument continuation.
-  Instrument lookup, playback dispatch,
-  sample triggering, pattern transport and realtime firmware integration remain
+  Prepared audio-command dispatch/rendering now exists (see below). Production
+  instrument resolution, tracker-to-audio command preparation, mixing,
+  pattern transport and realtime firmware integration remain
   unimplemented. Retain the conversion's 0.01 BPM internal precision.
-* [ ] Implement playback-event block dispatch and verify event timing is independent of
+* [ ] Integrate production playback-event dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
   exactly on block boundaries (no duplicates or missed events). Completed cursor
   tests validate tick partition independence and boundary ownership; row-event
-  tests validate raw command partition independence. Playback-consumer dispatch
-  and resulting sample-trigger behavior still require implementation and tests.
+  tests validate raw command partition independence. Prepared Trigger/Stop dispatch
+  and PCM rendering are tested, including cursor/row-event composition with test-only
+  translation. Production tracker-to-audio preparation and playback integration
+  still require implementation and tests.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
   processing budget on Teensy after integration. Conversion, each cursor operation,
@@ -131,6 +135,23 @@ design remains unchanged.
   including offset zero and a block boundary. These offset tests split rendering
   in the caller; they do not establish scheduler-driven dispatch or measured
   Teensy execution cost. This core voice is separate from the firmware primitives below.
+* [x] Implement `RamVoiceBlockRenderer` in `src/core/audio/ram_voice_block_renderer.h`,
+  with coverage in `tests/test_ram_voice_block_renderer.cpp`: eight fixed
+  `RamSampleVoice` instances render separate PCM16 mono outputs from a fixed batch
+  of up to 16 explicit Trigger/Stop commands. This is an initial implementation
+  capacity, not a permanent pattern-format limit. Commands use exact block-relative
+  offsets in half-open blocks (end-boundary commands belong to the next block),
+  preserving input order at equal offsets. Voices continue across blocks;
+  configuration clears playback and reset retains the configured rate.
+  Whole-request validation precedes mutation; rejection preserves all voice states
+  and destination data. The caller guarantees sample lifetimes, valid memory extents
+  and non-overlap. Tests cover exact PCM, boundary ownership, simultaneous commands,
+  retriggering, replacement, completion, capacity and rejection behavior. Cursor/
+  row-event composition at 127.53 BPM produces identical PCM across regular and
+  irregular block partitions, including pattern looping, using test-only translation
+  into audio commands. Production instrument resolution and tracker-to-audio command
+  preparation remain unimplemented. Rendering consumes prepared positions without
+  introducing a clock or synchronization policy; Teensy processing cost is unmeasured.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -141,9 +162,10 @@ design remains unchanged.
   playback and does not use the RAM loader for this purpose.
 * [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
-  are implemented in core playback, and the core RAM voice renders individual
-  native-rate samples. Instrument lookup, playback dispatch, scheduled sample
-  triggering, mixing, transport and firmware integration remain open. Host `Pattern`,
+  are implemented in core playback; prepared native-rate Trigger/Stop commands now
+  dispatch to core RAM voices and render at exact offsets. Production instrument
+  resolution, tracker-to-audio command preparation, playback integration, mixing,
+  transport and firmware integration remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
   `src/runtime/playback_engine.h` remains a stub; complete pattern playback and
