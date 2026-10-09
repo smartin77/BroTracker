@@ -51,25 +51,29 @@ implementation and validation.
   across regular and irregular block partitions, preserving sample positions and
   block-relative offsets. This maps positions without reading pattern contents
   or advancing a separate timeline.
-* [ ] Extend the counter, conversion, cursor and position-mapping foundations with
-  playback event generation/dispatch, transport and realtime firmware integration per
+* [ ] Integrate the timing and raw row-command foundations with instrument-state
+  resolution, playback dispatch, sample triggering, transport and realtime firmware
+  integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
   per row (384 per quarter note), already defined as conversion constants.
   Tick enumeration, sample offsets within processing blocks and logical looping
-  pattern-position mapping are complete; playback events, pattern transport and
-  realtime firmware integration remain unimplemented. Retain the conversion's
-  0.01 BPM internal precision.
+  pattern-position mapping are complete; raw row-command generation now exists in
+  core playback (see below). Instrument-state resolution, playback dispatch,
+  sample triggering, pattern transport and realtime firmware integration remain
+  unimplemented. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Implement playback-event block dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
   exactly on block boundaries (no duplicates or missed events). Completed cursor
-  tests validate tick partition independence and boundary ownership, not future
-  playback-event generation or dispatch.
+  tests validate tick partition independence and boundary ownership; row-event
+  tests validate raw command partition independence. Playback-consumer dispatch
+  and resulting sample-trigger behavior still require implementation and tests.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
-  processing budget on Teensy after integration. Conversion, each cursor operation
-  and position mapping are bounded and allocation-free, but draining every
-  configuration within a realtime budget is not established. Teensy execution-cost
+  processing budget on Teensy after integration. Conversion, each cursor operation,
+  position mapping and raw row-command generation are bounded and allocation-free,
+  but draining every configuration within a realtime budget is not established.
+  Teensy execution-cost
   and processing-budget measurement remain outstanding.
 
 ### Minimal Pattern Playback on Teensy
@@ -77,6 +81,24 @@ implementation and validation.
 Two active sample channels are the initial test scope; the baseline eight-channel
 design remains unchanged.
 
+* [x] Implement `RealtimePattern` in `src/core/playback/row_events.h`, with coverage
+  in `tests/test_row_events.cpp`: initial fixed capacities of 16 rows and 8 channels,
+  explicit positive active dimensions within those bounds and empty `Event`
+  defaults (`NOTE_EMPTY`, instrument `0xFF`). These capacities are not permanent
+  format limits. Consumption assumes an immutable pattern; concurrent editing and
+  conversion from the host Pattern/JSON representation remain outside this foundation.
+* [x] Implement stateless `GenerateRowEvents` in `src/core/playback/row_events.h`,
+  with coverage in `tests/test_row_events.cpp`. Row-start ticks generate raw
+  commands for nonempty active cells in ascending channel order, in a fixed batch
+  sufficient for all eight channels. Original note/instrument values, including
+  `NOTE_OFF`, instrument-only updates and no-instrument-update `0xFF`, are preserved
+  without instrument-state resolution or sample triggering. Commands carry channel,
+  pattern row, loop index and exact cursor tick/sample positions and block offsets.
+  Dimensions are validated on every call; notes are validated only in active
+  channels of the consumed row at row-start ticks. Failure leaves the entire batch
+  unchanged; success with no commands returns an empty batch. Tests cover raw command
+  partition independence at 127.53 BPM across regular and irregular cursor blocks,
+  loop boundaries, channel order and validation. The caller supplies each tick once.
 * [x] Implement RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -85,10 +107,13 @@ design remains unchanged.
   to the musical scheduler. Two players and a mixer already exist in
   `platform.cpp`, but the current SD-streamed WAV test sequence is not pattern
   playback and does not use the RAM loader for this purpose.
-* [ ] Implement a bounded Teensy realtime pattern representation and playback of
-  one looping 16-row pattern. Host `Pattern`, `Channel`, `Event` and `Tune` data
-  already exist, using vectors; they are not a Teensy realtime representation.
-  `src/runtime/playback_engine.h` remains a stub.
+* [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
+  pattern storage and raw row-command generation are implemented in core playback;
+  instrument-state resolution, playback dispatch, sample triggering and firmware
+  integration remain open. Host `Pattern`, `Channel`, `Event` and `Tune` data still
+  use vectors and have no conversion to the realtime representation yet.
+  `src/runtime/playback_engine.h` remains a stub; complete pattern playback and
+  hardware behavior are not validated.
 * [ ] Implement pattern START/STOP with defined reset, loop and channel-silencing
   behavior. Existing `BTTEST1 START` / `STOP` control only the diagnostic WAV
   sequence; pattern transport remains unimplemented.
