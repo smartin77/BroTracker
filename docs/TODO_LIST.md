@@ -52,7 +52,7 @@ implementation and validation.
   block-relative offsets. This maps positions without reading pattern contents
   or advancing a separate timeline.
 * [ ] Integrate the timing, raw row-command and logical channel-state foundations
-  with complete playback orchestration, transport and realtime firmware
+  with Teensy playback integration and BTX transport control, including realtime firmware
   integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
@@ -62,8 +62,8 @@ implementation and validation.
   core playback (see below), as does logical note/instrument continuation.
   Prepared audio-command dispatch/rendering and core mono mixing now exist (see
   below). Instrument lookup and tracker-to-audio command preparation now exist
-  for the native-rate sample subset. Complete playback orchestration,
-  pattern transport and realtime firmware integration remain
+  for the native-rate sample subset, now orchestrated by `NativeRatePatternPlayer`.
+  Teensy integration, BTX pattern transport control and underrun handling remain
   unimplemented. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Integrate production playback-event dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
@@ -72,8 +72,8 @@ implementation and validation.
   tests validate raw command partition independence. Prepared Trigger/Stop dispatch
   and PCM rendering are tested, including cursor/row-event composition with test-only
   translation. The native-rate sample preparer also has end-to-end mixed-PCM
-  tests across partitions and loops; complete playback orchestration and firmware
-  integration still require implementation and tests.
+  tests across partitions and loops, as does the core native-rate pattern player.
+  Firmware integration and hardware timing validation remain outstanding.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
   processing budget on Teensy after integration. Conversion, each cursor operation,
@@ -190,6 +190,22 @@ design remains unchanged.
   output; it does not validate Teensy operation or performance. General instrument
   support, resampling, envelopes, end-of-row note-off, volume controls, panning
   and effects remain outside this completed native-rate subset.
+* [x] Implement `NativeRatePatternPlayer` in
+  `src/core/playback/native_rate_pattern_player.h`, with coverage in
+  `tests/test_native_rate_pattern_player.cpp`: completed core orchestration through
+  cursor, row generation, native-rate sample preparation, rendering and mono mixing.
+  Fixed pattern/binding metadata is copied; immutable PCM remains caller-owned.
+  Start and repeated Start restart at sample/tick zero; Stop clears voices,
+  channel continuation and position. Configured stopped rendering produces silence
+  without advancing playback. Configuration and rendering are transactional:
+  rejection preserves existing configuration/playback state and caller output.
+  Initial processing capacities are 128 frames, 16 commands and 512 emitted ticks
+  plus one completion pull; excess work is rejected explicitly without truncation.
+  Tests cover transport, rollback/retry, capacity limits and independently expected
+  PCM from a looping 16-row/two-channel pattern at 44100 Hz and 127.53 BPM across
+  regular/irregular partitions, including block boundaries and Stop preventing
+  subsequent triggers. This core subset has no firmware integration or measured
+  Teensy realtime performance; `src/runtime/playback_engine.h` remains unchanged.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -203,15 +219,17 @@ design remains unchanged.
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
   dispatch to core RAM voices and render at exact offsets, with core mono mixing
   also implemented. Instrument lookup and tracker-to-audio command preparation
-  exist for the native-rate sample subset. Complete playback orchestration,
-  transport and firmware integration remain open. Host `Pattern`,
+  exist for the native-rate sample subset, with core orchestration and Start/Stop
+  implemented by `NativeRatePatternPlayer`. Teensy integration, BTX transport
+  control and underrun handling remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
-  `src/runtime/playback_engine.h` remains a stub; complete pattern playback and
+  `src/runtime/playback_engine.h` remains a stub; complete Teensy pattern playback and
   hardware behavior are not validated.
-* [ ] Implement pattern START/STOP with defined reset, loop and channel-silencing
-  behavior. Existing `BTTEST1 START` / `STOP` control only the diagnostic WAV
-  sequence; pattern transport remains unimplemented.
+* [ ] Integrate core pattern START/STOP into Teensy and BTX transport control.
+  Core Start restarts at zero and Stop clears voices, continuation and position;
+  firmware/protocol integration and hardware validation remain unimplemented.
+  Existing `BTTEST1 START` / `STOP` control only the diagnostic WAV sequence.
 * [ ] Verify scheduled trigger sample positions, retriggering, simultaneous events,
   row 16-to-row 1 looping and STOP (including stopping active samples and preventing
   further triggers), first in deterministic tests and then on the current hardware.
