@@ -1,4 +1,13 @@
 #include "platform.h"
+#ifdef BROTRACKER_PATTERN_BRINGUP
+#include "pattern_bringup.h"
+namespace BroTracker
+{
+    void PlatformInit() { PatternBringUpPlatformInit(); }
+    void KernelInit() { PatternBringUpKernelInit(); }
+    void KernelRun() { PatternBringUpKernelRun(); }
+}
+#else
 #include "usb_tx_trace.h"
 
 #include "audio_test_source.h"
@@ -465,3 +474,4 @@ namespace
         }
     }
 }
+#endif // BROTRACKER_PATTERN_BRINGUP

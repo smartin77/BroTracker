@@ -8,8 +8,10 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
-ArkOS is the priority UI host for BroTracker Terminal (BTX). The current hardware
-setup is a bare Teensy 4.1 with the existing USB audio path to the host. These
+ArkOS remains the priority target platform for BroTracker Terminal (BTX), with
+follow-up hardware validation. Windows BTX + the bare Teensy 4.1 is the primary
+development bring-up/test setup, using the existing USB audio path to the host.
+dArkOS compatibility validation remains deferred. These
 steps refine the broader roadmap; planned playback behavior still requires
 implementation and validation.
 
@@ -27,7 +29,8 @@ implementation and validation.
   rounding drift; zero tempo/sample rate is rejected, overflow is explicit and
   failures leave the output unchanged. Conversion tests cover fractional tempo
   (127.50 and 127.53 BPM), long-run positions, query-order independence, multiple
-  sample rates and overflow. This component is not integrated into firmware.
+  sample rates and overflow. Used by the opt-in pattern firmware; production
+  integration remains open.
 * [x] Implement bounded, pull-based tick enumeration over consecutive half-open
   sample blocks in `libraries/scheduler/src/musical_tick_cursor.*`, with coverage
   in `tests/test_scheduler.cpp`. Each tick has an absolute tick index, absolute
@@ -38,8 +41,8 @@ implementation and validation.
   exhaustion requires reset/reconfiguration and never wraps counters. The cursor
   preserves Clock / Sync separation per D0035 and `CORE_ARCHITECTURE.md`: it uses
   the caller's logical sample timeline without selecting a physical clock or
-  synchronizing clock domains. No firmware integration or measured Teensy
-  execution cost exists yet.
+  synchronizing clock domains. Used by the opt-in pattern firmware; production
+  integration and measured Teensy execution cost remain open.
 * [x] Implement stateless logical pattern-position mapping with
   `TickToPatternPosition` in `libraries/scheduler/src/pattern_position.*`, with
   coverage in `tests/test_scheduler.cpp`. Returns absolute row, tick within row,
@@ -63,8 +66,9 @@ implementation and validation.
   Prepared audio-command dispatch/rendering and core mono mixing now exist (see
   below). Instrument lookup and tracker-to-audio command preparation now exist
   for the native-rate sample subset, now orchestrated by `NativeRatePatternPlayer`.
-  Teensy integration, BTX pattern transport control and underrun handling remain
-  unimplemented. Retain the conversion's 0.01 BPM internal precision.
+  Opt-in Teensy integration, temporary BTX control and a bring-up fail-stop policy
+  exist; production integration, final transport/underrun policy and full hardware
+  validation remain open. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Integrate production playback-event dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
   exactly on block boundaries (no duplicates or missed events). Completed cursor
@@ -73,7 +77,8 @@ implementation and validation.
   and PCM rendering are tested, including cursor/row-event composition with test-only
   translation. The native-rate sample preparer also has end-to-end mixed-PCM
   tests across partitions and loops, as does the core native-rate pattern player.
-  Firmware integration and hardware timing validation remain outstanding.
+  Opt-in firmware integration exists; production integration and hardware timing
+  validation remain outstanding.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
   processing budget on Teensy after integration. Conversion, each cursor operation,
@@ -165,7 +170,7 @@ design remains unchanged.
   inputs, invalid metadata and zero-frame behavior. Composition with
   `RamVoiceBlockRenderer` produces independently expected mixed PCM across regular
   and irregular block partitions. This core mono primitive does not implement final
-  volume controls, panning or effects; production playback/firmware integration
+  volume controls, panning or effects; production playback integration
   and measured Teensy performance remain outstanding.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
@@ -204,8 +209,19 @@ design remains unchanged.
   Tests cover transport, rollback/retry, capacity limits and independently expected
   PCM from a looping 16-row/two-channel pattern at 44100 Hz and 127.53 BPM across
   regular/irregular partitions, including block boundaries and Stop preventing
-  subsequent triggers. This core subset has no firmware integration or measured
-  Teensy realtime performance; `src/runtime/playback_engine.h` remains unchanged.
+  subsequent triggers. The opt-in firmware now uses this core subset; measured
+  Teensy realtime performance is still open. `src/runtime/playback_engine.h`
+  remains unchanged.
+* [x] Implement opt-in `teensy41_pattern` firmware with `BROTRACKER_PATTERN_BRINGUP`:
+  static RAM sample fixtures and a 16-row/two-channel pattern feed the core player
+  through an audio-owner adapter, with bounded request/status handoff, temporary
+  BTTEST1 compatibility and an explicit fail-stop policy. Ordinary `teensy41` and
+  `teensy41_usb_trace` paths are preserved. User-performed validation on
+  2026-10-10 confirmed build/upload success and pattern audio heard through Windows
+  BTX + Teensy 4.1. See [bring-up validation](TEENSY_PATTERN_BRINGUP.md).
+  Full hardware validation remains unchecked: Start/Stop/restart, reconnect,
+  legacy regression, ArkOS, sample timing and realtime performance were not
+  explicitly confirmed; audible playback does not establish these results.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -213,23 +229,28 @@ design remains unchanged.
 * [ ] Prepare short samples in RAM before playback and connect two active channels
   to the musical scheduler. Two players and a mixer already exist in
   `platform.cpp`, but the current SD-streamed WAV test sequence is not pattern
-  playback and does not use the RAM loader for this purpose.
+  playback and does not use the RAM loader for this purpose. The opt-in pattern
+  path uses static diagnostic PCM fixtures; production sample loading remains open.
 * [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
   dispatch to core RAM voices and render at exact offsets, with core mono mixing
   also implemented. Instrument lookup and tracker-to-audio command preparation
   exist for the native-rate sample subset, with core orchestration and Start/Stop
-  implemented by `NativeRatePatternPlayer`. Teensy integration, BTX transport
-  control and underrun handling remain open. Host `Pattern`,
+  implemented by `NativeRatePatternPlayer`. Opt-in Teensy integration and temporary
+  BTX control are implemented, with build/upload and audible playback confirmed
+  on 2026-10-10. Production integration, final transport/underrun policy and full
+  hardware validation remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
   `src/runtime/playback_engine.h` remains a stub; complete Teensy pattern playback and
-  hardware behavior are not validated.
-* [ ] Integrate core pattern START/STOP into Teensy and BTX transport control.
+  full hardware behavior are not validated.
+* [ ] Validate opt-in pattern START/STOP/restart on Teensy + Windows BTX and complete
+  production transport integration.
   Core Start restarts at zero and Stop clears voices, continuation and position;
-  firmware/protocol integration and hardware validation remain unimplemented.
-  Existing `BTTEST1 START` / `STOP` control only the diagnostic WAV sequence.
+  opt-in BTTEST1 control is implemented but its hardware behavior is not explicitly
+  confirmed. Ordinary firmware still uses BTTEST1 for the diagnostic WAV sequence;
+  final pattern protocol integration remains open.
 * [ ] Verify scheduled trigger sample positions, retriggering, simultaneous events,
   row 16-to-row 1 looping and STOP (including stopping active samples and preventing
   further triggers), first in deterministic tests and then on the current hardware.

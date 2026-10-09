@@ -1,0 +1,222 @@
+#ifdef BROTRACKER_PATTERN_BRINGUP
+#include "pattern_bringup.h"
+#include <Arduino.h>
+#include <Audio.h>
+#include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
+#include "bringup/pattern_control.h"
+#include <array>
+#include <cstdio>
+#include <cstring>
+
+namespace BroTracker
+{
+namespace
+{
+    static_assert(AUDIO_BLOCK_SAMPLES == kNativeRatePatternFrameCapacity,
+        "Pattern bring-up requires the current 128-frame Teensy audio blocks");
+    // Short, low-amplitude, immutable diagnostic PCM fixtures, not a synth engine.
+    // Integer compile-time square/triangle bursts taper to zero; no audio-time synthesis.
+    constexpr std::array<std::int16_t, 8192> MakeSample(bool triangle)
+    {
+        std::array<std::int16_t, 8192> pcm{};
+        for (std::size_t i = 0; i < pcm.size(); ++i)
+        {
+            const int phase = static_cast<int>(i % (triangle ? 64 : 100));
+            const int wave = triangle ? (phase < 32 ? phase * 32 - 512 : 1536 - phase * 32) :
+                (phase < 50 ? 600 : -600);
+            pcm[i] = static_cast<std::int16_t>(wave * static_cast<int>(pcm.size() - 1 - i) /
+                static_cast<int>(pcm.size() - 1));
+        }
+        return pcm;
+    }
+    constexpr auto kSampleA = MakeSample(false);
+    constexpr auto kSampleB = MakeSample(true);
+    const RealtimePattern kPattern = [] {
+        RealtimePattern pattern;
+        pattern.active_rows = 16; pattern.active_channels = 2;
+        pattern.cells[0][0] = {60,0};
+        pattern.cells[2][1] = {62,1};
+        pattern.cells[4][0] = {60,kNoInstrumentUpdate};
+        pattern.cells[5][0] = {60,kNoInstrumentUpdate};
+        pattern.cells[6][1] = {NOTE_OFF,kNoInstrumentUpdate};
+        pattern.cells[8][0] = {60,0}; pattern.cells[8][1] = {62,1};
+        pattern.cells[10][0] = {NOTE_OFF,kNoInstrumentUpdate};
+        pattern.cells[12][1] = {62,kNoInstrumentUpdate};
+        pattern.cells[13][1] = {62,kNoInstrumentUpdate};
+        pattern.cells[14][0] = {NOTE_OFF,kNoInstrumentUpdate};
+        pattern.cells[14][1] = {NOTE_OFF,kNoInstrumentUpdate};
+        return pattern;
+    }();
+    const NativeRateSampleBindings kBindings = [] {
+        NativeRateSampleBindings bindings{}; bindings.count = 2;
+        bindings.bindings[0] = {0,60,{kSampleA.data(),kSampleA.size(),44100}};
+        bindings.bindings[1] = {1,62,{kSampleB.data(),kSampleB.size(),44100}};
+        return bindings;
+    }();
+    PatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
+    bool g_audio_ready = false; // Published under InterruptGuard after AudioMemory.
+
+    // Save/restore PRIMASK, including callers with interrupts already disabled.
+    // Memory clobbers prevent compiler reordering across the handoff. Main-loop
+    // sections only copy a small status or one fixed FIFO entry; no I/O inside.
+    class InterruptGuard
+    {
+    public:
+        InterruptGuard() noexcept
+        { asm volatile("mrs %0, primask\n\tcpsid i" : "=r"(mask_) :: "memory"); }
+        ~InterruptGuard() noexcept
+        { asm volatile("msr primask, %0" :: "r"(mask_) : "memory"); }
+    private:
+        std::uint32_t mask_;
+    };
+    class PatternAudioSource : public AudioStream
+    {
+    public:
+        PatternAudioSource() : AudioStream(0,nullptr) {}
+        void update() override
+        {
+            // MQS may schedule updates during static construction, before setup.
+            // Do not configure, allocate or latch false failures until memory is ready.
+            if (!g_audio_ready) return;
+            if (!initialized_)
+            {
+                (void)g_control.InitializeAudio(12753,44100,kPattern,kBindings);
+                initialized_ = true;
+            }
+            audio_block_t* block = allocate();
+            if (!block)
+            {
+                g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
+                return; // Fail-stop: no timeline advance and no stale block transmitted.
+            }
+            g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
+            transmit(block);
+            release(block);
+        }
+    private:
+        bool initialized_ = false;
+    };
+    PatternAudioSource g_source;
+    AudioOutputMQS g_mqs;
+    AudioConnection g_to_mqs(g_source,0,g_mqs,0);
+#if defined(AUDIO_INTERFACE)
+    AudioOutputUSB g_usb;
+    AudioConnection g_to_usb_left(g_source,0,g_usb,0);
+    AudioConnection g_to_usb_right(g_source,0,g_usb,1);
+#endif
+
+    // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
+    // at most 64 per service. RX/ack extraction pauses when this queue is full.
+    constexpr std::size_t kTxCapacity = 16;
+    struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
+    TxLine g_tx[kTxCapacity];
+    std::size_t g_tx_head = 0, g_tx_count = 0;
+    bool QueueLine(const char* text)
+    {
+        if (g_tx_count == kTxCapacity) return false;
+        auto& line = g_tx[(g_tx_head + g_tx_count) % kTxCapacity];
+        line.length = std::strlen(text); // Only fixed literals/bounded snprintf results.
+        if (line.length >= sizeof(line.data)) return false;
+        std::memcpy(line.data,text,line.length); line.offset = 0;
+        ++g_tx_count;
+        return true;
+    }
+    PatternBringUpStatus Snapshot()
+    { InterruptGuard guard; return g_control.Snapshot(); }
+    void QueueStatus()
+    {
+        const auto status = Snapshot();
+        (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
+            status.running ? "BTTEST1 STATE PLAYING\n" : "BTTEST1 STATE IDLE\n");
+    }
+    void FlushSerial()
+    {
+        if (!g_tx_count) return;
+        const int available = Serial.availableForWrite();
+        if (available <= 0) return;
+        auto& line = g_tx[g_tx_head];
+        std::size_t count = line.length - line.offset;
+        if (count > 64) count = 64;
+        if (count > static_cast<std::size_t>(available)) count = available;
+        const auto written = Serial.write(reinterpret_cast<const std::uint8_t*>(line.data + line.offset),count);
+        line.offset += written;
+        if (line.offset == line.length) { g_tx_head = (g_tx_head + 1) % kTxCapacity; --g_tx_count; }
+    }
+    void ServiceSerial()
+    {
+        static char line[64]; static std::size_t used = 0;
+        static bool overflow = false;
+        static std::uint32_t reported_failures = 0;
+        if (!Serial)
+        {
+            used = 0; overflow = false;
+            g_tx_head = g_tx_count = 0;
+            // Never queues START on reconnect. Already accepted requests retain
+            // their order; HELLO reports applied state, not a reconnect restart.
+            return;
+        }
+        FlushSerial();
+        for (std::size_t budget = 0; budget < kPatternRequestCapacity && g_tx_count < kTxCapacity; ++budget)
+        {
+            PatternAppliedRequest applied;
+            bool ready;
+            { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
+            if (!ready) break;
+            (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR start\n" :
+                applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" : "BTTEST1 STOPPED\n");
+        }
+        const auto status = Snapshot();
+        if (status.failures != reported_failures && g_tx_count < kTxCapacity)
+        {
+            char error[96];
+            // A historical fault recovered by explicit START is diagnostic text,
+            // not a false ERROR state overriding the authoritative running status.
+            std::snprintf(error,sizeof(error),"%s fault=%u code=%u alloc=%lu\n",
+                status.fault == PatternFault::None ? "BTPATTERN1 RECOVERED" : "BTTEST1 ERROR pattern",
+                static_cast<unsigned>(status.last_fault),static_cast<unsigned>(status.player_error),
+                static_cast<unsigned long>(status.allocation_failures));
+            if (QueueLine(error)) reported_failures = status.failures;
+        }
+        // Bounded RX and at most one complete protocol line per service. Queue
+        // saturation backpressures RX; request overflow receives explicit ERROR.
+        for (unsigned int budget = 0; budget < 128 && g_tx_count < kTxCapacity; ++budget)
+        {
+            const int raw = Serial.read();
+            if (raw < 0) break;
+            const char c = static_cast<char>(raw);
+            if (c == '\r') continue;
+            if (c != '\n')
+            {
+                if (used + 1 < sizeof(line)) line[used++] = c;
+                else overflow = true;
+                continue;
+            }
+            line[used] = '\0';
+            if (overflow) (void)QueueLine("BTTEST1 ERROR line-too-long\n");
+            else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) QueueStatus();
+            else if (!std::strcmp(line,"BTTEST1 START") || !std::strcmp(line,"BTTEST1 STOP"))
+            {
+                const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start : PatternRequest::Stop;
+                PatternRequestStatus accepted;
+                { InterruptGuard guard; accepted = g_control.Submit(request); }
+                if (accepted != PatternRequestStatus::Accepted) (void)QueueLine("BTTEST1 ERROR request-overflow\n");
+            }
+            else (void)QueueLine("BTTEST1 ERROR command\n");
+            used = 0; overflow = false;
+            break;
+        }
+    }
+}
+    void PatternBringUpPlatformInit()
+    {
+        Serial.begin(115200);
+        pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,LOW);
+        // No SD/log/time-sync initialization in this RAM-only opt-in path.
+        // All globals are constructed; audio owner configures on its first update.
+        AudioMemory(8);
+        { InterruptGuard guard; g_audio_ready = true; }
+    }
+    void PatternBringUpKernelInit() {}
+    void PatternBringUpKernelRun() { ServiceSerial(); }
+}
+#endif
