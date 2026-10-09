@@ -14,6 +14,7 @@
 #include "scheduler.h"
 #include "musical_timing.h"
 #include "musical_tick_cursor.h"
+#include "pattern_position.h"
 
 #include <limits>
 #include <vector>
@@ -428,4 +429,130 @@ TEST_CASE(TickCursor_ArithmeticExhaustionAndRecovery)
     CHECK_EQ(cursor.Configure(12000, 48000), TickCursorStatus::Success);
     CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
     ExpectTick(cursor, 0, 0, 0);
+}
+
+namespace
+{
+    void CheckPatternPosition(std::uint64_t tick_index, std::uint64_t length,
+        std::uint64_t absolute_row, std::uint32_t tick_in_row,
+        std::uint64_t pattern_row, std::uint64_t loop_index)
+    {
+        BroTracker::PatternPosition position;
+        CHECK_EQ(BroTracker::TickToPatternPosition(tick_index, length, position),
+                 BroTracker::PatternPositionStatus::Success);
+        CHECK_EQ(position.absolute_row, absolute_row);
+        CHECK_EQ(position.tick_in_row, tick_in_row);
+        CHECK_EQ(position.pattern_row, pattern_row);
+        CHECK_EQ(position.loop_index, loop_index);
+        CHECK_EQ(position.IsRowStart(), tick_in_row == 0);
+    }
+
+    void CheckSamePosition(const BroTracker::PatternPosition& actual,
+                           const BroTracker::PatternPosition& expected)
+    {
+        CHECK_EQ(actual.absolute_row, expected.absolute_row);
+        CHECK_EQ(actual.tick_in_row, expected.tick_in_row);
+        CHECK_EQ(actual.pattern_row, expected.pattern_row);
+        CHECK_EQ(actual.loop_index, expected.loop_index);
+        CHECK_EQ(actual.IsRowStart(), expected.IsRowStart());
+    }
+}
+
+TEST_CASE(PatternPosition_RowAndSixteenRowLoopBoundaries)
+{
+    CheckPatternPosition(0, 16, 0, 0, 0, 0);
+    CheckPatternPosition(95, 16, 0, 95, 0, 0);
+    CheckPatternPosition(96, 16, 1, 0, 1, 0);
+    CheckPatternPosition(1535, 16, 15, 95, 15, 0);
+    CheckPatternPosition(1536, 16, 16, 0, 0, 1);
+    CheckPatternPosition(4608, 16, 48, 0, 0, 3);
+    CheckPatternPosition(4801, 16, 50, 1, 2, 3);
+}
+
+TEST_CASE(PatternPosition_ExplicitLengthsAndMaximumTick)
+{
+    CheckPatternPosition(95, 1, 0, 95, 0, 0);
+    CheckPatternPosition(96, 1, 1, 0, 0, 1);
+    CheckPatternPosition(4801, 1, 50, 1, 0, 50);
+    CheckPatternPosition(671, 7, 6, 95, 6, 0);
+    CheckPatternPosition(672, 7, 7, 0, 0, 1);
+    CheckPatternPosition(1440, 7, 15, 0, 1, 2);
+    constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+    // Independent known quotient/remainder at UINT64_MAX.
+    constexpr std::uint64_t maximum_row = 192153584101141162ULL;
+    CheckPatternPosition(maximum, 1, maximum_row, 63, 0, maximum_row);
+    CheckPatternPosition(maximum, 16, maximum_row, 63, 10, 12009599006321322ULL);
+    CheckPatternPosition(maximum, 7, maximum_row, 63, 3, 27450512014448737ULL);
+    // Full length range is valid even when length * ticks-per-row would overflow.
+    CheckPatternPosition(maximum, maximum, maximum_row, 63, maximum_row, 0);
+}
+
+TEST_CASE(PatternPosition_InvalidLengthAndQueryOrder)
+{
+    BroTracker::PatternPosition position{123, 45, 6, 7};
+    const auto original = position;
+    CHECK_EQ(BroTracker::TickToPatternPosition(0, 0, position),
+             BroTracker::PatternPositionStatus::InvalidPatternLength);
+    CheckSamePosition(position, original);
+    CHECK_EQ(BroTracker::TickToPatternPosition(
+        std::numeric_limits<std::uint64_t>::max(), 0, position),
+        BroTracker::PatternPositionStatus::InvalidPatternLength);
+    CheckSamePosition(position, original);
+    BroTracker::PatternPosition expected;
+    CHECK_EQ(BroTracker::TickToPatternPosition(4801, 7, expected),
+             BroTracker::PatternPositionStatus::Success);
+    for (const std::uint64_t tick_index : {1536ULL, 0ULL, 95ULL, 1000000ULL, 96ULL})
+    {
+        CHECK_EQ(BroTracker::TickToPatternPosition(tick_index, 7, position),
+                 BroTracker::PatternPositionStatus::Success);
+        CHECK_EQ(BroTracker::TickToPatternPosition(4801, 7, position),
+                 BroTracker::PatternPositionStatus::Success);
+        CheckSamePosition(position, expected);
+    }
+}
+
+TEST_CASE(PatternPosition_CursorCompositionAcrossPartitions)
+{
+    constexpr std::uint64_t total = 128 * 2048;
+    const std::vector<std::uint64_t> regular(2048, 128);
+    std::vector<std::uint64_t> irregular;
+    std::uint64_t remaining = total;
+    for (std::uint64_t count = 1; remaining != 0; count = count % 613 + 1)
+    {
+        const auto size = count < remaining ? count : remaining;
+        irregular.push_back(size);
+        remaining -= size;
+    }
+    const auto regular_ticks = CollectTicks(12753, 48000, regular);
+    const auto irregular_ticks = CollectTicks(12753, 48000, irregular);
+    CHECK_EQ(regular_ticks.size(), irregular_ticks.size());
+    for (const std::uint64_t length : {1ULL, 16ULL, 7ULL})
+    {
+        std::vector<std::uint64_t> regular_starts, irregular_starts;
+        for (std::size_t index = 0; index < regular_ticks.size() &&
+             index < irregular_ticks.size(); ++index)
+        {
+            // Carry cursor sample metadata through mapping without recomputing it.
+            auto regular_tick = regular_ticks[index];
+            auto irregular_tick = irregular_ticks[index];
+            BroTracker::PatternPosition regular_position, irregular_position;
+            CHECK_EQ(BroTracker::TickToPatternPosition(regular_tick.tick_index, length,
+                regular_position), BroTracker::PatternPositionStatus::Success);
+            CHECK_EQ(BroTracker::TickToPatternPosition(irregular_tick.tick_index, length,
+                irregular_position), BroTracker::PatternPositionStatus::Success);
+            CheckSamePosition(regular_position, irregular_position);
+            CHECK_EQ(regular_tick.tick_index, irregular_tick.tick_index);
+            CHECK_EQ(regular_tick.sample_position, irregular_tick.sample_position);
+            CHECK_EQ(regular_tick.sample_position, regular_ticks[index].sample_position);
+            CHECK_EQ(regular_tick.sample_offset, regular_ticks[index].sample_offset);
+            CHECK_EQ(irregular_tick.sample_position, irregular_ticks[index].sample_position);
+            CHECK_EQ(irregular_tick.sample_offset, irregular_ticks[index].sample_offset);
+            if (regular_position.IsRowStart()) regular_starts.push_back(regular_tick.tick_index);
+            if (irregular_position.IsRowStart()) irregular_starts.push_back(irregular_tick.tick_index);
+        }
+        CHECK(regular_starts == irregular_starts);
+        CHECK(!regular_starts.empty());
+        for (std::size_t index = 0; index < regular_starts.size(); ++index)
+            CHECK_EQ(regular_starts[index], index * BroTracker::kTicksPerRow);
+    }
 }

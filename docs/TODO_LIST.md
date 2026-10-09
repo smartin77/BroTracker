@@ -40,14 +40,26 @@ implementation and validation.
   the caller's logical sample timeline without selecting a physical clock or
   synchronizing clock domains. No firmware integration or measured Teensy
   execution cost exists yet.
-* [ ] Extend the counter, conversion and cursor foundations with pattern-row
-  progression, playback event generation/dispatch and realtime integration per
+* [x] Implement stateless logical pattern-position mapping with
+  `TickToPatternPosition` in `libraries/scheduler/src/pattern_position.*`, with
+  coverage in `tests/test_scheduler.cpp`. Returns absolute row, tick within row,
+  looping pattern row and loop index; row-start detection is derived from tick
+  within row being zero. Row and loop indices are zero-based. Pattern length is
+  explicit (1 through UINT64_MAX rows); zero length is rejected with output
+  unchanged, and the full uint64_t tick range is supported. Tests cover row/loop
+  boundaries, query-order independence and composition with `MusicalTickCursor`
+  across regular and irregular block partitions, preserving sample positions and
+  block-relative offsets. This maps positions without reading pattern contents
+  or advancing a separate timeline.
+* [ ] Extend the counter, conversion, cursor and position-mapping foundations with
+  playback event generation/dispatch, transport and realtime firmware integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
   per row (384 per quarter note), already defined as conversion constants.
-  Tick enumeration and sample offsets within processing blocks now exist;
-  pattern-row progression, playback events and realtime integration remain
-  unimplemented. Retain the conversion's 0.01 BPM internal precision.
+  Tick enumeration, sample offsets within processing blocks and logical looping
+  pattern-position mapping are complete; playback events, pattern transport and
+  realtime firmware integration remain unimplemented. Retain the conversion's
+  0.01 BPM internal precision.
 * [ ] Implement playback-event block dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
   exactly on block boundaries (no duplicates or missed events). Completed cursor
@@ -55,10 +67,10 @@ implementation and validation.
   playback-event generation or dispatch.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
-  processing budget on Teensy after integration. Conversion and each cursor
-  operation are bounded and allocation-free, but draining every configuration
-  within a realtime budget is not established. Teensy processing-budget
-  measurement remains outstanding.
+  processing budget on Teensy after integration. Conversion, each cursor operation
+  and position mapping are bounded and allocation-free, but draining every
+  configuration within a realtime budget is not established. Teensy execution-cost
+  and processing-budget measurement remain outstanding.
 
 ### Minimal Pattern Playback on Teensy
 
