@@ -52,8 +52,7 @@ implementation and validation.
   block-relative offsets. This maps positions without reading pattern contents
   or advancing a separate timeline.
 * [ ] Integrate the timing, raw row-command and logical channel-state foundations
-  with production instrument resolution, tracker-to-audio command preparation,
-  production playback integration, transport and realtime firmware
+  with complete playback orchestration, transport and realtime firmware
   integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
@@ -62,8 +61,8 @@ implementation and validation.
   pattern-position mapping are complete; raw row-command generation now exists in
   core playback (see below), as does logical note/instrument continuation.
   Prepared audio-command dispatch/rendering and core mono mixing now exist (see
-  below). Production
-  instrument resolution, tracker-to-audio command preparation, playback integration,
+  below). Instrument lookup and tracker-to-audio command preparation now exist
+  for the native-rate sample subset. Complete playback orchestration,
   pattern transport and realtime firmware integration remain
   unimplemented. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Integrate production playback-event dispatch and verify event timing is independent of
@@ -72,8 +71,9 @@ implementation and validation.
   tests validate tick partition independence and boundary ownership; row-event
   tests validate raw command partition independence. Prepared Trigger/Stop dispatch
   and PCM rendering are tested, including cursor/row-event composition with test-only
-  translation. Production tracker-to-audio preparation and playback integration
-  still require implementation and tests.
+  translation. The native-rate sample preparer also has end-to-end mixed-PCM
+  tests across partitions and loops; complete playback orchestration and firmware
+  integration still require implementation and tests.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
   processing budget on Teensy after integration. Conversion, each cursor operation,
@@ -150,9 +150,10 @@ design remains unchanged.
   retriggering, replacement, completion, capacity and rejection behavior. Cursor/
   row-event composition at 127.53 BPM produces identical PCM across regular and
   irregular block partitions, including pattern looping, using test-only translation
-  into audio commands. Production instrument resolution and tracker-to-audio command
-  preparation remain unimplemented. Rendering consumes prepared positions without
-  introducing a clock or synchronization policy; Teensy processing cost is unmeasured.
+  into audio commands. Native-rate sample instrument lookup and tracker-to-audio
+  preparation now exist in the separate preparer below. Rendering consumes prepared
+  positions without introducing a clock or synchronization policy; Teensy processing
+  cost is unmeasured.
 * [x] Implement stateless `MixPcm16Mono` in `src/core/audio/pcm16_mixer.h`, with
   coverage in `tests/test_pcm16_mixer.cpp`: allocation-free mixing of eight PCM16
   mono channels using unity-gain `int32_t` summation. Saturation is applied once
@@ -166,6 +167,29 @@ design remains unchanged.
   and irregular block partitions. This core mono primitive does not implement final
   volume controls, panning or effects; production playback/firmware integration
   and measured Teensy performance remain outstanding.
+* [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
+  `src/core/playback/native_rate_sample_commands.h`, with coverage in
+  `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
+  an initial implementation capacity rather than a permanent instrument limit.
+  Bindings contain explicit instrument IDs (0..254), native-rate notes (0..127)
+  and immutable, non-owning PCM views matching the configured output rate.
+  Logical channel continuation and row-to-audio preparation commit transactionally.
+  Instrument-only selection emits no audio command; explicit repeated notes
+  retrigger, and row-start `NOTE_OFF` produces Stop without sample lookup.
+  Missing/unknown instruments and unsupported pitch are explicit errors.
+  Configuration failures preserve existing bindings, rate and logical state;
+  preparation failures preserve every channel and the entire output batch.
+  Channel and sample offset are preserved, as is input order at equal offsets;
+  decreasing offsets are rejected. The caller manages immutable sample lifetime
+  while configured and while a renderer retains emitted views, coordinating
+  renderer release separately; preparer reset/reconfiguration does not stop it.
+  Tests cover validation, continuation, ordering, reset/reconfiguration,
+  transactional failures and end-to-end mixed PCM through cursor, row generation,
+  preparer, renderer and mixer across regular/irregular partitions and loops.
+  The composition fixture uses 100 Hz and 127.53 BPM with independently expected
+  output; it does not validate Teensy operation or performance. General instrument
+  support, resampling, envelopes, end-of-row note-off, volume controls, panning
+  and effects remain outside this completed native-rate subset.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -178,8 +202,8 @@ design remains unchanged.
   pattern storage, raw row-command generation and logical channel-state continuation
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
   dispatch to core RAM voices and render at exact offsets, with core mono mixing
-  also implemented. Production instrument resolution, tracker-to-audio command
-  preparation, playback integration,
+  also implemented. Instrument lookup and tracker-to-audio command preparation
+  exist for the native-rate sample subset. Complete playback orchestration,
   transport and firmware integration remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.

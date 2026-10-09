@@ -145,6 +145,7 @@ add_executable(BroTrackerTests
     tests/test_ram_sample_voice.cpp
     tests/test_ram_voice_block_renderer.cpp
     tests/test_pcm16_mixer.cpp
+    tests/test_native_rate_sample_commands.cpp
     libraries/scheduler/src/scheduler.cpp
     libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp
