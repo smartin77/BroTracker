@@ -141,6 +141,7 @@ add_executable(BroTrackerTests
     tests/test_tune_loader.cpp
     tests/test_scheduler.cpp
     tests/test_row_events.cpp
+    tests/test_channel_state.cpp
     libraries/scheduler/src/scheduler.cpp
     libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp

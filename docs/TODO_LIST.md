@@ -51,15 +51,16 @@ implementation and validation.
   across regular and irregular block partitions, preserving sample positions and
   block-relative offsets. This maps positions without reading pattern contents
   or advancing a separate timeline.
-* [ ] Integrate the timing and raw row-command foundations with instrument-state
-  resolution, playback dispatch, sample triggering, transport and realtime firmware
+* [ ] Integrate the timing, raw row-command and logical channel-state foundations
+  with instrument lookup, playback dispatch, sample triggering, transport and realtime firmware
   integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
   per row (384 per quarter note), already defined as conversion constants.
   Tick enumeration, sample offsets within processing blocks and logical looping
   pattern-position mapping are complete; raw row-command generation now exists in
-  core playback (see below). Instrument-state resolution, playback dispatch,
+  core playback (see below), as does logical note/instrument continuation.
+  Instrument lookup, playback dispatch,
   sample triggering, pattern transport and realtime firmware integration remain
   unimplemented. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Implement playback-event block dispatch and verify event timing is independent of
@@ -99,6 +100,20 @@ design remains unchanged.
   unchanged; success with no commands returns an empty batch. Tests cover raw command
   partition independence at 127.53 BPM across regular and irregular cursor blocks,
   loop boundaries, channel order and validation. The caller supplies each tick once.
+* [x] Implement `ChannelPlaybackState` in `src/core/playback/channel_state.h`, with
+  coverage in `tests/test_channel_state.cpp`: fixed logical note/instrument state
+  for eight channels, initially `NOTE_EMPTY` / `kNoInstrumentUpdate`. Empty fields
+  preserve previous state; `NOTE_OFF` preserves the selected instrument, and
+  instrument-only updates preserve the note. Explicit repeated note/instrument
+  updates remain identifiable through field-presence flags. Application results
+  include the original event with timing metadata and before/after snapshots;
+  read-only state access has explicit bounds handling. Reset clears all channels;
+  state persists across pattern loops without implicit reset. Channel/note inputs
+  are validated before mutation, with all state and result output unchanged on
+  failure. Tests cover continuation, reset, repeated updates, channel independence,
+  invalid input and composition across loops and regular/irregular block partitions.
+  Consumption is ordered and single-owner, with each event applied once. Raw
+  instrument IDs remain uninterpreted; no default instrument or sound is implied.
 * [x] Implement RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -108,9 +123,10 @@ design remains unchanged.
   `platform.cpp`, but the current SD-streamed WAV test sequence is not pattern
   playback and does not use the RAM loader for this purpose.
 * [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
-  pattern storage and raw row-command generation are implemented in core playback;
-  instrument-state resolution, playback dispatch, sample triggering and firmware
-  integration remain open. Host `Pattern`, `Channel`, `Event` and `Tune` data still
+  pattern storage, raw row-command generation and logical channel-state continuation
+  are implemented in core playback; instrument lookup, playback dispatch, sample
+  triggering, transport and firmware integration remain open. Host `Pattern`,
+  `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
   `src/runtime/playback_engine.h` remains a stub; complete pattern playback and
   hardware behavior are not validated.
