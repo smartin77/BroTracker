@@ -7,6 +7,8 @@ class SerialTransport {
 public:
     virtual ~SerialTransport() = default;
     virtual bool Open(FILE* log, const char* test_device) = 0;
+    // Optional platform-specific discovery result; default preserves other hosts.
+    virtual bool AccessDenied() const { return false; }
     virtual void Close() = 0;
     virtual bool Healthy() = 0;
     virtual int Read(char* data, unsigned size) = 0;

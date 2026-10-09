@@ -9,6 +9,34 @@ glibc 2.30, libstdc++6 9.2.1-9ubuntu2, and system SDL2 2.0.10.
 Build inside a minimal Eoan ARM64 root under QEMU user emulation in WSL2.
 No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
 
+## One-time serial access setup on ArkOS/dArkOS
+
+For the user running Ports (usually `ark`), if the CDC port is owned by
+`root:dialout` with mode `0660`, grant membership once:
+
+```sh
+sudo usermod -aG dialout <runtime-user>
+```
+
+Replace `<runtime-user>` with the actual account, for example `ark`. Restart
+existing login/desktop sessions or reboot so they inherit the new groups.
+Do not run BTX as root or change device permissions. The installer only advises;
+when installing with sudo it uses `SUDO_USER`, not root. Set
+`BROTRACKER_RUNTIME_USER=ark` explicitly if installing for another account.
+
+BTX distinguishes a detected Teensy with serial access denied from USB absence.
+It logs the port and setup guidance once per changed failure and keeps retrying.
+Missing USB enumeration is a separate problem: group membership cannot make a
+USB device absent from sysfs appear, or create missing CDC/ALSA interfaces.
+
+Observed on dArkOS: `/dev/ttyACM0` was `root:dialout`, mode `0660`, and `ark`
+lacked membership. Adding `ark` to dialout and rebooting restored serial access.
+With the hub setup, a separate boot-time issue still left Teensy absent from
+sysfs, CDC and ALSA until physical reconnect. After reconnect BTX reached IDLE
+and playback was clean; a subsequent L1 restart caused one audible click with
+no pauses. Boot enumeration and intermittent clicks remain unresolved; the
+click's cause is unknown.
+
 ## One-time setup in Ubuntu WSL
 
 Keep the build root in WSL's Linux filesystem. The checkout may stay on D:.
@@ -196,6 +224,16 @@ bash tools/arkos/check-port-launcher.sh
 
 Both use isolated temporary installations/stubs, never the handheld. The
 launcher check temporarily uses and restores `/tmp/brotracker-arkos.log`.
+
+During initial startup and runtime recovery, the supervisor polls current sysfs
+capture endpoints about once per second during backoff. A new or replaced
+matching USB/legacy capture endpoint interrupts the wait and triggers fresh
+`--auto` discovery. The bridge still decides identity, viability and ambiguity;
+an unchanged busy/unsupported endpoint keeps the capped backoff. Missing or
+transient sysfs entries do not prevent timed retries. Appearance interrupts are
+logged. CDC IDLE does not guarantee audio readiness: this reduces recovery delay,
+but does not guarantee the first START waits for audio, and does not fix missing
+USB enumeration after boot. No START is sent or replayed by recovery.
 
 ## Read-only R36H USB diagnosis and recovery test
 

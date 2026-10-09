@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 #define CHECK(x) do { if (!(x)) throw std::runtime_error(#x); } while (0)
 
@@ -46,6 +48,49 @@ int main()
 {
     try
     {
+        // Exercise the actual Linux open path without root bypassing permissions.
+        {
+            Peer denied;
+            CHECK(chmod(denied.path, 0000) == 0);
+            const pid_t child = fork();
+            CHECK(child >= 0);
+            if (child == 0) {
+                try {
+                    if (geteuid() == 0) CHECK(setuid(65534) == 0);
+                    FILE* permission_log = std::tmpfile();
+                    CHECK(permission_log);
+                    char device[128];
+                    std::strcpy(device, denied.path);
+                    BringUpSerial serial(permission_log, device);
+                    serial.Tick(0);
+                    CHECK(std::strstr(serial.Status(), "access denied"));
+                    const long first = std::ftell(permission_log);
+                    serial.Tick(1000);
+                    CHECK(std::ftell(permission_log) == first); // no retry spam
+                    std::strcpy(device, "/dev/brotracker-test-absent");
+                    serial.Tick(2000);
+                    CHECK(std::strcmp(serial.Status(), "Waiting for Teensy USB") == 0);
+                    Peer accessible;
+                    std::strcpy(device, accessible.path);
+                    serial.Tick(3000);
+                    accessible.Expect("BTTEST1 HELLO\n");
+                    CHECK(!std::strstr(serial.Status(), "access denied"));
+                    accessible.Reply("BTTEST1 STATE IDLE\n");
+                    serial.Tick(3001);
+                    CHECK(serial.Connected());
+                    std::rewind(permission_log);
+                    char text[4096]{};
+                    CHECK(std::fread(text, 1, sizeof(text)-1, permission_log) > 0);
+                    CHECK(std::strstr(text, denied.path));
+                    CHECK(std::strstr(text, "sudo usermod -aG dialout"));
+                    std::fclose(permission_log);
+                    _exit(0);
+                } catch (...) { _exit(1); }
+            }
+            int status = 0;
+            CHECK(waitpid(child, &status, 0) == child);
+            CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        }
         FILE* log = std::tmpfile();
         CHECK(log);
         {

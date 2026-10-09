@@ -61,6 +61,61 @@ audio_supervisor() {
         done
         wait "$child"
     }
+    # Capture endpoints only. This is an arrival hint, never PCM selection.
+    capture_evidence() {
+        local sys_sound=/sys/class/sound
+        local pcm path ancestor vendor product name card_id token card
+        for pcm in "$sys_sound"/pcmC*D*c; do
+            [[ -e "$pcm" ]] || continue
+            path=$(readlink -f -- "$pcm" 2>/dev/null) || continue
+            card=${pcm##*/pcmC}; card=${card%%D*}
+            card_id=; { read -r card_id < "$sys_sound/card$card/id"; } 2>/dev/null || true
+            ancestor=$path
+            while [[ "$ancestor" != / && -n "$ancestor" ]]; do
+                vendor=; product=; name=
+                { read -r vendor < "$ancestor/idVendor"; } 2>/dev/null || true
+                { read -r product < "$ancestor/idProduct"; } 2>/dev/null || true
+                { IFS= read -r name < "$ancestor/product"; } 2>/dev/null || true
+                if [[ "$vendor:$product" == 16c0:048a || "$name" == 'BroTracker USB audio' ||
+                      "$name" == 'Teensy MIDI/Audio' || "$card_id" == MIDIAudio ]]; then
+                    # Inode changes catch replacement at the same numeric PCM path.
+                    token=$(stat -Lc '%i:%Z' -- "$pcm" 2>/dev/null) || break
+                    printf '%s:%s\n' "$path" "$token"
+                    break
+                fi
+                ancestor=${ancestor%/*}; [[ -n "$ancestor" ]] || ancestor=/
+            done
+        done
+    }
+    wait_for_retry() {
+        local child=$1 previous=$2 current endpoint parent_stat ticks=0 arrived
+        while kill -0 "$child" 2>/dev/null; do
+            parent_stat=
+            if ! read -r parent_stat < "/proc/$launcher_pid/stat" 2>/dev/null ||
+               [[ "${parent_stat##*) }" == Z* ]]; then
+                printf 'Launcher: main launcher disappeared; stopping audio supervisor\n'
+                stop_audio
+            fi
+            kill -0 "$ui_pid" 2>/dev/null || break
+            if (( ticks % 5 == 0 )); then
+                current=$(capture_evidence)
+                arrived=0
+                while IFS= read -r endpoint; do
+                    [[ -n "$endpoint" ]] || continue
+                    if [[ $'\n'"$previous"$'\n' != *$'\n'"$endpoint"$'\n'* ]]; then arrived=1; break; fi
+                done <<< "$current"
+                previous=$current # Observe removal without triggering another attempt.
+                if (( arrived )); then
+                    printf 'Launcher: capture endpoint appearance interrupts audio %s backoff; fresh discovery\n' "$phase"
+                    break
+                fi
+            fi
+            ticks=$((ticks + 1))
+            sleep 0.2
+        done
+        kill -TERM "$child" 2>/dev/null || true
+        wait "$child" 2>/dev/null || true
+    }
     if [[ ! -x ./BroTrackerAlsaBridge ]]; then
         printf 'Launcher: audio unavailable: BroTrackerAlsaBridge missing/not executable; UI remains usable\n'
         exit 0
@@ -74,6 +129,7 @@ audio_supervisor() {
         if [[ -n "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] && type btx_diag_event >/dev/null 2>&1; then
             btx_diag_event bridge_recovery_attempt "phase=$phase attempt=$attempt" - supervisor-source
         fi
+        endpoint_evidence=$(capture_evidence)
         line_count=$(wc -l < "$log")
         ./BroTrackerAlsaBridge --auto >> "$log" 2>&1 &
         bridge_pid=$!
@@ -100,7 +156,7 @@ audio_supervisor() {
         printf 'Launcher: audio %s waiting %s seconds before rediscovery\n' "$phase" "$backoff"
         sleep "$backoff" &
         delay_pid=$!
-        wait_with_parent "$delay_pid" || true
+        wait_for_retry "$delay_pid" "$endpoint_evidence"
         delay_pid=
         # Cap the interval, not the number of attempts: a prolonged absence
         # must still recover while BTX is open. Cleanup interrupts this wait.
