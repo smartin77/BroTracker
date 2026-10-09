@@ -53,7 +53,7 @@ implementation and validation.
   or advancing a separate timeline.
 * [ ] Integrate the timing, raw row-command and logical channel-state foundations
   with production instrument resolution, tracker-to-audio command preparation,
-  mixing, transport and realtime firmware
+  production playback integration, transport and realtime firmware
   integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
@@ -61,8 +61,9 @@ implementation and validation.
   Tick enumeration, sample offsets within processing blocks and logical looping
   pattern-position mapping are complete; raw row-command generation now exists in
   core playback (see below), as does logical note/instrument continuation.
-  Prepared audio-command dispatch/rendering now exists (see below). Production
-  instrument resolution, tracker-to-audio command preparation, mixing,
+  Prepared audio-command dispatch/rendering and core mono mixing now exist (see
+  below). Production
+  instrument resolution, tracker-to-audio command preparation, playback integration,
   pattern transport and realtime firmware integration remain
   unimplemented. Retain the conversion's 0.01 BPM internal precision.
 * [ ] Integrate production playback-event dispatch and verify event timing is independent of
@@ -152,6 +153,19 @@ design remains unchanged.
   into audio commands. Production instrument resolution and tracker-to-audio command
   preparation remain unimplemented. Rendering consumes prepared positions without
   introducing a clock or synchronization policy; Teensy processing cost is unmeasured.
+* [x] Implement stateless `MixPcm16Mono` in `src/core/audio/pcm16_mixer.h`, with
+  coverage in `tests/test_pcm16_mixer.cpp`: allocation-free mixing of eight PCM16
+  mono channels using unity-gain `int32_t` summation. Saturation is applied once
+  to the final sum, preserving cancellation and channel-order independence.
+  Whole-request metadata validation precedes writing; rejection preserves output.
+  The caller guarantees valid memory extents, lifetimes and destination non-overlap
+  with inputs and request metadata; inputs may share read-only storage. Tests cover
+  silence, exact passthrough, input preservation, saturation, cancellation, shared
+  inputs, invalid metadata and zero-frame behavior. Composition with
+  `RamVoiceBlockRenderer` produces independently expected mixed PCM across regular
+  and irregular block partitions. This core mono primitive does not implement final
+  volume controls, panning or effects; production playback/firmware integration
+  and measured Teensy performance remain outstanding.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -163,8 +177,9 @@ design remains unchanged.
 * [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
-  dispatch to core RAM voices and render at exact offsets. Production instrument
-  resolution, tracker-to-audio command preparation, playback integration, mixing,
+  dispatch to core RAM voices and render at exact offsets, with core mono mixing
+  also implemented. Production instrument resolution, tracker-to-audio command
+  preparation, playback integration,
   transport and firmware integration remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
