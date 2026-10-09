@@ -225,6 +225,16 @@ bash tools/arkos/check-port-launcher.sh
 Both use isolated temporary installations/stubs, never the handheld. The
 launcher check temporarily uses and restores `/tmp/brotracker-arkos.log`.
 
+During initial startup and runtime recovery, the supervisor polls current sysfs
+capture endpoints about once per second during backoff. A new or replaced
+matching USB/legacy capture endpoint interrupts the wait and triggers fresh
+`--auto` discovery. The bridge still decides identity, viability and ambiguity;
+an unchanged busy/unsupported endpoint keeps the capped backoff. Missing or
+transient sysfs entries do not prevent timed retries. Appearance interrupts are
+logged. CDC IDLE does not guarantee audio readiness: this reduces recovery delay,
+but does not guarantee the first START waits for audio, and does not fix missing
+USB enumeration after boot. No START is sent or replayed by recovery.
+
 ## Read-only R36H USB diagnosis and recovery test
 
 The PC cannot determine the handheld's post-reboot hub/USB state. Before

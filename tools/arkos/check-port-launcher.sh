@@ -211,6 +211,112 @@ run_case ready 30 terminate
 run_case ready 30 killed
 run_case fail 30 killed
 unset HELPER_INTERFERENCE
+# Real supervisor with synthetic sysfs: no actual USB/ALSA access. Keep a
+# sixteen-second retry sleep so prompt arrival cannot be a timed retry.
+python3 - "$work" "$repo" <<'PYTHON'
+import os, pathlib, signal, subprocess, sys, time
+work, repo = map(pathlib.Path, sys.argv[1:])
+launcher = work / 'ports/BroTracker Terminal.sh'
+source = (repo / 'tools/arkos/port/BroTracker Terminal.sh').read_text()
+sound = work / 'sound'
+sound.mkdir()
+usb = work / 'usb'
+usb.mkdir()
+(usb / 'idVendor').write_text('16c0\n')
+(usb / 'idProduct').write_text('048a\n')
+(usb / 'product').write_text('BroTracker USB audio\n')
+endpoint = sound / 'pcmC7D0c'
+log = pathlib.Path('/tmp/brotracker-arkos.log')
+def contents():
+    return log.read_text() if log.exists() else ''
+def until(predicate, timeout=8):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate(): return
+        time.sleep(.02)
+    raise AssertionError(contents())
+def appear(replacement=False):
+    target = usb / ('pcm-replacement' if replacement else 'pcm')
+    target.mkdir(exist_ok=True)
+    endpoint.unlink(missing_ok=True)
+    endpoint.symlink_to(target)
+def count():
+    f = work / 'count'
+    return int(f.read_text()) if f.exists() else 0
+def finish(proc, killed=False):
+    # Capture all descendant IDs before termination, including polling sleeps.
+    ids = []
+    def visit(pid):
+        try: children = pathlib.Path(f'/proc/{pid}/task/{pid}/children').read_text().split()
+        except FileNotFoundError: return
+        for child in children:
+            ids.append(int(child)); visit(child)
+    visit(proc.pid)
+    proc.send_signal(signal.SIGKILL if killed else signal.SIGTERM)
+    proc.wait(timeout=5)
+    if killed:
+        os.kill(int((work / 'ui.pid').read_text()), signal.SIGTERM)
+    until(lambda: all(not pathlib.Path(f'/proc/{pid}').exists() for pid in ids), 8)
+    assert not (work / 'duplicate').exists()
+    assert not (work / 'bridge-active').exists()
+    if not killed: assert proc.returncode == 143 and (work / 'finished').exists()
+# Validate identity hints separately; PCM selection remains bridge-owned.
+appear()
+scanner = source[source.index('    capture_evidence() {'):source.index('    wait_for_retry() {')]
+scanner = scanner.replace('local sys_sound=/sys/class/sound', f'local sys_sound="{sound}"')
+for vendor, product, name, card_id, expected in (
+    ('16c0', '048a', 'arbitrary cached name', '', True),
+    ('', '', 'BroTracker USB audio', '', True),
+    ('', '', 'Teensy MIDI/Audio', '', True),
+    ('', '', 'legacy cached name', 'MIDIAudio', True),
+    ('1234', '5678', 'unrelated microphone', '', False),
+):
+    (usb / 'idVendor').write_text(vendor + '\n')
+    (usb / 'idProduct').write_text(product + '\n')
+    (usb / 'product').write_text(name + '\n')
+    (sound / 'card7').mkdir(exist_ok=True)
+    (sound / 'card7/id').write_text(card_id + '\n')
+    result = subprocess.check_output(['bash', '-c', scanner + '\ncapture_evidence']).decode()
+    assert bool(result.strip()) == expected
+(usb / 'idVendor').write_text('16c0\n')
+(usb / 'idProduct').write_text('048a\n')
+(usb / 'product').write_text('BroTracker USB audio\n')
+(sound / 'card7/id').write_text('\n')
+endpoint.unlink()
+# A playback-only endpoint must not interrupt backoff.
+(sound / 'pcmC7D0p').symlink_to(usb / 'pcm')
+assert not subprocess.check_output(['bash', '-c', scanner + '\ncapture_evidence']).strip()
+print('Capture evidence checks passed: USB identity, current/legacy names, legacy ID, unrelated/playback rejection')
+for runtime in (False, True):
+    for f in ('count', 'finished', 'duplicate'):
+        (work / f).unlink(missing_ok=True)
+    endpoint.unlink(missing_ok=True)
+    launcher.write_text(source.replace('local sys_sound=/sys/class/sound',
+                                      f'local sys_sound="{sound}"')
+                              .replace('backoff=2', 'backoff=16'))
+    env = dict(os.environ, BRIDGE_MODE='recovery_wait' if runtime else 'fail', UI_SECONDS='60')
+    log.write_text('') # do not match the previous case's backoff message
+    proc = subprocess.Popen(['bash', str(launcher)], env=env)
+    try:
+        until(lambda: 'waiting 16 seconds' in contents())
+        baseline = count(); started = time.monotonic(); appear()
+        until(lambda: count() == baseline + 1, 2)
+        assert time.monotonic() - started < 2
+        until(lambda: contents().count('waiting 16 seconds') >= 2)
+        time.sleep(1.3)
+        assert count() == baseline + 1, 'unchanged failing endpoint caused rapid retry'
+        endpoint.unlink(); time.sleep(1.3); appear()
+        until(lambda: count() == baseline + 2, 2)
+        until(lambda: contents().count('waiting 16 seconds') >= 3)
+        appear(replacement=True)
+        until(lambda: count() == baseline + 3, 2)
+        assert 'appearance interrupts audio ' + ('runtime recovery' if runtime else 'initial startup') in contents()
+        finish(proc, killed=runtime)
+        print('Endpoint polling checks passed:', 'runtime/parent loss' if runtime else 'startup/exit',
+              '(arrival, unchanged failure, reappearance, replacement, no duplicates/orphans)')
+    finally:
+        if proc.poll() is None: finish(proc)
+PYTHON
 mv "$work/ports/brotracker/BroTrackerAlsaBridge" "$work/bridge-disabled"
 run_case ready 0.2 normal
 grep -q 'missing/not executable' "$log"
