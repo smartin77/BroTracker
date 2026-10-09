@@ -28,21 +28,37 @@ implementation and validation.
   failures leave the output unchanged. Conversion tests cover fractional tempo
   (127.50 and 127.53 BPM), long-run positions, query-order independence, multiple
   sample rates and overflow. This component is not integrated into firmware.
-* [ ] Extend the counter and conversion foundations with musical progression and
-  event scheduling per
+* [x] Implement bounded, pull-based tick enumeration over consecutive half-open
+  sample blocks in `libraries/scheduler/src/musical_tick_cursor.*`, with coverage
+  in `tests/test_scheduler.cpp`. Each tick has an absolute tick index, absolute
+  sample position and block-relative sample offset; coincident ticks are preserved
+  in tick order. Tests cover partition independence and boundary ownership
+  (block start included, block end deferred), empty blocks, reset and explicit
+  errors/exhaustion. Invalid operations preserve pending ticks; arithmetic
+  exhaustion requires reset/reconfiguration and never wraps counters. The cursor
+  preserves Clock / Sync separation per D0035 and `CORE_ARCHITECTURE.md`: it uses
+  the caller's logical sample timeline without selecting a physical clock or
+  synchronizing clock domains. No firmware integration or measured Teensy
+  execution cost exists yet.
+* [ ] Extend the counter, conversion and cursor foundations with pattern-row
+  progression, playback event generation/dispatch and realtime integration per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
   [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
   per row (384 per quarter note), already defined as conversion constants.
-  Tick/row progression, scheduled events and sample offsets within processing
-  blocks remain unimplemented; retain the conversion's 0.01 BPM internal precision.
-* [ ] Implement block event dispatch and verify event timing is independent of
+  Tick enumeration and sample offsets within processing blocks now exist;
+  pattern-row progression, playback events and realtime integration remain
+  unimplemented. Retain the conversion's 0.01 BPM internal precision.
+* [ ] Implement playback-event block dispatch and verify event timing is independent of
   block partitioning, including fractional BPM, long-run accuracy and events
-  exactly on block boundaries (no duplicates or missed events). Existing counter
-  and conversion tests do not validate block event dispatch or boundary behavior.
+  exactly on block boundaries (no duplicates or missed events). Completed cursor
+  tests validate tick partition independence and boundary ownership, not future
+  playback-event generation or dispatch.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
-  processing budget on Teensy after implementation. Conversion is bounded and
-  allocation-free, but Teensy processing-budget measurement remains outstanding.
+  processing budget on Teensy after integration. Conversion and each cursor
+  operation are bounded and allocation-free, but draining every configuration
+  within a realtime budget is not established. Teensy processing-budget
+  measurement remains outstanding.
 
 ### Minimal Pattern Playback on Teensy
 

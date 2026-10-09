@@ -42,6 +42,7 @@ add_executable(BroTracker
     src/runtime/runtime.cpp
     libraries/scheduler/src/scheduler.cpp
     libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
     src/runtime/storage.cpp
 )
 
@@ -140,6 +141,7 @@ add_executable(BroTrackerTests
     tests/test_scheduler.cpp
     libraries/scheduler/src/scheduler.cpp
     libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
 )
 
 target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore)

@@ -13,8 +13,10 @@
 
 #include "scheduler.h"
 #include "musical_timing.h"
+#include "musical_tick_cursor.h"
 
 #include <limits>
+#include <vector>
 
 TEST_CASE(Scheduler_InitializesWithPositionZero)
 {
@@ -210,4 +212,220 @@ TEST_CASE(MusicalTiming_LargeIntermediateProductsAndOverflow)
     CHECK_EQ(BroTracker::TickToSamplePosition(maximum, 1, maximum_config, position),
              BroTracker::TickToSampleStatus::Overflow);
     CHECK_EQ(position, 123);
+}
+
+namespace BroTracker
+{
+    struct MusicalTickCursorTestAccess
+    {
+        static void Seed(MusicalTickCursor& cursor, std::uint64_t next_tick,
+                         std::uint64_t completed_end)
+        {
+            cursor.next_tick_ = next_tick;
+            cursor.block_end_ = completed_end;
+        }
+    };
+}
+
+namespace
+{
+    using BroTracker::MusicalTick;
+    using BroTracker::MusicalTickCursor;
+    using BroTracker::TickCursorStatus;
+
+    void ExpectTick(MusicalTickCursor& cursor, std::uint64_t index,
+                    std::uint64_t position, std::uint64_t offset)
+    {
+        MusicalTick tick;
+        CHECK_EQ(cursor.Pull(tick), TickCursorStatus::Tick);
+        CHECK_EQ(tick.tick_index, index);
+        CHECK_EQ(tick.sample_position, position);
+        CHECK_EQ(tick.sample_offset, offset);
+    }
+
+    std::vector<MusicalTick> CollectTicks(std::uint32_t tempo_hundredths,
+        std::uint32_t sample_rate_hz, const std::vector<std::uint64_t>& partitions)
+    {
+        MusicalTickCursor cursor;
+        CHECK_EQ(cursor.Configure(tempo_hundredths, sample_rate_hz), TickCursorStatus::Success);
+        std::vector<MusicalTick> ticks;
+        std::uint64_t start = 0;
+        for (const auto count : partitions)
+        {
+            CHECK_EQ(cursor.BeginBlock(start, count), TickCursorStatus::Success);
+            MusicalTick tick;
+            TickCursorStatus status;
+            while ((status = cursor.Pull(tick)) == TickCursorStatus::Tick)
+            {
+                CHECK(tick.sample_position >= start && tick.sample_position < start + count);
+                CHECK_EQ(tick.sample_offset, tick.sample_position - start);
+                std::uint64_t absolute = 0;
+                CHECK_EQ(BroTracker::TickToSamplePosition(tick.tick_index, tempo_hundredths,
+                    sample_rate_hz, absolute), BroTracker::TickToSampleStatus::Success);
+                CHECK_EQ(tick.sample_position, absolute);
+                CHECK_EQ(tick.tick_index, ticks.size());
+                ticks.push_back(tick);
+            }
+            CHECK_EQ(status, TickCursorStatus::BlockComplete);
+            CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+            start += count;
+        }
+        // The first omitted tick is outside the entire interval.
+        std::uint64_t pending = 0;
+        CHECK_EQ(BroTracker::TickToSamplePosition(ticks.size(), tempo_hundredths,
+            sample_rate_hz, pending), BroTracker::TickToSampleStatus::Success);
+        CHECK(pending >= start);
+        return ticks;
+    }
+}
+
+TEST_CASE(TickCursor_HalfOpenBoundariesAndOffsets)
+{
+    MusicalTickCursor cursor;
+    CHECK_EQ(cursor.Configure(12000, 44100), TickCursorStatus::Success);
+    CHECK_EQ(cursor.BeginBlock(0, 114), TickCursorStatus::Success);
+    ExpectTick(cursor, 0, 0, 0);
+    ExpectTick(cursor, 1, 57, 57);
+    MusicalTick tick{999, 999, 999};
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(tick.tick_index, 999);
+    CHECK_EQ(tick.sample_position, 999);
+    CHECK_EQ(tick.sample_offset, 999);
+    CHECK_EQ(cursor.BeginBlock(114, 58), TickCursorStatus::Success);
+    ExpectTick(cursor, 2, 114, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.BeginBlock(172, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 3, 172, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+}
+
+TEST_CASE(TickCursor_PartitionIndependenceAndLongRuns)
+{
+    constexpr std::uint64_t total = 128 * 4096;
+    std::vector<std::uint64_t> regular(4096, 128);
+    std::vector<std::uint64_t> irregular;
+    std::uint64_t remaining = total;
+    for (std::uint64_t count = 1; remaining != 0; count = count % 997 + 1)
+    {
+        const auto size = count < remaining ? count : remaining;
+        irregular.push_back(size);
+        remaining -= size;
+    }
+    for (const auto tempo_hundredths : {12000u, 12750u, 12753u})
+        for (const auto sample_rate_hz : {44100u, 48000u})
+        {
+            const auto direct = CollectTicks(tempo_hundredths, sample_rate_hz, {total});
+            const auto blocks = CollectTicks(tempo_hundredths, sample_rate_hz, regular);
+            const auto varied = CollectTicks(tempo_hundredths, sample_rate_hz, irregular);
+            CHECK_EQ(direct.size(), blocks.size());
+            CHECK_EQ(direct.size(), varied.size());
+            for (std::size_t index = 0; index < direct.size() &&
+                 index < blocks.size() && index < varied.size(); ++index)
+            {
+                CHECK_EQ(direct[index].tick_index, blocks[index].tick_index);
+                CHECK_EQ(direct[index].tick_index, varied[index].tick_index);
+                CHECK_EQ(direct[index].sample_position, blocks[index].sample_position);
+                CHECK_EQ(direct[index].sample_position, varied[index].sample_position);
+            }
+        }
+}
+
+TEST_CASE(TickCursor_CoincidentTicksAndEmptyBlocks)
+{
+    MusicalTickCursor cursor;
+    // 6000 / (125 * 384) = 1/8 sample per tick.
+    CHECK_EQ(cursor.Configure(125, 1), TickCursorStatus::Success);
+    MusicalTick tick;
+    CHECK_EQ(cursor.BeginBlock(0, 0), TickCursorStatus::Success);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
+    for (std::uint64_t index = 0; index < 8; ++index) ExpectTick(cursor, index, 0, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.BeginBlock(1, 0), TickCursorStatus::Success);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.BeginBlock(1, 1), TickCursorStatus::Success);
+    for (std::uint64_t index = 8; index < 16; ++index) ExpectTick(cursor, index, 1, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.Reset(), TickCursorStatus::Success);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::NoBlock);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 0, 0, 0);
+    CHECK_EQ(cursor.Reset(), TickCursorStatus::Success); // Also discards unfinished blocks.
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 0, 0, 0);
+}
+
+TEST_CASE(TickCursor_InvalidOperationsPreservePendingTicks)
+{
+    MusicalTickCursor cursor;
+    MusicalTick tick{999, 999, 999};
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::NotConfigured);
+    CHECK_EQ(cursor.Reset(), TickCursorStatus::NotConfigured);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::NotConfigured);
+    CHECK_EQ(cursor.Configure(0, 44100), TickCursorStatus::InvalidConfiguration);
+    CHECK_EQ(cursor.Configure(12000, 0), TickCursorStatus::InvalidConfiguration);
+    CHECK_EQ(cursor.Configure(12000, 44100), TickCursorStatus::Success);
+    CHECK_EQ(cursor.BeginBlock(1, 1), TickCursorStatus::NonconsecutiveBlock);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::NoBlock);
+    CHECK_EQ(cursor.BeginBlock(0, 57), TickCursorStatus::Success);
+    CHECK_EQ(cursor.BeginBlock(0, 57), TickCursorStatus::BlockNotDrained);
+    CHECK_EQ(cursor.Configure(0, 0), TickCursorStatus::InvalidConfiguration);
+    ExpectTick(cursor, 0, 0, 0);
+    CHECK_EQ(cursor.BeginBlock(57, 1), TickCursorStatus::BlockNotDrained);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.BeginBlock(58, 1), TickCursorStatus::NonconsecutiveBlock);
+    CHECK_EQ(cursor.BeginBlock(56, 1), TickCursorStatus::NonconsecutiveBlock);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::NonconsecutiveBlock);
+    CHECK_EQ(cursor.BeginBlock(57, std::numeric_limits<std::uint64_t>::max()),
+             TickCursorStatus::RangeOverflow);
+    CHECK_EQ(cursor.BeginBlock(57, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 1, 57, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    // A representable maximum endpoint accepts empty blocks, never wraps.
+    BroTracker::MusicalTickCursorTestAccess::Seed(cursor, 2,
+        std::numeric_limits<std::uint64_t>::max());
+    CHECK_EQ(cursor.BeginBlock(std::numeric_limits<std::uint64_t>::max(), 1),
+             TickCursorStatus::RangeOverflow);
+    CHECK_EQ(cursor.BeginBlock(std::numeric_limits<std::uint64_t>::max(), 0),
+             TickCursorStatus::Success);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+}
+
+TEST_CASE(TickCursor_ArithmeticExhaustionAndRecovery)
+{
+    constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+    constexpr auto maximum_config = std::numeric_limits<std::uint32_t>::max();
+    MusicalTickCursor cursor;
+    MusicalTick tick{999, 999, 999};
+    CHECK_EQ(cursor.Configure(maximum_config, maximum_config), TickCursorStatus::Success);
+    // Seed the state after draining all prior ticks; no public seeking API.
+    constexpr std::uint64_t last_tick = 1180591620717411303ULL;
+    constexpr std::uint64_t last_position = 18446744073709551609ULL;
+    BroTracker::MusicalTickCursorTestAccess::Seed(cursor, last_tick, last_position);
+    CHECK_EQ(cursor.BeginBlock(last_position, 6), TickCursorStatus::Success);
+    ExpectTick(cursor, last_tick, last_position, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(tick.tick_index, 999);
+    CHECK_EQ(tick.sample_position, 999);
+    CHECK_EQ(tick.sample_offset, 999);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(cursor.BeginBlock(maximum, 0), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(cursor.Configure(0, 0), TickCursorStatus::InvalidConfiguration);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(cursor.Reset(), TickCursorStatus::Success);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 0, 0, 0);
+
+    // Tick-index exhaustion with a representable sample position must never wrap.
+    CHECK_EQ(cursor.Configure(maximum_config, 1), TickCursorStatus::Success);
+    constexpr std::uint64_t final_position = 67108864015ULL;
+    BroTracker::MusicalTickCursorTestAccess::Seed(cursor, maximum, final_position);
+    CHECK_EQ(cursor.BeginBlock(final_position, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, maximum, final_position, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(cursor.BeginBlock(final_position + 1, 1), TickCursorStatus::ArithmeticExhausted);
+    CHECK_EQ(cursor.Configure(12000, 48000), TickCursorStatus::Success);
+    CHECK_EQ(cursor.BeginBlock(0, 1), TickCursorStatus::Success);
+    ExpectTick(cursor, 0, 0, 0);
 }
