@@ -19,18 +19,30 @@ implementation and validation.
   processed samples in `libraries/scheduler/src/`, advanced from
   `AudioTestSource::update()`. `tests/test_scheduler.cpp` covers sample counting,
   reset and equivalent totals across partitions; this is not a musical scheduler.
-* [ ] Extend that foundation with musical timing per
+* [x] Implement absolute tick-to-sample conversion in
+  `libraries/scheduler/src/musical_timing.*`, with coverage in
+  `tests/test_scheduler.cpp`. Internal tempo uses integer `tempo_hundredths`
+  (0.01 BPM resolution), independent of the UI's one-decimal display precision.
+  Exact rational conversion floors the absolute result without cumulative
+  rounding drift; zero tempo/sample rate is rejected, overflow is explicit and
+  failures leave the output unchanged. Conversion tests cover fractional tempo
+  (127.50 and 127.53 BPM), long-run positions, query-order independence, multiple
+  sample rates and overflow. This component is not integrated into firmware.
+* [ ] Extend the counter and conversion foundations with musical progression and
+  event scheduling per
   [D0029](ARCHITECTURE_DECISIONS.md#d0029---timing-model-and-microtiming) and
-  [SCHEDULER.md](SCHEDULER.md): 0.1 BPM resolution, four rows per quarter note
-  and 96 internal ticks per row. Preserve fractional sample timing without
-  cumulative drift and expose event sample positions, including offsets within
-  processing blocks. Tempo, ticks, rows and event dispatch are not implemented.
-* [ ] Verify musical event timing is independent of block partitioning, including
-  fractional BPM, long-run accuracy and events exactly on block boundaries
-  (no duplicates or missed events). Existing counter tests do not cover this.
+  [SCHEDULER.md](SCHEDULER.md): four rows per quarter note and 96 internal ticks
+  per row (384 per quarter note), already defined as conversion constants.
+  Tick/row progression, scheduled events and sample offsets within processing
+  blocks remain unimplemented; retain the conversion's 0.01 BPM internal precision.
+* [ ] Implement block event dispatch and verify event timing is independent of
+  block partitioning, including fractional BPM, long-run accuracy and events
+  exactly on block boundaries (no duplicates or missed events). Existing counter
+  and conversion tests do not validate block event dispatch or boundary behavior.
 * [ ] Keep realtime scheduling and dispatch bounded and free of heap allocation,
   blocking I/O and dependence on UI refresh or host audio routing; verify the
-  processing budget on Teensy after implementation.
+  processing budget on Teensy after implementation. Conversion is bounded and
+  allocation-free, but Teensy processing-budget measurement remains outstanding.
 
 ### Minimal Pattern Playback on Teensy
 
