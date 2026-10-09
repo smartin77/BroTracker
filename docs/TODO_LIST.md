@@ -114,7 +114,24 @@ design remains unchanged.
   invalid input and composition across loops and regular/irregular block partitions.
   Consumption is ordered and single-owner, with each event applied once. Raw
   instrument IDs remain uninterpreted; no default instrument or sound is implied.
-* [x] Implement RAM sample primitives: `LoadWavSampleFromSd()` loads supported
+* [x] Implement the core `RamSampleVoice` in `src/core/audio/ram_sample_voice.h`,
+  with coverage in `tests/test_ram_sample_voice.cpp`: a bounded, allocation-free,
+  single-owner one-shot voice for native-rate PCM16 mono samples. Sample views are
+  immutable and non-owning; the caller guarantees sample lifetime, valid source
+  and destination memory extents and non-overlap. Configure sets the explicit
+  output rate and releases playback; trigger/retrigger starts at frame zero,
+  including replacement. Segmented rendering copies PCM unchanged, zero-pads
+  after completion and releases the sample view at completion or stop. Stop makes
+  subsequent output silent; reset also releases playback while retaining the rate.
+  Rate mismatches and invalid inputs are explicit errors preserving voice state;
+  invalid renders leave the destination unchanged. Render work is bounded by the
+  caller-supplied span; zero-length rendering is a no-op. Tests cover completion,
+  render partition independence, retriggering, replacement, stop/reset, invalid
+  operations and trigger/stop at supplied offsets through split render spans,
+  including offset zero and a block boundary. These offset tests split rendering
+  in the caller; they do not establish scheduler-driven dispatch or measured
+  Teensy execution cost. This core voice is separate from the firmware primitives below.
+* [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
   `wav_loader.*` and `sample_player.*`; scheduled pattern behavior is not validated.
@@ -124,8 +141,9 @@ design remains unchanged.
   playback and does not use the RAM loader for this purpose.
 * [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
-  are implemented in core playback; instrument lookup, playback dispatch, sample
-  triggering, transport and firmware integration remain open. Host `Pattern`,
+  are implemented in core playback, and the core RAM voice renders individual
+  native-rate samples. Instrument lookup, playback dispatch, scheduled sample
+  triggering, mixing, transport and firmware integration remain open. Host `Pattern`,
   `Channel`, `Event` and `Tune` data still
   use vectors and have no conversion to the realtime representation yet.
   `src/runtime/playback_engine.h` remains a stub; complete pattern playback and
