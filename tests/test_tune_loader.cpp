@@ -10,6 +10,9 @@
 #include "test_framework.h"
 
 #include <exception>
+#include <fstream>
+#include <filesystem>
+#include <utility>
 
 #include "core/note.h"
 #include "core/tune_loader.h"
@@ -53,4 +56,28 @@ TEST_CASE(LoadTuneFromJson_ThrowsOnMissingFile)
     }
 
     CHECK(threw);
+}
+TEST_CASE(LoadTuneFromJson_RejectsUnsupportedPatternTextWithoutRelabeling)
+{
+    const auto path = std::filesystem::path("build/local-pattern-note-validation-test.json");
+    CHECK(!std::filesystem::exists(path));
+    if (std::filesystem::exists(path)) return;
+    const auto load = [&](const char* note) {
+        {
+            std::ofstream file(path);
+            file << "{\"tune\":{\"pattern\":[{\"channel\":[{\"row\":[{\"note\":\""
+                << note << "\"}]}]}]}}";
+        }
+        return LoadTuneFromJson(path.string());
+    };
+    for (const auto& entry : {std::pair<const char*, Note>{"C-0", 24}, {"C-3", 60}, {"G-8", 127},
+        {"OFF", NOTE_OFF}, {"", NOTE_EMPTY}}) {
+        CHECK_EQ(load(entry.first).patterns[0].channels[0].rows[0].note, entry.second);
+    }
+    for (const auto* text : {"C--1", "C--2", "G#8", "C-9", "C?0"}) {
+        bool rejected = false;
+        try { (void)load(text); } catch (const std::exception&) { rejected = true; }
+        CHECK(rejected);
+    }
+    std::filesystem::remove(path);
 }

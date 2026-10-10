@@ -41,6 +41,20 @@ namespace BroTracker
         return TickCursorStatus::Success;
     }
 
+    TickCursorStatus MusicalTickCursor::ResetAtTick(std::uint64_t tick_index,
+                                                   std::uint64_t& sample_position) noexcept
+    {
+        if (tempo_hundredths_ == 0) return TickCursorStatus::NotConfigured;
+        std::uint64_t sample = 0;
+        if (TickToSamplePosition(tick_index, tempo_hundredths_, sample_rate_hz_, sample) !=
+            TickToSampleStatus::Success) return TickCursorStatus::RangeOverflow;
+        next_tick_ = tick_index;
+        block_start_ = block_end_ = sample;
+        has_block_ = false; drained_ = true; exhausted_ = false;
+        sample_position = sample;
+        return TickCursorStatus::Success;
+    }
+
     TickCursorStatus MusicalTickCursor::Pull(MusicalTick& tick) noexcept
     {
         if (tempo_hundredths_ == 0) return TickCursorStatus::NotConfigured;

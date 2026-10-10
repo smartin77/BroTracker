@@ -81,6 +81,8 @@ namespace
         int section_padding = 3;
         int frame_gap = 3;
         int right_navigation_height = 26;
+        int right_section_x = 457;
+        int content_padding = 8;
     };
 
     constexpr Layout layout{};
@@ -271,14 +273,14 @@ namespace
     }
 
     void DrawRowHeader(
-        Framebuffer& framebuffer, int channels = layout.channel_count, bool device_mode = false)
+        Framebuffer& framebuffer, int channels = layout.channel_count)
     {
         DrawCenteredFixedText(
             framebuffer,
             0,
             layout.row_number_width,
             38,
-            device_mode ? "??" : "d1",
+            "d1",
             row_header_bright);
 
         // d1 header: right and bottom frame
@@ -356,7 +358,7 @@ namespace
     void DrawPatternChannels(
         Framebuffer& framebuffer,
         const Pattern& pattern,
-        const PatternDisplayState& display)
+        const PatternDisplayState& display, const LocalPatternEditor* editor)
     {
         constexpr int FIELD_WIDTH = 6 * 6;
 
@@ -394,7 +396,8 @@ namespace
                         DrawFixedText(framebuffer, field_x, y, "??? ??", empty_note);
                         continue;
                     }
-                    const auto& cell = display.device_pattern->pattern.cells[row][channel];
+                    const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
+                    const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
                     note_value = cell.note;
                     instrument_value = cell.instrument;
                 }
@@ -449,7 +452,13 @@ namespace
                         AccidentalMode::Sharp),
                     note_color);
 
-                if (note_value == NOTE_OFF && (!display.device_mode || instrument_value == 0xFF))
+                if (note_value == NOTE_OFF && editor && editor->Ready())
+                {
+                    DrawFixedText(framebuffer, field_x + 4 * 6, y,
+                        editor->OffTiming(row, channel) == LocalNoteOffTiming::EndOfPosition ? "_" : "¯",
+                        instrument_color);
+                }
+                else if (note_value == NOTE_OFF && (!display.device_mode || instrument_value == 0xFF))
                 {
                     DrawFixedText(
                         framebuffer,
@@ -580,7 +589,7 @@ namespace
     void DrawPattern(
         Framebuffer& framebuffer,
         const Pattern& pattern,
-        const PatternDisplayState& display)
+        const PatternDisplayState& display, const LocalPatternEditor* editor)
     {
         DrawPatternFrame(framebuffer);
 
@@ -594,15 +603,26 @@ namespace
             framebuffer.FilledRectangle(layout.pattern_x + 2,
                 layout.first_row_y + static_cast<int>(display.row) * layout.row_height,
                 layout.row_number_width + static_cast<int>(display.channels) * layout.channel_width - 2,
-                layout.row_height, Color{24, 64, 68});
+                layout.row_height, current_row_background);
+            // U+00A6 is the font's custom arrow (BFM entry 166), not a bar.
+            DrawFixedText(framebuffer, layout.row_number_width - 6,
+                layout.first_row_y + static_cast<int>(display.row) * layout.row_height + 2,
+                "\xC2\xA6", row_marker);
         }
 
-        DrawRowHeader(framebuffer, display.device_mode ? static_cast<int>(display.channels) : layout.channel_count,
-            display.device_mode);
+        DrawRowHeader(framebuffer, display.device_mode ? static_cast<int>(display.channels) : layout.channel_count);
         DrawRowNumbers(framebuffer, display.device_mode ? static_cast<int>(display.rows) : layout.visible_rows);
         DrawPatternChannels(
             framebuffer,
-            pattern, display);
+            pattern, display, editor);
+        if (display.device_pattern && editor && editor->Ready())
+        {
+            const auto& cursor = editor->Cursor();
+            const int x = layout.channel_start_x + static_cast<int>(cursor.channel) * layout.channel_width +
+                (layout.channel_width - 36) / 2 + (cursor.field == EditField::Instrument ? 24 : 0);
+            framebuffer.Rectangle(x - 2, layout.first_row_y + static_cast<int>(cursor.row) * layout.row_height,
+                cursor.field == EditField::Note ? 22 : 16, layout.row_height, Color{255, 160, 64});
+        }
     }
 
     enum class RightMenuId
@@ -628,7 +648,7 @@ namespace
     void DrawRightMenu(
         Framebuffer& framebuffer)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
         constexpr int RIGHT_MENU_HEIGHT =
@@ -691,7 +711,7 @@ namespace
     void DrawRightWorkspace(
         Framebuffer& framebuffer)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
 
@@ -719,7 +739,7 @@ namespace
     void DrawRightChannelNavigation(
         Framebuffer& framebuffer, const PatternDisplayState& display)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
 
@@ -782,10 +802,15 @@ void RenderMainScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
     const Pattern& pattern,
-    const std::optional<LivePlaybackView>& live)
+    const std::optional<LivePlaybackView>& live, const LocalPatternEditor* editor,
+    const HostPanelInformation& host)
 {
     framebuffer.Clear(background);
     const auto display = ResolvePatternDisplay(live);
+    // Never show a draft against unrelated or unavailable device dimensions.
+    if (editor && (!display.device_pattern || !editor->Ready() ||
+        editor->Draft()->active_rows != display.rows ||
+        editor->Draft()->active_channels != display.channels)) editor = nullptr;
 
     DrawMainHeader(
         framebuffer,
@@ -794,29 +819,42 @@ void RenderMainScreen(
 
     DrawPattern(
         framebuffer,
-        pattern, display);
+        pattern, display, editor);
 
     if (!display.device_mode) DrawCurrentEventEdit(framebuffer);
-    else
-    {
-        DrawFixedText(framebuffer, 8, 290,
-            !live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
-            !live->fresh ? "Position unavailable / stale; no extrapolation" :
-            live->position.running ? "Device playing (reported logical position)" : "Device stopped",
-            header_value);
-        DrawFixedText(framebuffer, 8, 306,
-            display.device_pattern ? "Device pattern (read-only)" :
-            live->pattern_loading ? "Loading device pattern..." :
-            "Device pattern unavailable",
-            header_name);
-        if (live->telemetry_available)
-            DrawFixedText(framebuffer, 8, 322,
-                "ROWS " + std::to_string(display.rows) + " CH " + std::to_string(display.channels) +
-                " LOOP " + (live->fresh && live->position.valid ? std::to_string(live->position.loop) : "--"),
-                header_value);
-    }
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
+    if (display.device_mode || !host.connection_status.empty() || !host.transport_hints.empty())
+    {
+        // Derive the padded content interior from the same workspace bounds.
+        const int x = layout.right_section_x + 1 + layout.content_padding;
+        int y = layout.header_height + layout.frame_gap + 1 + layout.content_padding;
+        const int width = static_cast<int>(::SCREEN_WIDTH) - layout.right_section_x - 2 - 2 * layout.content_padding;
+        const int bottom = static_cast<int>(::SCREEN_HEIGHT) - layout.right_navigation_height - layout.frame_gap -
+            1 - layout.content_padding;
+        const auto info = [&](const std::string& text, Color color) {
+            y += DrawWrappedFixedText(framebuffer, x, y, width, bottom - y, text, color) + 8;
+        };
+        // Connection/errors and pending transport stay visible even before HELLO.
+        if (!host.connection_status.empty()) info(host.connection_status, header_value);
+        if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
+        if (display.device_mode)
+        {
+            info(!live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
+                !live->fresh ? "Position unavailable / stale; no extrapolation" :
+                live->position.paused ? "Device PAUSED (reported logical position)" :
+                live->position.running ? "Device playing (reported logical position)" : "Device stopped",
+                header_value);
+            info(display.device_pattern ? (editor && editor->Ready() ?
+                    (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - NOT SENT TO TEENSY") :
+                    "Device pattern (read-only)") :
+                live->pattern_loading ? "Loading device pattern..." : "Device pattern unavailable", header_name);
+            if (live->telemetry_available)
+                info("ROWS " + std::to_string(display.rows) + " CH " + std::to_string(display.channels) +
+                    " LOOP " + (live->fresh && live->position.valid ? std::to_string(live->position.loop) : "--"),
+                    header_value);
+        }
+    }
     DrawRightChannelNavigation(framebuffer, display);
 }

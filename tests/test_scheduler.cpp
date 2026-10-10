@@ -556,3 +556,22 @@ TEST_CASE(PatternPosition_CursorCompositionAcrossPartitions)
             CHECK_EQ(regular_starts[index], index * BroTracker::kTicksPerRow);
     }
 }
+
+TEST_CASE(TickCursorResetAtTickBoundedSegmentAndFailureRollback) {
+    MusicalTickCursor cursor; std::uint64_t sample = 999;
+    CHECK_EQ(cursor.ResetAtTick(96, sample), TickCursorStatus::NotConfigured); CHECK_EQ(sample, 999);
+    CHECK_EQ(cursor.Configure(12753, 44100), TickCursorStatus::Success);
+    CHECK_EQ(cursor.ResetAtTick(96, sample), TickCursorStatus::Success);
+    std::uint64_t expected = 0;
+    CHECK_EQ(BroTracker::TickToSamplePosition(96, 12753, 44100, expected), BroTracker::TickToSampleStatus::Success);
+    CHECK_EQ(sample, expected);
+    CHECK_EQ(cursor.BeginBlock(sample, 1), TickCursorStatus::Success);
+    MusicalTick tick;
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::Tick); CHECK_EQ(tick.tick_index, 96);
+    CHECK_EQ(tick.sample_position, sample); CHECK_EQ(tick.sample_offset, 0);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete);
+    CHECK_EQ(cursor.ResetAtTick(UINT64_MAX, sample), TickCursorStatus::RangeOverflow);
+    CHECK_EQ(sample, expected);
+    CHECK_EQ(cursor.BeginBlock(expected+1, 1), TickCursorStatus::Success);
+    CHECK_EQ(cursor.Pull(tick), TickCursorStatus::BlockComplete); // Pending tick97, no skipped/replayed ticks.
+}

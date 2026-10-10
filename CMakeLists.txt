@@ -150,6 +150,7 @@ add_executable(BroTrackerTests
     tests/test_pattern_bringup_control.cpp
     tests/test_pattern_telemetry.cpp
     tests/test_pattern_snapshot.cpp
+    tests/test_local_pattern_editor.cpp
     src/ui/font.cpp
     src/ui/text_renderer.cpp
     src/ui/pattern_screen.cpp

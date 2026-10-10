@@ -53,6 +53,42 @@ bool LoadUiFont(const char* filename)
     return ui_font.Load(filename);
 }
 
+int DrawWrappedFixedText(Framebuffer& framebuffer, int x, int y,
+    int width, int height, const std::string& text, Color color)
+{
+    constexpr int cell_width = 6;
+    constexpr int line_height = 12;
+    const int columns = width / cell_width;
+    if (columns <= 0 || height <= 0 || text.empty()) return 0;
+    int line_y = y;
+    std::size_t start = 0;
+    while (start < text.size() && line_y < y + height)
+    {
+        // Panel information is ASCII, so byte and fixed-cell counts coincide.
+        auto end = std::min(start + static_cast<std::size_t>(columns), text.size());
+        if (end < text.size() && text[end] != ' ')
+        {
+            const auto space = text.rfind(' ', end);
+            if (space != std::string::npos && space > start) end = space;
+        }
+        int glyph_x = x;
+        for (auto index = start; index < end;)
+        {
+            const auto* glyph = ui_font.Find(DecodeUtf8(text, index));
+            if (glyph) for (int row = 0; row < 7; ++row)
+                for (int column = 0; column < 5; ++column)
+                    if ((glyph->bitmap[row] & (1u << (column + 2))) &&
+                        glyph_x + column < x + width && line_y + row + 1 < y + height)
+                        framebuffer.SetPixel(glyph_x + column, line_y + row + 1, color);
+            glyph_x += cell_width;
+        }
+        start = end;
+        while (start < text.size() && text[start] == ' ') ++start;
+        line_y += line_height;
+    }
+    return std::min(line_y - y, height);
+}
+
 void DrawText(
     Framebuffer& framebuffer,
     int x,

@@ -33,7 +33,7 @@ inline PatternDisplayState ResolvePatternDisplay(
         p.rows <= BroTracker::kRealtimePatternRowCapacity && p.channels > 0 &&
         p.channels <= BroTracker::kRealtimePatternChannelCapacity;
     const bool highlight = dimensions && live->fresh &&
-        BroTracker::ValidPatternTelemetry(p) && p.running && p.valid;
+        BroTracker::ValidPatternTelemetry(p) && (p.running || p.paused) && p.valid;
     const auto* snapshot = live->device_pattern ? &*live->device_pattern : nullptr;
     if (!dimensions || !snapshot || snapshot->pattern.active_rows != p.rows ||
         snapshot->pattern.active_channels != p.channels) snapshot = nullptr;

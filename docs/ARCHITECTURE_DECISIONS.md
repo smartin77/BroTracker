@@ -244,6 +244,31 @@ MIDI value unchanged
 Compatibility:
 Alternative display conventions may be supported
 
+### Supported pattern-note range
+
+BroTracker uses Yamaha octave numbering: note value 60 is displayed as C-3.
+
+Supported pitched pattern notes are values 24 through 127, displayed as
+C-0 through G-8. Negative octaves are not supported in pattern editing
+or display.
+
+The note field uses exactly three characters. The hyphen is exclusively
+a separator between a natural note name and its octave, for example C-0.
+Sharp notes use the accidental in that position, for example C#0.
+
+Incrementing or decrementing an empty or NOTE_OFF field initializes it
+to C-0. Subsequent pitched-note editing cycles through C-0..G-8: incrementing
+G-8 wraps to C-0 and decrementing C-0 wraps to G-8. Held editing renews a 400 ms
+pause upon reaching the endpoint before wrapping, resetting acceleration.
+A separate keydown at an endpoint wraps immediately, then waits 400 ms before
+repeating. Instrument-value bounds remain separate and do not wrap.
+
+Values below 24 must not be silently clamped, transposed or relabeled.
+Consumers must handle them explicitly as unsupported pattern notes.
+
+This restriction does not redefine MIDI note numbering or restrict
+future independent MIDI routing.
+
 ## D0019 - Note-Off Events
 
 BroTracker supports an explicit `NOTE_OFF` event in pattern data.

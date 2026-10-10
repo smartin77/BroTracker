@@ -43,13 +43,13 @@ void BringUpSerial::Disconnect(const char* reason)
     position_received_ = false;
     pattern_assembler_.Clear();
     snapshot_supported_ = snapshot_requested_ = snapshot_failed_ = false;
+    transport_supported_ = false; transport_queued_ = Command::None;
     std::strcpy(state_, "UNKNOWN");
 }
 
 bool BringUpSerial::Start()
 {
-    if (!connected_ || start_queued_ || stop_queued_ ||
-        pending_ == Command::Start || pending_ == Command::Stop) return false;
+    if (!connected_ || TransportPending()) return false;
     start_queued_ = true;
     ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
@@ -68,9 +68,23 @@ bool BringUpSerial::Stop()
     return true;
 }
 
+bool BringUpSerial::TransportPending() const
+{ return start_queued_ || stop_queued_ || transport_queued_ != Command::None ||
+    pending_ == Command::Start || pending_ == Command::Stop ||
+    pending_ == Command::Pause || pending_ == Command::Continue; }
+bool BringUpSerial::Paused() const { return connected_ && !std::strcmp(state_, "PAUSED"); }
+bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, "PLAYING"); }
+bool BringUpSerial::QueueTransport(Command command) {
+    if (!connected_ || !transport_supported_ || TransportPending()) return false;
+    if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
+    transport_queued_ = command; stopped_ = false; return true;
+}
+bool BringUpSerial::Pause() { return QueueTransport(Command::Pause); }
+bool BringUpSerial::Continue() { return QueueTransport(Command::Continue); }
+
 bool BringUpSerial::Finished() const
 {
-    return connected_ && pending_ != Command::Start && !start_queued_ &&
+    return connected_ && !TransportPending() &&
         (std::strcmp(state_, "DONE") == 0 || std::strcmp(state_, "IDLE") == 0 ||
          std::strcmp(state_, "ERROR") == 0);
 }
@@ -86,6 +100,9 @@ const char* BringUpSerial::Status() const
     }
     if (stop_queued_ || pending_ == Command::Stop) return "Connected - stopping";
     if (start_queued_ || pending_ == Command::Start) return "Connected - starting";
+    if (transport_queued_ == Command::Pause || pending_ == Command::Pause) return "Connected - pausing";
+    if (transport_queued_ == Command::Continue || pending_ == Command::Continue) return "Connected - continuing";
+    if (Paused()) return "Connected - PAUSED";
     if (std::strcmp(state_, "PLAYING") == 0) return "Connected - playing";
     if (std::strcmp(state_, "DONE") == 0) return "Connected - completed";
     if (std::strcmp(state_, "ERROR") == 0) return "Connected - playback ERROR";
@@ -96,7 +113,8 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
 {
     const char* verb = command == Command::Hello ? "HELLO" :
                        command == Command::Status ? "STATUS" :
-                       command == Command::Start ? "START" : "STOP";
+                       command == Command::Start ? "START" :
+                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
     tx_offset_ = 0;
     pending_ = command;
@@ -109,7 +127,7 @@ void BringUpSerial::ClearPosition()
 {
     position_received_ = false;
     live_.fresh = false;
-    live_.position.running = live_.position.valid = false;
+    live_.position.running = live_.position.valid = live_.position.paused = false;
     live_.position.tick = live_.position.row = live_.position.loop = 0;
 }
 
@@ -132,7 +150,9 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability))
+    if (!std::strcmp(line_, "BTPATTERN1 TRANSPORTCAP 1"))
+    { if (connected_) transport_supported_ = true; }
+    else if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability))
     {
         if (connected_) snapshot_supported_ = true;
     }
@@ -150,11 +170,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
         BroTracker::PatternTelemetry value;
         // Telemetry cannot acknowledge a command or revive an error. Ignore
         // positions in flight during START/restart/STOP, until their applied ACK.
-        if (connected_ && !start_queued_ && !stop_queued_ &&
-            pending_ != Command::Start && pending_ != Command::Stop &&
+        if (connected_ && !TransportPending() &&
             std::strcmp(state_, "ERROR") && std::strcmp(state_, "DONE") &&
             BroTracker::ParsePatternTelemetry(line_, used_, value) &&
-            value.running == (std::strcmp(state_, "PLAYING") == 0))
+            value.running == Playing() && value.paused == Paused())
         {
             live_.telemetry_available = live_.fresh = true;
             live_.position = value;
@@ -166,9 +185,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         const char* value = line_ + 14;
         if (std::strcmp(value, "PLAYING") && std::strcmp(value, "DONE") &&
-            std::strcmp(value, "IDLE") && std::strcmp(value, "ERROR")) return;
+            std::strcmp(value, "IDLE") && std::strcmp(value, "ERROR") && std::strcmp(value, "PAUSED")) return;
         std::snprintf(state_, sizeof(state_), "%s", value);
-        if (std::strcmp(value, "PLAYING")) ClearPosition();
+        if (std::strcmp(value, "PLAYING") && std::strcmp(value, "PAUSED")) ClearPosition();
+        if (!std::strcmp(value, "ERROR")) transport_queued_ = Command::None;
         if (pending_ == Command::Hello || pending_ == Command::Status)
         {
             if (!connected_) Log("connected: BTTEST1 handshake accepted");
@@ -180,6 +200,16 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         std::strcpy(state_, "PLAYING");
         if (pending_ == Command::Start) pending_ = Command::None;
+    }
+    else if (std::strcmp(line_, "BTTEST1 PAUSED") == 0 || std::strcmp(line_, "BTTEST1 CONTINUED") == 0)
+    {
+        const auto expected = !std::strcmp(line_, "BTTEST1 PAUSED") ? Command::Pause : Command::Continue;
+        if (pending_ != expected) return;
+        std::strcpy(state_, expected == Command::Pause ? "PAUSED" : "PLAYING");
+        pending_ = Command::None;
+        live_.position.running = expected == Command::Continue;
+        live_.position.paused = expected == Command::Pause;
+        live_.position.version = 2;
     }
     else if (std::strcmp(line_, "BTTEST1 STOPPED") == 0)
     {
@@ -200,7 +230,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         std::strcpy(state_, "ERROR");
         ClearPosition();
-        if (pending_ == Command::Start) pending_ = Command::None;
+        transport_queued_ = Command::None;
+        if (pending_ == Command::Start || pending_ == Command::Pause || pending_ == Command::Continue) pending_ = Command::None;
     }
 }
 
@@ -270,6 +301,8 @@ void BringUpSerial::Tick(std::uint32_t now)
             Send(Command::Start, now);
             start_queued_ = false;
         }
+        else if (transport_queued_ != Command::None)
+        { const auto command = transport_queued_; transport_queued_ = Command::None; Send(command, now); }
         else if (stop_queued_)
         {
             Send(Command::Stop, now);

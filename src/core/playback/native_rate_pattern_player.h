@@ -26,8 +26,9 @@ namespace BroTracker
         SampleRateMismatch, RangeOverflow, InvalidDestination, InvalidFrameCount,
         MissingInstrument, UnknownInstrument, UnsupportedPitch,
         ArithmeticExhausted, TickBudgetExceeded, CommandCapacityExceeded,
-        ComponentError
+        ComponentError, InvalidTransportState
     };
+    enum class PatternTransportState { Stopped, Playing, Paused };
 
     // Single-owner native-rate, looping-pattern audio consumer. Reuses logical
     // scheduling positions; no wall/CPU clock, USB authority, physical clock
@@ -63,7 +64,7 @@ namespace BroTracker
                 for (std::size_t channel = 0; channel < pattern.active_channels; ++channel)
                 {
                     const Note note = pattern.cells[row][channel].note;
-                    if (note > 127 && note != NOTE_EMPTY && note != NOTE_OFF)
+                    if (!IsPatternNote(note))
                         return PatternPlayerStatus::InvalidNote;
                 }
             MusicalTickCursor cursor;
@@ -78,18 +79,18 @@ namespace BroTracker
             preparer_ = preparer;
             renderer_ = renderer;
             configured_ = true;
-            running_ = false;
+            transport_ = PatternTransportState::Stopped;
             next_sample_ = 0;
             position_ = {};
             return PatternPlayerStatus::Success;
         }
 
-        // Always restart at tick/sample zero, including repeated Start. No resume.
+        // Always restart at tick/sample zero, including repeated Start.
         [[nodiscard]] PatternPlayerStatus Start() noexcept
         {
             if (!configured_) return PatternPlayerStatus::NotConfigured;
             Stop();
-            running_ = true;
+            transport_ = PatternTransportState::Playing;
             return PatternPlayerStatus::Success;
         }
         // Idempotent, also valid before configuration. Retain pattern/bindings.
@@ -98,11 +99,43 @@ namespace BroTracker
             renderer_.Reset();
             preparer_.Reset();
             if (configured_) (void)cursor_.Reset();
-            running_ = false;
+            transport_ = PatternTransportState::Stopped;
             next_sample_ = 0;
             position_ = {};
         }
-        bool IsRunning() const noexcept { return running_; }
+        bool IsRunning() const noexcept { return transport_ == PatternTransportState::Playing; }
+        PatternTransportState GetTransportState() const noexcept {
+            return transport_;
+        }
+        // Silence voices, retain logical note/instrument continuation and consumed
+        // position. No timeline advancement while paused; audio owner only.
+        [[nodiscard]] PatternPlayerStatus Pause() noexcept {
+            if (!configured_) return PatternPlayerStatus::NotConfigured;
+            if (transport_ == PatternTransportState::Paused) return PatternPlayerStatus::Success;
+            if (transport_ != PatternTransportState::Playing) return PatternPlayerStatus::InvalidTransportState;
+            renderer_.Reset(); transport_ = PatternTransportState::Paused;
+            return PatternPlayerStatus::Success;
+        }
+        // Restart a segment at the next row start, including next-loop row zero.
+        // No scan of skipped ticks/events. Before the first consumed tick, row zero
+        // is still pending and is the next row. Errors preserve ALL player state.
+        [[nodiscard]] PatternPlayerStatus Continue() noexcept {
+            if (!configured_) return PatternPlayerStatus::NotConfigured;
+            if (transport_ != PatternTransportState::Paused) return PatternPlayerStatus::InvalidTransportState;
+            std::uint64_t tick = 0;
+            if (position_.valid) {
+                const auto row = position_.absolute_tick / kTicksPerRow;
+                if (row >= UINT64_MAX / kTicksPerRow) return PatternPlayerStatus::RangeOverflow;
+                tick = (row + 1) * kTicksPerRow;
+            }
+            auto cursor = cursor_;
+            std::uint64_t sample = 0;
+            const auto status = cursor.ResetAtTick(tick, sample);
+            if (status != TickCursorStatus::Success) return PatternPlayerStatus::RangeOverflow;
+            cursor_ = cursor; next_sample_ = sample;
+            transport_ = PatternTransportState::Playing;
+            return PatternPlayerStatus::Success;
+        }
         std::uint64_t GetNextSamplePosition() const noexcept { return next_sample_; }
         // Latest tick consumed in a successfully rendered half-open audio span,
         // including empty rows/non-row-start ticks. Not the next block position,
@@ -138,7 +171,7 @@ namespace BroTracker
             if (frame_count > kNativeRatePatternFrameCapacity) return PatternPlayerStatus::InvalidFrameCount;
             if (destination == nullptr) return PatternPlayerStatus::InvalidDestination;
             const auto count = static_cast<std::size_t>(frame_count);
-            if (!running_)
+            if (transport_ != PatternTransportState::Playing)
             {
                 for (std::size_t i = 0; i < count; ++i) destination[i] = 0;
                 return PatternPlayerStatus::Success;
@@ -228,7 +261,7 @@ namespace BroTracker
         NativeRateSampleCommandPreparer preparer_;
         RamVoiceBlockRenderer renderer_;
         bool configured_ = false;
-        bool running_ = false;
+        PatternTransportState transport_ = PatternTransportState::Stopped;
         std::uint64_t next_sample_ = 0;
         ConsumedPatternPosition position_;
         std::int16_t channel_scratch_[kRealtimePatternChannelCapacity][kNativeRatePatternFrameCapacity]{};

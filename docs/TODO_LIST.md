@@ -260,6 +260,21 @@ design remains unchanged.
   on 2026-10-10, but exact restart timing remains unmeasured.
   Ordinary firmware still uses BTTEST1 for the diagnostic WAV sequence;
   final pattern protocol integration remains open.
+* [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
+  Pause/Continue requests. Pause silences voices while retaining logical continuation
+  and consumed position; Continue uses bounded absolute positioning at the next row
+  start, including row zero of the next loop, without replay/catch-up. Windows Space
+  uses capability-gated Start/Pause/Continue; Return and numeric Enter request STOP/reset, including
+  repeated stopped requests after acknowledgement. Shared parsing accepts PAUSED
+  and version-2 position telemetry; reconnect never starts/continues automatically.
+  Host tests cover transitions, boundaries, continuation, rollback and protocol
+  fallback. ArkOS handheld transport bindings and ordinary diagnostics remain unchanged.
+* [x] User-performed Windows BTX + Teensy 4.1 validation on 2026-10-10 confirms
+  the revised transport and visual behavior work as agreed.
+* [ ] Measure physical pause/continuation timing and realtime processing cost;
+  pending-request/backpressure stress, legacy regression, ArkOS and MQS checks
+  remain open. The user confirmation does not establish exact sample timing or
+  a measured Teensy processing budget.
 * [ ] Verify scheduled trigger sample positions, retriggering, simultaneous events,
   row 16-to-row 1 looping and STOP (including stopping active samples and preventing
   further triggers), first in deterministic tests and then on the current hardware.
@@ -333,13 +348,24 @@ design remains unchanged.
 
 ### Basic Pattern Editing on ArkOS
 
+* [x] Implement a shared fixed-capacity local draft editor initialized only from a
+  validated device snapshot, with independent row/channel/field navigation,
+  C-0..G-8 cyclic note entry, instrument-only events, separate local OFF timing,
+  comparison-based dirty state, Restore and disconnect cleanup. Windows controls
+  include bounded accelerated PgUp/PgDn with renewed endpoint pauses; playback
+  telemetry never changes the draft/cursor. Evidence: `src/ui/local_pattern_editor.h`,
+  `src/ui/editor_repeat.h` and host/editor/input/display tests. User-performed Windows
+  validation on 2026-10-10 confirms the final editor behavior works as agreed.
+  Edits are not sent to Teensy; publication and end-of-position OFF playback remain open.
+
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
   rendering. Evidence: `src/core/{pattern,channel,event,tune}.h`, the tune loader,
   `src/ui/pattern_screen.cpp` and `tests/test_tune_loader.cpp`. The preview uses a
   fixed position and does not provide interactive editing or realtime publication.
 * [ ] Implement ArkOS row/channel/field navigation and note/instrument entry with
   an edit cursor distinct from the live playback row. Host input and diagnostic
-  controls exist; basic pattern editing remains unimplemented.
+  controls and the shared local editor exist; ArkOS handheld editor bindings and
+  hardware validation remain unimplemented.
 * [ ] Send validated edit commands to Teensy: validate pattern, row, channel,
   note and instrument values, bound command buffering and handling, and report
   acceptance or rejection to BTX. The current diagnostic exchange has no edits.
@@ -354,7 +380,35 @@ design remains unchanged.
   including BTX deployment, input, USB communication and audio routing. This has
   not been validated by the existing ArkOS hardware evidence.
 
+* [x] Shared right-panel information layout: wrapped/clipped text with at least
+  8 px padding; Windows user visually confirmed the preceding panel move on
+  2026-10-10. The subsequent host-status/control/pending-message move removes
+  Windows/ArkOS bottom overlays and has host containment tests. User confirmation
+  on 2026-10-10 covers the final panel layout, `d1` header and all other current
+  behavior; numeric Enter remains pending manual confirmation after its correction. Decimal one-based `d1` rows retain zero-based
+  internal indices. No transport behavior changes are included.
+* [ ] Manually confirm numeric Enter STOP/reset after the Windows mapping correction;
+  ArkOS visual/binding validation and outstanding hardware timing/performance
+  checks remain open.
+
+* [x] Shared live playback styling uses the preview's dark neutral grey row and
+  existing font arrow beside the reported row number; fresh valid paused positions
+  retain both, while stopped/stale/unavailable positions hide them. Orange field
+  editing remains independent. Host rendering tests cover placement/visibility.
+* [ ] Manually validate the new grey playback-row and arrow styling on Windows,
+  then ArkOS; no new hardware timing/performance validation is implied.
+
 ## Deferred Tasks
+
+* [ ] Evaluate the bright edited-channel background as a separate design option;
+  current live mode retains only the orange field-edit border.
+
+* [ ] Add row-numbering display options for zero-based and hexadecimal views;
+  current `d1` is decimal one-based. No mode switching in the current change.
+
+* [ ] Decide instrument numbering: prefer first visible instrument `01` and
+  no-instrument marker `--`; raw-ID/display mapping and capacity remain undecided.
+  No instrument-ID or display change is included in this step.
 
 ### Audio Diagnostics
 

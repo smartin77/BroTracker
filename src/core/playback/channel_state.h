@@ -57,7 +57,7 @@ namespace BroTracker
         {
             if (event.channel >= kRealtimePatternChannelCapacity)
                 return ChannelStateStatus::InvalidChannel;
-            if (event.note > 127 && event.note != NOTE_EMPTY && event.note != NOTE_OFF)
+            if (!IsPatternNote(event.note))
                 return ChannelStateStatus::InvalidNote;
 
             RowEventApplication application;

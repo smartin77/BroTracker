@@ -44,7 +44,7 @@ namespace BroTracker
     // cursor-emitted tick exactly once. No independent progression or deduplication.
     // Validate dimensions on every call; validate notes only in active channels
     // of the consumed row at row-start ticks. Other/inactive cells are not read.
-    // Valid notes: 0..127, NOTE_EMPTY, NOTE_OFF. Raw instrument IDs are preserved;
+    // Valid notes: 24..127, NOTE_EMPTY, NOTE_OFF. Raw instrument IDs are preserved;
     // 0xFF means no update. No instrument memory, default instrument or sample
     // trigger resolution is performed; instrument-only commands are not new notes.
     // Failure leaves the entire batch unchanged. Success replaces it, including
@@ -67,7 +67,7 @@ namespace BroTracker
             for (std::uint8_t channel = 0; channel < pattern.active_channels; ++channel)
             {
                 const Event& cell = pattern.cells[position.pattern_row][channel];
-                if (cell.note > 127 && cell.note != NOTE_EMPTY && cell.note != NOTE_OFF)
+                if (!IsPatternNote(cell.note))
                     return RowEventStatus::InvalidNote;
                 if (cell.note == NOTE_EMPTY && cell.instrument == kNoInstrumentUpdate) continue;
                 result.events[result.count++] = {channel,

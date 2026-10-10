@@ -42,7 +42,7 @@ namespace BroTracker
     public:
         // Validate count and every active binding before mutation (inactive slots
         // are not consumed). IDs 0..254 are unique;
-        // native notes are 0..127, samples must match the explicit output rate.
+        // native pattern notes are 24..127, samples must match the explicit output rate.
         // Zero bindings is valid (NOTE_OFF still works). Success copies metadata
         // and clears logical state; failure preserves bindings, rate and state.
         // Validation reuses RamSampleVoice::Trigger, without reading sample data.
@@ -60,7 +60,7 @@ namespace BroTracker
                 const auto& binding = bindings.bindings[i];
                 if (binding.instrument == kNoInstrumentUpdate)
                     return SampleCommandStatus::ReservedInstrument;
-                if (binding.native_rate_note > 127)
+                if (!IsPitchedPatternNote(binding.native_rate_note))
                     return SampleCommandStatus::InvalidNativeRateNote;
                 for (std::size_t j = 0; j < i; ++j)
                     if (bindings.bindings[j].instrument == binding.instrument)

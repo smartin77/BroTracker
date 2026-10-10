@@ -135,16 +135,21 @@ namespace
     {
         const auto& p = status.position;
         g_telemetry.Offer({status.running, p.valid, p.absolute_tick, p.pattern_row,
-            p.loop_index, status.active_rows, status.active_channels});
+            p.loop_index, status.active_rows, status.active_channels,
+            status.transport == PatternTransportState::Paused, 2});
     }
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
         (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
-            status.running ? "BTTEST1 STATE PLAYING\n" : "BTTEST1 STATE IDLE\n");
+            status.running ? "BTTEST1 STATE PLAYING\n" :
+            status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
         OfferPosition(status);
-        if (advertise_snapshot) (void)QueueLine("BTPATTERN1 SNAPCAP 1\n");
+        if (advertise_snapshot) {
+            (void)QueueLine("BTPATTERN1 SNAPCAP 1\n");
+            (void)QueueLine("BTPATTERN1 TRANSPORTCAP 1\n");
+        }
     }
     void FlushSerial()
     {
@@ -196,8 +201,10 @@ namespace
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
             if (!ready) break;
-            (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR start\n" :
-                applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" : "BTTEST1 STOPPED\n");
+            (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR transport\n" :
+                applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" :
+                applied.request == PatternRequest::Pause ? "BTTEST1 PAUSED\n" :
+                applied.request == PatternRequest::Continue ? "BTTEST1 CONTINUED\n" : "BTTEST1 STOPPED\n");
             // Replace unsent pre-command telemetry; partial older lines finish
             // BEFORE the ACK, so the host's pending-command barrier rejects them.
             if (g_protocol_connected) OfferPosition(Snapshot());
@@ -223,7 +230,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + 2 <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + 3 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
@@ -251,9 +258,12 @@ namespace
                     (void)QueueLine(error); // Snapshot errors do not change transport.
                 }
             }
-            else if (!std::strcmp(line,"BTTEST1 START") || !std::strcmp(line,"BTTEST1 STOP"))
+            else if (!std::strcmp(line,"BTTEST1 START") || !std::strcmp(line,"BTTEST1 STOP") ||
+                !std::strcmp(line,"BTTEST1 PAUSE") || !std::strcmp(line,"BTTEST1 CONTINUE"))
             {
-                const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start : PatternRequest::Stop;
+                const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start :
+                    !std::strcmp(line,"BTTEST1 PAUSE") ? PatternRequest::Pause :
+                    !std::strcmp(line,"BTTEST1 CONTINUE") ? PatternRequest::Continue : PatternRequest::Stop;
                 PatternRequestStatus accepted;
                 { InterruptGuard guard; accepted = g_control.Submit(request); }
                 if (accepted != PatternRequestStatus::Accepted) (void)QueueLine("BTTEST1 ERROR request-overflow\n");

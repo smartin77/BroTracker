@@ -26,6 +26,30 @@ namespace
         CHECK_EQ(applied.request,request); CHECK_EQ(applied.result,result);
     }
 }
+TEST_CASE(PatternBringUpPauseContinueAppliedSnapshotsAndFaultStop) {
+    PatternBringUpControl control; auto pattern = Pattern(); pattern.cells[1][0] = {60, kNoInstrumentUpdate};
+    CHECK_EQ(control.InitializeAudio(12753, 44100, pattern, Bindings()), PatternPlayerStatus::Success);
+    CHECK_EQ(control.Submit(PatternRequest::Start), PatternRequestStatus::Accepted);
+    std::int16_t out[128]{}; control.AudioBlock(out, 1, true); Applied(control, PatternRequest::Start);
+    const auto before = control.Snapshot();
+    CHECK_EQ(control.Submit(PatternRequest::Pause), PatternRequestStatus::Accepted);
+    CHECK_EQ(control.Snapshot().transport, PatternTransportState::Playing);
+    control.AudioBlock(out, 128, true); Applied(control, PatternRequest::Pause);
+    CHECK_EQ(control.Snapshot().transport, PatternTransportState::Paused);
+    CHECK_EQ(control.Snapshot().position.absolute_tick, before.position.absolute_tick);
+    for (auto value : out) CHECK_EQ(value, 0);
+    CHECK_EQ(control.Submit(PatternRequest::Continue), PatternRequestStatus::Accepted);
+    control.AudioBlock(out, 1, true); Applied(control, PatternRequest::Continue);
+    CHECK_EQ(control.Snapshot().transport, PatternTransportState::Playing);
+    CHECK_EQ(control.Snapshot().position.pattern_row, 1); CHECK_EQ(out[0], 10);
+    CHECK_EQ(control.Submit(PatternRequest::Pause), PatternRequestStatus::Accepted);
+    control.AudioBlock(nullptr, 128, false); Applied(control, PatternRequest::Pause);
+    CHECK_EQ(control.Snapshot().transport, PatternTransportState::Stopped);
+    CHECK(!control.Snapshot().position.valid);
+    CHECK_EQ(control.Submit(PatternRequest::Continue), PatternRequestStatus::Accepted);
+    control.AudioBlock(out, 1, true);
+    Applied(control, PatternRequest::Continue, PatternPlayerStatus::InvalidTransportState);
+}
 
 TEST_CASE(PatternBringUp_FifoAppliedStatusAndBackpressure)
 {

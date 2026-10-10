@@ -1,7 +1,7 @@
 #pragma once
 #include "bringup_serial.h"
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}

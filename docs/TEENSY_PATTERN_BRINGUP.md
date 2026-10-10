@@ -47,6 +47,14 @@ firmware and shared Windows/ArkOS BTX. Windows BTX + Teensy 4.1 validation on
   protocol or pattern errors.
 - The user confirmed the visual display, separately from the log/checksum evidence.
 
+User-performed Windows validation on **2026-10-10** confirmed that the final local
+editor behavior works as agreed, including navigation, OFF timing toggling and
+cyclic note editing with endpoint repeat pauses. This editor confirmation is
+separate from the subsequent transport confirmation: user-performed Windows
+BTX + Teensy 4.1 validation on **2026-10-10** confirms the revised transport and
+visual behavior work as agreed. Exact physical timing and realtime performance
+remain unmeasured; this does not close the remaining hardware checks.
+
 These records distinguish reported log/capture evidence from user listening and
 visual observations;
 exact sample/phase continuity and restart-at-zero hardware timing remain unmeasured.
@@ -74,6 +82,68 @@ USB trace instrumentation. The installed framework is not modified.
 
 ## Windows BTX manual checks
 
+### Temporary local editor controls
+
+After a complete validated device snapshot arrives, BTX creates a separate local
+draft. The device snapshot remains read-only. The orange field border is the edit
+cursor; the teal row highlight remains the reported playback position. The draft
+is labeled **NOT SENT TO TEENSY**: changing it does not change audible playback.
+Device BPM/POS/LOOP remain authoritative.
+
+- Up/Down move previous/next row within active dimensions. Right moves Note ->
+  second field -> next channel's Note; Left reverses this sequence. Horizontal
+  arrows stop at the outermost fields without wrapping and preserve the row.
+  Tab/Shift+Tab jump to the next/previous active channel's Note field, wrapping.
+- Page Up/Down increment/decrement the selected numeric value. An empty or OFF
+  Note field initializes to C-0 (raw 24); pitched values cycle through C-0..G-8
+  (24..127): incrementing G-8 wraps to C-0, decrementing C-0 wraps to G-8.
+  Empty instrument fields initialize to zero; instrument bounds do not wrap.
+- O enters NOTE_OFF in the Note field, defaulting to arrival-time `¯`. For OFF,
+  the second field selects timing: `¯` stops at the current position's beginning,
+  `_` stops at its end, whose duration follows musical timing/BPM. Both PgUp and
+  PgDn toggle to the other mode; neither performs numeric instrument editing.
+  Delete in this timing field restores `¯`. For pitched/empty notes the second
+  field remains an instrument, so instrument-only events remain representable.
+  Timing uses explicit local metadata; raw instrument IDs are preserved separately
+  and never encoded or reinterpreted as timing. Changing the Note field resets
+  timing to arrival mode.
+- Delete clears the selected normal field to
+  NOTE_EMPTY or instrument 0xFF; instrument-only cells remain representable.
+- F4 discards local edits by restoring the device baseline, retaining the cursor.
+- Space uses the capability-gated transport described below; Return and numeric Enter STOP/reset,
+  Ctrl+X and window close remain independent of editing. OS repeats are ignored.
+  PgUp/PgDn alone repeat under application
+  control: immediate action, first repeat at 400 ms, then every 100 ms, accelerating
+  to 50 ms after 1000 ms held and 25 ms after 2000 ms. Each action changes one value
+  or timing mode; stalled frames perform at most one repeat, without catch-up.
+  Reaching a pitched-note endpoint in the held direction resets acceleration:
+  wait a fresh 400 ms before wrapping, then resume normal repeat/acceleration.
+  A new physical press at an endpoint wraps immediately on keydown; if that press
+  becomes a hold, its first repeat waits 400 ms. Keydown cannot distinguish a tap
+  from a future hold, so this immediate-press rule also applies when beginning a
+  hold at an endpoint.
+  Release, focus loss, disconnect/unavailability, navigation, Restore/Clear/OFF
+  and incompatible modifiers cancel repeat; the opposite key replaces it. Held
+  edits never resume after reconnect. Shift+Tab is the supported modified editor
+  key. No piano keyboard mapping is provided.
+
+NOTE_OFF timing selection is **local only**: the device snapshot/protocol has no
+end-of-position timing representation, and Teensy continues its existing immediate
+row-start NOTE_OFF playback. Publication, protocol/runtime representation and
+end-of-position scheduling remain future work; selecting `_` does not change audio.
+
+Dirty state compares active raw cells and OFF timing with the baseline; restoring
+original values clears it. Telemetry never moves the edit cursor or overwrites edits.
+Disconnect disables editing and discards the connection-scoped draft. Reconnect
+requires a fresh complete snapshot; edits are never replayed or published.
+The fixed shared model/actions and draft rendering are reusable by ArkOS, but
+handheld editor bindings and hardware validation remain outstanding. Existing
+handheld transport bindings are unchanged. There are no edit uploads, persistence,
+sample preview or automatic transport actions; standalone preview and page/region
+behavior remain unchanged. Scrolling and empty-cell brightness are deferred.
+
+### Playback checks
+
 1. Close serial monitors, disable competing Windows Listen routing, upload the
    opt-in firmware, then launch BTX. Check an IDLE handshake and silence before
    pressing Space, including a cold boot with the board attached.
@@ -82,8 +152,15 @@ USB trace instrumentation. The installed framework is not modified.
    every 1.88 seconds. It includes separate triggers, adjacent-row retriggers,
    simultaneous triggers at row 8 and row-start NOTE_OFF commands. In particular,
    channel B's row-14 NOTE_OFF cuts its row-13 burst short. Rows here are zero-based.
-3. Press Space while playing: verify restart at the first burst, not continuation.
-   Press Enter: check STOPPED/idle and silence. Space starts at row zero again.
+3. With the new transport capability, press Space while playing: expect PAUSED,
+   silence and retention of the reported position. Space while paused continues
+   at the START of the NEXT row, including row zero of the next loop after the
+   last row; no remainder of the paused row or skipped-event burst is played.
+   Press Return or numeric Enter: expect STOPPED/idle, reset position and silence while staying in
+   BTX. Repeat Enter after acknowledgement: another STOP/reset is sent. Space
+   while stopped starts at row zero. User confirmed the agreed behavior on
+   2026-10-10; exact timing remains unmeasured. Older firmware without capability
+   keeps Space START/RESTART.
 4. Check several loops with Windows USB audio routing and, where connected, MQS.
    Mono PCM is routed identically to USB left/right and the existing MQS channel.
    No SD card or legacy WAV sequence is needed or played.
@@ -91,7 +168,8 @@ USB trace instrumentation. The installed framework is not modified.
    Space press. Reconnect while playing as a separate check: no START is sent by
    HELLO/reconnect; separately powered hardware may continue an already-running
    pattern, while a power-cycled board boots stopped. Inspect the authoritative
-   STATUS reply rather than assuming disconnect stopped playback. Previously
+   STATUS reply rather than assuming disconnect stopped playback. Reconnect while
+   paused must restore PAUSED and its position without START/CONTINUE. Previously
    accepted explicit commands are not replayed by BTX or replaced in the FIFO.
 6. Inspect logs for `BTTEST1 ERROR pattern ...`. Any render/allocation fault must
    leave playback stopped. Allocation faults include a cumulative `alloc` count.
@@ -124,27 +202,74 @@ does not select a physical clock or implement synchronization/tempo correction.
 
 BTTEST1 is a temporary compatibility bridge for current Windows/ArkOS BTX, not
 the final tracker protocol. HELLO/STATUS report a coherent applied snapshot as
-IDLE, PLAYING or ERROR. STARTED/STOPPED are queued only after the audio owner
+IDLE, PLAYING, PAUSED or ERROR. Applied acknowledgements are queued only after the audio owner
 applies the request. Main-loop parsing is limited to 128 input bytes and one
 complete command per service; USB writes are outside audio processing and limited
 to 64 available bytes per service. Optional live position telemetry is described
 below; it does not change the ordinary firmware's BTTEST1 exchange.
+
+### Capability-gated Pause/Continue transport
+
+After HELLO, the revised opt-in firmware advertises `BTPATTERN1 TRANSPORTCAP 1`.
+Only after this exact connection-scoped capability may shared BTX send the new
+requests. Ordinary firmware is unchanged and receives no PAUSE/CONTINUE requests.
+Windows Space sends START from Stopped, PAUSE from Playing, CONTINUE from Paused.
+Without capability, it retains diagnostic START/RESTART. ArkOS handheld transport
+bindings remain L1/B START/RESTART and R1/X STOP/exit; no handheld remapping is included.
+
+Exact LF-terminated command/response lines:
+
+```text
+BTTEST1 PAUSE
+BTTEST1 CONTINUE
+BTTEST1 PAUSED
+BTTEST1 CONTINUED
+BTTEST1 STATE PAUSED
+```
+
+PAUSED/CONTINUED acknowledge audio-owner application, not submission. Existing
+START/STARTED and STOP/STOPPED remain supported. Return and numeric Enter both request STOP/reset
+without starting or exiting; pending STOP suppresses repeats, and a fresh Enter
+after acknowledgement sends another STOP. Close/Ctrl+X queues STOP in order before
+exit, including during paused or pending transport. Accepted requests and applied
+acknowledgements retain bounded FIFO order; formatting/I/O remain main-loop-only.
+
+The core explicitly distinguishes Stopped/Playing/Paused. Pause is applied at the
+next audio block boundary, silencing/releasing active voices and retaining logical
+note/instrument continuation, consumed position and next-sample position. Paused
+renders are silent and do not advance. Continue transactionally converts the next
+absolute row-start tick to its sample position and restarts a cursor segment there;
+it neither scans skipped ticks nor replays events. The next row is processed once
+on rendering, with normal absolute rational timing thereafter. If paused before
+any tick is consumed, row zero is still pending and is processed first. Stop clears
+voices, continuation and position; Start always starts anew at zero. Arithmetic
+or render rejection preserves core state/output; the firmware's existing fail-stop
+render/allocation policy and explicit START recovery remain unchanged. The 128-frame,
+16-command and 512-tick processing limits still apply. No new physical clock or
+synchronization policy is introduced. Snapshot requests never change transport.
+
+User-performed Windows BTX + Teensy 4.1 validation on **2026-10-10** confirms
+revised transport and visual behavior work as agreed. Exact physical pause latency,
+sample/phase and boundary timing, pending-command/backpressure stress, ordinary
+firmware regression, ArkOS/MQS and measured realtime execution cost remain open.
 
 ### BTPATTERN1 live position telemetry
 
 The opt-in firmware emits this explicitly versioned ASCII line (LF terminated):
 
 ```text
-BTPATTERN1 POS 1 <running> <valid> <tick> <row> <loop> <rows> <channels>
+BTPATTERN1 POS 2 <state> <valid> <tick> <row> <loop> <rows> <channels>
 ```
 
 Fields are unsigned decimal integers separated by exactly one ASCII space;
-no signs, tabs, extra fields or trailing spaces are accepted. The literal `1`
-is the message version. `running` and `valid` are 0 or 1. `tick`, `row` and `loop`
+no signs, tabs, extra fields or trailing spaces are accepted. The literal `2`
+is the revised message version. `state` is 0=Stopped, 1=Playing, 2=Paused;
+`valid` is 0 or 1. The shared parser also retains the earlier version-1 grammar
+with a 0/1 `running` flag (no paused state). `tick`, `row` and `loop`
 support the full uint64 range. Active dimensions must be 1..16 rows and 1..8
 channels, the current implementation capacities. A valid position requires
-running playback, `row = (tick / 96) % rows` and `loop = (tick / 96) / rows`.
-When invalid, tick/row/loop are all zero; running can still be 1 before the first
+Playing or Paused, `row = (tick / 96) % rows` and `loop = (tick / 96) / rows`.
+When invalid, tick/row/loop are all zero; Playing/Paused can be reported before the first
 tick has been rendered. Row and loop indices are zero-based in the protocol;
 BTX displays the row as one-based POS and keeps LOOP zero-based.
 
@@ -153,7 +278,10 @@ rendered audio**, including empty rows. It is not the next sample/block position
 or a measurement of physical output latency. Rejected/zero-frame renders retain
 the prior core position; tick-free blocks retain it too. Configure, Start,
 repeated Start and Stop invalidate it until another tick is consumed. The
-bring-up fail-stop policy invalidates it on any fault. Transport, position and
+bring-up fail-stop policy invalidates it on any fault. Pause retains the consumed
+position and highlight; it never extrapolates a row. Continue retains the previous
+consumed position until its first successful render consumes the next row.
+Transport, position and
 dimensions are copied together under the existing interrupt guard. No formatting,
 serial writes, allocation or blocking are added to the audio callback.
 
@@ -212,7 +340,7 @@ Initial capacities are 16 rows, eight channels, 128 active cells and one transfe
 Rows/channels are positive within those bounds; tempo is nonzero uint32 in integer
 hundredths of BPM. `count = rows * channels`. Each CELL is one chunk, in strict
 row-major order, index 0 through count-1: row = index / channels, channel = index
-% channels. Notes are 0..127, NOTE_OFF (254) or NOTE_EMPTY (255); instruments are
+% channels. Supported pattern notes are 24..127, NOTE_OFF (254) or NOTE_EMPTY (255); instruments are
 raw 0..255, with 255 meaning no update. No instrument resolution is performed.
 Fields cannot have signs, tabs, extra fields, numeric overflow or trailing spaces.
 Snapshot lines use a 96-byte buffer including LF/NUL (sufficient for maximum
@@ -302,3 +430,48 @@ does not define the final firmware underrun/recovery policy.
 
 No sample allocation/freeing, SD loading, resampling, effects, MIDI changes,
 generic instrument ABI or runtime PlaybackEngine integration is included.
+
+### Shared informational panel
+
+Playback/paused/stale status, local draft / NOT SENT TO TEENSY / dirty status,
+pattern loading/unavailability and rows/channels/loop information use the existing
+right-hand content panel in both Windows and ArkOS. Text wraps within the actual
+workspace bounds, with at least 8 px internal padding and pixel clipping to the
+content interior. Pattern cells, field cursor, playback highlight, OPT/INS/MIX
+header and bottom channel-navigation frame remain intact. User visually confirmed
+this preceding panel change on **2026-10-10**.
+
+The subsequent layout update also places caller-supplied connection status
+(waiting/idle/playing/paused/errors), host-specific transport hints and pending
+STOP / STOP-then-EXIT messages in this shared panel. Connection and pending
+transport information are drawn first, including before device connection.
+Windows and ArkOS no longer draw a bottom overlay over pattern rows; transport
+behavior and logging are unchanged. This new update has host rendering checks
+and user confirmation on **2026-10-10** covers the final panel layout, `d1`
+header and all other current behavior. Numeric Enter STOP/reset remains pending
+manual confirmation after the mapping correction. Both Enter keys share modifier
+handling (Ctrl/Alt/GUI suppress the action) and ignore OS-repeat events.
+ArkOS and all outstanding hardware timing/performance checks remain open.
+
+The row-numbering header is `d1` in device and standalone modes: decimal,
+one-based displayed rows (01..16 for the fixture), with zero-based internal
+indices. Planned zero-based and hexadecimal display options remain deferred;
+no numbering-mode switch is implemented.
+
+Deferred instrument-numbering decision: prefer first visible instrument `01`
+and no-instrument marker `--`; mapping to raw IDs and capacity are undecided.
+Instrument IDs and their display are unchanged by this adjustment.
+
+### Live playback-position styling
+
+The shared Windows/ArkOS renderer now uses the prototype/standalone preview's
+neutral dark grey current-row colour (RGB 30/30/30), without a bright edited-channel
+background. The row-number column reuses the existing custom arrow glyph at
+U+00A6 (BFM entry 166), positioned clear of the number and separator. Both the
+row highlight and arrow follow the same authoritative reported row, including
+fresh valid paused positions; stopped, stale, invalid or unavailable positions
+hide both. The orange field-edit border remains independent.
+
+Host rendering checks cover colour, exact arrow bitmap/placement and visibility.
+Manual validation of this new styling remains pending. A bright edited-channel
+background remains a deferred design option; transport and editing are unchanged.

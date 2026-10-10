@@ -75,7 +75,7 @@ namespace BroTracker
         return false;
     }
     inline bool ValidSnapshotNote(std::uint32_t note) noexcept
-    { return note <= 127 || note == NOTE_EMPTY || note == NOTE_OFF; }
+    { return IsPatternNote(note); }
     inline std::uint32_t SnapshotHashByte(std::uint32_t hash, std::uint8_t value) noexcept
     { return (hash ^ value) * 16777619u; }
     // FNV-1a32: rows byte, channels byte, tempo uint32 little-endian, then raw

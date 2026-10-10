@@ -15,6 +15,7 @@ namespace
         CHECK_EQ(a.running, b.running); CHECK_EQ(a.valid, b.valid);
         CHECK_EQ(a.tick, b.tick); CHECK_EQ(a.row, b.row); CHECK_EQ(a.loop, b.loop);
         CHECK_EQ(a.rows, b.rows); CHECK_EQ(a.channels, b.channels);
+        CHECK_EQ(a.paused, b.paused); CHECK_EQ(a.version, b.version);
     }
     struct PositionTransport : SerialTransport
     {
@@ -65,7 +66,7 @@ TEST_CASE(PatternTelemetry_StrictFieldsOverflowAndUnchangedRejection)
     constexpr char stopped[] = "BTPATTERN1 POS 1 0 0 0 0 0 1 8";
     CHECK(ParsePatternTelemetry(stopped, sizeof(stopped) - 1, value));
     const std::vector<std::string> invalid = {
-        "BTPATTERN1 POS 2 1 1 1536 0 1 16 2", // Version.
+        "BTPATTERN1 POS 3 1 1 1536 0 1 16 2", // Unsupported version.
         "BTPATTERN1 POS 1 2 1 1536 0 1 16 2",
         "BTPATTERN1 POS 1 1 2 1536 0 1 16 2",
         "BTPATTERN1 POS 1 0 1 1536 0 1 16 2", // Valid requires running.
@@ -104,6 +105,57 @@ TEST_CASE(PatternTelemetry_StrictFieldsOverflowAndUnchangedRejection)
     CHECK(FormatPatternTelemetry(maximum, formatted, length));
     CHECK(length < sizeof(formatted)); CHECK_EQ(formatted[length - 1], '\n');
     CHECK(ParsePatternTelemetry(formatted, length - 1, value)); Same(value, maximum);
+}
+TEST_CASE(PatternTelemetryPausedVersion2ReconnectAndCommandBarriers) {
+    constexpr char paused[] = "BTPATTERN1 POS 2 2 1 95 0 0 16 2";
+    PatternTelemetry value;
+    CHECK(ParsePatternTelemetry(paused, sizeof(paused)-1, value));
+    CHECK(value.paused && value.valid && !value.running); CHECK_EQ(value.version, 2);
+    char line[kPatternTelemetryLineCapacity]{}; std::size_t size = 0;
+    CHECK(FormatPatternTelemetry(value, line, size)); CHECK_EQ(std::string(line, size), std::string(paused)+"\n");
+    const auto saved = value;
+    for (const auto* bad : {"BTPATTERN1 POS 1 2 1 95 0 0 16 2", "BTPATTERN1 POS 2 3 1 95 0 0 16 2",
+        "BTPATTERN1 POS 2 0 1 95 0 0 16 2", "BTPATTERN1 POS 2 2 1 95 1 0 16 2"}) {
+        CHECK(!ParsePatternTelemetry(bad, std::strlen(bad), value)); Same(value, saved);
+    }
+    Session session; session.Connect("PAUSED");
+    session.Receive(std::string("BTPATTERN1 TRANSPORTCAP 1\n") + paused + "\n");
+    CHECK(session.serial.Paused()); CHECK(session.serial.SupportsPatternTransport());
+    CHECK(session.View().fresh && session.View().position.paused);
+    CHECK(ResolvePatternDisplay(session.serial.PlaybackView(session.now)).playback_highlight);
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Framebuffer fb(640, 480); Tune tune; Pattern preview;
+    auto paused_view = session.serial.PlaybackView(session.now);
+    RenderMainScreen(fb, tune, preview, paused_view);
+    const std::vector<Color> paused_pixels(fb.PixelData(), fb.PixelData() + 640 * 480);
+    auto playing_view = paused_view; playing_view->position.paused = false; playing_view->position.running = true;
+    RenderMainScreen(fb, tune, preview, playing_view);
+    bool label_differs = false;
+    for (unsigned y = 38; y < 110; ++y) for (unsigned x = 466; x < 631; ++x)
+        label_differs |= std::memcmp(&paused_pixels[y*640+x], &fb.PixelData()[y*640+x], sizeof(Color)) != 0;
+    CHECK(label_differs); // Shared renderer labels PAUSED distinctly at the same position.
+    CHECK(session.port->output.empty()); // Reconnect never STARTs or CONTINUEs.
+    CHECK(session.serial.Continue()); CHECK(!session.serial.Continue());
+    session.Tick(); session.Tick(); CHECK_EQ(session.port->output, "BTTEST1 CONTINUE\n");
+    session.port->output.clear();
+    session.Receive("BTTEST1 PAUSED\n"); CHECK(session.serial.TransportPending()); // Wrong ACK.
+    session.Receive("BTTEST1 CONTINUED\nBTPATTERN1 POS 2 1 1 96 1 0 16 2\n");
+    CHECK(session.serial.Playing()); CHECK_EQ(session.View().position.row, 1);
+    CHECK(session.serial.Pause());
+    session.Tick(); session.Tick(); CHECK_EQ(session.port->output, "BTTEST1 PAUSE\n");
+    session.Receive("BTTEST1 PAUSED\nBTPATTERN1 POS 2 2 1 100 1 0 16 2\n");
+    CHECK(session.serial.Paused()); CHECK_EQ(session.View().position.tick, 100);
+    session.port->online = false; session.Tick(); CHECK(!session.serial.PlaybackView(session.now));
+    CHECK(!session.serial.SupportsPatternTransport());
+    session.port->online = true; session.port->output.clear(); session.now += 1000;
+    session.Tick(); CHECK_EQ(session.port->output, "BTTEST1 HELLO\n"); session.port->output.clear();
+    session.Receive(std::string("BTTEST1 STATE PAUSED\nBTPATTERN1 TRANSPORTCAP 1\n") + paused + "\n");
+    CHECK(session.serial.Paused()); CHECK(session.port->output.empty());
+    Session legacy; legacy.Connect();
+    legacy.Receive("BTPATTERN1 TRANSPORTCAP 2\nBTPATTERN1 TRANSPORTCAP 1 extra\n");
+    CHECK(!legacy.serial.SupportsPatternTransport());
+    CHECK(!legacy.serial.Pause()); CHECK(!legacy.serial.Continue());
+    legacy.Tick(); CHECK(legacy.port->output.empty());
 }
 
 TEST_CASE(PatternTelemetry_CoalescesBackpressureWithoutInterleavingPartialLines)
@@ -209,10 +261,10 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
     }
     RenderMainScreen(framebuffer, other_tune, other_preview, live);
     CHECK(std::memcmp(device.data(), framebuffer.PixelData(), device.size() * sizeof(Color)) == 0);
-    // Reported row 1 receives teal playback background; fixed edit row 12 does
+    // Reported row 1 receives neutral grey playback background; fixed edit row 12 does
     // not move to row 1 or masquerade as firmware content. No data on row 16+.
     const auto pixel = [&](int x, int y) { return framebuffer.PixelData()[y * 640 + x]; };
-    CHECK_EQ(pixel(32, 62 + 13).g, 64);
+    CHECK_EQ(pixel(32, 62 + 13).g, 30);
     CHECK_EQ(pixel(32, 62 + 12 * 13).g, 16);
     CHECK_EQ(pixel(32, 62 + 16 * 13).g, 16);
     auto stale = live; stale->fresh = false;

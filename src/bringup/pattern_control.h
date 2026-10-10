@@ -5,7 +5,7 @@
 namespace BroTracker
 {
     constexpr std::size_t kPatternRequestCapacity = 8;
-    enum class PatternRequest { Start, Stop };
+    enum class PatternRequest { Start, Stop, Pause, Continue };
     enum class PatternRequestStatus { Accepted, Full, InvalidRequest };
     enum class PatternFault { None, Configuration, Render, Allocation };
     struct PatternAppliedRequest
@@ -18,6 +18,7 @@ namespace BroTracker
         // One audio-owner publication: applied transport, consumed position and
         // dimensions belong together. Copy only under platform interrupt exclusion.
         bool running = false;
+        PatternTransportState transport = PatternTransportState::Stopped;
         std::uint64_t next_sample = 0;
         ConsumedPatternPosition position;
         std::uint32_t active_rows = 0, active_channels = 0;
@@ -41,7 +42,8 @@ namespace BroTracker
     public:
         [[nodiscard]] PatternRequestStatus Submit(PatternRequest request) noexcept
         {
-            if (request != PatternRequest::Start && request != PatternRequest::Stop)
+            if (request != PatternRequest::Start && request != PatternRequest::Stop &&
+                request != PatternRequest::Pause && request != PatternRequest::Continue)
                 return PatternRequestStatus::InvalidRequest;
             if (request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
             requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = request;
@@ -97,7 +99,10 @@ namespace BroTracker
                     }
                     else Fail(PatternFault::Configuration, result);
                 }
-                else player_.Stop();
+                else if (request == PatternRequest::Stop) player_.Stop();
+                else if (status_.fault != PatternFault::None) result = PatternPlayerStatus::InvalidTransportState;
+                else if (request == PatternRequest::Pause) result = player_.Pause();
+                else result = player_.Continue();
                 applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result};
                 ++applied_count_;
             }
@@ -133,6 +138,7 @@ namespace BroTracker
         void Publish() noexcept
         {
             status_.running = player_.IsRunning();
+            status_.transport = player_.GetTransportState();
             status_.next_sample = player_.GetNextSamplePosition();
             status_.position = player_.GetPlaybackPosition();
             status_.active_rows = player_.GetActiveRows();

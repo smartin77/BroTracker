@@ -300,6 +300,7 @@ int main(int, char*[])
     WriteBringUpDiagnostic(bring_up_log,
         "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
     BringUpSerial serial(bring_up_log);
+    LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 
     WriteBringUpDiagnostic(
@@ -309,6 +310,7 @@ int main(int, char*[])
     while (!controls.Quit())
     {
         controls.Tick(SDL_GetTicks());
+        editor.Sync(serial.PlaybackView(SDL_GetTicks()));
         SDL_Event event;
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
@@ -330,18 +332,14 @@ int main(int, char*[])
             }
         }
 
-        // Temporary bring-up status overlay; leave the tracker layout alone.
-        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()));
-        framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16, 16, 16});
-        DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
-        DrawFixedText(framebuffer, 8, 456,
+        const HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             controller_id < 0 ? "Mapped SDL GameController required" :
             !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
             serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
             !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
-            "L1 / B: START | R1 / X: EXIT",
-            Color{255, 255, 255});
+            "L1 / B: START | R1 / X: EXIT"};
+        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if (!controls.Quit() && !display.Present(framebuffer))
         {

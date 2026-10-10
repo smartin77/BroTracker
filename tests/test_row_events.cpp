@@ -44,7 +44,7 @@ TEST_CASE(RowEvents_EmptyAndInactiveCells)
 TEST_CASE(RowEvents_RawCommandsChannelOrderAndTiming)
 {
     RealtimePattern pattern;
-    pattern.cells[0][0] = {0, 0xFF};
+    pattern.cells[0][0] = {24, 0xFF};
     pattern.cells[0][1] = {NOTE_OFF, 0xFF};
     pattern.cells[0][2] = {NOTE_EMPTY, 254};
     pattern.cells[0][3] = {127, 0};
@@ -92,8 +92,9 @@ TEST_CASE(RowEvents_ValidationLeavesWholeBatchUnchanged)
     }
     pattern.active_channels = 8;
     pattern.cells[0][0] = {60, 1}; // A later invalid cell must not publish partial output.
-    for (unsigned int note = 128; note < NOTE_OFF; ++note)
+    for (unsigned int note = 0; note < NOTE_OFF; ++note)
     {
+        if (IsPatternNote(note)) continue;
         pattern.cells[0][7].note = static_cast<Note>(note);
         CHECK_EQ(GenerateRowEvents({0, 0, 0}, pattern, batch), RowEventStatus::InvalidNote);
         check_unchanged();

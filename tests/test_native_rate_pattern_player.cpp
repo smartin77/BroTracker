@@ -25,6 +25,8 @@ namespace BroTracker
         { return player.renderer_; }
         static void SetPosition(NativeRatePatternPlayer& player, std::uint64_t position)
         { player.next_sample_ = position; }
+        static void SetConsumedTick(NativeRatePatternPlayer& player, std::uint64_t tick)
+        { player.position_ = {true, tick, 0, 0}; }
         static void ExhaustCursor(NativeRatePatternPlayer& player)
         {
             // Seed an otherwise impractical arithmetic boundary using the cursor's
@@ -55,6 +57,7 @@ namespace
     void CheckPlayback(const NativeRatePatternPlayer& actual, const NativeRatePatternPlayer& expected)
     {
         CHECK_EQ(actual.IsRunning(),expected.IsRunning());
+        CHECK_EQ(actual.GetTransportState(),expected.GetTransportState());
         CHECK_EQ(actual.GetNextSamplePosition(),expected.GetNextSamplePosition());
         const auto a_position = actual.GetPlaybackPosition();
         const auto e_position = expected.GetPlaybackPosition();
@@ -87,6 +90,98 @@ namespace
             CHECK(!NativeRatePatternPlayerTestAccess::Renderer(player).GetVoice(c)->IsActive());
         }
     }
+}
+TEST_CASE(PatternPlayerPauseContinueSilenceContinuationNextRowAndLoop) {
+    auto pattern = Pattern(); pattern.active_rows = 3; pattern.active_channels = 1;
+    pattern.cells[1][0] = {60, kNoInstrumentUpdate};
+    pattern.cells[2][0] = {60, kNoInstrumentUpdate};
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(12753, 100, pattern, Bindings(100)), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::InvalidTransportState);
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::InvalidTransportState);
+    CHECK_EQ(player.Start(), PatternPlayerStatus::Success);
+    std::int16_t out[128]{};
+    CHECK_EQ(player.Render(out, 5), PatternPlayerStatus::Success);
+    CHECK_EQ(out[0], 10); CHECK_EQ(out[4], 50);
+    const auto pos = player.GetPlaybackPosition(); const auto sample = player.GetNextSamplePosition();
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetTransportState(), PatternTransportState::Paused);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, pos.absolute_tick);
+    CHECK_EQ(player.Render(out, 128), PatternPlayerStatus::Success);
+    for (auto value : out) CHECK_EQ(value, 0);
+    CHECK_EQ(player.GetNextSamplePosition(), sample);
+    LogicalChannelState state;
+    CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(player).GetChannel(0, state), ChannelStateStatus::Success);
+    CHECK_EQ(state.instrument, 7); CHECK_EQ(state.note, 60);
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::Success);
+    std::uint64_t next = 0;
+    CHECK_EQ(TickToSamplePosition(96, 12753, 100, next), TickToSampleStatus::Success);
+    CHECK_EQ(player.GetNextSamplePosition(), next);
+    CHECK_EQ(player.Render(out, 2), PatternPlayerStatus::Success);
+    CHECK_EQ(out[0], 10); CHECK_EQ(out[1], 20);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 1);
+    CHECK_EQ(player.Render(out, 2), PatternPlayerStatus::Success);
+    CHECK_EQ(out[0], 30); CHECK_EQ(out[1], 40); // Row command not replayed.
+    CHECK_EQ(TickToSamplePosition(192, 12753, 100, next), TickToSampleStatus::Success);
+    while (player.GetNextSamplePosition() < next + 1) {
+        CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::Success);
+    }
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 2);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::Success);
+    CHECK_EQ(TickToSamplePosition(288, 12753, 100, next), TickToSampleStatus::Success);
+    CHECK_EQ(player.GetNextSamplePosition(), next);
+    CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(out[0], 10); CHECK_EQ(player.GetPlaybackPosition().pattern_row, 0);
+    CHECK_EQ(player.GetPlaybackPosition().loop_index, 1);
+    player.Stop(); player.Stop(); CHECK_EQ(player.GetTransportState(), PatternTransportState::Stopped);
+    CHECK_EQ(player.GetNextSamplePosition(), 0); CHECK(!player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.Render(out, 3), PatternPlayerStatus::Success); CHECK_EQ(out[0], 0);
+}
+TEST_CASE(PatternPlayerPauseBoundaryAndContinueRollback) {
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(12753, 44100, Pattern(), Bindings()), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success); // Nothing consumed: row zero pending.
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::Success); CHECK_EQ(player.GetNextSamplePosition(), 0);
+    std::int16_t out[128]{}; CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::Success);
+    std::uint64_t boundary = 0;
+    CHECK_EQ(TickToSamplePosition(96, 12753, 44100, boundary), TickToSampleStatus::Success);
+    while (player.GetNextSamplePosition() < boundary) {
+        const auto count = std::min<std::uint64_t>(128, boundary - player.GetNextSamplePosition());
+        CHECK_EQ(player.Render(out, count), PatternPlayerStatus::Success);
+    }
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 0);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success);
+    const auto reference = player;
+    CHECK_EQ(player.Configure(0, 44100, Pattern(), Bindings()), PatternPlayerStatus::InvalidTempo);
+    CheckPlayback(player, reference);
+    out[0] = 999;
+    CHECK_EQ(player.Render(nullptr, 1), PatternPlayerStatus::InvalidDestination);
+    CHECK_EQ(player.Render(out, 129), PatternPlayerStatus::InvalidFrameCount);
+    CHECK_EQ(out[0], 999); CheckPlayback(player, reference);
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetNextSamplePosition(), boundary); // End-boundary row was not consumed/skipped.
+    CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 1);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success);
+    NativeRatePatternPlayerTestAccess::SetConsumedTick(player, UINT64_MAX);
+    const auto exhausted = player;
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::RangeOverflow); CheckPlayback(player, exhausted);
+    CHECK_EQ(player.GetTransportState(), PatternTransportState::Paused);
+    NativeRatePatternPlayerTestAccess::SetConsumedTick(player, UINT64_MAX / 2);
+    const auto conversion_overflow = player;
+    CHECK_EQ(player.Continue(), PatternPlayerStatus::RangeOverflow); CheckPlayback(player, conversion_overflow);
+    // Continue succeeds transactionally; a later unsupported row fails Render
+    // without losing its new segment or changing output.
+    auto bad = Pattern(); bad.cells[1][0] = {61, 7};
+    CHECK_EQ(player.Configure(12753, 44100, bad, Bindings()), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(), PatternPlayerStatus::Success); CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(), PatternPlayerStatus::Success); CHECK_EQ(player.Continue(), PatternPlayerStatus::Success);
+    const auto retry = player; out[0] = 999;
+    CHECK_EQ(player.Render(out, 1), PatternPlayerStatus::UnsupportedPitch);
+    CHECK_EQ(out[0], 999); CheckPlayback(player, retry);
 }
 
 TEST_CASE(PatternPlayer_TransportSilenceRestartAndRenderValidation)
@@ -149,6 +244,10 @@ TEST_CASE(PatternPlayer_TransactionalConfigurationAndMetadataCopies)
         reject(12753,44100,invalid,bindings,PatternPlayerStatus::InvalidDimensions); }
     invalid=pattern; invalid.cells[15][1].note=128; // Validate more than the first row.
     reject(12753,44100,invalid,bindings,PatternPlayerStatus::InvalidNote);
+    for (const auto note : {0, 23}) {
+        invalid=pattern; invalid.cells[15][1].note=static_cast<Note>(note);
+        reject(12753,44100,invalid,bindings,PatternPlayerStatus::InvalidNote);
+    }
     auto bad=bindings; bad.count=17;
     reject(12753,44100,pattern,bad,PatternPlayerStatus::InvalidBindingCount);
     bad=bindings; bad.count=2; bad.bindings[1]=bad.bindings[0];

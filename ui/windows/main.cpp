@@ -66,27 +66,31 @@ int main(int, char*[]) try {
         WindowsDiagnostic(log.get(), "Windows audio disabled", error.what());
     }
     BringUpSerial serial(log.get());
+    LocalPatternEditor editor;
+    WindowsEditorInput editor_input;
     BringUpControls controls(serial, log.get());
-    std::fprintf(log.get(), "Controls: Space START/RESTART; Enter STOP (stay); Ctrl+X/window close EXIT\n");
+    std::fprintf(log.get(), "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT\n");
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
+        editor.Sync(serial.PlaybackView(SDL_GetTicks()));
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if (editor_input.Handle(event, SDL_GetTicks(), editor)) continue;
             const auto action = MapWindowsAction(event);
             if (action != BringUpAction::None) {
                 const char* source = event.type == SDL_QUIT ? "window close" :
-                    action == BringUpAction::Start ? "Space" : action == BringUpAction::Stop ? "Enter" : "Ctrl+X";
+                    action == BringUpAction::PatternToggle ? "Space" : action == BringUpAction::ResetStop ? "Enter" : "Ctrl+X";
                 controls.Request(action, source, SDL_GetTicks());
             }
         }
-        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()));
-        framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16,16,16});
-        DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255,255,255});
-        DrawFixedText(framebuffer, 8, 456, controls.StopPending() ?
+        editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
+        const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT", Color{255,255,255});
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT"};
+        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log.get(), "Terminal error", SDL_GetError()); display_failed = true;
             controls.Request(BringUpAction::Exit, "display error", SDL_GetTicks());

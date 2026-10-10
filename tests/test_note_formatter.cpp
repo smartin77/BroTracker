@@ -29,7 +29,7 @@ TEST_CASE(FormatNote_UsesYamahaOctaveConvention)
 {
     // Yamaha convention (D0018): MIDI 60 = C3.
     CHECK_EQ(FormatNote(60, AccidentalMode::Sharp), std::string("C-3"));
-    CHECK_EQ(FormatNote(0, AccidentalMode::Sharp), std::string("C--2"));
+    CHECK_EQ(FormatNote(0, AccidentalMode::Sharp), std::string("???"));
     CHECK_EQ(FormatNote(120, AccidentalMode::Sharp), std::string("C-8"));
 }
 
@@ -44,4 +44,17 @@ TEST_CASE(FormatNote_RoundTripsWithDummyTuneJsonNoteText)
     // "C-5" in assets/dummy_my_tune.json parses to MIDI 84; see
     // LoadTuneFromJson_ParsesDummyTune for the matching parser assertion.
     CHECK_EQ(FormatNote(84, AccidentalMode::Sharp), std::string("C-5"));
+}
+
+TEST_CASE(FormatNote_SupportedRangeAndFallback) {
+    CHECK_EQ(FormatNote(24, AccidentalMode::Sharp), "C-0");
+    CHECK_EQ(FormatNote(60, AccidentalMode::Flat), "C-3");
+    CHECK_EQ(FormatNote(127, AccidentalMode::Sharp), "G-8");
+    CHECK_EQ(FormatNote(25, AccidentalMode::Sharp), "C#0");
+    CHECK_EQ(FormatNote(25, AccidentalMode::Flat), "Db0");
+    for (unsigned n = 0; n < 24; ++n) {
+        CHECK_EQ(FormatNote(static_cast<Note>(n), AccidentalMode::Sharp), "???");
+        CHECK_EQ(FormatNote(static_cast<Note>(n), AccidentalMode::Flat), "???");
+    }
+    CHECK_EQ(FormatNote(128, AccidentalMode::Sharp), "???");
 }

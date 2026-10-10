@@ -105,15 +105,15 @@ TEST_CASE(ChannelState_FieldContinuationAndExplicitRepeatedUpdates)
     state.Reset();
     result = ApplyFields(state, 127, kNoInstrumentUpdate);
     CheckState(result.after, {127, kNoInstrumentUpdate});
-    result = ApplyFields(state, 0, kNoInstrumentUpdate);
-    CheckState(result.after, {0, kNoInstrumentUpdate});
+    result = ApplyFields(state, 24, kNoInstrumentUpdate);
+    CheckState(result.after, {24, kNoInstrumentUpdate});
 }
 
 TEST_CASE(ChannelState_InvalidInputPreservesAllStateAndOutput)
 {
     ChannelPlaybackState state;
-    for (std::uint8_t i = 0; i < kRealtimePatternChannelCapacity; ++i) ApplyFields(state, i, i, i);
-    auto result = ApplyFields(state, 0, 0);
+    for (std::uint8_t i = 0; i < kRealtimePatternChannelCapacity; ++i) ApplyFields(state, 24 + i, i, i);
+    auto result = ApplyFields(state, 24, 0);
     const auto original = result;
     const auto unchanged = [&]() {
         CheckApplication(result, original);
@@ -121,7 +121,7 @@ TEST_CASE(ChannelState_InvalidInputPreservesAllStateAndOutput)
         {
             LogicalChannelState snapshot;
             CHECK_EQ(state.GetChannel(i, snapshot), ChannelStateStatus::Success);
-            CheckState(snapshot, {static_cast<Note>(i), static_cast<std::uint8_t>(i)});
+            CheckState(snapshot, {static_cast<Note>(24 + i), static_cast<std::uint8_t>(i)});
         }
     };
     for (const auto channel : {8, 255})
@@ -133,8 +133,9 @@ TEST_CASE(ChannelState_InvalidInputPreservesAllStateAndOutput)
         CHECK_EQ(state.Apply(event, result), ChannelStateStatus::InvalidChannel);
         unchanged();
     }
-    for (unsigned int note = 128; note < NOTE_OFF; ++note)
+    for (unsigned int note = 0; note < NOTE_OFF; ++note)
     {
+        if (IsPatternNote(note)) continue;
         RowEvent event;
         event.note = static_cast<Note>(note);
         event.instrument = 99;

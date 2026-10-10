@@ -18,6 +18,12 @@ public:
     void Tick(std::uint32_t now);
     bool Start();
     bool Stop();
+    bool Pause();
+    bool Continue();
+    bool SupportsPatternTransport() const { return transport_supported_; }
+    bool Paused() const;
+    bool Playing() const;
+    bool TransportPending() const;
     bool Connected() const { return connected_; }
     bool Stopped() const { return stopped_; }
     bool Finished() const;
@@ -30,7 +36,10 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
-    enum class Command { None, Hello, Status, Start, Stop };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue };
+    bool QueueTransport(Command command);
+    Command transport_queued_ = Command::None;
+    bool transport_supported_ = false;
     void Log(const char* message, const char* detail = "");
     void Disconnect(const char* reason);
     void Send(Command command, std::uint32_t now);

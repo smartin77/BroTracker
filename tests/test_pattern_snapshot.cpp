@@ -127,6 +127,7 @@ TEST_CASE(PatternSnapshot_RejectionOrderingIdentityCompletionTimeoutAndCancellat
     }
     const std::vector<std::string> bad_cells = {
         "BTPATTERN1 CELL 1 1 1 60 0", "BTPATTERN1 CELL 1 2 0 60 0",
+        "BTPATTERN1 CELL 1 1 0 0 0", "BTPATTERN1 CELL 1 1 0 23 0",
         "BTPATTERN1 CELL 1 1 0 128 0", "BTPATTERN1 CELL 1 1 0 253 0",
         "BTPATTERN1 CELL 1 1 0 60 256", "BTPATTERN1 CELL 1 1 0 60 4294967296",
         "BTPATTERN1 CELL 1 1 0 60", "BTPATTERN1 CELL 1 1 0 60 0 "};

@@ -127,8 +127,11 @@ TEST_CASE(SampleCommands_TransactionalPreparationFailures)
     reject(EventAt(1,61,0,4),SampleCommandStatus::UnsupportedPitch);
     reject(EventAt(8,60,0,4),SampleCommandStatus::InvalidChannel);
     reject(EventAt(255,60,0,4),SampleCommandStatus::InvalidChannel);
-    for (unsigned int note=128;note<NOTE_OFF;++note)
+    for (unsigned int note=0;note<NOTE_OFF;++note)
+    {
+        if (IsPatternNote(note)) continue;
         reject(EventAt(1,static_cast<Note>(note),0,4),SampleCommandStatus::InvalidNote);
+    }
     reject(EventAt(1,60,0,2),SampleCommandStatus::UnorderedOffsets);
     input.count=9;
     CHECK_EQ(preparer.Prepare(input,output),SampleCommandStatus::InvalidEventCount); unchanged();
@@ -166,7 +169,7 @@ TEST_CASE(SampleCommands_ConfigurationValidationAndReconfiguration)
     bad.count=SIZE_MAX; reject(bad,SampleCommandStatus::InvalidBindingCount);
     bad=original; bad.bindings[1].instrument=0; reject(bad,SampleCommandStatus::DuplicateInstrument);
     bad=original; bad.bindings[1].instrument=255; reject(bad,SampleCommandStatus::ReservedInstrument);
-    for (const auto note:{128,254,255}) {
+    for (const auto note:{0,23,128,254,255}) {
         bad=original; bad.bindings[1].native_rate_note=static_cast<Note>(note);
         reject(bad,SampleCommandStatus::InvalidNativeRateNote);
     }
@@ -178,12 +181,12 @@ TEST_CASE(SampleCommands_ConfigurationValidationAndReconfiguration)
     reject(bad,SampleCommandStatus::RangeOverflow);
     NativeRateSampleBindings full{}; full.count=kNativeRateSampleBindingCapacity;
     for (std::size_t i=0;i<full.count;++i)
-        full.bindings[i]={static_cast<std::uint8_t>(i),static_cast<Note>(i),{pcm_a,4,48000}};
+        full.bindings[i]={static_cast<std::uint8_t>(i),static_cast<Note>(24+i),{pcm_a,4,48000}};
     CHECK_EQ(preparer.Configure(48000,full),SampleCommandStatus::Success);
     for (std::uint32_t c=0;c<8;++c) CheckState(preparer,c,NOTE_EMPTY,kNoInstrumentUpdate);
-    auto output=PrepareOne(preparer,EventAt(7,15,15));
+    auto output=PrepareOne(preparer,EventAt(7,39,15));
     CHECK_EQ(output.commands[0].sample.sample_rate_hz,48000);
-    output=PrepareOne(preparer,EventAt(0,0,0)); CHECK_EQ(output.count,1);
+    output=PrepareOne(preparer,EventAt(0,24,0)); CHECK_EQ(output.count,1);
     full.bindings[15].native_rate_note=127;
     CHECK_EQ(preparer.Configure(48000,full),SampleCommandStatus::Success);
     output=PrepareOne(preparer,EventAt(7,127,15)); CHECK_EQ(output.count,1);

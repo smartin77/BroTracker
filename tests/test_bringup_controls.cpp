@@ -34,6 +34,34 @@ struct Test {
 };
 int main() {
     try {
+        { Test t; t.Ready("BTTEST1 STATE IDLE\n");
+          t.Reply("BTPATTERN1 TRANSPORTCAP 1\n");
+          t.Action(BringUpAction::ResetStop); t.Send("BTTEST1 STOP\n");
+          t.Action(BringUpAction::ResetStop); t.Reply("BTTEST1 STOPPED\n");
+          CHECK(!t.controls.Quit()); t.Action(BringUpAction::ResetStop); t.Send("BTTEST1 STOP\n");
+          t.Reply("BTTEST1 STOPPED\n");
+          t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 START\n");
+          t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 STARTED\n");
+          t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 PAUSE\n");
+          t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 PAUSED\n");
+          CHECK(t.serial.Paused());
+          t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 CONTINUE\n");
+          t.Reply("BTTEST1 CONTINUED\n"); CHECK(t.serial.Playing());
+          t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 PAUSE\n");
+          t.Action(BringUpAction::Exit); t.Reply("BTTEST1 PAUSED\n");
+          t.Send("BTTEST1 STOP\n"); t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+        { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); // No capability: preserve legacy restart.
+          t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 START\n"); }
+        { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
+          t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
+          t.Action(BringUpAction::PatternToggle); t.Action(BringUpAction::Exit);
+          t.Reply("BTTEST1 STATE PLAYING\n"); t.Send("BTTEST1 PAUSE\n");
+          t.Reply("BTTEST1 PAUSED\n"); t.Send("BTTEST1 STOP\n");
+          t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+        { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
+          t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
+          t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 STATE ERROR\n");
+          t.Tick(); t.port->Expect(""); CHECK(!t.serial.TransportPending()); }
         { Test t; t.Action(BringUpAction::Start); CHECK(!t.serial.StartPending());
           t.Action(BringUpAction::Stop); CHECK(!t.controls.Quit());
           t.Action(BringUpAction::Exit); CHECK(t.controls.Quit()); }
