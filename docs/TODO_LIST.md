@@ -385,18 +385,20 @@ design remains unchanged.
   2026-10-10. The subsequent host-status/control/pending-message move removes
   Windows/ArkOS bottom overlays and has host containment tests. User confirmation
   on 2026-10-10 covers the final panel layout, `d1` header and all other current
-  behavior; numeric Enter remains pending manual confirmation after its correction. Decimal one-based `d1` rows retain zero-based
+  behavior. User confirmation on 2026-10-10 also covers numeric Enter STOP/reset.
+  Decimal one-based `d1` rows retain zero-based
   internal indices. No transport behavior changes are included.
-* [ ] Manually confirm numeric Enter STOP/reset after the Windows mapping correction;
-  ArkOS visual/binding validation and outstanding hardware timing/performance
-  checks remain open.
+* [x] Validate numeric Enter STOP/reset on Windows: user confirmed on 2026-10-10.
+* [ ] Complete ArkOS visual/binding validation; outstanding physical timing,
+  realtime performance and other hardware checks remain open.
 
 * [x] Shared live playback styling uses the preview's dark neutral grey row and
   existing font arrow beside the reported row number; fresh valid paused positions
   retain both, while stopped/stale/unavailable positions hide them. Orange field
   editing remains independent. Host rendering tests cover placement/visibility.
-* [ ] Manually validate the new grey playback-row and arrow styling on Windows,
-  then ArkOS; no new hardware timing/performance validation is implied.
+* [x] Validate grey playback-row and arrow styling on Windows: user confirmed
+  on 2026-10-10. This does not establish physical timing or realtime performance.
+* [ ] Validate grey playback-row and arrow styling on ArkOS.
 
 ## Deferred Tasks
 

@@ -448,8 +448,8 @@ transport information are drawn first, including before device connection.
 Windows and ArkOS no longer draw a bottom overlay over pattern rows; transport
 behavior and logging are unchanged. This new update has host rendering checks
 and user confirmation on **2026-10-10** covers the final panel layout, `d1`
-header and all other current behavior. Numeric Enter STOP/reset remains pending
-manual confirmation after the mapping correction. Both Enter keys share modifier
+header and all other current behavior. User also confirmed numeric Enter STOP/reset
+on **2026-10-10** after the mapping correction. Both Enter keys share modifier
 handling (Ctrl/Alt/GUI suppress the action) and ignore OS-repeat events.
 ArkOS and all outstanding hardware timing/performance checks remain open.
 
@@ -473,5 +473,8 @@ fresh valid paused positions; stopped, stale, invalid or unavailable positions
 hide both. The orange field-edit border remains independent.
 
 Host rendering checks cover colour, exact arrow bitmap/placement and visibility.
-Manual validation of this new styling remains pending. A bright edited-channel
-background remains a deferred design option; transport and editing are unchanged.
+User confirmed the grey playback-row and arrow styling on Windows on
+**2026-10-10**. ArkOS styling validation remains open, as do unmeasured physical
+timing/realtime performance and the other outstanding hardware checks. A bright
+edited-channel background remains a deferred design option; transport and editing
+are unchanged.
