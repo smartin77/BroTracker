@@ -39,6 +39,8 @@ void BringUpSerial::Disconnect(const char* reason)
     start_queued_ = stop_queued_ = false;
     tx_size_ = tx_offset_ = used_ = 0;
     overflow_ = false;
+    live_ = {};
+    position_received_ = false;
     std::strcpy(state_, "UNKNOWN");
 }
 
@@ -47,6 +49,7 @@ bool BringUpSerial::Start()
     if (!connected_ || start_queued_ || stop_queued_ ||
         pending_ == Command::Start || pending_ == Command::Stop) return false;
     start_queued_ = true;
+    ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
     stopped_ = false;
     Log("START requested");
@@ -57,6 +60,7 @@ bool BringUpSerial::Stop()
 {
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
     stop_queued_ = true;
+    ClearPosition();
     stopped_ = false;
     Log("STOP requested");
     return true;
@@ -99,15 +103,53 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     Log("queued for TX:", verb);
 }
 
-void BringUpSerial::OnLine()
+void BringUpSerial::ClearPosition()
+{
+    position_received_ = false;
+    live_.fresh = false;
+    live_.position.running = live_.position.valid = false;
+    live_.position.tick = live_.position.row = live_.position.loop = 0;
+}
+
+std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) const
+{
+    if (!connected_) return std::nullopt;
+    auto view = live_;
+    view.fresh = position_received_ && now - position_at_ < kLivePositionStaleMs;
+    if (!view.fresh)
+    {
+        view.position.valid = false;
+        view.position.tick = view.position.row = view.position.loop = 0;
+    }
+    return view;
+}
+
+void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (std::strncmp(line_, "BTTEST1 STATE ", 14) == 0)
+    if (std::strncmp(line_, "BTPATTERN1 POS", 14) == 0)
+    {
+        BroTracker::PatternTelemetry value;
+        // Telemetry cannot acknowledge a command or revive an error. Ignore
+        // positions in flight during START/restart/STOP, until their applied ACK.
+        if (connected_ && !start_queued_ && !stop_queued_ &&
+            pending_ != Command::Start && pending_ != Command::Stop &&
+            std::strcmp(state_, "ERROR") && std::strcmp(state_, "DONE") &&
+            BroTracker::ParsePatternTelemetry(line_, used_, value) &&
+            value.running == (std::strcmp(state_, "PLAYING") == 0))
+        {
+            live_ = {true, true, value};
+            position_received_ = true;
+            position_at_ = now;
+        }
+    }
+    else if (std::strncmp(line_, "BTTEST1 STATE ", 14) == 0)
     {
         const char* value = line_ + 14;
         if (std::strcmp(value, "PLAYING") && std::strcmp(value, "DONE") &&
             std::strcmp(value, "IDLE") && std::strcmp(value, "ERROR")) return;
         std::snprintf(state_, sizeof(state_), "%s", value);
+        if (std::strcmp(value, "PLAYING")) ClearPosition();
         if (pending_ == Command::Hello || pending_ == Command::Status)
         {
             if (!connected_) Log("connected: BTTEST1 handshake accepted");
@@ -122,6 +164,7 @@ void BringUpSerial::OnLine()
     }
     else if (std::strcmp(line_, "BTTEST1 STOPPED") == 0)
     {
+        ClearPosition();
         std::strcpy(state_, "IDLE");
         if (pending_ == Command::Stop)
         {
@@ -130,10 +173,14 @@ void BringUpSerial::OnLine()
         }
     }
     else if (std::strcmp(line_, "BTTEST1 DONE") == 0)
+    {
+        ClearPosition();
         std::strcpy(state_, "DONE");
+    }
     else if (std::strncmp(line_, "BTTEST1 ERROR ", 14) == 0)
     {
         std::strcpy(state_, "ERROR");
+        ClearPosition();
         if (pending_ == Command::Start) pending_ = Command::None;
     }
 }
@@ -172,15 +219,17 @@ void BringUpSerial::Tick(std::uint32_t now)
         if (count < 0)
         { Disconnect(transport_->Error()); return; }
         if (count <= 0) break;
-        if (c == '\r') continue;
         if (c == '\n')
         {
+            // Permit CRLF, but preserve embedded CR for strict field rejection.
+            if (used_ && line_[used_ - 1] == '\r') --used_;
             line_[used_] = '\0';
             if (overflow_) Log("RX error: overlong line discarded");
-            else OnLine();
+            else OnLine(now);
             used_ = 0;
             overflow_ = false;
         }
+        else if (c == '\0') overflow_ = true;
         else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
         else overflow_ = true;
     }

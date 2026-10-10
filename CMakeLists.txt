@@ -20,7 +20,7 @@ endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
 add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp)
-target_include_directories(BroTrackerBringUp PUBLIC src)
+target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)
 else()
@@ -35,7 +35,7 @@ add_library(BroTrackerCore STATIC
     src/core/note_names.cpp
 )
 
-target_include_directories(BroTrackerCore PUBLIC src)
+target_include_directories(BroTrackerCore PUBLIC src libraries/scheduler/src)
 
 add_executable(BroTracker
     src/main.cpp
@@ -148,13 +148,18 @@ add_executable(BroTrackerTests
     tests/test_native_rate_sample_commands.cpp
     tests/test_native_rate_pattern_player.cpp
     tests/test_pattern_bringup_control.cpp
+    tests/test_pattern_telemetry.cpp
+    src/ui/font.cpp
+    src/ui/text_renderer.cpp
+    src/ui/pattern_screen.cpp
+    src/renderer/framebuffer.cpp
     libraries/scheduler/src/scheduler.cpp
     libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp
     libraries/scheduler/src/pattern_position.cpp
 )
 
-target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore)
+target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp)
 target_include_directories(BroTrackerTests PRIVATE src tests libraries/scheduler/src)
 
 add_test(

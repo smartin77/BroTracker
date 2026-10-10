@@ -56,6 +56,12 @@ namespace
     {
         CHECK_EQ(actual.IsRunning(),expected.IsRunning());
         CHECK_EQ(actual.GetNextSamplePosition(),expected.GetNextSamplePosition());
+        const auto a_position = actual.GetPlaybackPosition();
+        const auto e_position = expected.GetPlaybackPosition();
+        CHECK_EQ(a_position.valid, e_position.valid);
+        CHECK_EQ(a_position.absolute_tick, e_position.absolute_tick);
+        CHECK_EQ(a_position.pattern_row, e_position.pattern_row);
+        CHECK_EQ(a_position.loop_index, e_position.loop_index);
         for (std::uint32_t c=0;c<8;++c)
         {
             LogicalChannelState a,b;
@@ -72,6 +78,7 @@ namespace
     void CheckCleared(const NativeRatePatternPlayer& player)
     {
         CHECK_EQ(player.GetNextSamplePosition(),0);
+        CHECK(!player.GetPlaybackPosition().valid);
         for (std::uint32_t c=0;c<8;++c)
         {
             LogicalChannelState state;
@@ -312,6 +319,14 @@ TEST_CASE(PatternPlayer_16RowExpectedPcmAcrossPartitionsLoopsAndBoundaries)
             CHECK_EQ(player.Render(mixed.data()+start,count),PatternPlayerStatus::Success);
             start+=count;
             CHECK_EQ(player.GetNextSamplePosition(),start);
+            // Independent inverse of the absolute floor conversion: t*A < end*D.
+            // Covers empty rows, both partitions and the 16-row loop boundary.
+            const auto position = player.GetPlaybackPosition();
+            const auto last_tick = (start * 12753ULL * 384 - 1) / (44100ULL * 6000);
+            CHECK(position.valid);
+            CHECK_EQ(position.absolute_tick, last_tick);
+            CHECK_EQ(position.pattern_row, (last_tick / 96) % 16);
+            CHECK_EQ(position.loop_index, last_tick / 96 / 16);
         }
         CHECK(player.IsRunning());
         player.Stop(); std::int16_t stopped[128]; std::fill_n(stopped,128,999);
@@ -326,4 +341,58 @@ TEST_CASE(PatternPlayer_16RowExpectedPcmAcrossPartitionsLoopsAndBoundaries)
     };
     const auto regular=collect(false),irregular=collect(true);
     CHECK(regular==expected); CHECK(irregular==expected); CHECK(regular==irregular);
+}
+
+TEST_CASE(PatternPlayer_ConsumedPositionEmptyRowsTickFreeBlocksAndReset)
+{
+    NativeRatePatternPlayer player;
+    RealtimePattern pattern;
+    NativeRateSampleBindings bindings{};
+    CHECK_EQ(player.Configure(12000, 44100, pattern, bindings), PatternPlayerStatus::Success);
+    CHECK(!player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.Start(), PatternPlayerStatus::Success);
+    CHECK(!player.GetPlaybackPosition().valid);
+    std::int16_t output[128]{};
+    CHECK_EQ(player.Render(output, 1), PatternPlayerStatus::Success);
+    CHECK(player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 0);
+    // [1,57) contains no tick; reporting must not follow the next block position.
+    CHECK_EQ(player.Render(output, 56), PatternPlayerStatus::Success);
+    CHECK(player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 0);
+    CHECK_EQ(player.Render(nullptr, 0), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 0);
+    const auto advance = [&](std::uint64_t end) {
+        while (player.GetNextSamplePosition() < end)
+            CHECK_EQ(player.Render(output, std::min<std::uint64_t>(128,
+                end - player.GetNextSamplePosition())), PatternPlayerStatus::Success);
+    };
+    advance(5512); // Tick 96 is at sample 5512, excluded from this block.
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 95);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 0);
+    CHECK_EQ(player.Render(output, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 96);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 1);
+    advance(88200);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 1535);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 15);
+    CHECK_EQ(player.GetPlaybackPosition().loop_index, 0);
+    CHECK_EQ(player.Render(output, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 1536);
+    CHECK_EQ(player.GetPlaybackPosition().pattern_row, 0);
+    CHECK_EQ(player.GetPlaybackPosition().loop_index, 1);
+    const auto saved = player;
+    CHECK_EQ(player.Render(nullptr, 0), PatternPlayerStatus::Success);
+    CheckPlayback(player, saved);
+    CHECK_EQ(player.Render(nullptr, 1), PatternPlayerStatus::InvalidDestination);
+    CheckPlayback(player, saved);
+    CHECK_EQ(player.Start(), PatternPlayerStatus::Success);
+    CheckCleared(player);
+    CHECK_EQ(player.Render(output, 1), PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick, 0);
+    player.Stop(); CheckCleared(player);
+    CHECK_EQ(player.Render(output, 128), PatternPlayerStatus::Success);
+    CHECK(!player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.Configure(12753, 44100, pattern, bindings), PatternPlayerStatus::Success);
+    CHECK(!player.GetPlaybackPosition().valid);
 }

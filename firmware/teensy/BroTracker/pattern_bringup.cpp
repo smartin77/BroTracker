@@ -4,6 +4,7 @@
 #include <Audio.h>
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_control.h"
+#include "bringup/pattern_telemetry.h"
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -111,6 +112,9 @@ namespace
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
+    PatternTelemetrySender g_telemetry;
+    bool g_protocol_connected = false;
+    std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
     {
         if (g_tx_count == kTxCapacity) return false;
@@ -123,17 +127,37 @@ namespace
     }
     PatternBringUpStatus Snapshot()
     { InterruptGuard guard; return g_control.Snapshot(); }
+    void OfferPosition(const PatternBringUpStatus& status)
+    {
+        const auto& p = status.position;
+        g_telemetry.Offer({status.running, p.valid, p.absolute_tick, p.pattern_row,
+            p.loop_index, status.active_rows, status.active_channels});
+    }
     void QueueStatus()
     {
         const auto status = Snapshot();
         (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
             status.running ? "BTTEST1 STATE PLAYING\n" : "BTTEST1 STATE IDLE\n");
+        g_protocol_connected = true;
+        OfferPosition(status);
     }
     void FlushSerial()
     {
-        if (!g_tx_count) return;
         const int available = Serial.availableForWrite();
         if (available <= 0) return;
+        // Never interleave lines. Complete partial telemetry first; otherwise
+        // command acknowledgements retain FIFO priority. Positions never occupy
+        // the acknowledgement queue and coalesce under USB backpressure.
+        if (g_telemetry.Partial() || !g_tx_count)
+        {
+            std::size_t count;
+            const char* data = g_telemetry.Data(count);
+            if (count > 64) count = 64;
+            if (count > static_cast<std::size_t>(available)) count = available;
+            if (count) g_telemetry.Consume(Serial.write(
+                reinterpret_cast<const std::uint8_t*>(data), count));
+            return;
+        }
         auto& line = g_tx[g_tx_head];
         std::size_t count = line.length - line.offset;
         if (count > 64) count = 64;
@@ -151,11 +175,12 @@ namespace
         {
             used = 0; overflow = false;
             g_tx_head = g_tx_count = 0;
+            g_telemetry.Clear();
+            g_protocol_connected = false;
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
             return;
         }
-        FlushSerial();
         for (std::size_t budget = 0; budget < kPatternRequestCapacity && g_tx_count < kTxCapacity; ++budget)
         {
             PatternAppliedRequest applied;
@@ -164,8 +189,17 @@ namespace
             if (!ready) break;
             (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR start\n" :
                 applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" : "BTTEST1 STOPPED\n");
+            // Replace unsent pre-command telemetry; partial older lines finish
+            // BEFORE the ACK, so the host's pending-command barrier rejects them.
+            if (g_protocol_connected) OfferPosition(Snapshot());
         }
         const auto status = Snapshot();
+        const auto now = static_cast<std::uint32_t>(millis());
+        if (g_protocol_connected && now - g_last_position_ms >= 50)
+        {
+            OfferPosition(status);
+            g_last_position_ms = now;
+        }
         if (status.failures != reported_failures && g_tx_count < kTxCapacity)
         {
             char error[96];
@@ -205,6 +239,7 @@ namespace
             used = 0; overflow = false;
             break;
         }
+        FlushSerial();
     }
 }
     void PatternBringUpPlatformInit()

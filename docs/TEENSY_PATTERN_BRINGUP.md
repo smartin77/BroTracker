@@ -20,15 +20,31 @@ Further user-performed Windows BTX + Teensy 4.1 validation on **2026-10-10**:
   0.906 seconds before the PLAYING handshake reply, consistent with independent
   audio and control paths. The user audibly confirmed sequence continuation.
 
-These distinguish reported log/capture evidence from user listening observations;
+The live-position implementation is complete for the opt-in firmware and shared
+Windows/ArkOS BTX UI. User-performed Windows BTX + Teensy 4.1 validation on
+**2026-10-10** additionally confirmed:
+
+- Firmware build/upload and Windows package build succeeded.
+- Reported log review validated **all 506 telemetry snapshots** for consistent
+  tick/row/loop mapping, covering all 16 rows.
+- Log review confirmed reconnection to running playback restored PLAYING and
+  position without START; RESTART returned to zero-based row 0 / loop 0, and
+  STOP invalidated position.
+- The user visually confirmed moving playback highlighting, changing POS/LOOP
+  and highlight removal after STOP. These are visual observations, separate from
+  the log evidence above.
+
+These records distinguish reported log/capture evidence from user listening and
+visual observations;
 exact sample/phase continuity and restart-at-zero hardware timing remain unmeasured.
-Full hardware validation remains open, including legacy regression, ArkOS, MQS
-and realtime performance. The checklist below retains these outstanding checks.
+Full hardware validation remains open, including hardware backpressure/staleness
+checks, legacy regression, ArkOS, MQS and realtime performance. Logical telemetry
+consistency and visible restart at row 0 / loop 0 do not measure exact physical
+sample/phase timing. The checklist below retains these outstanding checks.
 
 From the repository root in PowerShell, build and upload explicitly:
 
 ```powershell
-pio run -e teensy41_pattern
 pio run -e teensy41_pattern -t upload
 ```
 
@@ -98,7 +114,71 @@ the final tracker protocol. HELLO/STATUS report a coherent applied snapshot as
 IDLE, PLAYING or ERROR. STARTED/STOPPED are queued only after the audio owner
 applies the request. Main-loop parsing is limited to 128 input bytes and one
 complete command per service; USB writes are outside audio processing and limited
-to 64 available bytes per service. No pattern-row reporting or BTX changes exist.
+to 64 available bytes per service. Optional live position telemetry is described
+below; it does not change the ordinary firmware's BTTEST1 exchange.
+
+### BTPATTERN1 live position telemetry
+
+The opt-in firmware emits this explicitly versioned ASCII line (LF terminated):
+
+```text
+BTPATTERN1 POS 1 <running> <valid> <tick> <row> <loop> <rows> <channels>
+```
+
+Fields are unsigned decimal integers separated by exactly one ASCII space;
+no signs, tabs, extra fields or trailing spaces are accepted. The literal `1`
+is the message version. `running` and `valid` are 0 or 1. `tick`, `row` and `loop`
+support the full uint64 range. Active dimensions must be 1..16 rows and 1..8
+channels, the current implementation capacities. A valid position requires
+running playback, `row = (tick / 96) % rows` and `loop = (tick / 96) / rows`.
+When invalid, tick/row/loop are all zero; running can still be 1 before the first
+tick has been rendered. Row and loop indices are zero-based in the protocol;
+BTX displays the row as one-based POS and keeps LOOP zero-based.
+
+Position is the **latest musical tick actually consumed within successfully
+rendered audio**, including empty rows. It is not the next sample/block position
+or a measurement of physical output latency. Rejected/zero-frame renders retain
+the prior core position; tick-free blocks retain it too. Configure, Start,
+repeated Start and Stop invalidate it until another tick is consumed. The
+bring-up fail-stop policy invalidates it on any fault. Transport, position and
+dimensions are copied together under the existing interrupt guard. No formatting,
+serial writes, allocation or blocking are added to the audio callback.
+
+HELLO/STATUS queue the existing BTTEST1 state reply and offer a fresh coherent
+snapshot. After HELLO, periodic updates are offered every 50 ms (approximately
+20 Hz) while CDC is connected. Command acknowledgements retain their separate
+FIFO and priority. Telemetry holds at most one partial line and one latest
+snapshot; unsent intermediate updates are replaced under backpressure. A partial
+line finishes before another line starts, including command replies. Explicit
+command application replaces unsent pre-command telemetry. Formatting is
+main-loop-only in a checked 128-byte buffer, sufficient for maximum uint64 fields;
+the existing 64-byte-per-service write limit remains. Disconnect discards TX
+telemetry only; reconnect/HELLO never resets the player or queues START. Telemetry
+does not select a physical clock, extrapolate playback or change MIDI scheduling.
+
+Windows and ArkOS share strict parsing and display state. Malformed/overlong
+lines do not change position or acknowledge commands. Disconnect, pending
+START/restart/STOP and terminal errors clear the highlight. No valid telemetry
+for **500 ms** hides the position as stale; the host never predicts the next row.
+Fresh telemetry restores it. Legacy firmware remains controllable and displays
+position as unavailable. The connected screen uses reported dimensions and
+unknown-cell placeholders: the loaded host preview tune is not the firmware
+fixture. Its fixed preview/edit cursor is hidden in this device view, not moved
+with playback; standalone/disconnected preview retains the existing layout and
+cursor. UI refresh only renders snapshots and never advances playback.
+
+Remaining Windows BTX + Teensy 4.1 checks **are not covered by the validation above**:
+
+- Verify displayed active dimensions and unknown device cells match the fixture;
+  moving highlighting and POS/LOOP changes are user-confirmed, but exact physical
+  row-boundary timing and restart phase remain unmeasured.
+- Check pending START/restart and terminal-error highlight clearing under delayed
+  communication; STOP invalidation and highlight removal are confirmed above.
+- Pause/slow host service or apply CDC backpressure: stale positions disappear,
+  fresh positions recover, acknowledgements remain ordered and audio continues.
+- Repeat legacy firmware and ArkOS checks. Hardware row/sample timing, MQS and
+  Teensy execution cost remain open; the 2026-10-10 Windows opt-in validation
+  does not complete full hardware validation.
 
 Main-loop request submission, acknowledgement extraction and status copying use
 short PRIMASK save/disable/restore sections with compiler memory barriers. The
@@ -108,8 +188,9 @@ in the audio callback. Both request and applied-acknowledgement FIFOs have eight
 entries. Request overflow is explicitly rejected with `BTTEST1 ERROR request-overflow`.
 Acknowledgement saturation leaves requests pending in order; the main-loop
 16-line TX FIFO backpressures RX and acknowledgement extraction rather than
-overwriting them. STATUS describes applied state, not pending intent. Actual
-interrupt/USB behavior and worst-case execution time remain unmeasured.
+overwriting them. STATUS describes applied state, not pending intent. Hardware
+interrupt/USB behavior under backpressure and worst-case execution time remain
+unmeasured.
 
 ## Bring-up failure policy
 

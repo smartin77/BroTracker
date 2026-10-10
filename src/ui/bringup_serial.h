@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include "serial_transport.h"
+#include "live_playback_view.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -24,13 +25,20 @@ public:
     // Read-only UI state: queued or transmitted START still awaiting a response.
     bool StartPending() const { return start_queued_ || pending_ == Command::Start; }
     const char* Status() const;
+    // No live view when disconnected. A connected legacy peer is represented
+    // explicitly with telemetry_available=false; controls remain usable.
+    std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
     enum class Command { None, Hello, Status, Start, Stop };
     void Log(const char* message, const char* detail = "");
     void Disconnect(const char* reason);
     void Send(Command command, std::uint32_t now);
-    void OnLine();
+    void OnLine(std::uint32_t now);
+    void ClearPosition();
+    LivePlaybackView live_;
+    bool position_received_ = false;
+    std::uint32_t position_at_ = 0;
     std::unique_ptr<SerialTransport> transport_;
     bool opened_ = false;
     FILE* log_;

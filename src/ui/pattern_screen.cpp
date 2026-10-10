@@ -105,7 +105,8 @@ namespace
     void DrawMainHeader(
         Framebuffer& framebuffer,
         const Tune& tune,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display)
     {
         std::ostringstream tempo_stream;
 
@@ -132,7 +133,7 @@ namespace
             framebuffer,
             43,
             9,
-            tune.title,
+            display.device_mode ? "TEENSY (DATA UNKNOWN)" : tune.title,
             header_value);
 
         const std::string header_labels[] =
@@ -145,15 +146,16 @@ namespace
 
         const std::string header_values[] =
         {
-            tempo_stream.str(),
+            display.device_mode ? "--" : tempo_stream.str(),
             
-            pattern.number < 10
+            display.device_mode ? "--" : pattern.number < 10
                 ? "0" + std::to_string(pattern.number)
                 : std::to_string(pattern.number),
 
-            "16",
+            display.device_mode ? (display.playback_highlight ?
+                (display.row < 9 ? "0" : "") + std::to_string(display.row + 1) : "--") : "16",
 
-            "03%"
+            display.device_mode ? "--" : "03%"
         };
 
         const int header_item_count =
@@ -275,14 +277,14 @@ namespace
     }
 
     void DrawRowHeader(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, int channels = layout.channel_count, bool device_mode = false)
     {
         DrawCenteredFixedText(
             framebuffer,
             0,
             layout.row_number_width,
             38,
-            "d1",
+            device_mode ? "??" : "d1",
             row_header_bright);
 
         // d1 header: right and bottom frame
@@ -313,16 +315,16 @@ namespace
                 cell_x,
                 layout.channel_width,
                 38,
-                std::to_string(channel + 1),
+                channel < channels ? std::to_string(channel + 1) : "--",
                 channel_number);
         }
     }
 
     void DrawRowNumbers(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, int rows = layout.visible_rows)
     {
         for (int row = 0;
-            row < layout.visible_rows;
+            row < rows;
             ++row)
         {
             const int y =
@@ -359,7 +361,8 @@ namespace
 
     void DrawPatternChannels(
         Framebuffer& framebuffer,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display)
     {
         constexpr int FIELD_WIDTH = 6 * 6;
 
@@ -380,6 +383,8 @@ namespace
                 row < layout.visible_rows;
                 ++row)
             {
+                if (display.device_mode && (row >= static_cast<int>(display.rows) ||
+                    channel >= static_cast<int>(display.channels))) continue;
                 const int y =
                     layout.first_row_y +
                     row * layout.row_height +
@@ -387,6 +392,15 @@ namespace
 
                 std::uint8_t note_value = NOTE_EMPTY;
                 std::uint8_t instrument_value = 0xFF;
+
+                if (display.device_mode)
+                {
+                    // Telemetry supplies dimensions/position, never cell data.
+                    // Unknown cells must not look like the host preview or empty
+                    // device cells. The host edit cursor is not a playback cursor.
+                    DrawFixedText(framebuffer, field_x, y, "??? ??", empty_note);
+                    continue;
+                }
 
                 if (channel <
                     static_cast<int>(
@@ -568,21 +582,30 @@ namespace
 
     void DrawPattern(
         Framebuffer& framebuffer,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display)
     {
         DrawPatternFrame(framebuffer);
 
-        DrawCurrentPatternRow(
-            framebuffer);
+        if (!display.device_mode)
+        {
+            DrawCurrentPatternRow(framebuffer);
+            DrawCurrentPosition(framebuffer);
+        }
+        else if (display.playback_highlight)
+        {
+            framebuffer.FilledRectangle(layout.pattern_x + 2,
+                layout.first_row_y + static_cast<int>(display.row) * layout.row_height,
+                layout.row_number_width + static_cast<int>(display.channels) * layout.channel_width - 2,
+                layout.row_height, Color{24, 64, 68});
+        }
 
-        DrawCurrentPosition(
-            framebuffer);
-
-        DrawRowHeader(framebuffer);
-        DrawRowNumbers(framebuffer);
+        DrawRowHeader(framebuffer, display.device_mode ? static_cast<int>(display.channels) : layout.channel_count,
+            display.device_mode);
+        DrawRowNumbers(framebuffer, display.device_mode ? static_cast<int>(display.rows) : layout.visible_rows);
         DrawPatternChannels(
             framebuffer,
-            pattern);
+            pattern, display);
     }
 
     enum class RightMenuId
@@ -697,7 +720,7 @@ namespace
     }
 
     void DrawRightChannelNavigation(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, const PatternDisplayState& display)
     {
         constexpr int RIGHT_SECTION_X = 457;
         constexpr int RIGHT_SECTION_WIDTH =
@@ -718,7 +741,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 8,
             NAVIGATION_Y + 9,
-            "CH 1-8",
+            display.device_mode ? (display.channels ? "CH 1-" + std::to_string(display.channels) : "CH --") : "CH 1-8",
             row_header_bright);
 
         DrawFixedText(
@@ -732,7 +755,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 80,
             NAVIGATION_Y + 9,
-            "01",
+            display.device_mode ? "--" : "01",
             header_value);
 
         DrawFixedText(
@@ -746,7 +769,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 110,
             NAVIGATION_Y + 9,
-            "08",
+            display.device_mode ? (display.channels ? "0" + std::to_string(display.channels) : "--") : "08",
             header_name);
 
         DrawFixedText(
@@ -761,23 +784,39 @@ namespace
 void RenderMainScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
-    const Pattern& pattern)
+    const Pattern& pattern,
+    const std::optional<LivePlaybackView>& live)
 {
     framebuffer.Clear(background);
+    const auto display = ResolvePatternDisplay(live);
 
     DrawMainHeader(
         framebuffer,
         tune,
-        pattern);
+        pattern, display);
 
     DrawPattern(
         framebuffer,
-        pattern);
+        pattern, display);
 
-    DrawCurrentEventEdit(
-        framebuffer);
+    if (!display.device_mode) DrawCurrentEventEdit(framebuffer);
+    else
+    {
+        DrawFixedText(framebuffer, 8, 290,
+            !live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
+            !live->fresh ? "Position unavailable / stale; no extrapolation" :
+            live->position.running ? "Device playing (reported logical position)" : "Device stopped",
+            header_value);
+        DrawFixedText(framebuffer, 8, 306,
+            "Device cells unknown; host preview cursor hidden", header_name);
+        if (live->telemetry_available)
+            DrawFixedText(framebuffer, 8, 322,
+                "ROWS " + std::to_string(display.rows) + " CH " + std::to_string(display.channels) +
+                " LOOP " + (live->fresh && live->position.valid ? std::to_string(live->position.loop) : "--"),
+                header_value);
+    }
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
-    DrawRightChannelNavigation(framebuffer);
+    DrawRightChannelNavigation(framebuffer, display);
 }

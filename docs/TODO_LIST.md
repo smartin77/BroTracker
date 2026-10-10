@@ -271,17 +271,50 @@ design remains unchanged.
   bounded buffers/receive work, HELLO/STATUS, START/STOP and reconnect without
   replaying START. Existing `tests/test_bringup_serial.cpp` and
   `tests/test_bringup_controls.cpp` cover diagnostic command ordering, state and
-  reconnect behavior; this exchange has no pattern row reporting.
-* [ ] Publish coherent Teensy realtime snapshots of pattern transport state and
-  current pattern row safely to non-realtime communication code. Use bounded
-  messages and service work; keep serial I/O out of playback processing.
-* [ ] Display Teensy-reported pattern state and row in BTX, replacing the fixed
-  position visualization in `src/ui/pattern_screen.cpp` (row 13 and fixed POS).
-  Diagnostic state is already available through `BringUpSerial`, but live pattern
-  state and row display remain unimplemented.
-* [ ] Recover authoritative pattern state after reconnect without automatic START;
-  verify disconnect/reconnect and slow or irregular UI refresh. Playback timing
-  must remain independent of UI refresh rates and communication availability.
+  reconnect behavior; BTTEST1 itself has no row reporting. The opt-in telemetry
+  below supplements it without changing ordinary firmware's command exchange.
+* [x] Expose authoritative consumed-tick position in `NativeRatePatternPlayer` and
+  publish coherent audio-owner transport/position/dimension snapshots through
+  `PatternBringUpControl`. Position is the latest tick consumed in successfully
+  rendered audio, not the next block position; it includes validity, absolute tick,
+  zero-based row and loop. Rejected/zero-frame renders preserve it, tick-free blocks
+  retain it, and Configure/Start/Stop or bring-up faults invalidate it. Evidence:
+  `src/core/playback/native_rate_pattern_player.h`, `src/bringup/pattern_control.h`
+  and their host tests. Clock / Sync separation and audio-only ownership remain.
+* [x] Implement bounded opt-in `BTPATTERN1 POS 1` telemetry and shared strict parsing
+  in `src/bringup/pattern_telemetry.h`, `pattern_bringup.cpp` and
+  `src/ui/bringup_serial.*`, with coverage in `tests/test_pattern_telemetry.cpp`.
+  HELLO/STATUS offer fresh snapshots; periodic updates are approximately 20 Hz.
+  Unsent updates coalesce under backpressure while command acknowledgements retain
+  FIFO priority/order. Formatting and serial I/O stay outside audio processing.
+  Numeric overflow, invalid fields/dimensions and malformed/overlong lines are
+  rejected without partial position updates or command acknowledgement.
+* [x] Display optional Teensy-reported position in shared Windows/ArkOS BTX via
+  `src/ui/live_playback_view.h` and `RenderMainScreen`, replacing fixed playback
+  POS/row visualization in connected mode. POS is one-based; LOOP is zero-based.
+  Reported dimensions and unknown-cell placeholders distinguish the firmware
+  fixture from the host preview. The preview/edit cursor is separate and hidden
+  in the device view; standalone preview behavior is preserved. Disconnect,
+  pending restart/stop and terminal errors clear live position; 500 ms without
+  fresh telemetry removes the highlight without host extrapolation. Legacy
+  firmware remains controllable without position telemetry. Host tests cover
+  display state, stale data, fragmented/malformed input and command barriers;
+  ArkOS hardware validation remains open.
+* [x] Validate the completed opt-in live-position scope on Windows BTX + Teensy 4.1
+  on 2026-10-10: user-performed firmware build/upload and Windows package build
+  succeeded. Reported log review validated all 506 snapshots for consistent
+  tick/row/loop mapping, covering all 16 rows. Reconnection to running playback
+  restored PLAYING and position without START; RESTART returned to row 0 / loop 0,
+  and STOP invalidated position. The user visually confirmed moving playback
+  highlighting, changing POS/LOOP and highlight removal after STOP. See
+  [bring-up validation](TEENSY_PATTERN_BRINGUP.md). This confirms logical reporting
+  and display behavior, not exact physical timing or measured realtime performance.
+* [ ] Validate hardware backpressure/staleness behavior and slow or irregular UI
+  service: stale highlights must disappear, fresh position must recover, command
+  acknowledgements must stay ordered and playback must remain independent of UI
+  refresh rates and communication availability. Legacy regression, ArkOS, MQS,
+  exact physical sample/phase timing and Teensy realtime performance remain open;
+  the Windows opt-in validation does not complete full hardware validation.
 
 ### Basic Pattern Editing on ArkOS
 
@@ -321,3 +354,11 @@ design remains unchanged.
   * Keep it available as a Teensy audio hardware verification tool.
   * Keep production BroTracker runtime code separate from diagnostic/test-only code.
   * Update the build/integration path and documentation as necessary.
+
+### Pattern Visualization Comparison
+
+* [ ] Compare the current fixed pattern view with moving playback highlight against
+  classic scrolling pattern visualization on BTX. Evaluate readability, playback
+  following, edit-cursor independence and usability on Windows and the ArkOS
+  handheld. The existing page/region navigation decision remains in effect pending
+  this comparison; no scrolling implementation is requested now.

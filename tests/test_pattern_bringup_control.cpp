@@ -52,6 +52,10 @@ TEST_CASE(PatternBringUp_FifoAppliedStatusAndBackpressure)
     control.AudioBlock(output,4,true);
     Applied(control,PatternRequest::Start);
     CHECK(control.Snapshot().running); CHECK_EQ(control.Snapshot().next_sample,4);
+    const auto playing = control.Snapshot();
+    CHECK(playing.position.valid); CHECK_EQ(playing.position.absolute_tick, 0);
+    CHECK_EQ(playing.position.pattern_row, 0); CHECK_EQ(playing.position.loop_index, 0);
+    CHECK_EQ(playing.active_rows, 16); CHECK_EQ(playing.active_channels, 2);
     for (std::size_t i=0;i<4;++i) CHECK_EQ(output[i],2*pcm[i]);
     CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
     CHECK_EQ(control.Snapshot().next_sample,4);
@@ -61,6 +65,7 @@ TEST_CASE(PatternBringUp_FifoAppliedStatusAndBackpressure)
     CHECK(control.Snapshot().running);
     control.AudioBlock(output,4,true); Applied(control,PatternRequest::Stop);
     CHECK(!control.Snapshot().running); CHECK_EQ(control.Snapshot().next_sample,0);
+    CHECK(!control.Snapshot().position.valid);
     // STATUS/HELLO use snapshots alone: repeated polling and audio never start.
     for (std::size_t i=0;i<4;++i) { (void)control.Snapshot(); control.AudioBlock(output,4,true); }
     for (auto value:output) CHECK_EQ(value,0);
@@ -79,6 +84,7 @@ TEST_CASE(PatternBringUp_RenderFailureZeroesStopsAndLatchesUntilExplicitStart)
     for (auto value:output) CHECK_EQ(value,0); // No prefix/stale PCM survives late rejection.
     const auto failed=control.Snapshot();
     CHECK(!failed.running); CHECK_EQ(failed.next_sample,0);
+    CHECK(!failed.position.valid);
     CHECK_EQ(failed.fault,PatternFault::Render);
     CHECK_EQ(failed.player_error,PatternPlayerStatus::UnsupportedPitch);
     CHECK_EQ(failed.failures,1);
@@ -100,8 +106,10 @@ TEST_CASE(PatternBringUp_AllocationFailureAndConfigurationFailure)
     CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
     std::int16_t output[4]; control.AudioBlock(output,4,true); Applied(control,PatternRequest::Start);
     CHECK_EQ(control.Snapshot().next_sample,4);
+    CHECK(control.Snapshot().position.valid);
     control.AudioBlock(nullptr,128,false);
     CHECK(!control.Snapshot().running); CHECK_EQ(control.Snapshot().next_sample,0);
+    CHECK(!control.Snapshot().position.valid);
     CHECK_EQ(control.Snapshot().allocation_failures,1);
     CHECK_EQ(control.Snapshot().fault,PatternFault::Allocation);
     std::fill_n(output,4,999); control.AudioBlock(output,4,true);
@@ -115,4 +123,31 @@ TEST_CASE(PatternBringUp_AllocationFailureAndConfigurationFailure)
     bad.AudioBlock(output,4,true); Applied(bad,PatternRequest::Start,PatternPlayerStatus::NotConfigured);
     for (auto value:output) CHECK_EQ(value,0);
     CHECK_EQ(bad.Snapshot().fault,PatternFault::Configuration);
+}
+
+TEST_CASE(PatternBringUp_CoherentConsumedPositionBeforeFirstTickAndAcrossLoops)
+{
+    PatternBringUpControl control;
+    RealtimePattern empty; empty.active_rows = 2; empty.active_channels = 1;
+    NativeRateSampleBindings bindings{};
+    CHECK_EQ(control.InitializeAudio(12000, 100, empty, bindings), PatternPlayerStatus::Success);
+    CHECK_EQ(control.Submit(PatternRequest::Start), PatternRequestStatus::Accepted);
+    control.AudioBlock(nullptr, 0, true); Applied(control, PatternRequest::Start);
+    auto status = control.Snapshot();
+    CHECK(status.running); CHECK(!status.position.valid); CHECK_EQ(status.next_sample, 0);
+    std::int16_t output[4]{};
+    for (std::size_t i = 0; i < 7; ++i) control.AudioBlock(output, 4, true);
+    status = control.Snapshot();
+    CHECK(status.running); CHECK(status.position.valid); CHECK_EQ(status.next_sample, 28);
+    CHECK_EQ(status.active_rows, 2); CHECK_EQ(status.active_channels, 1);
+    CHECK_EQ(status.position.absolute_tick, (28ULL * 12000 * 384 - 1) / (100 * 6000));
+    CHECK_EQ(status.position.pattern_row, 0); CHECK_EQ(status.position.loop_index, 1);
+    CHECK_EQ(control.Submit(PatternRequest::Start), PatternRequestStatus::Accepted);
+    control.AudioBlock(nullptr, 0, true); Applied(control, PatternRequest::Start);
+    status = control.Snapshot();
+    CHECK(status.running); CHECK(!status.position.valid); CHECK_EQ(status.next_sample, 0);
+    CHECK_EQ(control.Submit(PatternRequest::Stop), PatternRequestStatus::Accepted);
+    control.AudioBlock(nullptr, 0, true); Applied(control, PatternRequest::Stop);
+    status = control.Snapshot();
+    CHECK(!status.running); CHECK(!status.position.valid); CHECK_EQ(status.next_sample, 0);
 }

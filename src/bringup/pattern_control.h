@@ -15,8 +15,12 @@ namespace BroTracker
     };
     struct PatternBringUpStatus
     {
+        // One audio-owner publication: applied transport, consumed position and
+        // dimensions belong together. Copy only under platform interrupt exclusion.
         bool running = false;
         std::uint64_t next_sample = 0;
+        ConsumedPatternPosition position;
+        std::uint32_t active_rows = 0, active_channels = 0;
         PatternFault fault = PatternFault::None;
         PatternFault last_fault = PatternFault::None;
         PatternPlayerStatus player_error = PatternPlayerStatus::Success;
@@ -130,6 +134,9 @@ namespace BroTracker
         {
             status_.running = player_.IsRunning();
             status_.next_sample = player_.GetNextSamplePosition();
+            status_.position = player_.GetPlaybackPosition();
+            status_.active_rows = player_.GetActiveRows();
+            status_.active_channels = player_.GetActiveChannels();
         }
         NativeRatePatternPlayer player_;
         PatternBringUpStatus status_;

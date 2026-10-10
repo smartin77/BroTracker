@@ -10,6 +10,14 @@ namespace BroTracker
     constexpr std::size_t kNativeRatePatternFrameCapacity = 128;
     constexpr std::size_t kNativeRatePatternTickBudget = 512;
 
+    struct ConsumedPatternPosition
+    {
+        bool valid = false;
+        std::uint64_t absolute_tick = 0;
+        std::uint64_t pattern_row = 0;
+        std::uint64_t loop_index = 0;
+    };
+
     enum class PatternPlayerStatus
     {
         Success, NotConfigured, InvalidTempo, InvalidSampleRate,
@@ -72,6 +80,7 @@ namespace BroTracker
             configured_ = true;
             running_ = false;
             next_sample_ = 0;
+            position_ = {};
             return PatternPlayerStatus::Success;
         }
 
@@ -91,9 +100,18 @@ namespace BroTracker
             if (configured_) (void)cursor_.Reset();
             running_ = false;
             next_sample_ = 0;
+            position_ = {};
         }
         bool IsRunning() const noexcept { return running_; }
         std::uint64_t GetNextSamplePosition() const noexcept { return next_sample_; }
+        // Latest tick consumed in a successfully rendered half-open audio span,
+        // including empty rows/non-row-start ticks. Not the next block position,
+        // a physical output timestamp or a host-extrapolated position. Zero-frame
+        // and rejected renders preserve it; tick-free blocks retain it. Configure,
+        // Start and Stop clear validity until a tick is successfully consumed.
+        ConsumedPatternPosition GetPlaybackPosition() const noexcept { return position_; }
+        std::uint32_t GetActiveRows() const noexcept { return configured_ ? pattern_.active_rows : 0; }
+        std::uint32_t GetActiveChannels() const noexcept { return configured_ ? pattern_.active_channels : 0; }
 
         // Zero frames always succeeds as a no-op (nullptr allowed). Positive
         // spans require configuration, <=128 frames and a destination. Stopped
@@ -128,6 +146,8 @@ namespace BroTracker
             auto cursor = cursor_;
             auto preparer = preparer_;
             auto renderer = renderer_;
+            auto position = position_;
+            bool consumed_tick = false;
             if (frame_count > std::numeric_limits<std::uint64_t>::max() - next_sample_)
                 return PatternPlayerStatus::RangeOverflow;
             const auto begin = cursor.BeginBlock(next_sample_, frame_count);
@@ -143,6 +163,8 @@ namespace BroTracker
                 if (status == TickCursorStatus::ArithmeticExhausted) return PatternPlayerStatus::ArithmeticExhausted;
                 if (status != TickCursorStatus::Tick) return PatternPlayerStatus::ComponentError;
                 if (emitted == kNativeRatePatternTickBudget) return PatternPlayerStatus::TickBudgetExceeded;
+                position.absolute_tick = tick.tick_index;
+                consumed_tick = true;
                 RowEventBatch rows{};
                 if (GenerateRowEvents(tick, pattern_, rows) != RowEventStatus::Success)
                     return PatternPlayerStatus::ComponentError;
@@ -153,6 +175,13 @@ namespace BroTracker
                     return PatternPlayerStatus::CommandCapacityExceeded;
                 for (std::size_t i = 0; i < prepared.count; ++i)
                     commands.commands[commands.count++] = prepared.commands[i];
+            }
+            if (consumed_tick)
+            {
+                PatternPosition mapped;
+                if (TickToPatternPosition(position.absolute_tick, pattern_.active_rows, mapped) !=
+                    PatternPositionStatus::Success) return PatternPlayerStatus::ComponentError;
+                position = {true, position.absolute_tick, mapped.pattern_row, mapped.loop_index};
             }
             RamVoiceOutputs outputs;
             Pcm16MixInputs inputs;
@@ -168,6 +197,7 @@ namespace BroTracker
             cursor_ = cursor;
             preparer_ = preparer;
             renderer_ = renderer;
+            position_ = position;
             // BeginBlock checked the absolute block end for uint64_t overflow.
             next_sample_ += frame_count;
             for (std::size_t i = 0; i < count; ++i) destination[i] = mono_scratch_[i];
@@ -200,6 +230,7 @@ namespace BroTracker
         bool configured_ = false;
         bool running_ = false;
         std::uint64_t next_sample_ = 0;
+        ConsumedPatternPosition position_;
         std::int16_t channel_scratch_[kRealtimePatternChannelCapacity][kNativeRatePatternFrameCapacity]{};
         std::int16_t mono_scratch_[kNativeRatePatternFrameCapacity]{};
     };

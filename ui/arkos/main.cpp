@@ -331,6 +331,7 @@ int main(int, char*[])
         }
 
         // Temporary bring-up status overlay; leave the tracker layout alone.
+        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()));
         framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16, 16, 16});
         DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
         DrawFixedText(framebuffer, 8, 456,

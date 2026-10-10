@@ -11,8 +11,10 @@
 
 #include "core/tune.h"
 #include "renderer/framebuffer.h"
+#include "live_playback_view.h"
 
 void RenderMainScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
-    const Pattern& pattern);
+    const Pattern& pattern,
+    const std::optional<LivePlaybackView>& live = std::nullopt);
