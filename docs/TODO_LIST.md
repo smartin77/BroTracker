@@ -219,9 +219,17 @@ design remains unchanged.
   `teensy41_usb_trace` paths are preserved. User-performed validation on
   2026-10-10 confirmed build/upload success and pattern audio heard through Windows
   BTX + Teensy 4.1. See [bring-up validation](TEENSY_PATTERN_BRINGUP.md).
-  Full hardware validation remains unchecked: Start/Stop/restart, reconnect,
-  legacy regression, ArkOS, sample timing and realtime performance were not
-  explicitly confirmed; audible playback does not establish these results.
+  Further validation on 2026-10-10: reported log/capture evidence confirms initial
+  IDLE and captured silence, START/RESTART and two STOP acknowledgements, and USB
+  unplug/replug while stopped restoring CDC/audio in IDLE and silence without
+  automatic START. Normal window close stopping playback is user-confirmed;
+  the latest log confirms STOPPED before clean shutdown. After forced BTX termination
+  with Teensy still USB-powered, relaunch received STATE PLAYING without START;
+  routing resumed approximately 0.906 seconds before the PLAYING handshake reply,
+  consistent with independent audio/control paths. The user audibly confirmed
+  sequence continuation. Exact sample/phase continuity and restart-at-zero hardware
+  timing remain unmeasured. Full hardware validation remains unchecked, including
+  legacy regression, ArkOS, MQS and realtime performance.
 * [x] Implement firmware RAM sample primitives: `LoadWavSampleFromSd()` loads supported
   16-bit mono 44.1 kHz PCM, and `SamplePlayer::SetSample()` / `Play()` support
   one-shot playback and restarting at the first frame. Evidence is in
@@ -245,11 +253,12 @@ design remains unchanged.
   use vectors and have no conversion to the realtime representation yet.
   `src/runtime/playback_engine.h` remains a stub; complete Teensy pattern playback and
   full hardware behavior are not validated.
-* [ ] Validate opt-in pattern START/STOP/restart on Teensy + Windows BTX and complete
-  production transport integration.
+* [ ] Measure opt-in restart-at-zero hardware timing and complete production
+  transport integration.
   Core Start restarts at zero and Stop clears voices, continuation and position;
-  opt-in BTTEST1 control is implemented but its hardware behavior is not explicitly
-  confirmed. Ordinary firmware still uses BTTEST1 for the diagnostic WAV sequence;
+  opt-in START/RESTART/STOP acknowledgements and normal-close STOP are confirmed
+  on 2026-10-10, but exact restart timing remains unmeasured.
+  Ordinary firmware still uses BTTEST1 for the diagnostic WAV sequence;
   final pattern protocol integration remains open.
 * [ ] Verify scheduled trigger sample positions, retriggering, simultaneous events,
   row 16-to-row 1 looping and STOP (including stopping active samples and preventing

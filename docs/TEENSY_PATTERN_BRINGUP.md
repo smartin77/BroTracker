@@ -7,10 +7,23 @@ and has host policy tests. User-performed validation on **2026-10-10** confirmed
 that `teensy41_pattern` built and uploaded successfully and pattern audio was
 heard through Windows BTX + Teensy 4.1.
 
-Full hardware validation remains open. Start/Stop/restart, reconnect, legacy
-regression, ArkOS operation, sample-accurate timing and realtime performance
-were not explicitly confirmed. Audible playback does not establish those results
-or validate the native MQS output path. The checklist below remains pending.
+Further user-performed Windows BTX + Teensy 4.1 validation on **2026-10-10**:
+
+- Reported log/capture evidence confirms the initial IDLE handshake and captured
+  silence, correctly acknowledged START, RESTART and two STOP operations.
+- USB unplug/replug while stopped restored CDC/audio, remaining IDLE and silent
+  without automatic START.
+- The user confirmed normal window close during playback stops playback; the
+  latest log also confirms STOPPED before clean shutdown.
+- After forced BTX termination with Teensy still USB-powered, relaunch received
+  STATE PLAYING without sending START. Audio routing resumed approximately
+  0.906 seconds before the PLAYING handshake reply, consistent with independent
+  audio and control paths. The user audibly confirmed sequence continuation.
+
+These distinguish reported log/capture evidence from user listening observations;
+exact sample/phase continuity and restart-at-zero hardware timing remain unmeasured.
+Full hardware validation remains open, including legacy regression, ArkOS, MQS
+and realtime performance. The checklist below retains these outstanding checks.
 
 From the repository root in PowerShell, build and upload explicitly:
 
