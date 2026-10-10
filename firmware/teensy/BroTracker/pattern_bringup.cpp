@@ -5,6 +5,7 @@
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_control.h"
 #include "bringup/pattern_telemetry.h"
+#include "bringup/pattern_snapshot.h"
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -32,6 +33,7 @@ namespace
     }
     constexpr auto kSampleA = MakeSample(false);
     constexpr auto kSampleB = MakeSample(true);
+    constexpr std::uint32_t kTempoHundredths = 12753;
     const RealtimePattern kPattern = [] {
         RealtimePattern pattern;
         pattern.active_rows = 16; pattern.active_channels = 2;
@@ -81,7 +83,7 @@ namespace
             if (!g_audio_ready) return;
             if (!initialized_)
             {
-                (void)g_control.InitializeAudio(12753,44100,kPattern,kBindings);
+                (void)g_control.InitializeAudio(kTempoHundredths,44100,kPattern,kBindings);
                 initialized_ = true;
             }
             audio_block_t* block = allocate();
@@ -113,6 +115,8 @@ namespace
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
+    PatternSnapshotSender g_pattern_transfer(kPattern, kTempoHundredths);
+    PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
     bool g_protocol_connected = false;
     std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
@@ -133,28 +137,32 @@ namespace
         g_telemetry.Offer({status.running, p.valid, p.absolute_tick, p.pattern_row,
             p.loop_index, status.active_rows, status.active_channels});
     }
-    void QueueStatus()
+    void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
         (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
             status.running ? "BTTEST1 STATE PLAYING\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
         OfferPosition(status);
+        if (advertise_snapshot) (void)QueueLine("BTPATTERN1 SNAPCAP 1\n");
     }
     void FlushSerial()
     {
         const int available = Serial.availableForWrite();
         if (available <= 0) return;
-        // Never interleave lines. Complete partial telemetry first; otherwise
-        // command acknowledgements retain FIFO priority. Positions never occupy
-        // the acknowledgement queue and coalesce under USB backpressure.
-        if (g_telemetry.Partial() || !g_tx_count)
+        const auto lane = g_output_mux.Select(g_tx_count != 0,
+            g_tx_count != 0 && g_tx[g_tx_head].offset != 0);
+        if (lane == PatternOutputLane::None) return;
+        // ACK priority and fair position/snapshot lines, never interleaved. No
+        // transfer line enters the command FIFO or touches mutable player state.
+        if (lane != PatternOutputLane::Command)
         {
             std::size_t count;
-            const char* data = g_telemetry.Data(count);
+            const char* data = lane == PatternOutputLane::Position ?
+                g_telemetry.Data(count) : g_pattern_transfer.Data(count);
             if (count > 64) count = 64;
             if (count > static_cast<std::size_t>(available)) count = available;
-            if (count) g_telemetry.Consume(Serial.write(
+            if (count) g_output_mux.Consume(lane, Serial.write(
                 reinterpret_cast<const std::uint8_t*>(data), count));
             return;
         }
@@ -176,6 +184,7 @@ namespace
             used = 0; overflow = false;
             g_tx_head = g_tx_count = 0;
             g_telemetry.Clear();
+            g_pattern_transfer.Clear();
             g_protocol_connected = false;
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
@@ -195,6 +204,7 @@ namespace
         }
         const auto status = Snapshot();
         const auto now = static_cast<std::uint32_t>(millis());
+        g_pattern_transfer.Tick(now);
         if (g_protocol_connected && now - g_last_position_ms >= 50)
         {
             OfferPosition(status);
@@ -213,21 +223,34 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count < kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + 2 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
             const char c = static_cast<char>(raw);
-            if (c == '\r') continue;
             if (c != '\n')
             {
-                if (used + 1 < sizeof(line)) line[used++] = c;
+                if (c == '\0') overflow = true;
+                else if (used + 1 < sizeof(line)) line[used++] = c;
                 else overflow = true;
                 continue;
             }
+            if (used && line[used - 1] == '\r') --used;
             line[used] = '\0';
-            if (overflow) (void)QueueLine("BTTEST1 ERROR line-too-long\n");
-            else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) QueueStatus();
+            if (overflow) (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
+                "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
+            else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS"))
+                QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
+            else if (!std::strncmp(line, "BTPATTERN1 GET", 14))
+            {
+                std::uint32_t id = 0;
+                if (!ParseSnapshotRequest(line, used, id) || !g_pattern_transfer.Begin(id, now))
+                {
+                    char error[64];
+                    std::snprintf(error, sizeof(error), "BTPATTERN1 SNAPERR 1 %" PRIu32 "\n", id);
+                    (void)QueueLine(error); // Snapshot errors do not change transport.
+                }
+            }
             else if (!std::strcmp(line,"BTTEST1 START") || !std::strcmp(line,"BTTEST1 STOP"))
             {
                 const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start : PatternRequest::Stop;

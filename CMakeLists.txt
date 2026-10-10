@@ -149,6 +149,7 @@ add_executable(BroTrackerTests
     tests/test_native_rate_pattern_player.cpp
     tests/test_pattern_bringup_control.cpp
     tests/test_pattern_telemetry.cpp
+    tests/test_pattern_snapshot.cpp
     src/ui/font.cpp
     src/ui/text_renderer.cpp
     src/ui/pattern_screen.cpp

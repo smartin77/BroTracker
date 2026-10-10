@@ -36,6 +36,9 @@ private:
     void Send(Command command, std::uint32_t now);
     void OnLine(std::uint32_t now);
     void ClearPosition();
+    BroTracker::PatternSnapshotAssembler pattern_assembler_;
+    bool snapshot_supported_ = false, snapshot_requested_ = false, snapshot_failed_ = false;
+    std::uint32_t next_snapshot_id_ = 1; // Never reused/wrapped within this host instance.
     LivePlaybackView live_;
     bool position_received_ = false;
     std::uint32_t position_at_ = 0;

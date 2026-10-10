@@ -41,6 +41,8 @@ void BringUpSerial::Disconnect(const char* reason)
     overflow_ = false;
     live_ = {};
     position_received_ = false;
+    pattern_assembler_.Clear();
+    snapshot_supported_ = snapshot_requested_ = snapshot_failed_ = false;
     std::strcpy(state_, "UNKNOWN");
 }
 
@@ -115,6 +117,9 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 {
     if (!connected_) return std::nullopt;
     auto view = live_;
+    if (const auto* snapshot = pattern_assembler_.Snapshot()) view.device_pattern = *snapshot;
+    view.pattern_loading = pattern_assembler_.Active();
+    view.pattern_failed = snapshot_failed_;
     view.fresh = position_received_ && now - position_at_ < kLivePositionStaleMs;
     if (!view.fresh)
     {
@@ -127,7 +132,20 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (std::strncmp(line_, "BTPATTERN1 POS", 14) == 0)
+    if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability))
+    {
+        if (connected_) snapshot_supported_ = true;
+    }
+    else if (!std::strncmp(line_, "BTPATTERN1 BEGIN", 15) ||
+        !std::strncmp(line_, "BTPATTERN1 CELL", 14) ||
+        !std::strncmp(line_, "BTPATTERN1 END", 13) ||
+        !std::strncmp(line_, "BTPATTERN1 SNAPERR", 17))
+    {
+        const auto result = pattern_assembler_.Accept(line_, used_, now);
+        if (result == BroTracker::SnapshotAssemblyStatus::Rejected ||
+            result == BroTracker::SnapshotAssemblyStatus::Timeout) snapshot_failed_ = true;
+    }
+    else if (std::strncmp(line_, "BTPATTERN1 POS", 14) == 0)
     {
         BroTracker::PatternTelemetry value;
         // Telemetry cannot acknowledge a command or revive an error. Ignore
@@ -138,7 +156,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
             BroTracker::ParsePatternTelemetry(line_, used_, value) &&
             value.running == (std::strcmp(state_, "PLAYING") == 0))
         {
-            live_ = {true, true, value};
+            live_.telemetry_available = live_.fresh = true;
+            live_.position = value;
             position_received_ = true;
             position_at_ = now;
         }
@@ -187,6 +206,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
+    if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout)
+        snapshot_failed_ = true;
     if (!opened_)
     {
         if (attempted_ && now - last_attempt_ < 1000) return;
@@ -224,7 +245,14 @@ void BringUpSerial::Tick(std::uint32_t now)
             // Permit CRLF, but preserve embedded CR for strict field rejection.
             if (used_ && line_[used_ - 1] == '\r') --used_;
             line_[used_] = '\0';
-            if (overflow_) Log("RX error: overlong line discarded");
+            if (overflow_)
+            {
+                Log("RX error: overlong line discarded");
+                // Conservatively cancel staging, but never touch applied transport,
+                // position or a previously committed snapshot.
+                if (pattern_assembler_.Active())
+                { pattern_assembler_.Cancel(); snapshot_failed_ = true; }
+            }
             else OnLine(now);
             used_ = 0;
             overflow_ = false;
@@ -246,6 +274,24 @@ void BringUpSerial::Tick(std::uint32_t now)
         {
             Send(Command::Stop, now);
             stop_queued_ = false;
+        }
+        else if (connected_ && snapshot_supported_ && !snapshot_requested_)
+        {
+            snapshot_requested_ = true;
+            if (next_snapshot_id_ == 0) snapshot_failed_ = true;
+            else
+            {
+                const auto id = next_snapshot_id_;
+                next_snapshot_id_ = id == UINT32_MAX ? 0 : id + 1;
+                (void)pattern_assembler_.Request(id, now);
+                static_assert(sizeof(tx_) >= sizeof("BTPATTERN1 GET 1 ") + 10 + 1,
+                    "GET must fit maximum uint32 identity plus LF/NUL");
+                const int written = std::snprintf(tx_, sizeof(tx_), "BTPATTERN1 GET 1 %" PRIu32 "\n", id);
+                if (written < 0 || static_cast<std::size_t>(written) >= sizeof(tx_))
+                { pattern_assembler_.Cancel(); snapshot_failed_ = true; tx_size_ = 0; }
+                else tx_size_ = static_cast<unsigned>(written);
+                tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
+            }
         }
         else if (connected_ && now - sent_at_ >= 1000) Send(Command::Status, now);
     }

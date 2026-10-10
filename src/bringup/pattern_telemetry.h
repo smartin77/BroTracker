@@ -94,6 +94,7 @@ namespace BroTracker
         { if (ValidPatternTelemetry(value)) { latest_ = value; pending_ = true; } }
         void Clear() noexcept { pending_ = false; length_ = offset_ = 0; }
         bool Partial() const noexcept { return offset_ != 0 && offset_ < length_; }
+        bool HasData() const noexcept { return pending_ || length_ != 0; }
         const char* Data(std::size_t& count) noexcept
         {
             if (!Partial() && pending_)

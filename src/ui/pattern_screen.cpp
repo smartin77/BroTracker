@@ -93,13 +93,7 @@ namespace
             return "--";
         }
 
-        return std::string{
-            static_cast<char>(
-                '0' + instrument / 10),
-
-            static_cast<char>(
-                '0' + instrument % 10)
-        };
+        return (instrument < 10 ? "0" : "") + std::to_string(instrument);
     }
 
     void DrawMainHeader(
@@ -113,7 +107,7 @@ namespace
         tempo_stream
             << std::fixed
             << std::setprecision(1)
-            << tune.tempo;
+            << (display.device_pattern ? display.device_pattern->tempo_hundredths / 100.0 : tune.tempo);
 
         framebuffer.Rectangle(
             layout.pattern_x,
@@ -133,7 +127,7 @@ namespace
             framebuffer,
             43,
             9,
-            display.device_mode ? "TEENSY (DATA UNKNOWN)" : tune.title,
+            display.device_mode ? (display.device_pattern ? "TEENSY PATTERN" : "TEENSY (DATA UNKNOWN)") : tune.title,
             header_value);
 
         const std::string header_labels[] =
@@ -146,7 +140,7 @@ namespace
 
         const std::string header_values[] =
         {
-            display.device_mode ? "--" : tempo_stream.str(),
+            display.device_mode && !display.device_pattern ? "--" : tempo_stream.str(),
             
             display.device_mode ? "--" : pattern.number < 10
                 ? "0" + std::to_string(pattern.number)
@@ -395,14 +389,17 @@ namespace
 
                 if (display.device_mode)
                 {
-                    // Telemetry supplies dimensions/position, never cell data.
-                    // Unknown cells must not look like the host preview or empty
-                    // device cells. The host edit cursor is not a playback cursor.
-                    DrawFixedText(framebuffer, field_x, y, "??? ??", empty_note);
-                    continue;
+                    if (!display.device_pattern)
+                    {
+                        DrawFixedText(framebuffer, field_x, y, "??? ??", empty_note);
+                        continue;
+                    }
+                    const auto& cell = display.device_pattern->pattern.cells[row][channel];
+                    note_value = cell.note;
+                    instrument_value = cell.instrument;
                 }
 
-                if (channel <
+                if (!display.device_mode && channel <
                     static_cast<int>(
                         pattern.channels.size()))
                 {
@@ -422,7 +419,7 @@ namespace
                 }
 
                 const bool is_current_position =
-                    channel == current_pattern_channel &&
+                    !display.device_mode && channel == current_pattern_channel &&
                     row == current_pattern_row - 1;
 
                 const bool is_empty_event =
@@ -452,7 +449,7 @@ namespace
                         AccidentalMode::Sharp),
                     note_color);
 
-                if (note_value == NOTE_OFF)
+                if (note_value == NOTE_OFF && (!display.device_mode || instrument_value == 0xFF))
                 {
                     DrawFixedText(
                         framebuffer,
@@ -808,7 +805,10 @@ void RenderMainScreen(
             live->position.running ? "Device playing (reported logical position)" : "Device stopped",
             header_value);
         DrawFixedText(framebuffer, 8, 306,
-            "Device cells unknown; host preview cursor hidden", header_name);
+            display.device_pattern ? "Device pattern (read-only)" :
+            live->pattern_loading ? "Loading device pattern..." :
+            "Device pattern unavailable",
+            header_name);
         if (live->telemetry_available)
             DrawFixedText(framebuffer, 8, 322,
                 "ROWS " + std::to_string(display.rows) + " CH " + std::to_string(display.channels) +

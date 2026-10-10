@@ -34,12 +34,25 @@ Windows/ArkOS BTX UI. User-performed Windows BTX + Teensy 4.1 validation on
   and highlight removal after STOP. These are visual observations, separate from
   the log evidence above.
 
+The read-only device pattern snapshot implementation is complete for the opt-in
+firmware and shared Windows/ArkOS BTX. Windows BTX + Teensy 4.1 validation on
+**2026-10-10** confirmed:
+
+- Log review confirmed capability discovery, GET, BEGIN, all **32 ordered cells**
+  for the **16-row/two-channel** pattern and END. Snapshot tempo was **12753
+  hundredths BPM** (127.53 BPM internally; 127.5 on the one-decimal display).
+- An independently recomputed **FNV-1a32 checksum matched 3128753801**.
+- Connection to already-running playback restored position and pattern contents
+  without automatic START. START/RESTART/STOP exchange succeeded without reported
+  protocol or pattern errors.
+- The user confirmed the visual display, separately from the log/checksum evidence.
+
 These records distinguish reported log/capture evidence from user listening and
 visual observations;
 exact sample/phase continuity and restart-at-zero hardware timing remain unmeasured.
 Full hardware validation remains open, including hardware backpressure/staleness
-checks, legacy regression, ArkOS, MQS and realtime performance. Logical telemetry
-consistency and visible restart at row 0 / loop 0 do not measure exact physical
+and snapshot timeout/recovery checks, legacy regression, ArkOS, MQS and realtime
+performance. Logical telemetry consistency and visible restart at row 0 / loop 0 do not measure exact physical
 sample/phase timing. The checklist below retains these outstanding checks.
 
 From the repository root in PowerShell, build and upload explicitly:
@@ -162,20 +175,99 @@ START/restart/STOP and terminal errors clear the highlight. No valid telemetry
 for **500 ms** hides the position as stale; the host never predicts the next row.
 Fresh telemetry restores it. Legacy firmware remains controllable and displays
 position as unavailable. The connected screen uses reported dimensions and
-unknown-cell placeholders: the loaded host preview tune is not the firmware
-fixture. Its fixed preview/edit cursor is hidden in this device view, not moved
+unknown-cell placeholders until the read-only snapshot below completes: the loaded
+host preview tune is not the firmware fixture. Its fixed preview/edit cursor is
+hidden in this device view, not moved
 with playback; standalone/disconnected preview retains the existing layout and
 cursor. UI refresh only renders snapshots and never advances playback.
 
+### Read-only immutable pattern snapshot (version 1)
+
+This opt-in exchange transfers the actual active pattern used for playback. It
+does not edit/upload patterns, persist data, transfer PCM or define a BTM format.
+The main loop references the same immutable `kPattern` and `kTempoHundredths`
+used by the audio owner's configuration. It never reads mutable player state or
+copies pattern data under interrupt exclusion; audio processing is unchanged.
+
+Exact LF-terminated ASCII grammar, with single spaces and unsigned decimal fields:
+
+```text
+device -> host: BTPATTERN1 SNAPCAP 1
+host -> device: BTPATTERN1 GET 1 <id>
+device -> host: BTPATTERN1 BEGIN 1 <id> <rows> <channels> <tempo_hundredths> <count>
+device -> host: BTPATTERN1 CELL 1 <id> <index> <note> <instrument>
+device -> host: BTPATTERN1 END 1 <id> <count> <checksum>
+device -> host: BTPATTERN1 SNAPERR 1 <id>
+```
+
+`SNAPCAP 1` is advertised after the BTTEST1 HELLO state reply. BTX requests a
+snapshot only after this exact capability; ordinary firmware and older opt-in
+firmware receive no unsupported requests. Each host instance uses increasing
+nonzero uint32 transfer IDs across reconnects, rejecting exhaustion rather than
+wrapping. A busy sender rejects a second GET without replacing the active transfer.
+Malformed GETs produce SNAPERR with ID 0 when no valid identity can be extracted;
+this is diagnostic rejection, not a BTTEST1 transport error.
+
+Initial capacities are 16 rows, eight channels, 128 active cells and one transfer.
+Rows/channels are positive within those bounds; tempo is nonzero uint32 in integer
+hundredths of BPM. `count = rows * channels`. Each CELL is one chunk, in strict
+row-major order, index 0 through count-1: row = index / channels, channel = index
+% channels. Notes are 0..127, NOTE_OFF (254) or NOTE_EMPTY (255); instruments are
+raw 0..255, with 255 meaning no update. No instrument resolution is performed.
+Fields cannot have signs, tabs, extra fields, numeric overflow or trailing spaces.
+Snapshot lines use a 96-byte buffer including LF/NUL (sufficient for maximum
+uint32 fields); GET fits the host's existing 32-byte TX buffer. CRLF is accepted
+by line framing, but embedded CR/NUL and overlong lines are rejected.
+
+Completion requires the exact identity, cell count and FNV-1a32 checksum. Start
+at 2166136261; for each byte compute `(hash XOR byte) * 16777619` modulo 2^32.
+Hash rows as one byte, channels as one byte, tempo as four little-endian bytes,
+then every active raw note/instrument pair in transmitted row-major order.
+Transfer identity is checked separately; the checksum is consistency validation,
+not authentication. Host staging and committed snapshots use fixed storage;
+only a valid END after all cells atomically publishes metadata/cells. Duplicates,
+missing/out-of-order cells, invalid notes/dimensions, identity mismatches,
+malformed messages and bad completion reject staging without altering transport,
+position or previously committed data. Data outside an active request is ignored.
+
+Both sides have a five-second total transfer deadline: host timing starts when
+GET is queued; device timing starts when GET is accepted. No automatic retry
+backlog is created. Timeout cancels staging; a partially transmitted device line
+finishes intact before the sender stops. Host overlong input conservatively
+cancels an active staging transfer. Disconnect clears all connection-scoped
+device data and cancels transfer; reconnect discovers capability and requests a
+fresh identity without START, Stop or player reconfiguration.
+
+Transmission formats at most one cell/line at a time, retains one snapshot line,
+and writes at most 64 available bytes per service. Command replies retain FIFO
+priority; already partial lines always finish first. Snapshot and position lines
+alternate when both are ready, so neither starves the other. Position updates
+still coalesce; transfer lines never fill the command FIFO. Sustained command
+traffic or USB backpressure can cause a transfer timeout, leaving controls usable
+and cells unavailable rather than accumulating a queue.
+
+BTX replaces placeholders only for a complete snapshot whose active dimensions
+match reported position dimensions. It displays device tempo to one decimal while
+retaining integer hundredths, and uses the existing note/instrument formatters.
+OFF remains a note-off command; explicit instruments with OFF remain visible.
+Live playback highlighting stays independent of read-only cells and the hidden
+host edit cursor; standalone host preview remains unchanged. Windows/ArkOS share
+assembly and rendering. The completed read-only opt-in scope has host tests and
+the Windows BTX + Teensy 4.1 snapshot validation recorded above. Hardware
+backpressure, timeout/recovery, legacy regression, ArkOS/MQS and realtime
+measurement remain open; editing and publication are not implemented.
+
 Remaining Windows BTX + Teensy 4.1 checks **are not covered by the validation above**:
 
-- Verify displayed active dimensions and unknown device cells match the fixture;
-  moving highlighting and POS/LOOP changes are user-confirmed, but exact physical
-  row-boundary timing and restart phase remain unmeasured.
+- Exact physical row-boundary timing and restart phase remain unmeasured;
+  logical position, snapshot contents/tempo/dimensions and visual display are
+  confirmed above.
 - Check pending START/restart and terminal-error highlight clearing under delayed
   communication; STOP invalidation and highlight removal are confirmed above.
 - Pause/slow host service or apply CDC backpressure: stale positions disappear,
   fresh positions recover, acknowledgements remain ordered and audio continues.
+- Exercise snapshot timeout/recovery on hardware: incomplete transfers must not
+  expose partial cells or disrupt controls, and reconnect must obtain fresh data.
 - Repeat legacy firmware and ArkOS checks. Hardware row/sample timing, MQS and
   Teensy execution cost remain open; the 2026-10-10 Windows opt-in validation
   does not complete full hardware validation.

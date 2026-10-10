@@ -1,5 +1,6 @@
 #pragma once
 #include "bringup/pattern_telemetry.h"
+#include "bringup/pattern_snapshot.h"
 #include <optional>
 
 // UI-only snapshot. Freshness never advances or extrapolates musical position.
@@ -10,14 +11,18 @@ struct LivePlaybackView
     bool telemetry_available = false;
     bool fresh = false;
     BroTracker::PatternTelemetry position;
+    std::optional<BroTracker::DevicePatternSnapshot> device_pattern = std::nullopt;
+    bool pattern_loading = false, pattern_failed = false;
 };
 constexpr std::uint32_t kLivePositionStaleMs = 500;
 
 struct PatternDisplayState
 {
+    // device_pattern borrows from the optional view; retain that view while drawing.
     bool device_mode = false;
     bool playback_highlight = false;
     std::uint32_t row = 0, rows = 0, channels = 0;
+    const BroTracker::DevicePatternSnapshot* device_pattern = nullptr;
 };
 inline PatternDisplayState ResolvePatternDisplay(
     const std::optional<LivePlaybackView>& live) noexcept
@@ -29,6 +34,9 @@ inline PatternDisplayState ResolvePatternDisplay(
         p.channels <= BroTracker::kRealtimePatternChannelCapacity;
     const bool highlight = dimensions && live->fresh &&
         BroTracker::ValidPatternTelemetry(p) && p.running && p.valid;
+    const auto* snapshot = live->device_pattern ? &*live->device_pattern : nullptr;
+    if (!dimensions || !snapshot || snapshot->pattern.active_rows != p.rows ||
+        snapshot->pattern.active_channels != p.channels) snapshot = nullptr;
     return {true, highlight, highlight ? static_cast<std::uint32_t>(p.row) : 0,
-        dimensions ? p.rows : 0, dimensions ? p.channels : 0};
+        dimensions ? p.rows : 0, dimensions ? p.channels : 0, snapshot};
 }

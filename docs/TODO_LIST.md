@@ -292,9 +292,9 @@ design remains unchanged.
 * [x] Display optional Teensy-reported position in shared Windows/ArkOS BTX via
   `src/ui/live_playback_view.h` and `RenderMainScreen`, replacing fixed playback
   POS/row visualization in connected mode. POS is one-based; LOOP is zero-based.
-  Reported dimensions and unknown-cell placeholders distinguish the firmware
-  fixture from the host preview. The preview/edit cursor is separate and hidden
-  in the device view; standalone preview behavior is preserved. Disconnect,
+  Reported dimensions and placeholders until a validated device snapshot arrives
+  distinguish the firmware fixture from the host preview. The preview/edit cursor
+  is separate and hidden in the device view; standalone preview behavior is preserved. Disconnect,
   pending restart/stop and terminal errors clear live position; 500 ms without
   fresh telemetry removes the highlight without host extrapolation. Legacy
   firmware remains controllable without position telemetry. Host tests cover
@@ -309,8 +309,23 @@ design remains unchanged.
   highlighting, changing POS/LOOP and highlight removal after STOP. See
   [bring-up validation](TEENSY_PATTERN_BRINGUP.md). This confirms logical reporting
   and display behavior, not exact physical timing or measured realtime performance.
-* [ ] Validate hardware backpressure/staleness behavior and slow or irregular UI
-  service: stale highlights must disappear, fresh position must recover, command
+* [x] Implement and validate read-only opt-in device pattern snapshots in shared
+  Windows/ArkOS BTX: bounded capability discovery and identified, ordered transfer
+  of actual immutable dimensions, tempo and raw cells; checksum-validated staging
+  publishes complete data atomically. Device cells replace placeholders only with
+  matching dimensions; internal 0.01 BPM precision and one-decimal display remain.
+  Evidence: `src/bringup/pattern_snapshot.h`, `src/ui/bringup_serial.*`, shared
+  rendering and `tests/test_pattern_snapshot.cpp`. Windows BTX + Teensy 4.1
+  validation on 2026-10-10: log review confirmed capability discovery, GET, BEGIN,
+  all 32 ordered cells for 16 rows/two channels and END, with tempo_hundredths
+  12753. Independently recomputed FNV-1a32 matched 3128753801. Connection to running
+  playback restored position and contents without automatic START;
+  START/RESTART/STOP succeeded without reported protocol or pattern errors.
+  The user separately confirmed the visual display. This completes read-only
+  opt-in transfer/display, not editing, publication or full hardware validation.
+* [ ] Validate hardware backpressure/staleness behavior, snapshot timeout/recovery
+  and slow or irregular UI service: stale highlights must disappear, fresh position
+  must recover, command
   acknowledgements must stay ordered and playback must remain independent of UI
   refresh rates and communication availability. Legacy regression, ArkOS, MQS,
   exact physical sample/phase timing and Teensy realtime performance remain open;
@@ -362,3 +377,21 @@ design remains unchanged.
   following, edit-cursor independence and usability on Windows and the ArkOS
   handheld. The existing page/region navigation decision remains in effect pending
   this comparison; no scrolling implementation is requested now.
+* [ ] Render completely empty cells/rows at lower brightness, distinguishing them
+  from notes and non-note events such as NOTE_OFF or instrument-only updates.
+  Preserve readable playback highlighting and the separate edit cursor; no visual
+  implementation is included now.
+
+### PCM Playback Validation
+
+* [ ] Retain the diagnostic beeper fixtures and later add one extra channel using
+  the existing `test.wav`, `test2.wav` and `test3.wav` PCM samples; overlap is not
+  required. Use these for longer-pattern validation once RAM sample loading and
+  playback integration are ready. The user expects `test.wav` to span four bars
+  and `test2.wav`/`test3.wav` one bar each: verify actual frame counts, sample rates
+  and intended meter before deriving BPM. When pitch interpretation/resampling
+  is implemented, document the nearest note and signed semitone offset, including
+  any fractional residual required for exact tuning at the calculated BPM.
+  Duration determines tempo; determining a musical note additionally requires a
+  known or measured reference pitch. No sample integration, resampling or tuning
+  implementation is included in this task.
