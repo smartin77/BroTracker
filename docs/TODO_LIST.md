@@ -193,7 +193,7 @@ design remains unchanged.
   preparer, renderer and mixer across regular/irregular partitions and loops.
   The composition fixture uses 100 Hz and 127.53 BPM with independently expected
   output; it does not validate Teensy operation or performance. General instrument
-  support, resampling, envelopes, end-of-row note-off, volume controls, panning
+  support, resampling, envelopes, firmware end-of-row note-off, volume controls, panning
   and effects remain outside this completed native-rate subset.
 * [x] Implement `NativeRatePatternPlayer` in
   `src/core/playback/native_rate_pattern_player.h`, with coverage in
@@ -260,6 +260,23 @@ design remains unchanged.
   on 2026-10-10, but exact restart timing remains unmeasured.
   Ordinary firmware still uses BTTEST1 for the diagnostic WAV sequence;
   final pattern protocol integration remains open.
+* [x] Implement core-only explicit `NoteOffTiming` metadata in `RealtimePattern`
+  and `RowEvent`, separate from instrument IDs, defaulting to Arrival. The
+  native-rate player copies/validates metadata transactionally. Arrival stops at
+  the OFF row start; EndOfPosition schedules `(absolute_row + 1) * kTicksPerRow`
+  through exact floor-rounded conversion at 0.01 BPM precision, with explicit
+  overflow errors. Eight fixed per-channel deferred slots and the existing
+  16-command/512-tick limits reject excess work without truncation. Deferred Stops
+  precede new boundary-row commands, preserving retriggers, instruments and loops.
+  Rejected renders preserve pending work/state/output. Start, Stop, successful
+  Configure and Pause clear pending Stops; Continue does not replay discarded work.
+  Host tests cover independently expected PCM at 127.53 BPM across partitions,
+  half-open boundaries, simultaneous channels, loop ordering, pause/continuation,
+  metadata validation/copying, rollback/retry, capacity and arithmetic overflow.
+* [ ] Integrate core OFF timing with device protocol/snapshots, local draft
+  publication and firmware playback. Local UI timing remains disconnected;
+  existing firmware patterns continue to default to Arrival. No hardware timing
+  or execution-budget validation is established by this core step.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning at the next row
@@ -356,7 +373,7 @@ design remains unchanged.
   telemetry never changes the draft/cursor. Evidence: `src/ui/local_pattern_editor.h`,
   `src/ui/editor_repeat.h` and host/editor/input/display tests. User-performed Windows
   validation on 2026-10-10 confirms the final editor behavior works as agreed.
-  Edits are not sent to Teensy; publication and end-of-position OFF playback remain open.
+  Edits are not sent to Teensy; publication and UI/protocol/firmware integration of end-of-position OFF remain open.
 
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
   rendering. Evidence: `src/core/{pattern,channel,event,tune}.h`, the tune loader,

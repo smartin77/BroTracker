@@ -24,7 +24,7 @@ namespace BroTracker
         ReservedInstrument, DuplicateInstrument, InvalidNativeRateNote,
         InvalidSample, SampleRateMismatch, RangeOverflow, InvalidEventCount,
         InvalidChannel, InvalidNote, UnorderedOffsets, MissingInstrument,
-        UnknownInstrument, UnsupportedPitch
+        UnknownInstrument, UnsupportedPitch, InvalidNoteOffTiming
     };
 
     // Narrow native-rate sample adapter, not an instrument/plugin ABI. Single
@@ -88,8 +88,8 @@ namespace BroTracker
         // remain raw selections; lookup is required only for explicit normal notes.
         // Same-event instrument updates take effect before resolving the note.
         // Explicit repeated notes retrigger. NOTE_OFF emits Stop without lookup,
-        // implementing only current row-start termination, not deferred row-end
-        // note-off. Empty fields continue state and never imply new triggers.
+        // for Arrival. EndOfPosition updates logical state but emits no immediate
+        // command; the pattern player owns the deferred absolute-boundary Stop. Empty fields continue state and never imply new triggers.
         // Preserve channel, uint64_t offset and input order (including ties).
         // Reject decreasing offsets; renderer validates block bounds/ownership.
         // Work bounded by eight events, eight channel-state entries and 8*16 lookups.
@@ -113,7 +113,9 @@ namespace BroTracker
                 const auto status = tentative.Apply(event, applied);
                 if (status == ChannelStateStatus::InvalidChannel) return SampleCommandStatus::InvalidChannel;
                 if (status == ChannelStateStatus::InvalidNote) return SampleCommandStatus::InvalidNote;
-                if (event.note == NOTE_EMPTY) continue;
+                if (status == ChannelStateStatus::InvalidNoteOffTiming) return SampleCommandStatus::InvalidNoteOffTiming;
+                if (event.note == NOTE_EMPTY || (event.note == NOTE_OFF &&
+                    event.note_off_timing == NoteOffTiming::EndOfPosition)) continue;
                 RamVoiceCommand command{event.channel, event.sample_offset, RamVoiceAction::Stop, {}};
                 if (event.note != NOTE_OFF)
                 {

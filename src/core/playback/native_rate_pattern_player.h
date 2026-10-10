@@ -26,7 +26,7 @@ namespace BroTracker
         SampleRateMismatch, RangeOverflow, InvalidDestination, InvalidFrameCount,
         MissingInstrument, UnknownInstrument, UnsupportedPitch,
         ArithmeticExhausted, TickBudgetExceeded, CommandCapacityExceeded,
-        ComponentError, InvalidTransportState
+        ComponentError, InvalidTransportState, InvalidNoteOffTiming
     };
     enum class PatternTransportState { Stopped, Playing, Paused };
 
@@ -44,7 +44,8 @@ namespace BroTracker
     class NativeRatePatternPlayer
     {
     public:
-        // Validate every active cell, dimensions, tempo/rate and active sample
+        // Validate every active cell and timing enum (including non-OFF cells),
+        // dimensions, tempo/rate and active sample
         // bindings before committing. Inactive cells are never consumed. Binding
         // validation reuses the preparer (including byte-size/rate checks).
         // Instrument selection/pitch resolution remains a render-time operation:
@@ -64,6 +65,8 @@ namespace BroTracker
                 for (std::size_t channel = 0; channel < pattern.active_channels; ++channel)
                 {
                     const Note note = pattern.cells[row][channel].note;
+                    if (!ValidNoteOffTiming(pattern.note_off_timing[row][channel]))
+                        return PatternPlayerStatus::InvalidNoteOffTiming;
                     if (!IsPatternNote(note))
                         return PatternPlayerStatus::InvalidNote;
                 }
@@ -74,6 +77,9 @@ namespace BroTracker
             if (status != SampleCommandStatus::Success) return SampleStatus(status);
             RamVoiceBlockRenderer renderer;
             (void)renderer.Configure(sample_rate_hz);
+            tempo_hundredths_ = tempo_hundredths;
+            sample_rate_hz_ = sample_rate_hz;
+            pending_ = {};
             pattern_ = pattern;
             cursor_ = cursor;
             preparer_ = preparer;
@@ -96,6 +102,7 @@ namespace BroTracker
         // Idempotent, also valid before configuration. Retain pattern/bindings.
         void Stop() noexcept
         {
+            pending_ = {};
             renderer_.Reset();
             preparer_.Reset();
             if (configured_) (void)cursor_.Reset();
@@ -113,6 +120,7 @@ namespace BroTracker
             if (!configured_) return PatternPlayerStatus::NotConfigured;
             if (transport_ == PatternTransportState::Paused) return PatternPlayerStatus::Success;
             if (transport_ != PatternTransportState::Playing) return PatternPlayerStatus::InvalidTransportState;
+            pending_ = {};
             renderer_.Reset(); transport_ = PatternTransportState::Paused;
             return PatternPlayerStatus::Success;
         }
@@ -151,7 +159,7 @@ namespace BroTracker
         // rendering writes silence and never advances logical playback.
         // Running blocks are consecutive [next_sample, next_sample+frame_count).
         // Use tentative cursor/preparer/renderer copies and internal scratch:
-        // ALL errors preserve running/position, channel/voice state and caller
+        // ALL errors preserve running/position, channel/voice state, deferred Stops and caller
         // output. Scratch need not be preserved. Success commits all state/output.
         // At most 512 emitted ticks plus one completion probe; excess work and
         // >16 prepared commands explicitly reject the WHOLE block, never truncate.
@@ -159,7 +167,8 @@ namespace BroTracker
         // and 0.01 BPM precision come from the existing components.
         // Bound: 513 cursor pulls (each <=64 conversion iterations), <=512*8*16
         // binding comparisons, <=16 audio commands, 8*128 channel frames + mixing
-        // and output copying. Fixed 8x128 channel and 128 mono scratch storage.
+        // and output copying, plus <=513*64 pending-entry checks and <=512*8
+        // absolute OFF-boundary conversions. Fixed 8x128 channel and 128 mono scratch storage.
         // Callers MUST handle rejection; no firmware underrun policy or measured
         // Teensy processing budget is established. A smaller retry may succeed;
         // intrinsically unsupported events require reconfiguration or Stop.
@@ -180,6 +189,7 @@ namespace BroTracker
             auto preparer = preparer_;
             auto renderer = renderer_;
             auto position = position_;
+            auto pending = pending_;
             bool consumed_tick = false;
             if (frame_count > std::numeric_limits<std::uint64_t>::max() - next_sample_)
                 return PatternPlayerStatus::RangeOverflow;
@@ -188,6 +198,25 @@ namespace BroTracker
             if (begin == TickCursorStatus::ArithmeticExhausted) return PatternPlayerStatus::ArithmeticExhausted;
             if (begin != TickCursorStatus::Success) return PatternPlayerStatus::ComponentError;
             RamVoiceCommandBatch commands{};
+            // At most eight pending entries. Emit by absolute sample, then channel;
+            // consume before row commands at a tie. No backlog scan or allocation.
+            const auto flush = [&](std::uint64_t limit, bool inclusive) {
+                for (std::size_t n = 0; n < kRealtimePatternChannelCapacity; ++n) {
+                    std::size_t selected = kRealtimePatternChannelCapacity;
+                    for (std::size_t c = 0; c < kRealtimePatternChannelCapacity; ++c)
+                        if (pending.entries[c].active &&
+                            (pending.entries[c].sample < limit || (inclusive && pending.entries[c].sample == limit)) &&
+                            (selected == kRealtimePatternChannelCapacity ||
+                             pending.entries[c].sample < pending.entries[selected].sample)) selected = c;
+                    if (selected == kRealtimePatternChannelCapacity) break;
+                    if (pending.entries[selected].sample < next_sample_) return PatternPlayerStatus::ComponentError;
+                    if (commands.count == kRamVoiceCommandCapacity) return PatternPlayerStatus::CommandCapacityExceeded;
+                    commands.commands[commands.count++] = {static_cast<std::uint8_t>(selected),
+                        pending.entries[selected].sample - next_sample_, RamVoiceAction::Stop, {}};
+                    pending.entries[selected].active = false;
+                }
+                return PatternPlayerStatus::Success;
+            };
             for (std::size_t emitted = 0; ; ++emitted)
             {
                 MusicalTick tick;
@@ -196,11 +225,26 @@ namespace BroTracker
                 if (status == TickCursorStatus::ArithmeticExhausted) return PatternPlayerStatus::ArithmeticExhausted;
                 if (status != TickCursorStatus::Tick) return PatternPlayerStatus::ComponentError;
                 if (emitted == kNativeRatePatternTickBudget) return PatternPlayerStatus::TickBudgetExceeded;
+                const auto flushed = flush(tick.sample_position, true);
+                if (flushed != PatternPlayerStatus::Success) return flushed;
                 position.absolute_tick = tick.tick_index;
                 consumed_tick = true;
                 RowEventBatch rows{};
                 if (GenerateRowEvents(tick, pattern_, rows) != RowEventStatus::Success)
                     return PatternPlayerStatus::ComponentError;
+                for (std::size_t i = 0; i < rows.count; ++i) {
+                    const auto& event = rows.events[i];
+                    if (event.note != NOTE_OFF || event.note_off_timing != NoteOffTiming::EndOfPosition) continue;
+                    const auto absolute_row = event.tick_index / kTicksPerRow;
+                    if (absolute_row >= UINT64_MAX / kTicksPerRow) return PatternPlayerStatus::RangeOverflow;
+                    std::uint64_t sample = 0;
+                    if (TickToSamplePosition((absolute_row + 1) * kTicksPerRow, tempo_hundredths_,
+                        sample_rate_hz_, sample) != TickToSampleStatus::Success) return PatternPlayerStatus::RangeOverflow;
+                    // A channel cannot have two row-end Stops outstanding: flush
+                    // its previous boundary before consuming this row.
+                    if (pending.entries[event.channel].active) return PatternPlayerStatus::ComponentError;
+                    pending.entries[event.channel] = {true, sample};
+                }
                 RamVoiceCommandBatch prepared{};
                 const auto preparation = preparer.Prepare(rows, prepared);
                 if (preparation != SampleCommandStatus::Success) return SampleStatus(preparation);
@@ -209,6 +253,8 @@ namespace BroTracker
                 for (std::size_t i = 0; i < prepared.count; ++i)
                     commands.commands[commands.count++] = prepared.commands[i];
             }
+            const auto flushed = flush(next_sample_ + frame_count, false);
+            if (flushed != PatternPlayerStatus::Success) return flushed;
             if (consumed_tick)
             {
                 PatternPosition mapped;
@@ -227,6 +273,7 @@ namespace BroTracker
                 return PatternPlayerStatus::ComponentError;
             if (MixPcm16Mono(inputs, mono_scratch_, frame_count) != Pcm16MixStatus::Success)
                 return PatternPlayerStatus::ComponentError;
+            pending_ = pending;
             cursor_ = cursor;
             preparer_ = preparer;
             renderer_ = renderer;
@@ -250,12 +297,16 @@ namespace BroTracker
             case SampleCommandStatus::RangeOverflow: return PatternPlayerStatus::RangeOverflow;
             case SampleCommandStatus::MissingInstrument: return PatternPlayerStatus::MissingInstrument;
             case SampleCommandStatus::UnknownInstrument: return PatternPlayerStatus::UnknownInstrument;
+            case SampleCommandStatus::InvalidNoteOffTiming: return PatternPlayerStatus::InvalidNoteOffTiming;
             case SampleCommandStatus::UnsupportedPitch: return PatternPlayerStatus::UnsupportedPitch;
             default: return PatternPlayerStatus::ComponentError;
             }
         }
         // Test-only access to otherwise impractical uint64_t exhaustion boundaries.
         friend struct NativeRatePatternPlayerTestAccess;
+        struct DeferredStop { bool active = false; std::uint64_t sample = 0; };
+        struct PendingStops { DeferredStop entries[kRealtimePatternChannelCapacity]{}; } pending_;
+        std::uint32_t tempo_hundredths_ = 0, sample_rate_hz_ = 0;
         RealtimePattern pattern_;
         MusicalTickCursor cursor_;
         NativeRateSampleCommandPreparer preparer_;

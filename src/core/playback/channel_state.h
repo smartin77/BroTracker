@@ -21,7 +21,7 @@ namespace BroTracker
         bool instrument_updated = false;
     };
 
-    enum class ChannelStateStatus { Success, InvalidChannel, InvalidNote };
+    enum class ChannelStateStatus { Success, InvalidChannel, InvalidNote, InvalidNoteOffTiming };
 
     // Single-owner, ordered logical continuation. Apply each event exactly once;
     // no clock, progression, deduplication or concurrent mutation is provided.
@@ -60,6 +60,8 @@ namespace BroTracker
             if (!IsPatternNote(event.note))
                 return ChannelStateStatus::InvalidNote;
 
+            if (!ValidNoteOffTiming(event.note_off_timing))
+                return ChannelStateStatus::InvalidNoteOffTiming;
             RowEventApplication application;
             application.event = event;
             application.before = channels_[event.channel];

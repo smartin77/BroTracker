@@ -23,6 +23,15 @@ namespace BroTracker
         { return player.preparer_; }
         static const RamVoiceBlockRenderer& Renderer(const NativeRatePatternPlayer& player)
         { return player.renderer_; }
+        static void SeedTick(NativeRatePatternPlayer& player, std::uint64_t tick) {
+            CHECK_EQ(player.cursor_.ResetAtTick(tick, player.next_sample_), TickCursorStatus::Success);
+        }
+        static bool Pending(const NativeRatePatternPlayer& player, unsigned channel) {
+            return player.pending_.entries[channel].active;
+        }
+        static std::uint64_t PendingSample(const NativeRatePatternPlayer& player, unsigned channel) {
+            return player.pending_.entries[channel].sample;
+        }
         static void SetPosition(NativeRatePatternPlayer& player, std::uint64_t position)
         { player.next_sample_ = position; }
         static void SetConsumedTick(NativeRatePatternPlayer& player, std::uint64_t tick)
@@ -67,6 +76,8 @@ namespace
         CHECK_EQ(a_position.loop_index, e_position.loop_index);
         for (std::uint32_t c=0;c<8;++c)
         {
+            CHECK_EQ(NativeRatePatternPlayerTestAccess::Pending(actual,c),NativeRatePatternPlayerTestAccess::Pending(expected,c));
+            CHECK_EQ(NativeRatePatternPlayerTestAccess::PendingSample(actual,c),NativeRatePatternPlayerTestAccess::PendingSample(expected,c));
             LogicalChannelState a,b;
             CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(actual).GetChannel(c,a),ChannelStateStatus::Success);
             CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(expected).GetChannel(c,b),ChannelStateStatus::Success);
@@ -494,4 +505,148 @@ TEST_CASE(PatternPlayer_ConsumedPositionEmptyRowsTickFreeBlocksAndReset)
     CHECK(!player.GetPlaybackPosition().valid);
     CHECK_EQ(player.Configure(12753, 44100, pattern, bindings), PatternPlayerStatus::Success);
     CHECK(!player.GetPlaybackPosition().valid);
+}
+
+TEST_CASE(CoreOffTimingExpectedPcmPartitionsAndLoopOrdering) {
+    std::array<std::int16_t, 100> a, b; a.fill(10); b.fill(20);
+    NativeRateSampleBindings bindings{}; bindings.count = 2;
+    bindings.bindings[0] = {7,60,{a.data(),a.size(),100}};
+    bindings.bindings[1] = {8,60,{b.data(),b.size(),100}};
+    for (auto mode : {NoteOffTiming::Arrival, NoteOffTiming::EndOfPosition}) {
+        RealtimePattern pattern; pattern.active_rows = 4; pattern.active_channels = 2;
+        pattern.cells[0][0] = {60,7}; pattern.cells[0][1] = {60,8};
+        pattern.cells[1][0] = {NOTE_OFF,0xFF}; pattern.note_off_timing[1][0] = mode;
+        pattern.cells[2][0] = {NOTE_EMPTY,7}; // Instrument-only never retriggers.
+        pattern.cells[3][1] = {NOTE_OFF,0xFF};
+        pattern.note_off_timing[3][1] = NoteOffTiming::EndOfPosition;
+        std::vector<std::int16_t> reference;
+        for (const auto& partitions : {std::vector<unsigned>{11,12,12,12}, std::vector<unsigned>{1,7,19,3,17}}) {
+            NativeRatePatternPlayer player;
+            CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+            CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+            std::vector<std::int16_t> output(150); unsigned at = 0, part = 0;
+            while (at < output.size()) {
+                unsigned n = std::min<unsigned>(partitions[part++ % partitions.size()], output.size()-at);
+                CHECK_EQ(player.Render(output.data()+at,n),PatternPlayerStatus::Success); at += n;
+            }
+            for (unsigned sample = 0; sample < output.size(); ++sample) {
+                unsigned loop = 0;
+                // Independent rational row boundaries, not scheduler-generated expectation.
+                while (((loop+1)*4ULL*150000/12753) <= sample) ++loop;
+                const auto stop = (loop*4ULL + (mode == NoteOffTiming::Arrival ? 1 : 2))*150000/12753;
+                CHECK_EQ(output[sample], sample < stop ? 30 : 20);
+            }
+            if (reference.empty()) reference=output; else CHECK(output==reference);
+        }
+    }
+}
+TEST_CASE(CoreOffTimingPendingRollbackPauseResetAndCapacity) {
+    std::array<std::int16_t,100> pcm_long; pcm_long.fill(10);
+    auto bindings=Bindings(100); bindings.bindings[0].sample={pcm_long.data(),100,100};
+    RealtimePattern pattern; pattern.active_rows=4; pattern.active_channels=1;
+    pattern.cells[0][0]={60,7}; pattern.cells[1][0]={NOTE_OFF,0xFF};
+    pattern.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    pattern.cells[2][0]={60,0xFF};
+    NativeRatePatternPlayer player; CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t out[128]{}; CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success);
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+    auto saved=player; out[0]=999;
+    CHECK_EQ(player.Render(nullptr,12),PatternPlayerStatus::InvalidDestination);
+    CheckPlayback(player,saved); CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0)); CHECK_EQ(out[0],999);
+    auto invalid=pattern; invalid.note_off_timing[1][0]=static_cast<NoteOffTiming>(99);
+    CHECK_EQ(player.Configure(12753,100,invalid,bindings),PatternPlayerStatus::InvalidNoteOffTiming);
+    CheckPlayback(player,saved); CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Render(out,11),PatternPlayerStatus::Success); // End 23 excludes boundary.
+    for (unsigned i=0;i<11;++i) CHECK_EQ(out[i],10);
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Render(out,1),PatternPlayerStatus::Success); CHECK_EQ(out[0],10); // Stop then new note.
+    CHECK(!NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success); CHECK(!NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Render(out,3),PatternPlayerStatus::Success); CHECK_EQ(out[0],0);
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success); CHECK_EQ(player.Render(out,1),PatternPlayerStatus::Success);
+    CHECK_EQ(out[0],10); // Continuation uses retained instrument, no discarded Stop.
+    player.Stop(); player.Stop(); CHECK(!NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,1),PatternPlayerStatus::Success); CHECK_EQ(out[0],10);
+    pattern.active_rows=1; pattern.active_channels=8;
+    for (unsigned c=0;c<8;++c) { pattern.cells[0][c]={NOTE_OFF,0xFF}; pattern.note_off_timing[0][c]=NoteOffTiming::EndOfPosition; }
+    CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); saved=player; std::fill_n(out,40,999);
+    CHECK_EQ(player.Render(out,40),PatternPlayerStatus::CommandCapacityExceeded);
+    CheckPlayback(player,saved);
+    for(unsigned i=0;i<40;++i) CHECK_EQ(out[i],999);
+    CHECK(!NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success); CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+}
+TEST_CASE(CoreOffTimingBoundaryOverflowAndLateFailurePreservePending) {
+    NativeRatePatternPlayer player; RealtimePattern pattern; pattern.active_rows=1; pattern.active_channels=1;
+    pattern.cells[0][0]={NOTE_OFF,0xFF}; pattern.note_off_timing[0][0]=NoteOffTiming::EndOfPosition;
+    NativeRateSampleBindings empty{};
+    CHECK_EQ(player.Configure(UINT32_MAX,1,pattern,empty),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    NativeRatePatternPlayerTestAccess::SeedTick(player,(UINT64_MAX/kTicksPerRow)*kTicksPerRow);
+    auto saved=player; std::int16_t out=999;
+    CHECK_EQ(player.Render(&out,1),PatternPlayerStatus::RangeOverflow); CHECK_EQ(out,999); CheckPlayback(player,saved);
+    pattern.active_rows=4; pattern.cells[0][0]={60,7}; pattern.cells[1][0]={NOTE_OFF,0xFF};
+    pattern.note_off_timing[1][0]=NoteOffTiming::EndOfPosition; pattern.cells[2][0]={61,0xFF};
+    auto bindings=Bindings(100);
+    CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); std::int16_t span[24];
+    CHECK_EQ(player.Render(span,12),PatternPlayerStatus::Success); saved=player; std::fill_n(span,24,999);
+    CHECK_EQ(player.Render(span,12),PatternPlayerStatus::UnsupportedPitch); CheckPlayback(player,saved);
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0)); for(auto value:span) CHECK_EQ(value,999);
+    CHECK_EQ(player.Render(span,11),PatternPlayerStatus::Success);
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+}
+
+TEST_CASE(CoreOffTimingMetadataPropagationValidationAndCopy) {
+    RealtimePattern pattern; pattern.active_rows=2; pattern.active_channels=1;
+    pattern.cells[0][0]={NOTE_OFF,7}; pattern.note_off_timing[0][0]=NoteOffTiming::EndOfPosition;
+    RowEventBatch rows{};
+    CHECK_EQ(GenerateRowEvents(MusicalTick{0,0,0},pattern,rows),RowEventStatus::Success);
+    CHECK_EQ(rows.events[0].note_off_timing,NoteOffTiming::EndOfPosition);
+    CHECK_EQ(rows.events[0].instrument,7);
+    NativeRateSampleCommandPreparer preparer; auto bindings=Bindings(100);
+    CHECK_EQ(preparer.Configure(100,bindings),SampleCommandStatus::Success);
+    RamVoiceCommandBatch commands{}; commands.count=1;
+    CHECK_EQ(preparer.Prepare(rows,commands),SampleCommandStatus::Success); CHECK_EQ(commands.count,0);
+    LogicalChannelState state; CHECK_EQ(preparer.GetChannel(0,state),ChannelStateStatus::Success);
+    CHECK_EQ(state.note,NOTE_OFF); CHECK_EQ(state.instrument,7);
+    rows.events[0].note_off_timing=static_cast<NoteOffTiming>(99);
+    commands.count=1;
+    CHECK_EQ(preparer.Prepare(rows,commands),SampleCommandStatus::InvalidNoteOffTiming); CHECK_EQ(commands.count,1);
+    LogicalChannelState unchanged; CHECK_EQ(preparer.GetChannel(0,unchanged),ChannelStateStatus::Success);
+    CHECK_EQ(unchanged.instrument,state.instrument); CHECK_EQ(unchanged.note,state.note);
+    auto saved_rows=rows; pattern.note_off_timing[0][0]=static_cast<NoteOffTiming>(99);
+    CHECK_EQ(GenerateRowEvents(MusicalTick{0,0,0},pattern,rows),RowEventStatus::InvalidNoteOffTiming);
+    CHECK_EQ(rows.events[0].note_off_timing,saved_rows.events[0].note_off_timing);
+    pattern.note_off_timing[0][0]=NoteOffTiming::EndOfPosition;
+    NativeRatePatternPlayer player; CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+    pattern.note_off_timing[0][0]=NoteOffTiming::Arrival; // Player owns its metadata copy.
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); std::int16_t out;
+    CHECK_EQ(player.Render(&out,1),PatternPlayerStatus::Success);
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+    CHECK(!NativeRatePatternPlayerTestAccess::Pending(player,0));
+}
+
+TEST_CASE(CoreOffTimingSampleConversionOverflowIsTransactional) {
+    // Find the final representable tick in the test, then consume its row start.
+    std::uint64_t low=0, high=UINT64_MAX;
+    while (low < high) {
+        const auto middle=low+(high-low)/2+1; std::uint64_t sample;
+        if (TickToSamplePosition(middle,1,UINT32_MAX,sample)==TickToSampleStatus::Success) low=middle;
+        else high=middle-1;
+    }
+    RealtimePattern pattern; pattern.active_rows=1; pattern.active_channels=1;
+    pattern.cells[0][0]={NOTE_OFF,0xFF}; pattern.note_off_timing[0][0]=NoteOffTiming::EndOfPosition;
+    NativeRateSampleBindings empty{}; NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(1,UINT32_MAX,pattern,empty),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    NativeRatePatternPlayerTestAccess::SeedTick(player,(low/kTicksPerRow)*kTicksPerRow);
+    const auto saved=player; std::int16_t out=999;
+    CHECK_EQ(player.Render(&out,1),PatternPlayerStatus::RangeOverflow);
+    CHECK_EQ(out,999); CheckPlayback(player,saved);
 }
