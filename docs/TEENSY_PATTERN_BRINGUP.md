@@ -744,3 +744,21 @@ and clearing deferred Stops. Continue still replays that same row. No row subtra
 rewind compensation or host timing authority is introduced. Host tests cover
 partial STATUS writes, late replies and pauses on either side of a row boundary.
 Windows hardware latency/visual revalidation and timing/performance remain open.
+
+### Core-only paused pattern replacement (host-tested)
+
+`NativeRatePatternPlayer::ReplacePausedPattern` accepts only configured Paused
+state and unchanged active dimensions. It retains tempo, rate and sample bindings,
+validates the whole pattern and two logical passes, then rebuilds continuation
+from the new pattern immediately before the paused row. Loop zero uses cleared
+state plus preceding rows; later loops use one full pass plus preceding rows,
+independent of elapsed loop count. No consumed tick means cleared continuation.
+The paused row is not consumed, audio is not triggered and the cursor is not moved.
+
+Success retains reported tick/loop and next sample, remains Paused/silent and clears
+deferred Stops. Continue replays that row once using rebuilt selections, including
+new OFF timing scheduling. Failure preserves all state and the original pattern.
+Storage/work are fixed and bounded (at most 63 logical rows). Existing stopped-only
+replacement and firmware BTPUBLISH1 behavior are unchanged. Paused F5 integration,
+capability negotiation and hardware validation remain open; Playing publication
+remains blocked. No hardware confirmation applies to this new core foundation.

@@ -321,6 +321,17 @@ design remains unchanged.
 * [ ] Validate F5 stopped-only publication on Windows + Teensy, then ArkOS; physical
   timing/performance remain unmeasured. ArkOS handheld publication bindings, live
   editing, new sample bindings, sample transfer and persistence remain unimplemented.
+* [x] Add core-only `ReplacePausedPattern`: configured/Paused only, unchanged
+  active dimensions, retained tempo/rate/bindings and complete two-pass native-rate
+  validation. Rebuild new-pattern logical continuation before the reported row
+  (cleared-state prefix in loop zero; one full pass plus prefix in later loops).
+  Preserve position/loop/next sample, remain silent/Paused, clear deferred Stops;
+  no consumed tick leaves cleared state. Continue replays the row exactly once.
+  All rejection paths preserve prior state/pattern; fixed work, no elapsed-loop scan.
+  Host tests cover selection changes, loops, OFF timing, PCM, validation and rollback.
+* [ ] Integrate paused F5 replacement/capability negotiation and validate hardware
+  separately. Existing firmware publication stays stopped-only; Playing publication
+  remains explicitly blocked.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning to replay the

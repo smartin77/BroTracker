@@ -101,19 +101,45 @@ namespace BroTracker
             if (validation != PatternPlayerStatus::Success) return validation;
             auto tentative = preparer_;
             tentative.Reset();
-            for (std::uint64_t pass = 0; pass < 2; ++pass)
-                for (std::uint64_t row = 0; row < pattern.active_rows; ++row)
-                {
-                    RowEventBatch events{};
-                    const MusicalTick tick{(pass * pattern.active_rows + row) * kTicksPerRow, 0, 0};
-                    if (GenerateRowEvents(tick, pattern, events) != RowEventStatus::Success)
-                        return PatternPlayerStatus::ComponentError;
-                    RamVoiceCommandBatch commands{};
-                    const auto result = tentative.Prepare(events, commands);
-                    if (result != SampleCommandStatus::Success) return SampleStatus(result);
-                }
+            const auto compatibility = ApplyLogicalRows(pattern, tentative, 2 * pattern.active_rows);
+            if (compatibility != PatternPlayerStatus::Success) return compatibility;
             pattern_ = pattern;
             Stop();
+            return PatternPlayerStatus::Success;
+        }
+
+        // Paused-only replacement; dimensions, tempo/rate/bindings are retained.
+        // Validate two logical passes from cleared state, then rebuild NEW-pattern
+        // continuation immediately before the reported row. Loop zero uses only
+        // its prefix; later loops use one full pass plus that prefix, never elapsed
+        // loops. No consumed tick means cleared state. Prepared audio commands are
+        // discarded: no rendering, cursor movement or deferred scheduling here.
+        // <=63 logical rows total (validation + reconstruction), fixed storage.
+        // Success remains Paused/silent, preserving position and next sample;
+        // failure preserves ALL state. PCM ownership is unchanged from Configure.
+        [[nodiscard]] PatternPlayerStatus ReplacePausedPattern(const RealtimePattern& pattern) noexcept {
+            if (!configured_) return PatternPlayerStatus::NotConfigured;
+            if (transport_ != PatternTransportState::Paused) return PatternPlayerStatus::InvalidTransportState;
+            if (pattern.active_rows != pattern_.active_rows || pattern.active_channels != pattern_.active_channels)
+                return PatternPlayerStatus::InvalidDimensions;
+            const auto validation = ValidatePattern(pattern);
+            if (validation != PatternPlayerStatus::Success) return validation;
+            auto tentative = preparer_;
+            tentative.Reset();
+            const auto compatibility = ApplyLogicalRows(pattern, tentative, 2 * pattern.active_rows);
+            if (compatibility != PatternPlayerStatus::Success) return compatibility;
+            tentative.Reset();
+            if (position_.valid) {
+                const auto absolute_row = position_.absolute_tick / kTicksPerRow;
+                const auto prefix = absolute_row % pattern.active_rows;
+                const auto rows = (absolute_row / pattern.active_rows ? pattern.active_rows : 0) + prefix;
+                const auto reconstruction = ApplyLogicalRows(pattern, tentative, rows);
+                if (reconstruction != PatternPlayerStatus::Success) return reconstruction;
+            }
+            pattern_ = pattern;
+            preparer_ = tentative;
+            renderer_.Reset();
+            pending_ = {};
             return PatternPlayerStatus::Success;
         }
 
@@ -311,6 +337,20 @@ namespace BroTracker
             return PatternPlayerStatus::Success;
         }
     private:
+        static PatternPlayerStatus ApplyLogicalRows(const RealtimePattern& pattern,
+            NativeRateSampleCommandPreparer& preparer, std::uint64_t row_count) noexcept {
+            for (std::uint64_t row=0; row<row_count; ++row) {
+                RowEventBatch events{};
+                const MusicalTick tick{row * kTicksPerRow, 0, 0};
+                if (GenerateRowEvents(tick,pattern,events) != RowEventStatus::Success)
+                    return PatternPlayerStatus::ComponentError;
+                RamVoiceCommandBatch ignored{};
+                const auto result = preparer.Prepare(events,ignored);
+                if (result != SampleCommandStatus::Success) return SampleStatus(result);
+            }
+            return PatternPlayerStatus::Success;
+        }
+
         static PatternPlayerStatus ValidatePattern(const RealtimePattern& pattern) noexcept
         {
             if (pattern.active_rows == 0 || pattern.active_rows > kRealtimePatternRowCapacity ||

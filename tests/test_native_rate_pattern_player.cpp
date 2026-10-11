@@ -751,3 +751,77 @@ TEST_CASE(CurrentRowReplayAtRowStartsMidRowsAndLaterLoopsIsPartitionIndependent)
             }
         }
 }
+
+TEST_CASE(PausedReplacementRebuildsNewContinuationWithoutConsumingReportedRow) {
+    const std::int16_t alternate[]={-11,-22,-33,-44,-55,-66,-77,-88};
+    auto bindings=Bindings(100); bindings.count=2; bindings.bindings[1]={8,60,{alternate,8,100}};
+    RealtimePattern original; original.active_rows=3; original.active_channels=1;
+    original.cells[0][0]={NOTE_EMPTY,7}; original.cells[1][0]={60,255}; original.cells[2][0]={60,7};
+    auto replacement=original; replacement.cells[0][0].instrument=8;
+    for(unsigned loop : {0u,1u,5u}) for(unsigned row=0;row<3;++row) {
+        NativeRatePatternPlayer player;
+        CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+        CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+        std::uint64_t start=0; CHECK_EQ(TickToSamplePosition((loop*3+row)*kTicksPerRow,12753,100,start),TickToSampleStatus::Success);
+        std::int16_t out[128]{};
+        while(player.GetNextSamplePosition()<start+1) {
+            const auto count=std::min<std::uint64_t>(32,start+1-player.GetNextSamplePosition());
+            CHECK_EQ(player.Render(out,count),PatternPlayerStatus::Success);
+        }
+        CHECK_EQ(player.Pause(),PatternPlayerStatus::Success); const auto before=player.GetPlaybackPosition();
+        const auto next=player.GetNextSamplePosition();
+        CHECK_EQ(player.ReplacePausedPattern(replacement),PatternPlayerStatus::Success);
+        CHECK_EQ(player.GetTransportState(),PatternTransportState::Paused);
+        CHECK_EQ(player.GetPlaybackPosition().absolute_tick,before.absolute_tick);
+        CHECK_EQ(player.GetPlaybackPosition().loop_index,loop); CHECK_EQ(player.GetNextSamplePosition(),next);
+        LogicalChannelState state; CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(player).GetChannel(0,state),ChannelStateStatus::Success);
+        CHECK_EQ(state.instrument,row ? 8 : loop ? 7 : 255);
+        CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success); for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],0);
+        CHECK_EQ(player.Continue(),PatternPlayerStatus::Success); CHECK_EQ(player.GetNextSamplePosition(),start);
+        CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+        for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],row==1 ? alternate[i] : row==2 ? pcm[i] : 0);
+    }
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.ReplacePausedPattern(replacement),PatternPlayerStatus::Success);
+    LogicalChannelState state; CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(player).GetChannel(0,state),ChannelStateStatus::Success);
+    CHECK_EQ(state.instrument,255); CHECK_EQ(state.note,NOTE_EMPTY); CHECK(!player.GetPlaybackPosition().valid);
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success); CHECK_EQ(player.GetNextSamplePosition(),0);
+}
+TEST_CASE(PausedReplacementValidationAndRollback) {
+    auto original=Pattern(); original.active_rows=3; original.active_channels=1;
+    original.cells[1][0]={NOTE_OFF,255}; original.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.ReplacePausedPattern(original),PatternPlayerStatus::NotConfigured);
+    CHECK_EQ(player.Configure(12753,100,original,Bindings(100)),PatternPlayerStatus::Success);
+    auto saved=player; CHECK_EQ(player.ReplacePausedPattern(original),PatternPlayerStatus::InvalidTransportState); CheckPlayback(player,saved);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); saved=player;
+    CHECK_EQ(player.ReplacePausedPattern(original),PatternPlayerStatus::InvalidTransportState); CheckPlayback(player,saved);
+    std::int16_t out[128]{}; CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success); saved=player;
+    for(unsigned mode=0;mode<7;++mode) {
+        auto bad=original; auto status=PatternPlayerStatus::InvalidDimensions;
+        if(mode==0) bad.active_rows=2;
+        if(mode==1) bad.active_channels=2;
+        if(mode==2) { bad.cells[0][0].note=23; status=PatternPlayerStatus::InvalidNote; }
+        if(mode==3) { bad.note_off_timing[1][0]=static_cast<NoteOffTiming>(9); status=PatternPlayerStatus::InvalidNoteOffTiming; }
+        if(mode==4) { bad.cells[0][0].instrument=255; status=PatternPlayerStatus::MissingInstrument; }
+        if(mode==5) { bad.cells[0][0].instrument=99; status=PatternPlayerStatus::UnknownInstrument; }
+        if(mode==6) { bad.cells[0][0].note=61; status=PatternPlayerStatus::UnsupportedPitch; }
+        CHECK_EQ(player.ReplacePausedPattern(bad),status); CheckPlayback(player,saved);
+        auto retry=player, reference=saved;
+        CHECK_EQ(retry.Continue(),PatternPlayerStatus::Success); CHECK_EQ(reference.Continue(),PatternPlayerStatus::Success);
+        CHECK_EQ(retry.Render(out,1),PatternPlayerStatus::Success); std::int16_t expected=99;
+        CHECK_EQ(reference.Render(&expected,1),PatternPlayerStatus::Success); CHECK_EQ(out[0],expected);
+    }
+    for(const auto timing : {NoteOffTiming::Arrival,NoteOffTiming::EndOfPosition}) {
+        auto replacement=original; replacement.note_off_timing[1][0]=timing;
+        auto trial=saved; CHECK_EQ(trial.ReplacePausedPattern(replacement),PatternPlayerStatus::Success);
+        CHECK(!NativeRatePatternPlayerTestAccess::Pending(trial,0));
+        LogicalChannelState state; CHECK_EQ(NativeRatePatternPlayerTestAccess::Preparer(trial).GetChannel(0,state),ChannelStateStatus::Success);
+        CHECK_EQ(state.note,60); CHECK_EQ(state.instrument,7); // Paused OFF row not consumed in reconstruction.
+        CHECK_EQ(trial.Continue(),PatternPlayerStatus::Success); CHECK_EQ(trial.Render(out,1),PatternPlayerStatus::Success);
+        CHECK_EQ(out[0],0); CHECK_EQ(NativeRatePatternPlayerTestAccess::Pending(trial,0),timing==NoteOffTiming::EndOfPosition);
+    }
+}
