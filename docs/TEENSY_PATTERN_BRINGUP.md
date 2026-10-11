@@ -1000,3 +1000,14 @@ Retain the supplied original log/build evidence outside disposable build exports
 this documentation update does not move, replace or delete it. Initial preparation
 success does not complete the broader hardware checklist or constrain future PSRAM
 storage choices.
+
+### Main-app startup and unavailable pattern presentation
+
+Main Windows/ArkOS BTX no longer renders or presents a startup mockup. Missing
+connection uses the normal layout with unavailable pattern/position indicators,
+without dummy notes, fixed playback position or fake edit cursor. Live snapshots,
+drafts, highlight/arrow, edit cursor and padded information panel remain unchanged.
+RenderPreviewScreen is an explicit standalone-only preview API used by
+ tools/ui_preview/main.cpp; its assets and BMP export remain available.
+Manual Windows/ArkOS visual validation of startup and disconnect/reconnect remains
+pending. Transport, publication, audio and firmware behavior are unchanged.

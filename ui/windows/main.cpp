@@ -56,7 +56,6 @@ int main(int, char*[]) try {
     Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
     if (tune.patterns.empty()) return failure("Tune load failed");
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
-    RenderMainScreen(framebuffer, tune, tune.patterns.front());
     SdlDisplayBackend display("BroTracker Terminal", false);
     if (!display.Initialize(640, 480)) return failure("SDL initialization failed");
     std::fprintf(log.get(), "SDL driver=%s; fixed window 640x480; RGB24 framebuffer\n", SDL_GetCurrentVideoDriver());

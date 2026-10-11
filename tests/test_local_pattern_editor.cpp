@@ -344,7 +344,7 @@ TEST_CASE(HostConnectionControlsAndPendingMessagesStayInPanel) {
 TEST_CASE(DecimalOneBasedRowHeaderDoesNotDependOnDeviceData) {
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
     Framebuffer fb(640, 480); Tune tune; Pattern preview;
-    RenderMainScreen(fb, tune, preview);
+    RenderPreviewScreen(fb, tune, preview);
     const std::vector<Color> baseline(fb.PixelData(), fb.PixelData() + 640 * 480);
     auto live = ConnectedDraft();
     for (unsigned available = 0; available < 2; ++available) {

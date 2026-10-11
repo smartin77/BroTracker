@@ -558,6 +558,13 @@ design remains unchanged.
   bindings, then validate actual Teensy SD behavior/hardware. No current boot,
   pattern or loader API changes; test.wav/test2.wav/test3.wav remain deferred.
 
+* [x] Remove Windows/ArkOS main-app startup mockup rendering/presentation and
+  implicit absent-live-view demo fallback. Main BTX always renders application
+  unavailable-data layout while waiting/disconnected; no dummy notes/fake position
+  or edit cursor. Explicit RenderPreviewScreen keeps tools/ui_preview BMP export.
+* [ ] Visually validate startup, disconnect/reconnect and unchanged live editor/
+  playback/panel behavior on Windows and ArkOS after mockup fallback removal.
+
 ## Deferred Tasks
 
 * [x] Implement opt-in teensy41_pattern_sd_prepare boot loading of Samples/test2.wav

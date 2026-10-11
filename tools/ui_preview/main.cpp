@@ -44,7 +44,7 @@ int main()
 
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    RenderMainScreen(
+    RenderPreviewScreen(
         framebuffer,
         tune,
         pattern);

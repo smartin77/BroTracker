@@ -153,19 +153,6 @@ int main(int, char*[])
         bring_up_log,
         "framebuffer creation: success");
 
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "main screen rendering: start");
-
-    RenderMainScreen(
-        framebuffer,
-        tune,
-        tune.patterns.front());
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "main screen rendering: success");
-
     SdlDisplayBackend display("BroTracker Terminal");
 
     WriteBringUpDiagnostic(
@@ -186,25 +173,6 @@ int main(int, char*[])
     WriteBringUpDiagnostic(
         bring_up_log,
         "SDL display initialization: success");
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "first framebuffer Present: start");
-
-    if (!display.Present(framebuffer))
-    {
-        WriteSdlFailure(
-            bring_up_log,
-            "first framebuffer Present: failure");
-        LogError("Failed to present the BroTracker framebuffer.");
-        return 1;
-    }
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "first framebuffer Present: success");
-
-    LogInfo("BroTracker framebuffer displayed.");
 
     SDL_GameController* game_controller = nullptr;
     const int input_init_result = SDL_InitSubSystem(

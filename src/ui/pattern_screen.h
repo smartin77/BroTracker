@@ -29,3 +29,6 @@ void RenderMainScreen(
     const std::optional<LivePlaybackView>& live = std::nullopt,
     const LocalPatternEditor* editor = nullptr,
     const HostPanelInformation& host = {});
+
+// Explicit standalone mockup only; main applications always use RenderMainScreen.
+void RenderPreviewScreen(Framebuffer& framebuffer, const Tune& tune, const Pattern& pattern);

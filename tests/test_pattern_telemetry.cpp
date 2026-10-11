@@ -241,9 +241,9 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
     Tune tune; tune.title = "HOST PREVIEW";
     Pattern preview; preview.length = 32;
     Framebuffer framebuffer(640, 480);
-    RenderMainScreen(framebuffer, tune, preview);
+    RenderPreviewScreen(framebuffer, tune, preview);
     const std::vector<Color> original(framebuffer.PixelData(), framebuffer.PixelData() + 640 * 480);
-    CHECK(!ResolvePatternDisplay(std::nullopt).device_mode);
+    CHECK(!ResolvePatternDisplay(std::nullopt,true).device_mode);
     const std::optional<LivePlaybackView> live = LivePlaybackView{true, true,
         {true, true, 96, 1, 0, 16, 2}};
     const auto display = ResolvePatternDisplay(live);
@@ -274,7 +274,7 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
     std::optional<LivePlaybackView> legacy = LivePlaybackView{};
     CHECK(ResolvePatternDisplay(legacy).device_mode);
     CHECK(!ResolvePatternDisplay(legacy).playback_highlight);
-    RenderMainScreen(framebuffer, tune, preview); // Standalone/default remains exact.
+    RenderPreviewScreen(framebuffer, tune, preview); // Standalone/default remains exact.
     CHECK(std::memcmp(original.data(), framebuffer.PixelData(), original.size() * sizeof(Color)) == 0);
 }
 
@@ -294,4 +294,27 @@ TEST_CASE(PausePreemptsStatusWaitAndUsesFreshAppliedPositionOnly) {
         s.Receive("BTPATTERN1 POS 2 2 1 100 1 0 16 2\n");
         CHECK(s.View().fresh); CHECK_EQ(s.View().position.tick,100); CHECK_EQ(s.View().position.row,1);
     }
+}
+
+TEST_CASE(MainApplicationMissingConnectionNeverUsesMockup) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Tune tune; tune.title="DUMMY"; Pattern pattern; pattern.length=32;
+    pattern.channels.resize(8); for(auto& channel:pattern.channels) {
+        channel.rows.resize(32); for(auto& cell:channel.rows) cell={60,7};
+    }
+    Framebuffer fb(640,480); RenderMainScreen(fb,tune,pattern);
+    const std::vector<Color> disconnected(fb.PixelData(),fb.PixelData()+640*480);
+    CHECK(ResolvePatternDisplay(std::nullopt).device_mode);
+    CHECK(!ResolvePatternDisplay(std::nullopt).playback_highlight);
+    const auto& pixel=fb.PixelData()[218*640+32]; CHECK_EQ(pixel.r,16); CHECK_EQ(pixel.g,16);
+    std::optional<LivePlaybackView> waiting=LivePlaybackView{};
+    RenderMainScreen(fb,tune,pattern,waiting);
+    CHECK(std::memcmp(disconnected.data(),fb.PixelData(),disconnected.size()*sizeof(Color))==0);
+    tune.title="OTHER"; pattern.channels.clear(); pattern.number=9;
+    RenderMainScreen(fb,tune,pattern);
+    CHECK(std::memcmp(disconnected.data(),fb.PixelData(),disconnected.size()*sizeof(Color))==0);
+    RenderPreviewScreen(fb,tune,pattern);
+    CHECK(std::memcmp(disconnected.data(),fb.PixelData(),disconnected.size()*sizeof(Color))!=0);
+    RenderMainScreen(fb,tune,pattern); // Disconnect after preview/device presentation always restores unavailable layout.
+    CHECK(std::memcmp(disconnected.data(),fb.PixelData(),disconnected.size()*sizeof(Color))==0);
 }

@@ -25,9 +25,9 @@ struct PatternDisplayState
     const BroTracker::DevicePatternSnapshot* device_pattern = nullptr;
 };
 inline PatternDisplayState ResolvePatternDisplay(
-    const std::optional<LivePlaybackView>& live) noexcept
+    const std::optional<LivePlaybackView>& live, bool preview = false) noexcept
 {
-    if (!live) return {};
+    if (!live) { PatternDisplayState unavailable; unavailable.device_mode=!preview; return unavailable; }
     const auto& p = live->position;
     const bool dimensions = live->telemetry_available && p.rows > 0 &&
         p.rows <= BroTracker::kRealtimePatternRowCapacity && p.channels > 0 &&

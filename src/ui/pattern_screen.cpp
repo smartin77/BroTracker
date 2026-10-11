@@ -794,7 +794,7 @@ namespace
     }
 }
 
-void RenderMainScreen(
+static void RenderPatternScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
     const Pattern& pattern,
@@ -802,7 +802,7 @@ void RenderMainScreen(
     const HostPanelInformation& host)
 {
     framebuffer.Clear(background);
-    const auto display = ResolvePatternDisplay(live);
+    const auto display = ResolvePatternDisplay(live, !live);
     // Never show a draft against unrelated or unavailable device dimensions.
     if (editor && (!display.device_pattern || !editor->Ready() ||
         editor->Draft()->active_rows != display.rows ||
@@ -854,4 +854,15 @@ void RenderMainScreen(
         }
     }
     DrawRightChannelNavigation(framebuffer, display);
+}
+
+void RenderMainScreen(Framebuffer& framebuffer, const Tune& tune, const Pattern& pattern,
+    const std::optional<LivePlaybackView>& live, const LocalPatternEditor* editor,
+    const HostPanelInformation& host) {
+    // Missing connection is unavailable application data, never a preview request.
+    const std::optional<LivePlaybackView> unavailable=LivePlaybackView{};
+    RenderPatternScreen(framebuffer,tune,pattern,live ? live : unavailable,editor,host);
+}
+void RenderPreviewScreen(Framebuffer& framebuffer, const Tune& tune, const Pattern& pattern) {
+    RenderPatternScreen(framebuffer,tune,pattern,std::nullopt,nullptr,{});
 }
