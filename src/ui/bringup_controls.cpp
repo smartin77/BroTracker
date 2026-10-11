@@ -14,7 +14,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             return;
         }
     }
-    const bool active = serial_.Connected() && !serial_.Finished();
+    const bool active = serial_.Connected() && (!serial_.Finished() || serial_.PublicationBusy());
     const bool exit = action == BringUpAction::Exit || (action == BringUpAction::StopExit && !active);
     const char* verb = exit ? "EXIT" : action == BringUpAction::Start ? (active ? "RESTART" : "START") : "STOP";
     if (log_) { std::fprintf(log_, "Controls: %s requested by %s\n", verb, source); std::fflush(log_); }

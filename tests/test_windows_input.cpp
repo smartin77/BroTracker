@@ -5,6 +5,14 @@
 #include <utility>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%s\n", #x); return 1; } } while (0)
 int main() {
+    for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
+        SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
+        CHECK(MapWindowsPublish(publish)==(mod==KMOD_NONE));
+        CHECK(MapWindowsAction(publish)==BringUpAction::None);
+        CHECK(MapWindowsEditorAction(publish)==EditorAction::None);
+        publish.key.repeat=1; CHECK(!MapWindowsPublish(publish));
+        publish.key.repeat=0; publish.type=SDL_KEYUP; CHECK(!MapWindowsPublish(publish));
+    }
     SDL_Event mapping{}; mapping.type = SDL_KEYDOWN;
     for (const auto& pair : {std::pair<SDL_Keycode, EditorAction>{SDLK_UP, EditorAction::Up},
         {SDLK_DOWN, EditorAction::Down}, {SDLK_LEFT, EditorAction::Left},

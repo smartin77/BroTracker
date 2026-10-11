@@ -69,14 +69,19 @@ int main(int, char*[]) try {
     LocalPatternEditor editor;
     WindowsEditorInput editor_input;
     BringUpControls controls(serial, log.get());
-    std::fprintf(log.get(), "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT\n");
+    std::fprintf(log.get(), "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F5 stopped-only Publish\n");
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
-        editor.Sync(serial.PlaybackView(SDL_GetTicks()));
+        serial.SyncEditor(editor,SDL_GetTicks());
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if (MapWindowsPublish(event)) {
+                (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
+                if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());
+                continue;
+            }
             if (editor_input.Handle(event, SDL_GetTicks(), editor)) continue;
             const auto action = MapWindowsAction(event);
             if (action != BringUpAction::None) {
@@ -85,11 +90,12 @@ int main(int, char*[]) try {
                 controls.Request(action, source, SDL_GetTicks());
             }
         }
+        serial.SyncEditor(editor,SDL_GetTicks());
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT"};
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | F5: Publish" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | F5: Publish", serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log.get(), "Terminal error", SDL_GetError()); display_failed = true;

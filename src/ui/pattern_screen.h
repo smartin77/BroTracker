@@ -19,6 +19,7 @@ struct HostPanelInformation
 {
     std::string connection_status;
     std::string transport_hints;
+    std::string publication_status{};
 };
 
 void RenderMainScreen(

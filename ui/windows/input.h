@@ -3,6 +3,10 @@
 #include "ui/bringup_controls.h"
 #include "ui/local_pattern_editor.h"
 #include "ui/editor_repeat.h"
+inline bool MapWindowsPublish(const SDL_Event& event) {
+    return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
+        !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT));
+}
 // Ignore OS repeat: at most one editor action per physical key press.
 inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
     if (event.type != SDL_KEYDOWN || event.key.repeat ||
@@ -26,7 +30,7 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
 class WindowsEditorInput {
 public:
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
-        if (!editor.Ready()) repeat_.Cancel();
+        if (!editor.Ready() || editor.Locked() || MapWindowsPublish(event)) repeat_.Cancel();
         if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
             focused_ = false; repeat_.Cancel(); return false;
         }
@@ -47,7 +51,7 @@ public:
         return true;
     }
     void Tick(std::uint32_t now, SDL_Keymod modifiers, LocalPatternEditor& editor) noexcept {
-        repeat_.Tick(now, focused_ && !(modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT)), editor);
+        repeat_.Tick(now, !editor.Locked() && focused_ && !(modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT)), editor);
     }
 private:
     EditorRepeat repeat_;

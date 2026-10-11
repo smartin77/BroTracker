@@ -284,9 +284,10 @@ design remains unchanged.
   (`¯` / `_`), Restore and unchanged audio.
 * [ ] Validate snapshot-v2 OFF timing and shared editor on ArkOS; end-of-position
   hardware timing and realtime performance remain unmeasured.
-* [ ] Implement local draft publication/live-edit integration separately;
-  local toggles remain NOT SENT TO TEENSY. The Windows confirmation does not
-  establish end-of-position hardware timing or an execution budget.
+* [ ] Validate explicit F5 local draft publication separately from the confirmed
+  read-only editor; live-edit integration remains open. Unsaved local toggles remain
+  NOT SENT TO TEENSY. Prior Windows confirmation does not establish publication,
+  end-of-position hardware timing or an execution budget.
 * [x] Add core-only `NativeRatePatternPlayer::ReplacePattern`: configured/Stopped
   only, retaining tempo, rate and validated sample bindings. Active dimensions,
   notes and OFF timing are checked; two bounded logical passes from cleared state
@@ -307,9 +308,19 @@ design remains unchanged.
   Submitted timeouts are uncertain outcomes requiring authoritative readback.
   Host tests cover apply/readback, validation, immutable handoff, transport rejection,
   FIFO backpressure, snapshot exclusion and telemetry/ACK interleaving.
-* [ ] Validate stopped-only publication on Windows + Teensy, then ArkOS; physical
-  timing/performance remain unmeasured. BTX sending controls, draft rebasing,
-  publication UI, live editing, sample transfer and persistence remain unimplemented.
+* [x] Add Windows F5 explicit stopped-only draft publication with shared portable
+  frozen-copy logic. Gate on CAP 1, fresh usable NEXT, validated v2 baseline, dirty
+  draft and idle transport/work. Bounded partial lines serialize BEGIN/CELL/COMMIT;
+  identities are consumed once and refreshed via STATUS. SUBMITTED is not success:
+  APPLIED requests v2 readback, and exact dimensions/cells/OFF timing plus unchanged
+  tempo confirm and rebase while retaining the edit cursor. Mutations/Restore freeze,
+  navigation remains available; rejected/mismatched results preserve edits/baseline.
+  Possible COMMIT delivery on timeout/disconnect remains uncertain until readback;
+  no automatic publication retry. STOP/exit finish partial lines and do not cancel
+  submitted work. Host tests cover protocol, partial writes, editor and transport.
+* [ ] Validate F5 stopped-only publication on Windows + Teensy, then ArkOS; physical
+  timing/performance remain unmeasured. ArkOS handheld publication bindings, live
+  editing, new sample bindings, sample transfer and persistence remain unimplemented.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning at the next row
@@ -406,7 +417,8 @@ design remains unchanged.
   telemetry never changes the draft/cursor. Evidence: `src/ui/local_pattern_editor.h`,
   `src/ui/editor_repeat.h` and host/editor/input/display tests. User-performed Windows
   validation on 2026-10-10 confirms the final editor behavior works as agreed.
-  Edits are not sent to Teensy; publication and UI/protocol/firmware integration of end-of-position OFF remain open.
+  Edits remain local until explicit F5 publication, now host-tested; publication
+  hardware validation, ArkOS sending bindings and live edits remain open.
 
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
   rendering. Evidence: `src/core/{pattern,channel,event,tune}.h`, the tune loader,

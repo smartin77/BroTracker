@@ -21,6 +21,9 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
+    publication_.Disconnect();
+    publication_supported_=next_discovery_expected_=next_fresh_=false;
+    next_publication_id_=0; publication_readback_requested_=false; next_refresh_=false; tx_publication_=false;
     if (start_queued_ || (pending_ == Command::Start && !start_write_attempted_))
     {
         start_cancelled_ = true;
@@ -48,9 +51,38 @@ void BringUpSerial::Disconnect(const char* reason)
     std::strcpy(state_, "UNKNOWN");
 }
 
+void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
+{
+    editor.Sync(PlaybackView(now));
+    if(publication_.TakeConfirmed()) {
+        if(const auto* snapshot=pattern_assembler_.Snapshot()) (void)editor.Rebase(*snapshot);
+    }
+    editor.SetLocked(PublicationBusy());
+}
+
+bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
+{
+    // F5 may resolve an uncertain outcome with GET, never resend publication.
+    if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
+        if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
+        publication_readback_requested_=false; snapshot_requested_=false; return true;
+    }
+    const auto* baseline=editor.Baseline();
+    if(!connected_ || !publication_supported_ || !next_fresh_ || !next_publication_id_ ||
+        !baseline || baseline->version!=2 || snapshot_version_!=2 || !editor.Dirty() ||
+        std::strcmp(state_,"IDLE") || TransportPending() || pending_!=Command::None ||
+        pattern_assembler_.Active() || !snapshot_requested_ || tx_offset_!=tx_size_ || PublicationBusy()) {
+        publication_.Unavailable(); return false;
+    }
+    if(!publication_.Begin(next_publication_id_,*baseline,*editor.Draft(),now)) return false;
+    next_publication_id_=0; next_fresh_=false; next_discovery_expected_=false;
+    next_refresh_=true; publication_readback_requested_=false;
+    editor.SetLocked(true); Log("publication frozen; explicit request"); return true;
+}
+
 bool BringUpSerial::Start()
 {
-    if (!connected_ || TransportPending()) return false;
+    if (!connected_ || TransportPending() || PublicationBusy()) return false;
     start_queued_ = true;
     ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
@@ -62,6 +94,10 @@ bool BringUpSerial::Start()
 bool BringUpSerial::Stop()
 {
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
+    publication_.StopRequested();
+    if(tx_publication_ && tx_offset_==0 && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
+        tx_size_=0; tx_publication_=false; // Whole unattempted line may be dropped, never a partial line.
+    }
     stop_queued_ = true;
     ClearPosition();
     stopped_ = false;
@@ -76,7 +112,7 @@ bool BringUpSerial::TransportPending() const
 bool BringUpSerial::Paused() const { return connected_ && !std::strcmp(state_, "PAUSED"); }
 bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, "PLAYING"); }
 bool BringUpSerial::QueueTransport(Command command) {
-    if (!connected_ || !transport_supported_ || TransportPending()) return false;
+    if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
     transport_queued_ = command; stopped_ = false; return true;
 }
@@ -117,7 +153,8 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
                        command == Command::Start ? "START" :
                        command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
-    tx_offset_ = 0;
+    tx_offset_ = 0; tx_publication_=false;
+    if(command==Command::Hello || command==Command::Status) { next_discovery_expected_=true; next_refresh_=false; }
     pending_ = command;
     if (command == Command::Start) start_write_attempted_ = false;
     sent_at_ = now;
@@ -151,7 +188,27 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strcmp(line_, "BTPATTERN1 TRANSPORTCAP 1"))
+    if (!std::strcmp(line_,BroTracker::kPatternPublicationCapability))
+    { if(connected_) publication_supported_=true; }
+    else if (!std::strncmp(line_,"BTPUBLISH1 NEXT",14)) {
+        std::uint32_t values[2]{};
+        if(connected_ && next_discovery_expected_ &&
+            BroTracker::SnapshotFields(line_,used_,"BTPUBLISH1 NEXT ",values,2) && values[0]==1) {
+            next_publication_id_=values[1];
+            if(next_publication_id_ && next_publication_id_<=publication_.LastIdentity())
+                next_publication_id_=publication_.LastIdentity()==UINT32_MAX ? 0 : publication_.LastIdentity()+1;
+            next_fresh_=true; next_discovery_expected_=false;
+        }
+    }
+    else if (!std::strncmp(line_,"BTPUBLISH1",10)) {
+        const auto before=publication_.Phase();
+        if(connected_ && publication_.Response(line_,used_,now)) {
+            if(publication_.NeedsReadback() && before!=publication_.Phase()) {
+                publication_readback_requested_=false; snapshot_requested_=false;
+            }
+        }
+    }
+    else if (!std::strcmp(line_, "BTPATTERN1 TRANSPORTCAP 1"))
     { if (connected_) transport_supported_ = true; }
     else if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability) || !std::strcmp(line_, "BTPATTERN1 SNAPCAP 2"))
     {
@@ -165,7 +222,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         const auto result = pattern_assembler_.Accept(line_, used_, now);
         if (result == BroTracker::SnapshotAssemblyStatus::Rejected ||
-            result == BroTracker::SnapshotAssemblyStatus::Timeout) snapshot_failed_ = true;
+            result == BroTracker::SnapshotAssemblyStatus::Timeout) { snapshot_failed_ = true; publication_.ReadbackFailed(); }
+        if(result==BroTracker::SnapshotAssemblyStatus::Complete && publication_.NeedsReadback())
+            (void)publication_.Verify(*pattern_assembler_.Snapshot());
     }
     else if (std::strncmp(line_, "BTPATTERN1 POS", 14) == 0)
     {
@@ -239,8 +298,12 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
-    if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout)
-        snapshot_failed_ = true;
+    publication_.Tick(now);
+    if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout) {
+        snapshot_failed_ = true; publication_.ReadbackFailed();
+    }
+    if(publication_.NeedsReadback() && !publication_readback_requested_ && connected_ && snapshot_version_==2)
+        snapshot_requested_=false;
     if (!opened_)
     {
         if (attempted_ && now - last_attempt_ < 1000) return;
@@ -251,16 +314,23 @@ void BringUpSerial::Tick(std::uint32_t now)
         Send(Command::Hello, now);
     }
     if (!transport_->Healthy()) { Disconnect(transport_->Error()); return; }
+    if(tx_publication_ && tx_offset_==0 && publication_.Phase()!=BroTracker::HostPublicationPhase::Sending) {
+        tx_size_=0; tx_publication_=false;
+    }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
         // completion. A later disconnect must conservatively report UNKNOWN.
         if (pending_ == Command::Start) start_write_attempted_ = true;
+        if(tx_publication_) publication_.BeforeWrite();
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
         if (count > 0)
         {
             tx_offset_ += count;
-            if (tx_offset_ == tx_size_) Log("TX complete:", tx_);
+            if (tx_offset_ == tx_size_) {
+                Log("TX complete:", tx_);
+                if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
+            }
         }
         else if (count < 0)
         { Disconnect(transport_->Error()); return; }
@@ -284,7 +354,7 @@ void BringUpSerial::Tick(std::uint32_t now)
                 // Conservatively cancel staging, but never touch applied transport,
                 // position or a previously committed snapshot.
                 if (pattern_assembler_.Active())
-                { pattern_assembler_.Cancel(); snapshot_failed_ = true; }
+                { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
             }
             else OnLine(now);
             used_ = 0;
@@ -310,9 +380,16 @@ void BringUpSerial::Tick(std::uint32_t now)
             Send(Command::Stop, now);
             stop_queued_ = false;
         }
+        else if (publication_.Phase()==BroTracker::HostPublicationPhase::Sending) {
+            std::size_t length=0;
+            if(publication_.FormatLine(tx_,sizeof(tx_),length)) {
+                tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_publication_=true;
+            }
+        }
         else if (connected_ && snapshot_supported_ && !snapshot_requested_)
         {
             snapshot_requested_ = true;
+            if(publication_.NeedsReadback()) publication_readback_requested_=true;
             if (next_snapshot_id_ == 0) snapshot_failed_ = true;
             else
             {
@@ -328,6 +405,6 @@ void BringUpSerial::Tick(std::uint32_t now)
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
         }
-        else if (connected_ && now - sent_at_ >= 1000) Send(Command::Status, now);
+        else if (connected_ && (next_refresh_ || now - sent_at_ >= 1000)) Send(Command::Status, now);
     }
 }

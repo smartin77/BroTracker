@@ -310,7 +310,7 @@ int main(int, char*[])
     while (!controls.Quit())
     {
         controls.Tick(SDL_GetTicks());
-        editor.Sync(serial.PlaybackView(SDL_GetTicks()));
+        serial.SyncEditor(editor,SDL_GetTicks());
         SDL_Event event;
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
@@ -338,7 +338,7 @@ int main(int, char*[])
             !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
             serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
             !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
-            "L1 / B: START | R1 / X: EXIT"};
+            "L1 / B: START | R1 / X: EXIT", serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if (!controls.Quit() && !display.Present(framebuffer))

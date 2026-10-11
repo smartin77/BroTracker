@@ -4,6 +4,8 @@
 #include <cstdio>
 #include "serial_transport.h"
 #include "live_playback_view.h"
+#include "local_pattern_editor.h"
+#include "bringup/host_pattern_publication.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -16,6 +18,10 @@ public:
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    bool Publish(LocalPatternEditor& editor, std::uint32_t now);
+    void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
+    bool PublicationBusy() const { return publication_.Blocking(); }
+    const char* PublicationStatus() const { return publication_.Status(); }
     bool Start();
     bool Stop();
     bool Pause();
@@ -68,7 +74,12 @@ private:
     std::uint32_t last_attempt_ = 0;
     std::uint32_t sent_at_ = 0;
     bool attempted_ = false;
-    char tx_[32]{};
+    BroTracker::HostPatternPublication publication_;
+    bool publication_supported_ = false, next_discovery_expected_ = false, next_fresh_ = false;
+    std::uint32_t next_publication_id_ = 0;
+    bool publication_readback_requested_ = false, next_refresh_ = false;
+    bool tx_publication_ = false;
+    char tx_[BroTracker::kPatternSnapshotLineCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
     char line_[256]{};
     unsigned int used_ = 0;

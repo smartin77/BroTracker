@@ -14,6 +14,7 @@ namespace BroTracker
     {
         std::uint32_t transfer_id = 0, tempo_hundredths = 0;
         RealtimePattern pattern;
+        unsigned version = 1;
     };
     enum class SnapshotMessageKind { Begin, Cell, End, Error };
     struct SnapshotMessage
@@ -141,7 +142,7 @@ namespace BroTracker
                 if (begun_ || f[1] == 0 || f[1] > kRealtimePatternRowCapacity ||
                     f[2] == 0 || f[2] > kRealtimePatternChannelCapacity || !f[3] ||
                     f[4] != f[1] * f[2]) return Reject();
-                staging_ = {}; staging_.transfer_id = id_; staging_.tempo_hundredths = f[3];
+                staging_ = {}; staging_.transfer_id = id_; staging_.tempo_hundredths = f[3]; staging_.version = version_;
                 staging_.pattern.active_rows = static_cast<std::uint8_t>(f[1]);
                 staging_.pattern.active_channels = static_cast<std::uint8_t>(f[2]);
                 count_ = f[4]; hash_ = SnapshotHeaderHash(f[1], f[2], f[3]); begun_ = true;

@@ -831,7 +831,7 @@ void RenderMainScreen(
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
-    if (display.device_mode || !host.connection_status.empty() || !host.transport_hints.empty())
+    if (display.device_mode || !host.connection_status.empty() || !host.transport_hints.empty() || !host.publication_status.empty())
     {
         // Derive the padded content interior from the same workspace bounds.
         const int x = layout.right_section_x + 1 + layout.content_padding;
@@ -845,6 +845,7 @@ void RenderMainScreen(
         // Connection/errors and pending transport stay visible even before HELLO.
         if (!host.connection_status.empty()) info(host.connection_status, header_value);
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
+        if (!host.publication_status.empty()) info(host.publication_status, header_value);
         if (display.device_mode)
         {
             info(!live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
@@ -853,7 +854,7 @@ void RenderMainScreen(
                 live->position.running ? "Device playing (reported logical position)" : "Device stopped",
                 header_value);
             info(display.device_pattern ? (editor && editor->Ready() ?
-                    (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - NOT SENT TO TEENSY") :
+                    (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - DEVICE BASELINE") :
                     "Device pattern (read-only)") :
                 live->pattern_loading ? "Loading device pattern..." : "Device pattern unavailable", header_name);
             if (live->telemetry_available)

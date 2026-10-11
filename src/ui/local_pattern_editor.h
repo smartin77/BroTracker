@@ -1,5 +1,6 @@
 #pragma once
 #include "live_playback_view.h"
+#include "bringup/host_pattern_publication.h"
 
 enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
@@ -30,6 +31,15 @@ public:
         draft_ = baseline_.pattern;
         ready_ = true;
     }
+    void SetLocked(bool locked) noexcept { locked_=locked; }
+    bool Locked() const noexcept { return locked_; }
+    const BroTracker::DevicePatternSnapshot* Baseline() const noexcept { return ready_ ? &baseline_ : nullptr; }
+    // Called only after exact publication readback. Cursor remains independent.
+    bool Rebase(const BroTracker::DevicePatternSnapshot& snapshot) noexcept {
+        if(!ready_ || snapshot.version!=2 || snapshot.tempo_hundredths!=baseline_.tempo_hundredths ||
+            !BroTracker::SamePattern(snapshot.pattern,draft_)) return false;
+        baseline_=snapshot; draft_=snapshot.pattern; return true;
+    }
     bool Ready() const noexcept { return ready_; }
     const EditCursor& Cursor() const noexcept { return cursor_; }
     const BroTracker::RealtimePattern* Draft() const noexcept { return ready_ ? &draft_ : nullptr; }
@@ -52,6 +62,9 @@ public:
     bool Apply(EditorAction action, unsigned value = 0) noexcept
     {
         if (!ready_) return false;
+        if (locked_ && action != EditorAction::Up && action != EditorAction::Down &&
+            action != EditorAction::Left && action != EditorAction::Right &&
+            action != EditorAction::NextChannel && action != EditorAction::PreviousChannel) return false;
         auto next = cursor_;
         switch (action)
         {
@@ -119,7 +132,7 @@ public:
         return true;
     }
 private:
-    bool ready_ = false;
+    bool ready_ = false, locked_ = false;
     BroTracker::DevicePatternSnapshot baseline_;
     BroTracker::RealtimePattern draft_;
     EditCursor cursor_;

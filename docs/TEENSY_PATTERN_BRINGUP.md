@@ -129,8 +129,9 @@ Device BPM/POS/LOOP remain authoritative.
 
 NOTE_OFF timing is now core `NoteOffTiming` metadata copied from the validated
 read-only device snapshot into the draft, separate from instrument IDs. Version 2
-can carry EndOfPosition; legacy version 1 defaults to Arrival. Local changes still
-remain **NOT SENT TO TEENSY**: there is no publication or live editing. The current
+can carry EndOfPosition; legacy version 1 defaults to Arrival. Local changes remain
+**NOT SENT TO TEENSY** until explicit F5 stopped-only publication and confirmed
+readback, described below. Live editing is not implemented. The current
 bring-up fixture retains Arrival timings and its audio sequence is unchanged.
 
 Dirty state compares active raw cells and OFF timing with the baseline; restoring
@@ -525,9 +526,9 @@ NOT SENT TO TEENSY and do not establish deferred Stop timing at physical outputs
 
 This opt-in firmware foundation advertises a separate `BTPUBLISH1 CAP 1` after
 HELLO. A future sender must discover this capability before using publication;
-legacy firmware receives no new commands. Current BTX has no sending controls,
-automatic publication/retry or draft rebasing: local drafts remain NOT SENT TO
-TEENSY. The boot fixture, tempo 12753, 44100 Hz, native-rate bindings and ordinary
+legacy firmware receives no new commands. Windows BTX now has explicit stopped-only F5 publication and confirmed-readback
+rebasing, as described below. There is no automatic publication/retry; unsubmitted
+local edits remain NOT SENT TO TEENSY. The boot fixture, tempo 12753, 44100 Hz, native-rate bindings and ordinary
 firmware/USB trace paths are unchanged. Only an explicitly submitted replacement
 can change the active pattern.
 
@@ -614,5 +615,69 @@ and overflowing input, ordering/count/checksum failures, timeout/session cancell
 frozen storage/duplicate COMMIT, actual Playing/Paused rejection, retained old-pattern
 playback after rejection, stopped-zero success, queue saturation, snapshot exclusion
 and ACK/telemetry interleaving under partial writes. Hardware validation of publication
-is pending for Windows + Teensy and ArkOS. No BTX sending UI, rebasing, live edits,
-sample transfer or persistence is implemented; physical timing/performance remain open.
+is pending for Windows + Teensy and ArkOS. Windows sending/rebasing is implemented
+below; live edits, sample transfer and persistence remain unimplemented, with
+physical timing/performance checks open.
+
+### Windows F5 explicit publication (host-tested; hardware pending)
+
+F5 publishes the current dirty draft only on an unmodified physical keydown
+(Ctrl/Alt/GUI/Shift and OS-repeat events are ignored; lock-key state is harmless).
+It requires connected CAP 1 firmware, fresh nonzero NEXT discovery, an accepted
+snapshot v2 baseline, a ready dirty draft, authoritative IDLE/Stopped, and no
+pending transport, snapshot or publication. It never STOPs automatically.
+Space START/PAUSE/CONTINUE is blocked during publication/verification; Enter and
+numeric Enter STOP/reset, Ctrl+X and window close remain available. ArkOS shares
+portable serialization/parsing/editor state but has no publication binding yet.
+
+Submission copies fixed pattern metadata. BEGIN, row-major CELLs and COMMIT use
+the documented FNV-1a32 and bounded 96-byte partial-write storage, one line at a
+time; no UI blocking or protocol-line interleaving. An identity is consumed locally
+once. STATUS refreshes NEXT before another attempt; if an unsent attempt consumed
+a local identity the sender may choose a larger fresh ID than the reported minimum.
+There is no automatic publication retry. Sending/application-wait/verification,
+confirmed success, rejection reason and uncertain outcome appear in the right
+information panel. Publication freezes note/instrument/OFF mutations and Restore,
+and cancels held value repetition; row/channel/field navigation remains available.
+
+SUBMITTED only confirms queue acceptance. Strict version/identity/phase parsing
+ignores wrong, duplicate or malformed responses. APPLIED requests a fresh v2 GET;
+only exact active dimensions, every raw cell and OFF timing, with unchanged tempo,
+confirm success and rebase the local baseline. Cursor is retained. Rejection or
+mismatched readback retains the draft and baseline; firmware remains the authority
+for native instrument/pitch resolution. Initial bindings support instrument 0 at
+raw note 60 (C-3) and instrument 1 at raw note 62 (D-3), both at 44100 Hz. Other
+instrument/pitch combinations used by a pitched note are rejected by firmware;
+instrument-only selection and
+OFF preserve their existing semantics. No sample preview/resampling is added.
+
+A six-second send/application deadline does not prove cancellation once a COMMIT
+write may have reached the device. Timeout/disconnect then reports uncertain;
+readback is required before another publication, never a resent COMMIT. APPLIED or
+an uncertain connected outcome initiates one readback; a failed/busy/timeout GET
+requires explicit F5 to request another authoritative readback only. Disconnect
+still discards connection-scoped editor data. Reconnect requests a fresh snapshot,
+without START/CONTINUE/publication, to resolve retained uncertainty. Partial output
+lines finish before STOP switches lanes. STOP/exit cancels only an unsubmitted
+transfer; submitted work and its uncertain outcome remain independent of STOP.
+Clean exit after STOP may leave publication unresolved: read back on the next host
+launch rather than assuming STOP cancelled it. No automatic retry or persistence.
+
+Windows hardware checklist (not yet confirmed):
+
+1. Connect using updated opt-in firmware and BTX; confirm v2 snapshot, CAP 1 and
+   NEXT. While IDLE, change an OFF timing or supported note/instrument cell, then
+   press F5. Check sending, SUBMITTED, APPLIED, exact readback and clean draft;
+   cursor/BPM remain unchanged. Press F5 again while clean: no publication.
+2. Publish an unsupported pitch/instrument: verify explicit rejection with dirty
+   draft/baseline preserved. A later explicit F5 uses refreshed NEXT, not a retry.
+3. While Playing/Paused, or while transport/snapshot work is pending, F5 must not
+   send BEGIN or STOP. During sending/verifying, edits and F4 are frozen, navigation
+   works, Space cannot start; Enter/close still request STOP safely.
+4. Exercise partial writes/backpressure, timeout and disconnect around COMMIT;
+   confirm uncertain indication, fresh readback and no automatic resend. Relaunch
+   uses discovered NEXT and accepted pattern without reboot or auto START.
+5. Start only after confirmed publication; verify OFF behavior/loop playback.
+   Exact end-of-position hardware timing and realtime cost remain unmeasured.
+
+No Teensy build/upload or hardware validation was performed for this change.
