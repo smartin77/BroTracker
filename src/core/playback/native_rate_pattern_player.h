@@ -40,7 +40,7 @@ namespace BroTracker
     // ALL bound PCM, this object and request metadata. Configure inputs must
     // not overlap this object; metadata remains valid/unchanged during each call.
     // No pointer inspection establishes allocation extents or non-overlap.
-    // No heap allocation, exceptions, I/O, callbacks or concurrent/live edits.
+    // No heap allocation, exceptions, I/O, callbacks or concurrent mutation.
     class NativeRatePatternPlayer
     {
     public:
@@ -70,6 +70,7 @@ namespace BroTracker
             tempo_hundredths_ = tempo_hundredths;
             sample_rate_hz_ = sample_rate_hz;
             pending_ = {};
+            preview_pending_ = false;
             pattern_ = pattern;
             cursor_ = cursor;
             preparer_ = preparer;
@@ -103,6 +104,7 @@ namespace BroTracker
             tentative.Reset();
             const auto compatibility = ApplyLogicalRows(pattern, tentative, 2 * pattern.active_rows);
             if (compatibility != PatternPlayerStatus::Success) return compatibility;
+            preview_pending_ = false;
             pattern_ = pattern;
             Stop();
             return PatternPlayerStatus::Success;
@@ -136,12 +138,46 @@ namespace BroTracker
                 const auto reconstruction = ApplyLogicalRows(pattern, tentative, rows);
                 if (reconstruction != PatternPlayerStatus::Success) return reconstruction;
             }
+            preview_pending_ = false;
             pattern_ = pattern;
             preparer_ = tentative;
             renderer_.Reset();
             pending_ = {};
             return PatternPlayerStatus::Success;
         }
+
+        // Volatile working-pattern update, separate from publication. Caller keeps
+        // input immutable/disjoint during this call. Same active dimensions only.
+        // Complete two-pass validation from cleared state before acceptance.
+        // Stopped/Paused use their existing replacement semantics. Playing stages
+        // one fixed candidate; newer accepted candidates replace it. Apply at the
+        // next unconsumed row-start tick (including tick zero), never mid-row.
+        // Reconstruct NEW logical state before that absolute row: loop zero prefix,
+        // later loops one complete pass + prefix. Do not synthesize past audio.
+        // Old due end-of-row Stops execute BEFORE new row commands; cancel any
+        // remaining old deferred work at application. Sounding voices otherwise
+        // continue, including deletion of a note (deletion is not implicit OFF).
+        // Pause retains staged work for Continue's replay boundary; Stop/Start
+        // adopt it immediately while clearing playback. Configure/publication
+        // supersede it. No baseline/persistence is owned by this player.
+        // <=32 validation rows here, <=31 reconstruction rows once per Render.
+        [[nodiscard]] PatternPlayerStatus ReplaceWorkingPattern(const RealtimePattern& pattern) noexcept {
+            if (!configured_) return PatternPlayerStatus::NotConfigured;
+            if (pattern.active_rows != pattern_.active_rows || pattern.active_channels != pattern_.active_channels)
+                return PatternPlayerStatus::InvalidDimensions;
+            if (transport_ == PatternTransportState::Stopped) return ReplacePattern(pattern);
+            if (transport_ == PatternTransportState::Paused) return ReplacePausedPattern(pattern);
+            const auto validation = ValidatePattern(pattern);
+            if (validation != PatternPlayerStatus::Success) return validation;
+            auto tentative = preparer_;
+            tentative.Reset();
+            const auto compatibility = ApplyLogicalRows(pattern, tentative, 2 * pattern.active_rows);
+            if (compatibility != PatternPlayerStatus::Success) return compatibility;
+            preview_pattern_ = pattern;
+            preview_pending_ = true;
+            return PatternPlayerStatus::Success;
+        }
+        bool HasPendingWorkingPattern() const noexcept { return preview_pending_; }
 
         // Always restart at tick/sample zero, including repeated Start.
         [[nodiscard]] PatternPlayerStatus Start() noexcept
@@ -154,6 +190,8 @@ namespace BroTracker
         // Idempotent, also valid before configuration. Retain pattern/bindings.
         void Stop() noexcept
         {
+            if (preview_pending_) pattern_ = preview_pattern_;
+            preview_pending_ = false;
             pending_ = {};
             renderer_.Reset();
             preparer_.Reset();
@@ -221,7 +259,8 @@ namespace BroTracker
         // Bound: 513 cursor pulls (each <=64 conversion iterations), <=512*8*16
         // binding comparisons, <=16 audio commands, 8*128 channel frames + mixing
         // and output copying, plus <=513*64 pending-entry checks and <=512*8
-        // absolute OFF-boundary conversions. Fixed 8x128 channel and 128 mono scratch storage.
+        // absolute OFF-boundary conversions. A preview adds <=31 logical row preparations
+        // once per block and one fixed pattern copy. Fixed 8x128 channel and 128 mono scratch storage.
         // Callers MUST handle rejection; no firmware underrun policy or measured
         // Teensy processing budget is established. A smaller retry may succeed;
         // intrinsically unsupported events require reconfiguration or Stop.
@@ -243,6 +282,8 @@ namespace BroTracker
             auto renderer = renderer_;
             auto position = position_;
             auto pending = pending_;
+            auto working_pattern = pattern_;
+            bool preview_pending = preview_pending_;
             bool consumed_tick = false;
             if (frame_count > std::numeric_limits<std::uint64_t>::max() - next_sample_)
                 return PatternPlayerStatus::RangeOverflow;
@@ -280,10 +321,23 @@ namespace BroTracker
                 if (emitted == kNativeRatePatternTickBudget) return PatternPlayerStatus::TickBudgetExceeded;
                 const auto flushed = flush(tick.sample_position, true);
                 if (flushed != PatternPlayerStatus::Success) return flushed;
+                if (preview_pending && tick.tick_index % kTicksPerRow == 0) {
+                    auto rebuilt = preparer;
+                    rebuilt.Reset();
+                    const auto absolute_row = tick.tick_index / kTicksPerRow;
+                    const auto prefix = absolute_row % preview_pattern_.active_rows;
+                    const auto rows = (absolute_row / preview_pattern_.active_rows ? preview_pattern_.active_rows : 0) + prefix;
+                    const auto reconstruction = ApplyLogicalRows(preview_pattern_, rebuilt, rows);
+                    if (reconstruction != PatternPlayerStatus::Success) return reconstruction;
+                    working_pattern = preview_pattern_;
+                    preparer = rebuilt;
+                    pending = {}; // Due old Stops already precede new row triggers.
+                    preview_pending = false;
+                }
                 position.absolute_tick = tick.tick_index;
                 consumed_tick = true;
                 RowEventBatch rows{};
-                if (GenerateRowEvents(tick, pattern_, rows) != RowEventStatus::Success)
+                if (GenerateRowEvents(tick, working_pattern, rows) != RowEventStatus::Success)
                     return PatternPlayerStatus::ComponentError;
                 for (std::size_t i = 0; i < rows.count; ++i) {
                     const auto& event = rows.events[i];
@@ -326,6 +380,8 @@ namespace BroTracker
                 return PatternPlayerStatus::ComponentError;
             if (MixPcm16Mono(inputs, mono_scratch_, frame_count) != Pcm16MixStatus::Success)
                 return PatternPlayerStatus::ComponentError;
+            pattern_ = working_pattern;
+            preview_pending_ = preview_pending;
             pending_ = pending;
             cursor_ = cursor;
             preparer_ = preparer;
@@ -391,6 +447,8 @@ namespace BroTracker
         struct PendingStops { DeferredStop entries[kRealtimePatternChannelCapacity]{}; } pending_;
         std::uint32_t tempo_hundredths_ = 0, sample_rate_hz_ = 0;
         RealtimePattern pattern_;
+        RealtimePattern preview_pattern_; // Single bounded pending volatile candidate.
+        bool preview_pending_ = false;
         MusicalTickCursor cursor_;
         NativeRateSampleCommandPreparer preparer_;
         RamVoiceBlockRenderer renderer_;

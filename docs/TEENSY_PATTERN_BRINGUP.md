@@ -1074,3 +1074,43 @@ Deferred: define channel/instrument gain controls and the mixing headroom policy
 For actual muted channels, consider an X formed by two diagonal lines inside the
 channel header, with 16 px padding where geometry permits. Neither gains nor the
 mute-marker UI are changed by this documentation update.
+
+
+### Volatile working-pattern core foundation (integration pending)
+
+Agreed eventual WYSIWYG behavior: accepted local edits automatically update the
+working playback pattern; F4 restores the last published baseline in both editor
+and playback; F5 promotes the accepted draft to that baseline. Playing publication
+remains blocked. Volatile preview is a separate operation allowed while Playing,
+and does not imply SD persistence. This step implements only portable core support;
+automatic host transfer, firmware protocol, F4/F5 integration and hardware validation
+remain pending. Existing user-visible controls/behavior and validation records do
+not establish this new model as complete.
+
+`NativeRatePatternPlayer::ReplaceWorkingPattern` accepts only unchanged active
+dimensions and validates all active notes/OFF timing plus native-rate resolution
+through the initial pass and next-loop continuation. Stopped and Paused use their
+existing replacement semantics. Playing copies one pending candidate, superseded
+by a newer accepted candidate, and applies before the next unconsumed row-start
+(including tick zero). Rejected candidates/renders preserve all state/output and
+pending work; a failed render can be retried without consuming the application.
+
+At application, reconstruct logical continuation from the NEW pattern immediately
+before that absolute row: cleared-state prefix in loop zero; one complete pass plus
+prefix in later loops. No elapsed-loop scan, old events replay or reconstruction
+audio occurs. Keep timeline/loop and sounding voices. Deleting a note is not an
+implicit Stop. Old EndOfPosition Stops due at the boundary execute before new row
+commands, so new triggers remain audible; discard remaining old deferred audio work.
+New OFF events use the existing exact musical boundary scheduling.
+
+Pause silences voices/clears deferred Stops but retains a pending candidate for
+Continue's current-row replay boundary. Stop/Start adopt a pending candidate while
+resetting playback; successful Configure or published replacement supersedes it.
+A paused working replacement instead uses existing paused reconstruction immediately.
+The player owns no separate published baseline: later integration must manage it.
+Storage adds one fixed pattern candidate; acceptance validates at most 32 logical
+rows, application reconstructs at most 31 once per Render, with existing 128-frame,
+512-tick and 16-command limits unchanged. No allocation, I/O, locks or new clock.
+Host tests cover boundary/loop ordering, simultaneous triggers, deletion, instrument
+continuation, both OFF modes, Pause/Continue/Stop and transactional capacity retry.
+These are not Teensy performance or hardware results.

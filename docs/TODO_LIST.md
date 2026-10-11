@@ -585,6 +585,21 @@ design remains unchanged.
   memory/cache behavior and measured realtime cost. Unity-gain saturation is
   possible with overlapping WAV/beepers; final gain policy remains open.
 
+* [x] Implement portable volatile `ReplaceWorkingPattern` in NativeRatePatternPlayer:
+  same dimensions, complete transactional note/OFF/native-binding two-pass validation;
+  Stopped/Paused retain replacement semantics, Playing stages one replaceable
+  candidate for the next unconsumed row start. Rebuild new logical continuation
+  without past audio replay; retain voices/timeline, apply due old deferred Stops
+  before new triggers and discard remaining old deferred work. Pause retains the
+  candidate for Continue; Stop/Start adopt it while resetting. Host tests cover
+  boundary ownership, edits/OFF, loops, partition independence and rollback/retry.
+* [ ] Integrate the agreed volatile WYSIWYG model: accepted local edits automatically
+  transfer to working playback; F4 restores the last published baseline in editor
+  and playback; F5 promotes the accepted draft to that baseline. Playing publication
+  remains blocked; volatile preview is separate and allowed while Playing.
+  Automatic host transfer, F4/F5 coordination and hardware validation are pending.
+  Current user-visible behavior is unchanged; preview/publication imply no SD persistence.
+
 ## Deferred Tasks
 
 * [ ] Define channel/instrument gain controls and the mixing headroom policy.

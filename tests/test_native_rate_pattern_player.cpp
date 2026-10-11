@@ -876,3 +876,119 @@ TEST_CASE(SdPlaybackFixtureSelectionAndNativeRendering) {
     CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
     CHECK_EQ(player.ReplacePausedPattern(selected.pattern),PatternPlayerStatus::Success);
 }
+
+
+TEST_CASE(WorkingPreviewBoundaryStopsReconstructionAndPartitionIndependence) {
+    std::array<std::int16_t,128> a{},b{}; a.fill(1); b.fill(2);
+    NativeRateSampleBindings bindings{}; bindings.count=2;
+    bindings.bindings[0]={7,60,{a.data(),a.size(),100}};
+    bindings.bindings[1]={8,60,{b.data(),b.size(),100}};
+    RealtimePattern original; original.active_rows=4; original.active_channels=2;
+    original.cells[0][0]={60,7}; original.cells[0][1]={60,7};
+    original.cells[1][0]={NOTE_OFF,kNoInstrumentUpdate};
+    original.cells[1][1]={NOTE_OFF,kNoInstrumentUpdate};
+    original.note_off_timing[1][0]=original.note_off_timing[1][1]=NoteOffTiming::EndOfPosition;
+    auto candidate=original; candidate.cells[0][0]={NOTE_EMPTY,8};
+    candidate.cells[0][1]={NOTE_EMPTY,8}; // Reconstruction, not actual past audio.
+    candidate.cells[2][0]={60,kNoInstrumentUpdate}; candidate.cells[2][1]={60,kNoInstrumentUpdate};
+    // Independent rational boundaries: row 1=11, row 2=23, loop=47 at 100Hz/127.53.
+    const auto render=[&](const std::vector<unsigned>& spans) {
+        NativeRatePatternPlayer player;
+        CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+        CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+        std::vector<std::int16_t> pcm(100); CHECK_EQ(player.Render(pcm.data(),12),PatternPlayerStatus::Success);
+        auto deleted=candidate; deleted.cells[2][0]={}; deleted.cells[2][1]={};
+        CHECK_EQ(player.ReplaceWorkingPattern(deleted),PatternPlayerStatus::Success);
+        CHECK_EQ(player.ReplaceWorkingPattern(candidate),PatternPlayerStatus::Success);
+        const auto reference=player; auto bad=candidate; bad.cells[3][1]={61,8};
+        CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::UnsupportedPitch);
+        CheckPlayback(player,reference); CHECK(player.HasPendingWorkingPattern());
+        std::int16_t sentinel=999;
+        CHECK_EQ(player.Render(&sentinel,129),PatternPlayerStatus::InvalidFrameCount);
+        CHECK_EQ(sentinel,999); CHECK(player.HasPendingWorkingPattern());
+        unsigned offset=12,index=0;
+        while(offset<pcm.size()) {
+            const auto count=std::min<unsigned>(spans[index++%spans.size()],pcm.size()-offset);
+            CHECK_EQ(player.Render(pcm.data()+offset,count),PatternPlayerStatus::Success); offset+=count;
+        }
+        CHECK(!player.HasPendingWorkingPattern());
+        // Two original voices until 23. Deferred Stops precede BOTH new triggers.
+        // New instrument-only row 0 continues voices; row 2 retriggers each loop.
+        for(unsigned i=0;i<pcm.size();++i) CHECK_EQ(pcm[i],i<23?2:4);
+        return pcm;
+    };
+    CHECK(render({8})==render({1,11,3,7}));
+}
+
+TEST_CASE(WorkingPreviewDeletionArrivalPauseStopAndPublicationRestrictions) {
+    std::array<std::int16_t,128> pcm{}; pcm.fill(7);
+    NativeRateSampleBindings bindings{}; bindings.count=1; bindings.bindings[0]={7,60,{pcm.data(),pcm.size(),100}};
+    RealtimePattern original; original.active_rows=2; original.active_channels=1;
+    original.cells[0][0]={60,7}; original.cells[1][0]={60,7};
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.ReplaceWorkingPattern(original),PatternPlayerStatus::NotConfigured);
+    CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+    auto changed=original; changed.cells[1][0]={};
+    CHECK_EQ(player.ReplaceWorkingPattern(changed),PatternPlayerStatus::Success); CheckCleared(player);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t out[128]{}; CHECK_EQ(player.Render(out,5),PatternPlayerStatus::Success);
+    CHECK_EQ(player.ReplaceWorkingPattern(changed),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,7),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<7;++i) CHECK_EQ(out[i],7); // Deletion does not stop sounding audio.
+    auto off=changed; off.cells[1][0]={NOTE_OFF,kNoInstrumentUpdate};
+    CHECK_EQ(player.ReplaceWorkingPattern(off),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
+    CHECK(player.HasPendingWorkingPattern());
+    CHECK_EQ(player.Render(out,3),PatternPlayerStatus::Success); CHECK_EQ(out[0],0);
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,1),PatternPlayerStatus::Success); CHECK_EQ(out[0],0);
+    CHECK(!player.HasPendingWorkingPattern()); // Arrival OFF on replayed row 1.
+    CHECK_EQ(player.ReplacePattern(original),PatternPlayerStatus::InvalidTransportState);
+    CHECK_EQ(player.ReplacePausedPattern(original),PatternPlayerStatus::InvalidTransportState);
+    CHECK_EQ(player.ReplaceWorkingPattern(original),PatternPlayerStatus::Success);
+    player.Stop(); CHECK(!player.HasPendingWorkingPattern()); CheckCleared(player);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<12;++i) CHECK_EQ(out[i],7);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
+    const auto before=player.GetPlaybackPosition();
+    CHECK_EQ(player.ReplaceWorkingPattern(off),PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetPlaybackPosition().absolute_tick,before.absolute_tick);
+    CHECK_EQ(player.GetTransportState(),PatternTransportState::Paused);
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,1),PatternPlayerStatus::Success); CHECK_EQ(out[0],0);
+    auto bad=original; bad.active_rows=3; const auto reference=player;
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::InvalidDimensions); CheckPlayback(player,reference);
+    bad=original; bad.cells[0][0]={60,99};
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::UnknownInstrument); CheckPlayback(player,reference);
+    bad=original; bad.cells[0][0]={60,kNoInstrumentUpdate};
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::MissingInstrument); CheckPlayback(player,reference);
+    bad=original; bad.cells[0][0]={23,7};
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::InvalidNote); CheckPlayback(player,reference);
+    bad=original; bad.note_off_timing[0][0]=static_cast<NoteOffTiming>(9);
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),PatternPlayerStatus::InvalidNoteOffTiming); CheckPlayback(player,reference);
+}
+
+
+TEST_CASE(WorkingPreviewBoundaryOwnershipAndLateRollbackRetry) {
+    auto original=Pattern(); original.active_rows=2; original.active_channels=8;
+    for(unsigned c=0;c<8;++c) original.cells[0][c]={60,7};
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(150000,100,original,Bindings(100)),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    auto candidate=original; for(unsigned c=0;c<8;++c) candidate.cells[1][c]={60,7};
+    CHECK_EQ(player.ReplaceWorkingPattern(candidate),PatternPlayerStatus::Success);
+    const auto reference=player;
+    std::int16_t output[16]; std::fill(std::begin(output),std::end(output),999);
+    CHECK_EQ(player.Render(output,3),PatternPlayerStatus::CommandCapacityExceeded);
+    CheckPlayback(player,reference); CHECK(player.HasPendingWorkingPattern());
+    for(auto value:output) CHECK_EQ(value,999);
+    CHECK_EQ(player.Render(output,1),PatternPlayerStatus::Success); CHECK_EQ(output[0],80);
+    CHECK(!player.HasPendingWorkingPattern());
+    // Row 1 at sample 1 belongs to the NEXT block, not the preceding [0,1).
+    auto off=candidate; for(unsigned c=0;c<8;++c) off.cells[1][c]={NOTE_OFF,kNoInstrumentUpdate};
+    CHECK_EQ(player.ReplaceWorkingPattern(off),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(nullptr,0),PatternPlayerStatus::Success); CHECK(player.HasPendingWorkingPattern());
+    CHECK_EQ(player.Render(output,1),PatternPlayerStatus::Success); CHECK_EQ(output[0],0);
+    CHECK(!player.HasPendingWorkingPattern());
+}
