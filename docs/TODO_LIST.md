@@ -565,11 +565,18 @@ design remains unchanged.
   buffer. Successful immutable view only; retained failure/status and bounded
   WAVPREP 1 reporting after connection. No retry after activation, no new bindings
   or third-channel playback. Host tests cover preparation and partial diagnostics.
-* [ ] Validate linker RAM2 placement/headroom and SD/cache behavior on Teensy.
-  Boot/sample binding integration and extra-channel playback remain open. No test2.wav
-  was found in the repository to establish duration; duration/meter validation stays
-  open. Caller storage keeps optional future PSRAM possible; no detection/allocation
-  is implemented and 256 KiB is this environment's choice, not a loader limit.
+* [x] Record supplied 2026-10-11 teensy41_pattern_sd_prepare build/upload and
+  WAVPREP success: 68284 frames at 44100 Hz, 136568 PCM bytes, duration 1.548390 s.
+  Address 0x20200820 confirms RAM2 placement and 32-byte alignment. Interpreted as
+  one 4/4 bar this implies approximately 155 BPM; intended meter/bar length is unconfirmed.
+  Log shows IDLE/STARTED/STOPPED and clean shutdown without protocol errors.
+  Ten PERF reports: maximum 41843 / 1741496 cycles (2.40%), zero overruns; this
+  measures beeper playback, not the prepared WAV, which is not bound to playback.
+* [ ] Validate total RAM/heap headroom, failure paths, reconnect reporting and
+  SD/cache behavior on hardware; sample binding/extra-channel playback remain open.
+  Preserve supplied evidence outside disposable build exports. Future optional
+  PSRAM-backed caller storage remains open; 256 KiB is this environment's choice,
+  not a loader limit. Duration does not establish reference pitch.
 
 * [ ] Design tracker-style pitched-note entry with letter keys on desktop and ArkOS
   using an attached keyboard. Key mapping and octave controls remain undecided;

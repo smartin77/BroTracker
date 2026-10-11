@@ -937,7 +937,7 @@ build/upload was performed. Boot preparation, RAM placement, sample binding inte
 and hardware validation remain pending. Existing WAV APIs, firmware environments,
 boot pattern and deferred test.wav/test2.wav/test3.wav plans are unchanged.
 
-### Opt-in boot SD preparation (hardware validation pending)
+### Opt-in boot SD preparation (success observed; remaining hardware checks open)
 
 teensy41_pattern_sd_prepare extends pattern_perf with BROTRACKER_PATTERN_SD_PREPARE.
 Only this environment reserves a static, 32-byte-aligned DMAMEM buffer of 131072
@@ -961,12 +961,13 @@ Statuses follow SdWavBufferStatus/WavBufferStatus; load_status is meaningful for
 Success/LoadFailed. Failed SD initialization reports sd_ready=0, OpenFailed/IoError.
 No formatting, logging or SD I/O occurs in audio processing.
 
-No test2.wav exists in the inspected repository, including ignored paths, so actual
-duration is unavailable. Verify frame count/rate and intended meter; do not assume
-one bar or derive pitch from duration. The buffer persists for the entire boot,
+No test2.wav was available in the implementation-time repository inspection. The
+supplied hardware evidence below now establishes its duration; intended meter/bar
+length remains unconfirmed, and duration does not establish musical pitch. The buffer persists for the entire boot,
 including failure, reserving half the nominal 512 KiB RAM2. Remaining memory must
 support other buffers, SD internals/heap and player/stack/code requirements.
-Actual linker placement/headroom and SD/cache behavior require board validation.
+The reported address below confirms RAM2 placement/alignment; total RAM/heap
+headroom and SD/cache behavior still require board validation.
 Per TEENSY_MEMORY_ARCHITECTURE, optional PSRAM remains open: caller storage keeps
 WAV parsing/playback independent of placement. No PSRAM detection/allocation is
 implemented; this 256 KiB reservation is not a permanent loader limit.
@@ -978,3 +979,24 @@ unsupported and oversized WAVs; verify failure metadata and working controls.
 Reconnect and verify retained reporting without reload. Validate RAM/cache/SD
 headroom before future sample binding and extra-channel integration. Host tests
 use fake SD headers; no actual Teensy compilation/hardware result is claimed.
+
+### 2026-10-11 SD preparation hardware evidence
+
+User-supplied evidence records successful **teensy41_pattern_sd_prepare build/upload**
+and **WAVPREP success** for Samples/test2.wav: **68284 frames**, **44100 Hz**,
+**136568 PCM bytes**, duration **1.548390 seconds**. Buffer address **0x20200820**
+confirms RAM2 placement and **32-byte alignment**. If interpreted as one 4/4 bar,
+that duration implies approximately **155 BPM**; intended meter and bar length
+still require confirmation. No reference pitch is inferred from duration.
+
+The log shows **IDLE, STARTED, STOPPED and clean shutdown**, with no protocol errors.
+**Ten PERF reports** record maximum **41843 cycles / 1741496-cycle budget (2.40%)**
+and **zero overruns**. This still measures the existing beeper playback; the loaded
+WAV is not bound to playback and these counters do not validate sample playback.
+
+Total RAM/heap headroom, missing/unsupported/oversized/I/O failure-path hardware tests,
+reconnect result reporting, sample binding/playback and cache behavior remain open.
+Retain the supplied original log/build evidence outside disposable build exports;
+this documentation update does not move, replace or delete it. Initial preparation
+success does not complete the broader hardware checklist or constrain future PSRAM
+storage choices.
