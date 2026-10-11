@@ -547,6 +547,17 @@ design remains unchanged.
   extra PCM test channel and test.wav/test2.wav/test3.wav duration/meter validation;
   no sample integration or resampling in this foundation.
 
+* [x] Implement firmware-side `SdWavBufferReader` / `LoadWavBufferFromSd` in
+  `firmware/teensy/BroTracker/sd_wav_buffer_loader.h`, reusing real SdReader and
+  its D0046 shared read lock throughout validation/copy. Reject bad paths/open/
+  directories, oversized seek narrowing and negative reads; RAII releases file/lock
+  on every exit. Host tests with an isolated SD fake cover exact PCM, failures and
+  writer exclusion using the actual shared guard. PCM is caller-owned; SD internals
+  may allocate. This is non-realtime preparation, not audio-callback I/O.
+* [ ] Integrate adapter into boot preparation, select RAM placement and sample
+  bindings, then validate actual Teensy SD behavior/hardware. No current boot,
+  pattern or loader API changes; test.wav/test2.wav/test3.wav remain deferred.
+
 ## Deferred Tasks
 
 * [ ] Design tracker-style pitched-note entry with letter keys on desktop and ArkOS

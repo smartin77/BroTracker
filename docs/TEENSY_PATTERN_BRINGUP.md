@@ -910,3 +910,29 @@ WAV loaders and playback environments are unchanged. Retain the diagnostic beepe
 and the deferred extra PCM channel using test.wav/test2.wav/test3.wav, with actual
 frame counts, rates and intended meter checked before deriving duration-based BPM.
 No new samples, pattern changes, pitch interpretation or resampling are introduced.
+
+### Teensy SD WAV buffer adapter (host-tested; hardware pending)
+
+`SdWavBufferReader` implements the portable reader through the existing `SdReader`.
+`LoadWavBufferFromSd(path, pcm, frame_capacity, output_view)` returns explicit
+Success/InvalidPath/OpenFailed/Directory/LoadFailed status; portable load_status is
+meaningful for Success/LoadFailed. Null/empty paths, failed opens and directories
+are rejected. SD initialization remains the caller's responsibility.
+
+RAII holds the D0046 shared SD read lock throughout container validation and PCM
+copy, closes the file and releases ownership on every exit. Seek checks uint64
+before narrowing to uint32; negative reads become zero/error rather than unsigned
+large counts. There is no direct SD.open bypass, PCM ownership allocation or logging.
+The SD library may allocate internally, so caller-buffer loading is not evidence
+that the complete SD stack is allocation-free. Never use this helper in audio processing.
+
+Portable metadata/partial-destination contracts remain unchanged: unpublished PCM
+storage must have no active playback views, and callers guarantee extents, lifetime
+and non-overlap. All failures preserve metadata; a later copying I/O failure may
+modify an already copied prefix. Host tests compile the actual adapter/SdReader/shared
+guard against an isolated fake SD API, covering exact PCM, open/directory/short/negative
+read/seek failures, oversized seek rejection and writer exclusion/file/lock release.
+They do not compile against or validate actual Teensy SD headers/drivers; no Teensy
+build/upload was performed. Boot preparation, RAM placement, sample binding integration
+and hardware validation remain pending. Existing WAV APIs, firmware environments,
+boot pattern and deferred test.wav/test2.wav/test3.wav plans are unchanged.

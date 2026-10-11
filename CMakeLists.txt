@@ -207,3 +207,11 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
 endif()
+
+# Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,
+# without exposing the fake Arduino/SD API to other production/host targets.
+add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
+    libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
+    libraries/sd_access/src ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
