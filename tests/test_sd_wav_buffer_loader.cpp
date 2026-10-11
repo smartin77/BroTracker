@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_wav_buffer_loader.h"
+#include "firmware/teensy/BroTracker/sd_wav_preparation.h"
 using namespace BroTracker;
 namespace {
 void Fixture() {
@@ -10,6 +11,35 @@ void Fixture() {
 unsigned exclusions=0;
 void ExcludedWriter() { ++exclusions; CHECK(!SdAccess::AcquireWrite()); }
 void Released() { CHECK(SdAccess::AcquireWrite()); SdAccess::ReleaseWrite(); }
+}
+TEST_CASE(SdBootPreparationSuccessFailureAndBoundedReport) {
+    for(unsigned mode=0;mode<5;++mode) {
+        Fixture(); std::int16_t pcm[2]={9,9}; SdWavPreparation preparation;
+        if(mode==1) FakeSd::fail_open=true;
+        if(mode==2) FakeSd::bytes[20]=3;
+        if(mode==3) FakeSd::short_at=44;
+        preparation.Prepare(mode!=4,"Samples/test2.wav",pcm,2);
+        CHECK(preparation.attempted);
+        CHECK_EQ(preparation.view.frame_count,mode==0 ? 2 : 0);
+        CHECK_EQ(preparation.view.data,mode==0 ? pcm : nullptr);
+        const auto opens=FakeSd::opens;
+        preparation.Prepare(true,"Samples/test2.wav",pcm,2); CHECK_EQ(FakeSd::opens,opens);
+        SdPreparationReport report; CHECK(report.Offer(preparation)); CHECK(!report.Offer(preparation));
+        for(unsigned budget=0;report.HasData() && budget<160;++budget) {
+            std::size_t n; const char* data=report.Data(n); CHECK(n<160);
+            report.Consume(0); CHECK(data==report.Data(n)); report.Consume(1);
+        }
+        CHECK(!report.HasData()); report.Reset(); CHECK(report.Offer(preparation)); Released();
+    }
+    Fixture(); std::int16_t pcm[2]; SdWavPreparation preparation;
+    preparation.Prepare(true,"Samples/test2.wav",pcm,1);
+    CHECK_EQ(preparation.result.load_status,WavBufferStatus::InsufficientCapacity);
+    CHECK_EQ(preparation.view.data,nullptr); Released();
+    preparation.capacity=UINT64_MAX; preparation.address=UINTPTR_MAX;
+    preparation.view.frame_count=SIZE_MAX; preparation.view.sample_rate_hz=UINT32_MAX;
+    SdPreparationReport report; CHECK(report.Offer(preparation));
+    std::size_t n; const char* data=report.Data(n); CHECK(n<160); CHECK_EQ(data[n-1],'\n');
+    report.Consume(3); CHECK(report.Partial()); report.Reset(); CHECK(!report.HasData());
 }
 TEST_CASE(SdWavAdapterSuccessAndSharedLockLifetime) {
     Fixture(); exclusions=0; FakeSd::on_read=ExcludedWriter;

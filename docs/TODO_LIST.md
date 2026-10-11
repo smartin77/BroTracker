@@ -560,6 +560,17 @@ design remains unchanged.
 
 ## Deferred Tasks
 
+* [x] Implement opt-in teensy41_pattern_sd_prepare boot loading of Samples/test2.wav
+  before g_audio_ready into a static 32-byte-aligned 131072-frame/256 KiB DMAMEM
+  buffer. Successful immutable view only; retained failure/status and bounded
+  WAVPREP 1 reporting after connection. No retry after activation, no new bindings
+  or third-channel playback. Host tests cover preparation and partial diagnostics.
+* [ ] Validate linker RAM2 placement/headroom and SD/cache behavior on Teensy.
+  Boot/sample binding integration and extra-channel playback remain open. No test2.wav
+  was found in the repository to establish duration; duration/meter validation stays
+  open. Caller storage keeps optional future PSRAM possible; no detection/allocation
+  is implemented and 256 KiB is this environment's choice, not a loader limit.
+
 * [ ] Design tracker-style pitched-note entry with letter keys on desktop and ArkOS
   using an attached keyboard. Key mapping and octave controls remain undecided;
   no implementation yet.

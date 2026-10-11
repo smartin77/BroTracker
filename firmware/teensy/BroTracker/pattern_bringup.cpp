@@ -7,6 +7,9 @@
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
 #include "bringup/pattern_publication.h"
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+#include "sd_wav_preparation.h"
+#endif
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -58,6 +61,12 @@ namespace
         return bindings;
     }();
     PatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+    constexpr std::size_t kPreparedFrameCapacity=131072;
+    DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
+    SdWavPreparation g_preparation; // Main-owned immutable after setup; not bound to audio.
+    SdPreparationReport g_preparation_report;
+#endif
     bool g_audio_ready = false; // Published under InterruptGuard after AudioMemory.
 
     // Save/restore PRIMASK, including callers with interrupts already disabled.
@@ -200,6 +209,16 @@ namespace
     {
         const int available = Serial.availableForWrite();
         if (available <= 0) return;
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        // Finish a partial diagnostic, otherwise ACKs and existing partial lines win.
+        if(g_preparation_report.Partial() || (g_preparation_report.HasData() && !g_tx_count &&
+            !g_telemetry.Partial() && !g_pattern_transfer.Partial())) {
+            std::size_t remaining=0; const char* data=g_preparation_report.Data(remaining);
+            const auto count=std::min<std::size_t>(remaining,std::min(available,64));
+            g_preparation_report.Consume(Serial.write(reinterpret_cast<const std::uint8_t*>(data),count));
+            return;
+        }
+#endif
         const auto lane = g_output_mux.Select(g_tx_count != 0,
             g_tx_count != 0 && g_tx[g_tx_head].offset != 0);
         if (lane == PatternOutputLane::None) return;
@@ -233,6 +252,9 @@ namespace
         {
             used = 0; overflow = false;
             g_tx_head = g_tx_count = 0;
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            g_preparation_report.Reset();
+#endif
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
             g_publication.NewSession();
@@ -318,6 +340,9 @@ namespace
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) g_publication.NewSession();
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                if(!std::strcmp(line,"BTTEST1 HELLO")) (void)g_preparation_report.Offer(g_preparation);
+#endif
             }
             else if (!std::strncmp(line,"BTPUBLISH1",10))
             {
@@ -370,7 +395,11 @@ namespace
         static std::uint32_t last_performance_ms=0;
         if(g_protocol_connected && now-last_performance_ms>=1000) {
             last_performance_ms=now; // Skip this interval, never enqueue/backlog.
-            if(!g_tx_count && !g_telemetry.Partial() && !g_pattern_transfer.HasData() && Serial.available()==0) {
+            if(!g_tx_count && !g_telemetry.Partial() && !g_pattern_transfer.HasData() && Serial.available()==0
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                && !g_preparation_report.Partial()
+#endif
+                ) {
                 char line[kPatternPerformanceLineCapacity]; std::size_t length=0;
                 if(FormatPatternPerformance(status.performance,line,sizeof(line),length) &&
                     Serial.availableForWrite()>=static_cast<int>(length))
@@ -390,6 +419,10 @@ namespace
         // Enable the supported DWT counter without resetting a shared core counter.
         ARM_DEMCR |= ARM_DEMCR_TRCENA;
         ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
+#endif
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        // Early callbacks return while g_audio_ready is false. No retries after activation.
+        g_preparation.Prepare(SD.begin(BUILTIN_SDCARD),"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
 #endif
         AudioMemory(8);
         { InterruptGuard guard; g_audio_ready = true; }
