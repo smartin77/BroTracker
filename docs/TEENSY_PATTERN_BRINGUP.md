@@ -533,6 +533,7 @@ can change the active pattern.
 
 ```text
 device -> host: BTPUBLISH1 CAP 1
+device -> host: BTPUBLISH1 NEXT 1 <next_id>
 host -> device: BTPUBLISH1 BEGIN 1 <id> <rows> <channels> <count>
 host -> device: BTPUBLISH1 CELL 1 <id> <index> <note> <instrument> <timing>
 host -> device: BTPUBLISH1 COMMIT 1 <id> <count> <checksum>
@@ -546,8 +547,18 @@ Lines use exact single spaces and unsigned decimal uint32 fields, ending in LF
 (optional trailing CR on input). No signs, extra fields, embedded NUL, overflow or
 unsupported versions. ID is nonzero and strictly increases across HELLO/disconnect
 sessions during one board boot: reuse is rejected, including after cancellation or
-lost ACK. At UINT32_MAX no further transaction can begin until an explicit reboot;
-never automatically reboot or retry. ERROR uses ID 0 when malformed input cannot
+lost ACK. HELLO reports `BTPUBLISH1 NEXT 1 <next_id>` immediately after CAP 1;
+STATUS also refreshes NEXT after its transport reply. Before any consumed BEGIN,
+next_id is 1. It is the highest BEGIN identity accepted into staging plus one,
+including subsequent cancellation, timeout, malformed-cell rejection, queue or
+core rejection. Invalid BEGINs that never enter staging consume no identity.
+Discovery does not apply a pattern or change transport and survives HELLO/disconnect.
+A newly launched sender can use this discovery instead of assuming ID 1; it must
+still handle BUSY and uncertain prior outcomes with authoritative readback.
+After UINT32_MAX is consumed, NEXT explicitly reports 0 (exhausted, never a usable
+ID), without wrapping. No further transaction can begin until an explicit reboot;
+never automatically reboot or retry. HELLO reserves six bounded TX lines for the
+state, existing capabilities and discovery. ERROR uses ID 0 when malformed input cannot
 be attributed safely. BEGIN dimensions are 1..16 rows and 1..8 channels; count is
 exactly rows*channels (maximum 128). Cells are ordered, zero-based row-major,
 exactly once; note is 24..127, 254=OFF or 255=empty, instrument is raw 0..255,

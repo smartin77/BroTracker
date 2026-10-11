@@ -155,6 +155,9 @@ namespace
             (void)QueueLine("BTPATTERN1 TRANSPORTCAP 1\n");
             (void)QueueLine("BTPUBLISH1 CAP 1\n");
         }
+        // Main-loop discovery; no audio mutation. STATUS refreshes discovery too.
+        char discovery[64];
+        if (g_publication.FormatDiscovery(discovery,sizeof(discovery))) (void)QueueLine(discovery);
     }
     void PublicationError(std::uint32_t id, PublicationStatus reason)
     {
@@ -272,7 +275,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + 5 <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + 6 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;

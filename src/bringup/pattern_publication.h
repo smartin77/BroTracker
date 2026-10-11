@@ -52,6 +52,17 @@ namespace BroTracker
         bool Busy() const noexcept { return receiving_ || ready_ || submitted_; }
         bool Submitted() const noexcept { return submitted_; }
         std::uint32_t Identity() const noexcept { return id_; }
+        // Discovery only; zero explicitly means exhausted, never a usable ID.
+        // High-water mark includes every BEGIN accepted into staging, even if
+        // later cancelled/rejected. Invalid BEGINs that never stage consume no ID.
+        std::uint32_t NextIdentity() const noexcept {
+            return last_id_ == UINT32_MAX ? 0 : last_id_ + 1;
+        }
+        bool FormatDiscovery(char* output, std::size_t capacity) const noexcept {
+            if (!output || !capacity) return false;
+            const auto written = std::snprintf(output,capacity,"BTPUBLISH1 NEXT 1 %" PRIu32 "\n",NextIdentity());
+            return written >= 0 && static_cast<std::size_t>(written) < capacity;
+        }
         const RealtimePattern* Frozen() const noexcept { return submitted_ ? &staging_ : nullptr; }
         void NewSession() noexcept { if (!submitted_) Cancel(); }
         bool Tick(std::uint32_t now) noexcept {

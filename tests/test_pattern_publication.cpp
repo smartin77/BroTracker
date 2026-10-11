@@ -215,3 +215,32 @@ TEST_CASE(PublicationChecksumIncludesDimensionsAndOffTiming) {
         CHECK_EQ(Feed(p,lines[3]),PublicationStatus::Completion); CHECK(!p.Freeze());
     }
 }
+
+TEST_CASE(PublicationNextIdentityDiscoverySurvivesSessionsAndExhaustion) {
+    PatternPublication p; char line[64];
+    const auto discover = [&](std::uint32_t expected) {
+        CHECK_EQ(p.NextIdentity(),expected); CHECK(p.FormatDiscovery(line,sizeof(line)));
+        CHECK_EQ(std::string(line),"BTPUBLISH1 NEXT 1 "+std::to_string(expected)+"\n");
+    };
+    discover(1);
+    auto active=Pattern(); PatternBringUpControl control;
+    CHECK_EQ(control.InitializeAudio(12753,100,active,Bindings()),PatternPlayerStatus::Success);
+    Stage(p,active,1); discover(2);
+    const auto frozen=*p.Frozen(); p.NewSession(); discover(2); Same(*p.Frozen(),frozen);
+    CHECK_EQ(control.SubmitPattern(*p.Frozen(),1),PatternRequestStatus::Accepted);
+    std::int16_t out; control.AudioBlock(&out,1,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack));
+    CHECK(p.Complete(1,true,active)); discover(2);
+    Feed(p,Transfer(active,2)[0]); p.NewSession(); discover(3); // HELLO/disconnect cancellation.
+    Feed(p,Transfer(active,3)[0]); CHECK(p.Tick(5000)); discover(4);
+    Feed(p,Transfer(active,4)[0]); CHECK_EQ(Feed(p,"BTPUBLISH1 CELL 1 4 0 60 7 9"),PublicationStatus::Cell); discover(5);
+    Stage(p,active,5); CHECK(p.Complete(5,false,active)); discover(6); // Rejected after staging.
+    CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 99 17 1 17"),PublicationStatus::Dimensions); discover(6);
+    const auto before=control.Snapshot();
+    for(unsigned i=0;i<3;++i) { p.NewSession(); discover(6); }
+    CHECK_EQ(control.Snapshot().transport,before.transport); CHECK_EQ(control.Snapshot().next_sample,before.next_sample);
+    CHECK_EQ(control.Snapshot().position.valid,before.position.valid); Same(active,Pattern());
+    Stage(p,active,UINT32_MAX); discover(0); p.NewSession(); discover(0);
+    CHECK(p.Complete(UINT32_MAX,false,active)); discover(0);
+    CHECK_EQ(Feed(p,Transfer(active,UINT32_MAX)[0]),PublicationStatus::Identity);
+    CHECK_EQ(Feed(p,Transfer(active,1)[0]),PublicationStatus::Identity); discover(0);
+}
