@@ -107,7 +107,10 @@ public:
             const unsigned minimum = note ? kPatternNoteMinimum : 0;
             const unsigned maximum = note ? kPatternNoteMaximum : 254;
             unsigned replacement = value;
-            if (action == EditorAction::Clear) replacement = 255;
+            if (action == EditorAction::Clear) {
+                replacement = 255;
+                if (note) cell.instrument = BroTracker::kNoInstrumentUpdate;
+            }
             else if (action == EditorAction::NoteOff) { if (!note) return false; replacement = NOTE_OFF; }
             else if (action == EditorAction::Increment || action == EditorAction::Decrement)
             {

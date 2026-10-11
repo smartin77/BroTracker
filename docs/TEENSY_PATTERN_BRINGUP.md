@@ -107,8 +107,10 @@ Device BPM/POS/LOOP remain authoritative.
   Timing uses core draft metadata; raw instrument IDs are preserved separately
   and never encoded or reinterpreted as timing. Changing the Note field resets
   timing to arrival mode.
-- Delete clears the selected normal field to
-  NOTE_EMPTY or instrument 0xFF; instrument-only cells remain representable.
+- Delete in the Note field clears both note and instrument to NOTE_EMPTY and
+  0xFF, including OFF, and resets timing to Arrival. Delete in a normal Instrument
+  field clears only that instrument; explicit instrument-only editing remains supported.
+  Empty instruments display `--`; instrument ID 0 remains a valid ID displayed as `01`.
 - F4 discards local edits by restoring the device baseline, retaining the cursor.
 - Space uses the capability-gated transport described below; Return and numeric Enter STOP/reset,
   Ctrl+X and window close remain independent of editing. OS repeats are ignored.
@@ -460,9 +462,14 @@ one-based displayed rows (01..16 for the fixture), with zero-based internal
 indices. Planned zero-based and hexadecimal display options remain deferred;
 no numbering-mode switch is implemented.
 
-Deferred instrument-numbering decision: prefer first visible instrument `01`
-and no-instrument marker `--`; mapping to raw IDs and capacity are undecided.
-Instrument IDs and their display are unchanged by this adjustment.
+Instrument numbers are one-based decimal: raw ID 0 displays as `01`, raw ID 1
+as `02`; `00` is never an editable/displayed instrument number. Empty remains
+`--` (raw 0xFF). PgUp/PgDn from an empty instrument selects `01`; editing is
+bounded, without wrapping. The minimum two-digit format expands to three digits
+for 100..255 within the existing field width; there is no 100-instrument limit.
+Internal IDs, bindings and snapshot/publication wire values remain raw and unchanged.
+OFF timing glyphs remain separate. This display change is host-tested; Windows
+hardware and ArkOS validation remain pending.
 
 ### Live playback-position styling
 
@@ -681,3 +688,20 @@ Windows hardware checklist (not yet confirmed):
    Exact end-of-position hardware timing and realtime cost remain unmeasured.
 
 No Teensy build/upload or hardware validation was performed for this change.
+
+### Windows publication transport correction (hardware revalidation pending)
+
+The 2026-10-11 Windows log shows CAP 1/NEXT discovery succeeded, followed by
+completed BEGIN and CELL index 10, then a blank disconnect reason before COMMIT.
+The last received message was stopped position telemetry. The Windows worker's
+32-byte write limit rejected the longer CELL index 11 without setting an error.
+This was host transport reopening, not a logged firmware rejection or ACK timeout;
+NEXT advanced across HELLO sessions, supporting retained board state rather than reset.
+
+Windows now accepts bounded write prefixes and the shared scheduler finishes each
+line before sending another. Host regressions exercise the full 16-row/two-channel
+transfer with asynchronous 32-byte writes, deletion apply/exact readback, and pitch
+rejection retaining connection, draft and baseline. Existing protocol ERROR/REJECTED
+handling does not disconnect; timeout and uncertain-COMMIT rules remain unchanged.
+Revalidate F5 deletion/readback and C#3 unsupported-pitch rejection on Windows +
+Teensy. No hardware success is inferred from these host tests.

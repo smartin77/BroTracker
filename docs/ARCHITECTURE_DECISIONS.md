@@ -269,6 +269,17 @@ Consumers must handle them explicitly as unsupported pattern notes.
 This restriction does not redefine MIDI note numbering or restrict
 future independent MIDI routing.
 
+### User-visible instrument numbering
+
+Instrument numbers are one-based decimal: internal ID 0 displays as `01`, ID 1
+as `02`. `00` is never a displayed or editable instrument number. Internal IDs,
+bindings and wire values remain unchanged; 0xFF remains no update, shown as `--`.
+The formatter uses a minimum of two digits and expands to three for 100..255;
+it never truncates or reinterprets `00` as 100. This introduces no 100-instrument
+limit. The existing raw ID range 0..254 is unchanged. Empty-field increment or
+decrement selects raw ID 0 (`01`); instrument editing remains bounded without
+wrapping. NOTE_OFF timing glyphs remain separate from instrument numbering.
+
 ## D0019 - Note-Off Events
 
 BroTracker supports an explicit `NOTE_OFF` event in pattern data.

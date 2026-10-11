@@ -3,6 +3,7 @@
 #include "ui/editor_repeat.h"
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
+#include "ui/instrument_formatter.h"
 #include <cstring>
 
 namespace {
@@ -178,10 +179,10 @@ TEST_CASE(LocalEditorOffTimingIsSeparateTransactionalMetadata) {
     CHECK_EQ(editor.OffTiming(0, 0), LocalNoteOffTiming::Arrival);
     CHECK(editor.Apply(EditorAction::Clear)); CHECK(editor.Apply(EditorAction::Right));
     CHECK(editor.Apply(EditorAction::Increment)); // Instrument-only update.
-    CHECK_EQ(editor.Draft()->cells[0][0].note, NOTE_EMPTY); CHECK_EQ(editor.Draft()->cells[0][0].instrument, 8);
+    CHECK_EQ(editor.Draft()->cells[0][0].note, NOTE_EMPTY); CHECK_EQ(editor.Draft()->cells[0][0].instrument, 0);
     CHECK(editor.Apply(EditorAction::Left)); CHECK(editor.Apply(EditorAction::NoteOff));
     CHECK_EQ(editor.OffTiming(0, 0), LocalNoteOffTiming::Arrival);
-    CHECK_EQ(editor.Draft()->cells[0][0].instrument, 8);
+    CHECK_EQ(editor.Draft()->cells[0][0].instrument, 0);
     CHECK_EQ(live->device_pattern->pattern.cells[0][0].instrument, 7);
     CHECK(editor.Apply(EditorAction::Right)); CHECK(editor.Apply(EditorAction::Increment));
     editor.Sync(std::nullopt); CHECK(!editor.OffTiming(0, 0));
@@ -403,4 +404,38 @@ TEST_CASE(EditorUsesActualCoreTimingBaselineAndRestore) {
     CHECK_EQ(editor.Draft()->cells[0][0].instrument,7);
     editor.Sync(std::nullopt); live->device_pattern->pattern.note_off_timing[0][0]=static_cast<BroTracker::NoteOffTiming>(2);
     editor.Sync(live); CHECK(!editor.Ready());
+}
+
+TEST_CASE(NoteDeleteAtomicallyClearsInstrumentAndOffTiming) {
+    for (const auto note : {Note(60), Note(NOTE_OFF), Note(NOTE_EMPTY)}) {
+        auto live=ConnectedDraft(); live->device_pattern->pattern.cells[0][0]={note,0};
+        live->device_pattern->pattern.note_off_timing[0][0]=BroTracker::NoteOffTiming::EndOfPosition;
+        LocalPatternEditor editor; editor.Sync(live);
+        CHECK(editor.Apply(EditorAction::Clear));
+        CHECK_EQ(editor.Draft()->cells[0][0].note,NOTE_EMPTY);
+        CHECK_EQ(editor.Draft()->cells[0][0].instrument,BroTracker::kNoInstrumentUpdate);
+        CHECK_EQ(editor.Draft()->note_off_timing[0][0],BroTracker::NoteOffTiming::Arrival);
+        CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+        CHECK(editor.Apply(EditorAction::SetValue,60)); CHECK(editor.Apply(EditorAction::Right));
+        CHECK(editor.Apply(EditorAction::Clear)); CHECK_EQ(editor.Draft()->cells[0][0].note,60);
+        CHECK_EQ(editor.Draft()->cells[0][0].instrument,255);
+    }
+}
+
+TEST_CASE(OneBasedInstrumentDisplayAndRawEditorBounds) {
+    CHECK_EQ(FormatInstrument(0),"01"); CHECK_EQ(FormatInstrument(1),"02");
+    CHECK_EQ(FormatInstrument(255),"--"); CHECK_EQ(FormatInstrument(98),"99");
+    CHECK_EQ(FormatInstrument(99),"100"); CHECK_EQ(FormatInstrument(254),"255");
+    for(const auto action : {EditorAction::Increment,EditorAction::Decrement}) {
+        auto live=ConnectedDraft(); live->device_pattern->pattern.cells[0][0].instrument=255;
+        LocalPatternEditor editor; editor.Sync(live); CHECK(editor.Apply(EditorAction::Right));
+        CHECK(editor.Apply(action)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,0);
+        CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"01");
+        CHECK(!editor.Apply(EditorAction::Decrement)); // No editable zero display, no wrapping.
+        CHECK(editor.Apply(EditorAction::Increment)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,1);
+        CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"02");
+        CHECK(editor.Apply(EditorAction::SetValue,254)); CHECK(!editor.Apply(EditorAction::Increment));
+        CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+        CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"--");
+    }
 }

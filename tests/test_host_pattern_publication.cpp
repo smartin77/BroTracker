@@ -4,6 +4,7 @@
 #include "ui/bringup_controls.h"
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
+#include "../ui/windows/serial_write_limits.h"
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -28,7 +29,7 @@ namespace {
         return p.Response(line.data(),line.size(),now);
     }
     struct Port : SerialTransport {
-        bool online=true; unsigned limit=96; std::string input,output;
+        bool online=true, windows_worker=false; unsigned limit=96, completed=0; std::string input,output;
         bool Open(FILE*,const char*) override { return online; }
         bool Healthy() override { return online; }
         void Close() override { input.clear(); }
@@ -37,6 +38,10 @@ namespace {
             std::memcpy(data,input.data(),n); input.erase(0,n); return static_cast<int>(n);
         }
         int Write(const char* data,unsigned count) override {
+            if (windows_worker) {
+                if (completed) { const auto result=completed; completed=0; return static_cast<int>(result); }
+                completed=WindowsSerialWritePrefix(count); output.append(data,completed); return 0;
+            }
             count=std::min(count,limit); output.append(data,count); return static_cast<int>(count);
         }
         const char* Error() const override { return "test disconnect"; }
@@ -51,12 +56,13 @@ namespace {
             PatternSnapshotSender sender(s.pattern,s.tempo_hundredths); CHECK(sender.Begin(id,0,s.version));
             while(sender.HasData()) { std::size_t n; const auto* data=sender.Data(n); Receive(std::string(data,n)); sender.Consume(n); }
         }
-        void Ready(bool capability=true,unsigned version=2) {
+        void Ready(bool capability=true,unsigned version=2,unsigned rows=2,unsigned channels=1) {
             Tick(); Tick(); port->output.clear();
             Receive("BTTEST1 STATE IDLE\nBTPATTERN1 SNAPCAP "+std::to_string(version)+"\n"+
-                "BTPATTERN1 POS 2 0 0 0 0 0 2 1\n"+
+                "BTPATTERN1 POS 2 0 0 0 0 0 "+std::to_string(rows)+" "+std::to_string(channels)+"\n"+
                 (capability ? "BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 7\n" : ""));
-            Tick(); auto baseline=Baseline(); baseline.version=version; Snapshot(1,baseline);
+            Tick(); auto baseline=Baseline(); baseline.version=version;
+            baseline.pattern.active_rows=rows; baseline.pattern.active_channels=channels; Snapshot(1,baseline);
             CHECK(editor.Ready()); port->output.clear();
         }
         void Dirty() {
@@ -199,4 +205,55 @@ TEST_CASE(HostPublicationReadbackFailureStaysUncertainAndDoesNotResend) {
     auto accepted=Baseline(); accepted.pattern=*s.editor.Draft(); s.Snapshot(3,accepted);
     CHECK(!s.serial.PublicationBusy()); CHECK(!s.editor.Dirty());
     CHECK(s.port->output.find("BTPUBLISH1 BEGIN 1 7") == s.port->output.rfind("BTPUBLISH1 BEGIN 1 7"));
+}
+
+TEST_CASE(WindowsPublicationLongCellLinesCompleteWithoutReopening) {
+    for (unsigned rejected=0; rejected<2; ++rejected) {
+        Session s; s.Ready(true,2,16,2); s.port->windows_worker=true;
+        CHECK_EQ(WindowsSerialWritePrefix(33),32);
+        CHECK(s.editor.Apply(rejected ? EditorAction::Increment : EditorAction::Clear));
+        const auto draft=*s.editor.Draft(), baseline=s.editor.Baseline()->pattern;
+        CHECK(s.serial.Publish(s.editor,s.now));
+        for(unsigned i=0;i<200 && s.port->output.find("BTPUBLISH1 COMMIT 1 7 ")==std::string::npos;++i) s.Tick();
+        s.Tick(); s.Tick(); // Observe asynchronous COMMIT completion before its replies.
+        CHECK(s.serial.Connected());
+        CHECK(s.port->output.find("BTPUBLISH1 CELL 1 7 11 255 255 0\n")!=std::string::npos);
+        CHECK(s.port->output.find("BTPUBLISH1 CELL 1 7 31 255 255 0\n")!=std::string::npos);
+        CHECK(s.port->output.find("BTPUBLISH1 COMMIT 1 7 32 ")!=std::string::npos);
+        s.Receive("BTPUBLISH1 SUBMITTED 1 7\n");
+        if(rejected) {
+            s.Receive("BTPUBLISH1 REJECTED 1 7 unsupported-pitch\n");
+            CHECK(SamePattern(*s.editor.Draft(),draft)); CHECK(SamePattern(s.editor.Baseline()->pattern,baseline));
+            CHECK(s.editor.Dirty()); CHECK(!s.editor.Locked());
+        } else {
+            s.Receive("BTPUBLISH1 APPLIED 1 7\nBTTEST1 STATE IDLE\nBTPUBLISH1 NEXT 1 8\n");
+            for(unsigned i=0;i<8;++i) s.Tick();
+            auto accepted=Baseline(); accepted.pattern=draft; s.Snapshot(2,accepted);
+            CHECK(!s.editor.Dirty()); CHECK(SamePattern(s.editor.Baseline()->pattern,draft));
+        }
+        CHECK(s.serial.Connected()); CHECK(s.port->output.find("BTTEST1 HELLO")==std::string::npos);
+    }
+}
+
+TEST_CASE(OneBasedDisplayPublicationPreservesRawInstrumentIds) {
+    auto baseline=Baseline(); auto draft=baseline.pattern;
+    draft.cells[0][0].instrument=0; draft.cells[1][0]={NOTE_EMPTY,1};
+    HostPatternPublication publication; CHECK(publication.Begin(1,baseline,draft,0));
+    std::string wire;
+    while(publication.Phase()==HostPublicationPhase::Sending) {
+        char line[96]; std::size_t n=0; CHECK(publication.FormatLine(line,sizeof(line),n));
+        wire.append(line,n); publication.BeforeWrite(); publication.LineComplete();
+    }
+    CHECK(wire.find("CELL 1 1 0 60 0 0\n")!=std::string::npos);
+    CHECK(wire.find("CELL 1 1 1 255 1 1\n")!=std::string::npos);
+    CHECK(Reply(publication,"BTPUBLISH1 SUBMITTED 1 1")); CHECK(Reply(publication,"BTPUBLISH1 APPLIED 1 1"));
+    baseline.pattern=draft; CHECK(publication.Verify(baseline)); CHECK(publication.TakeConfirmed());
+    PatternSnapshotSender sender(draft,baseline.tempo_hundredths); CHECK(sender.Begin(2,0,2));
+    PatternSnapshotAssembler receiver; CHECK(receiver.Request(2,0,2));
+    while(sender.HasData()) {
+        std::size_t n; const auto* data=sender.Data(n);
+        CHECK(n && data[n-1]=='\n'); receiver.Accept(data,n-1,0); sender.Consume(n);
+    }
+    CHECK(receiver.Snapshot()); CHECK_EQ(receiver.Snapshot()->pattern.cells[0][0].instrument,0);
+    CHECK_EQ(receiver.Snapshot()->pattern.cells[1][0].instrument,1);
 }

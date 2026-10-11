@@ -462,7 +462,20 @@ design remains unchanged.
   on 2026-10-10. This does not establish physical timing or realtime performance.
 * [ ] Validate grey playback-row and arrow styling on ArkOS.
 
+* [x] Correct Windows publication transport to accept bounded prefixes of protocol
+  lines longer than its 32-byte worker buffer. Host regressions cover complete
+  16-row/two-channel transfer, deletion/readback and connected pitch rejection.
+  Note DELETE clears note/instrument/OFF timing atomically; normal Instrument
+  DELETE clears only the instrument. Empty instruments retain `--`, ID 0 displays as `01`.
+* [ ] Revalidate F5 deletion apply/readback and unsupported-pitch rejection on
+  Windows + Teensy after the transport correction; ArkOS/hardware checks remain open.
+
 ## Deferred Tasks
+
+* [ ] Design bounded local-editor undo/redo with atomic note/instrument/OFF-timing
+  edit records, including combined Note DELETE. Preserve cursor independence;
+  define history behavior for Restore, confirmed publication/rebase and disconnect.
+  Undo must never publish changes automatically.
 
 * [ ] Evaluate the bright edited-channel background as a separate design option;
   current live mode retains only the orange field-edit border.
@@ -470,9 +483,13 @@ design remains unchanged.
 * [ ] Add row-numbering display options for zero-based and hexadecimal views;
   current `d1` is decimal one-based. No mode switching in the current change.
 
-* [ ] Decide instrument numbering: prefer first visible instrument `01` and
-  no-instrument marker `--`; raw-ID/display mapping and capacity remain undecided.
-  No instrument-ID or display change is included in this step.
+* [x] Implement one-based user-visible instrument numbering: raw IDs 0/1 display
+  `01`/`02`, 0xFF stays `--`, and numbers 100..255 expand to three digits without
+  truncation. Internal bindings/wire IDs remain unchanged; empty editing selects
+  `01`, bounds do not wrap, and OFF timing remains separate. Host tests cover
+  formatting, editing/Restore and publication/snapshot raw-ID roundtrip.
+* [ ] Validate one-based instrument display/editing on Windows + Teensy and ArkOS;
+  existing publication/hardware validation remains open.
 
 ### Audio Diagnostics
 

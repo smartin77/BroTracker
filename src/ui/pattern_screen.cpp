@@ -19,6 +19,7 @@
 #include "core/note_formatter.h"
 #include "renderer/color.h"
 #include "text_renderer.h"
+#include "instrument_formatter.h"
 
 namespace
 {
@@ -86,17 +87,6 @@ namespace
     };
 
     constexpr Layout layout{};
-
-    std::string InstrumentToString(
-        std::uint8_t instrument)
-    {
-        if (instrument == 0xFF)
-        {
-            return "--";
-        }
-
-        return (instrument < 10 ? "0" : "") + std::to_string(instrument);
-    }
 
     void DrawMainHeader(
         Framebuffer& framebuffer,
@@ -479,7 +469,7 @@ namespace
                         framebuffer,
                         field_x + 4 * 6,
                         y,
-                        InstrumentToString(
+                        FormatInstrument(
                             instrument_value),
                         instrument_color);
                 }
