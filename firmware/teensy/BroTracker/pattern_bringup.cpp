@@ -4,6 +4,7 @@
 #include <Audio.h>
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_control.h"
+#include "bringup/pattern_fixture.h"
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
 #include "bringup/pattern_publication.h"
@@ -38,22 +39,7 @@ namespace
     constexpr auto kSampleA = MakeSample(false);
     constexpr auto kSampleB = MakeSample(true);
     constexpr std::uint32_t kTempoHundredths = 12753;
-    const RealtimePattern kPattern = [] {
-        RealtimePattern pattern;
-        pattern.active_rows = 16; pattern.active_channels = 2;
-        pattern.cells[0][0] = {60,0};
-        pattern.cells[2][1] = {62,1};
-        pattern.cells[4][0] = {60,kNoInstrumentUpdate};
-        pattern.cells[5][0] = {60,kNoInstrumentUpdate};
-        pattern.cells[6][1] = {NOTE_OFF,kNoInstrumentUpdate};
-        pattern.cells[8][0] = {60,0}; pattern.cells[8][1] = {62,1};
-        pattern.cells[10][0] = {NOTE_OFF,kNoInstrumentUpdate};
-        pattern.cells[12][1] = {62,kNoInstrumentUpdate};
-        pattern.cells[13][1] = {62,kNoInstrumentUpdate};
-        pattern.cells[14][0] = {NOTE_OFF,kNoInstrumentUpdate};
-        pattern.cells[14][1] = {NOTE_OFF,kNoInstrumentUpdate};
-        return pattern;
-    }();
+    const RealtimePattern kPattern = MakeBeeperPattern();
     const NativeRateSampleBindings kBindings = [] {
         NativeRateSampleBindings bindings{}; bindings.count = 2;
         bindings.bindings[0] = {0,60,{kSampleA.data(),kSampleA.size(),44100}};
@@ -64,9 +50,11 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
     constexpr std::size_t kPreparedFrameCapacity=131072;
     DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
-    SdWavPreparation g_preparation; // Main-owned immutable after setup; not bound to audio.
+    SdWavPreparation g_preparation; // Main-owned immutable after setup; optionally retained by voices.
     SdPreparationReport g_preparation_report;
 #endif
+    RealtimePattern g_active_pattern = kPattern; // Main readback source; updated after audio acknowledgement.
+    NativeRateSampleBindings g_selected_bindings = kBindings; // Frozen before audio activation.
     bool g_audio_ready = false; // Published under InterruptGuard after AudioMemory.
 
     // Save/restore PRIMASK, including callers with interrupts already disabled.
@@ -97,7 +85,7 @@ namespace
 #endif
             if (!initialized_)
             {
-                (void)g_control.InitializeAudio(kTempoHundredths,44100,kPattern,kBindings);
+                (void)g_control.InitializeAudio(kTempoHundredths,44100,g_active_pattern,g_selected_bindings);
                 initialized_ = true;
             }
             audio_block_t* block = allocate();
@@ -144,7 +132,6 @@ namespace
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
-    RealtimePattern g_active_pattern = kPattern; // Main-loop readback source, changed only after audio acknowledgement.
     PatternPublication g_publication;
     PatternSnapshotSender g_pattern_transfer(g_active_pattern, kTempoHundredths);
     PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
@@ -413,7 +400,7 @@ namespace
     {
         Serial.begin(115200);
         pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,LOW);
-        // No SD/log/time-sync initialization in this RAM-only opt-in path.
+        // Optional SD preparation is boot-only; no logging/time-sync initialization.
         // All globals are constructed; audio owner configures on its first update.
 #ifdef BROTRACKER_PATTERN_PERF
         // Enable the supported DWT counter without resetting a shared core counter.
@@ -423,6 +410,12 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         // Early callbacks return while g_audio_ready is false. No retries after activation.
         g_preparation.Prepare(SD.begin(BUILTIN_SDCARD),"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
+#endif
+#ifdef BROTRACKER_PATTERN_SD_PLAYBACK
+        // Preparation failure leaves an invalid view and the working beeper fixture.
+        const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view,true);
+        g_active_pattern = selected.pattern;
+        g_selected_bindings = selected.bindings;
 #endif
         AudioMemory(8);
         { InterruptGuard guard; g_audio_ready = true; }

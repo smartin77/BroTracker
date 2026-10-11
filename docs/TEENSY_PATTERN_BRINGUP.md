@@ -1017,3 +1017,47 @@ physical timing and realtime performance checks remain open.
 A dedicated disconnected-device presentation replacing the empty pattern layout
 is deferred, using M8 Headless as a visual reference. No UI implementation is
 included in this documentation change.
+
+
+### Opt-in prepared SD sample playback (hardware validation pending)
+
+`teensy41_pattern_sd_playback` extends `teensy41_pattern_sd_prepare` with
+`BROTRACKER_PATTERN_SD_PLAYBACK`. Before audio activation, successful preparation
+selects three active channels and a third binding: internal instrument 2 (display
+03), native-rate note 60/C-3, with one row-01 trigger. The two beeper instruments
+and all their events are unchanged. C-3 is an explicit trigger reference, not a
+measured musical pitch. No resampling, pitch analysis or tempo matching occurs.
+Failure retains the two-channel beeper pattern without binding 03, and WAVPREP
+still reports the failure. Existing environments retain their behavior.
+
+PCM stays immutable in the existing caller-owned 256 KiB aligned RAM2 buffer;
+selection copies only fixed metadata before g_audio_ready. The audio owner uses
+that selected pattern/bindings; snapshots, telemetry and publication validation
+therefore describe the actual configuration. No audio-time SD/loading/logging.
+Future optional PSRAM-backed caller storage needs no parser/playback API changes.
+Stopped/paused publication remains available; Playing publication remains blocked.
+
+The observed test2.wav duration is 68284/44100 = 1.548390 seconds. The unchanged
+16-row loop at 127.53 BPM spans four quarter notes, approximately 1.881910 seconds
+(82992 samples for the first loop). The WAV completes before its next loop trigger;
+this does not establish intended meter or sample pitch. Unity-gain mono summation
+may saturate when the PCM overlaps beepers; final volume policy remains undecided.
+WAVPREP and PERF remain enabled; prior beeper measurements do not validate WAV cost.
+
+Manual checklist: verify successful WAVPREP and 16-row/three-channel readback;
+start, hear sample completion and loop retrigger; Stop, Pause/current-row Continue;
+try stopped and paused publication (Playing must reject); test preparation failure
+fallback; inspect PERF, RAM headroom and cache behavior. All new hardware checks
+and ArkOS visual validation remain pending.
+
+### Display grid versus active pattern dimensions
+
+Main Windows/ArkOS BTX draws 8 numbered channels and 32 decimal one-based rows
+(d1). Each cell is drawn once: actual device/draft data inside active dimensions,
+otherwise `--- --` in existing empty styling. Unavailable data also uses empty
+padding, with availability explained in the right panel. A 16-row/two-channel
+pattern remains exactly that size: padding cannot be edited, published or played.
+Live highlight/arrow still use only authoritative position; edit navigation stays
+within active dimensions. The standalone mockup and right panel are unchanged.
+This supports varying loaded contents without adding new-pattern creation or
+incremental rendering. Manual visual validation is pending.

@@ -567,6 +567,19 @@ design remains unchanged.
 * [ ] Validate ArkOS startup, disconnect/reconnect and live editor/playback/panel
   presentation after mockup fallback removal.
 
+* [x] Implement opt-in teensy41_pattern_sd_playback, extending sd_prepare: boot
+  selection binds the successful immutable RAM2 WAV as raw instrument 2 (03),
+  native-rate C-3 on row 01 of a third channel. Original two beeper channels,
+  tempo 12753, WAVPREP/PERF and failure fallback are preserved. Host tests cover
+  fixture selection, exact completion, loop retrigger, Stop and current-row replay.
+* [x] Render the shared application grid as 8 channels x 32 rows (d1), in one
+  pass with actual cells or empty --- -- padding. Active dimensions, edit bounds,
+  snapshots/publication and playback are unchanged; standalone preview preserved.
+* [ ] Validate SD playback and padded layout on Windows + Teensy and ArkOS:
+  completion, looping, Pause/Continue, stopped/paused publication, failure fallback,
+  memory/cache behavior and measured realtime cost. Unity-gain saturation is
+  possible with overlapping WAV/beepers; final gain policy remains open.
+
 ## Deferred Tasks
 
 * [ ] Replace the disconnected empty pattern layout with a dedicated

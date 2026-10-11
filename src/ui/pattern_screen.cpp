@@ -369,8 +369,6 @@ namespace
                 row < layout.visible_rows;
                 ++row)
             {
-                if (display.device_mode && (row >= static_cast<int>(display.rows) ||
-                    channel >= static_cast<int>(display.channels))) continue;
                 const int y =
                     layout.first_row_y +
                     row * layout.row_height +
@@ -381,15 +379,15 @@ namespace
 
                 if (display.device_mode)
                 {
-                    if (!display.device_pattern)
+                    // One pass: unavailable/out-of-active cells keep empty defaults.
+                    if (display.device_pattern && row < static_cast<int>(display.rows) &&
+                        channel < static_cast<int>(display.channels))
                     {
-                        DrawFixedText(framebuffer, field_x, y, "??? ??", empty_note);
-                        continue;
+                        const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
+                        const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
+                        note_value = cell.note;
+                        instrument_value = cell.instrument;
                     }
-                    const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
-                    const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
-                    note_value = cell.note;
-                    instrument_value = cell.instrument;
                 }
 
                 if (!display.device_mode && channel <
@@ -606,8 +604,8 @@ namespace
                 "\xC2\xA6", row_marker);
         }
 
-        DrawRowHeader(framebuffer, display.device_mode ? static_cast<int>(display.channels) : layout.channel_count);
-        DrawRowNumbers(framebuffer, display.device_mode ? static_cast<int>(display.rows) : layout.visible_rows);
+        DrawRowHeader(framebuffer);
+        DrawRowNumbers(framebuffer);
         DrawPatternChannels(
             framebuffer,
             pattern, display, editor);

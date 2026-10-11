@@ -367,3 +367,31 @@ TEST_CASE(SnapshotTimingCapabilityChoosesExplicitRequestVersion) {
     CHECK(legacy.transport->output.find("BTPATTERN1 GET 1 1\n") != std::string::npos);
     CHECK(legacy.transport->output.find("GET 2") == std::string::npos);
 }
+
+
+TEST_CASE(DevicePatternDisplayPadsEightChannelsThirtyTwoRowsOnly) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    std::optional<LivePlaybackView> live=LivePlaybackView{true,true,{true,true,96,1,0,16,2}};
+    DevicePatternSnapshot snapshot{}; snapshot.tempo_hundredths=12753;
+    snapshot.pattern.active_rows=16; snapshot.pattern.active_channels=2;
+    snapshot.pattern.cells[0][0]={60,0}; live->device_pattern=snapshot;
+    Framebuffer fb(640,480), expected(640,480); Tune tune; Pattern preview;
+    RenderMainScreen(fb,tune,preview,live);
+    expected.Clear(Color{16,16,16});
+    // Exact glyph/color regions, outside active dimensions, in the same one-pass grid.
+    for(const auto cell : {std::pair<int,int>{16,0},{31,7},{0,2}}) {
+        const int x=30+cell.second*53+(53-36)/2, y=62+cell.first*13+2;
+        DrawFixedText(expected,x,y,"---",Color{192,192,192});
+        DrawFixedText(expected,x+24,y,"--",Color{78,78,118});
+        for(int yy=y;yy<y+8;++yy) for(int xx=x;xx<x+36;++xx)
+            CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    }
+    // All headers and decimal one-based rows are present, even outside active data.
+    DrawCenteredFixedText(expected,30+7*53,53,38,"8",Color{130,130,196});
+    DrawCenteredFixedText(expected,0,29,62+31*13+2,"32",Color{78,78,118});
+    for(const auto region : {std::pair<int,int>{30+7*53+(53-6)/2,38},{(29-12)/2,62+31*13+2}})
+        for(int yy=region.second;yy<region.second+8;++yy)
+            for(int xx=region.first;xx<region.first+(region.first<29?12:6);++xx)
+                CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    CHECK_EQ(live->device_pattern->pattern.active_rows,16);
+}

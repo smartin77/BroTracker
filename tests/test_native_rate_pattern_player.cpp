@@ -825,3 +825,54 @@ TEST_CASE(PausedReplacementValidationAndRollback) {
         CHECK_EQ(out[0],0); CHECK_EQ(NativeRatePatternPlayerTestAccess::Pending(trial,0),timing==NoteOffTiming::EndOfPosition);
     }
 }
+
+
+#include "bringup/pattern_fixture.h"
+TEST_CASE(SdPlaybackFixtureSelectionAndNativeRendering) {
+    const std::int16_t a[] = {10,20}, b[] = {30,40}, wav[] = {100,200,300,400,500};
+    NativeRateSampleBindings beepers{}; beepers.count=2;
+    beepers.bindings[0]={0,60,{a,2,44100}};
+    beepers.bindings[1]={1,62,{b,2,44100}};
+    const Pcm16MonoView view{wav,5,44100};
+    const auto base=SelectPatternBringUpFixture(beepers,view,false);
+    for (const auto invalid : {Pcm16MonoView{}, Pcm16MonoView{wav,5,48000}}) {
+        const auto fallback=SelectPatternBringUpFixture(beepers,invalid,true);
+        CHECK_EQ(fallback.pattern.active_channels,2); CHECK_EQ(fallback.bindings.count,2);
+    }
+    const auto selected=SelectPatternBringUpFixture(beepers,view,true);
+    CHECK_EQ(selected.pattern.active_rows,16); CHECK_EQ(selected.pattern.active_channels,3);
+    CHECK_EQ(selected.bindings.count,3); CHECK(selected.bindings.bindings[2].sample.data==wav);
+    CHECK_EQ(selected.pattern.cells[0][2].note,60); CHECK_EQ(selected.pattern.cells[0][2].instrument,2);
+    for (unsigned row=0;row<16;++row) for(unsigned ch=0;ch<2;++ch) {
+        CHECK_EQ(selected.pattern.cells[row][ch].note,base.pattern.cells[row][ch].note);
+        CHECK_EQ(selected.pattern.cells[row][ch].instrument,base.pattern.cells[row][ch].instrument);
+    }
+    NativeRatePatternPlayer player;
+    CHECK_EQ(player.Configure(12753,44100,selected.pattern,selected.bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t out[128]{};
+    CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+    const std::int16_t expected[]={110,220,300,400,500,0,0,0};
+    for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],expected[i]);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],0);
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],expected[i]);
+    std::uint64_t loop_sample=0;
+    CHECK_EQ(TickToSamplePosition(16*kTicksPerRow,12753,44100,loop_sample),TickToSampleStatus::Success);
+    while(player.GetNextSamplePosition()<loop_sample) {
+        const auto count=std::min<std::uint64_t>(128,loop_sample-player.GetNextSamplePosition());
+        CHECK_EQ(player.Render(out,count),PatternPlayerStatus::Success);
+    }
+    CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],expected[i]);
+    player.Stop(); CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
+    for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],0);
+    CHECK_EQ(player.ReplacePattern(selected.pattern),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.ReplacePattern(selected.pattern),PatternPlayerStatus::InvalidTransportState);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success);
+    CHECK_EQ(player.ReplacePausedPattern(selected.pattern),PatternPlayerStatus::Success);
+}

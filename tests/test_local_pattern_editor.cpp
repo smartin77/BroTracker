@@ -293,8 +293,9 @@ TEST_CASE(PatternInformationStaysInsidePaddedRightPanel) {
             CHECK(x >= 466 && x < 631); CHECK(y >= 38 && y < 442); ++changed;
         }
         CHECK(changed > 0);
-        // Former information-label rows are now entirely empty pattern grid.
-        for (unsigned y = 290; y < 340; ++y) for (unsigned x = 2; x < 453; ++x) {
+        // Former information-label rows contain only padded empty cells; row numbers
+        // remain outside this cell-area check.
+        for (unsigned y = 290; y < 340; ++y) for (unsigned x = 30; x < 453; ++x) {
             const auto& pixel = fb.PixelData()[y * 640 + x];
             CHECK(!(pixel.r == 255 && pixel.g == 255 && pixel.b == 255));
             CHECK(!(pixel.r == 130 && pixel.g == 130 && pixel.b == 196));
