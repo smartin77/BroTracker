@@ -499,16 +499,17 @@ design remains unchanged.
 * [ ] Revalidate F5 deletion apply/readback and unsupported-pitch rejection on
   Windows + Teensy after the transport correction; ArkOS/hardware checks remain open.
 
-* [x] Add shared session-local remembered pitched-note entry: first PgUp/PgDn on
-  an empty Note field inserts the last edited pitch unchanged; subsequent actions
-  use existing cyclic/repeat behavior. No instrument insertion, no preference
-  changes from navigation/OFF/instrument/DELETE, no pattern/dirty/wire metadata.
-  Restore/readback preserve it; disconnect clears it. Host tests cover both directions,
-  cross-row/channel reuse, held repeat, Restore and confirmed-readback rebase.
+* [x] Add shared pattern-derived note entry: first PgUp/PgDn on an empty Note
+  field inserts the nearest preceding pitch in the current draft channel unchanged,
+  skipping empty/instrument-only/OFF. No preceding pitch initializes C-0; no
+  cross-channel search or pattern wrap, no automatic instrument. Subsequent actions
+  retain cyclic/repeat behavior. No session memory; edits/deletions, snapshot load,
+  Restore and confirmed readback are reflected immediately. Host tests cover both
+  directions, channel isolation, skipped cells, fallback and held repetition.
 * [x] User confirmed on 2026-10-11 that, after clearing both channels, a published
   first-channel C-3 / instrument 01 pattern on rows 01 and 09 plays correctly.
   This does not confirm all paused-publication cases or measured hardware timing.
-* [ ] Validate remembered note entry on Windows + Teensy and ArkOS.
+* [ ] Validate pattern-derived note entry on Windows + Teensy and ArkOS.
 
 ## Deferred Tasks
 
