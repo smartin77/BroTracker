@@ -241,9 +241,9 @@ acknowledgements retain bounded FIFO order; formatting/I/O remain main-loop-only
 The core explicitly distinguishes Stopped/Playing/Paused. Pause is applied at the
 next audio block boundary, silencing/releasing active voices and retaining logical
 note/instrument continuation, consumed position and next-sample position. Paused
-renders are silent and do not advance. Continue transactionally converts the next
+renders are silent and do not advance. Continue transactionally converts the currently reported paused
 absolute row-start tick to its sample position and restarts a cursor segment there;
-it neither scans skipped ticks nor replays events. The next row is processed once
+it performs no catch-up scan. That same row and all its events are replayed once
 on rendering, with normal absolute rational timing thereafter. If paused before
 any tick is consumed, row zero is still pending and is processed first. Stop clears
 voices, continuation and position; Start always starts anew at zero. Arithmetic
@@ -284,7 +284,7 @@ the prior core position; tick-free blocks retain it too. Configure, Start,
 repeated Start and Stop invalidate it until another tick is consumed. The
 bring-up fail-stop policy invalidates it on any fault. Pause retains the consumed
 position and highlight; it never extrapolates a row. Continue retains the previous
-consumed position until its first successful render consumes the next row.
+consumed position until its first successful render consumes the replayed row.
 Transport, position and
 dimensions are copied together under the existing interrupt guard. No formatting,
 serial writes, allocation or blocking are added to the audio callback.
@@ -705,3 +705,19 @@ rejection retaining connection, draft and baseline. Existing protocol ERROR/REJE
 handling does not disconnect; timeout and uncertain-COMMIT rules remain unchanged.
 Revalidate F5 deletion/readback and C#3 unsupported-pitch rejection on Windows +
 Teensy. No hardware success is inferred from these host tests.
+
+### Current-row Continue revision (host-tested; hardware pending)
+
+Continue now replays the reported paused row from its beginning, preserving its
+absolute loop index; it no longer advances to the next row. With no consumed tick,
+it starts at tick/sample zero. Pause retains logical instrument continuation but
+silences voices and clears deferred Stops. Replayed notes retrigger; instrument-only
+rows do not trigger, Arrival OFF stops at row start, and EndOfPosition OFF schedules
+a fresh Stop at its next absolute row boundary. The cursor uses exact rational
+conversion and bounded positioning; rejected continuation preserves state.
+
+Existing ACK/telemetry barriers and authoritative BTX position remain unchanged.
+Start and Enter STOP/reset are unchanged. The 2026-10-10 transport confirmation
+covered the former next-row behavior, not this revision. Windows + Teensy and ArkOS
+validation of current-row replay remain pending; physical timing/performance and
+paused-publication follow-up remain open.

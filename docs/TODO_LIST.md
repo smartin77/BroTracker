@@ -323,15 +323,19 @@ design remains unchanged.
   editing, new sample bindings, sample transfer and persistence remain unimplemented.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
-  and consumed position; Continue uses bounded absolute positioning at the next row
-  start, including row zero of the next loop, without replay/catch-up. Windows Space
+  and consumed position; Continue uses bounded absolute positioning to replay the
+  same reported row, retaining its loop and consuming its events once without
+  catch-up. Before any consumed tick it starts at zero. Windows Space
   uses capability-gated Start/Pause/Continue; Return and numeric Enter request STOP/reset, including
   repeated stopped requests after acknowledgement. Shared parsing accepts PAUSED
   and version-2 position telemetry; reconnect never starts/continues automatically.
   Host tests cover transitions, boundaries, continuation, rollback and protocol
   fallback. ArkOS handheld transport bindings and ordinary diagnostics remain unchanged.
 * [x] User-performed Windows BTX + Teensy 4.1 validation on 2026-10-10 confirms
-  the revised transport and visual behavior work as agreed.
+  the then-current next-row transport and visual behavior work as agreed.
+  This historical confirmation does not validate the later current-row replay revision.
+* [ ] Validate revised current-row Continue replay on Windows + Teensy and ArkOS.
+  Paused publication remains a separate open follow-up; no protocol changes here.
 * [ ] Measure physical pause/continuation timing and realtime processing cost;
   pending-request/backpressure stress, legacy regression, ArkOS and MQS checks
   remain open. The user confirmation does not establish exact sample timing or

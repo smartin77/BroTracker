@@ -150,17 +150,18 @@ namespace BroTracker
             renderer_.Reset(); transport_ = PatternTransportState::Paused;
             return PatternPlayerStatus::Success;
         }
-        // Restart a segment at the next row start, including next-loop row zero.
-        // No scan of skipped ticks/events. Before the first consumed tick, row zero
-        // is still pending and is the next row. Errors preserve ALL player state.
+        // Replay the reported absolute row from its start, retaining its loop.
+        // Before any consumed tick, replay row zero. Bounded cursor positioning
+        // consumes that row-start exactly once on Render, without catch-up work.
+        // Retain logical continuation; errors preserve ALL player state.
         [[nodiscard]] PatternPlayerStatus Continue() noexcept {
             if (!configured_) return PatternPlayerStatus::NotConfigured;
             if (transport_ != PatternTransportState::Paused) return PatternPlayerStatus::InvalidTransportState;
             std::uint64_t tick = 0;
             if (position_.valid) {
                 const auto row = position_.absolute_tick / kTicksPerRow;
-                if (row >= UINT64_MAX / kTicksPerRow) return PatternPlayerStatus::RangeOverflow;
-                tick = (row + 1) * kTicksPerRow;
+                // Division first guarantees this product cannot exceed the input.
+                tick = row * kTicksPerRow;
             }
             auto cursor = cursor_;
             std::uint64_t sample = 0;

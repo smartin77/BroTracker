@@ -41,7 +41,7 @@ TEST_CASE(PatternBringUpPauseContinueAppliedSnapshotsAndFaultStop) {
     CHECK_EQ(control.Submit(PatternRequest::Continue), PatternRequestStatus::Accepted);
     control.AudioBlock(out, 1, true); Applied(control, PatternRequest::Continue);
     CHECK_EQ(control.Snapshot().transport, PatternTransportState::Playing);
-    CHECK_EQ(control.Snapshot().position.pattern_row, 1); CHECK_EQ(out[0], 10);
+    CHECK_EQ(control.Snapshot().position.pattern_row, 0); CHECK_EQ(out[0], 20);
     CHECK_EQ(control.Submit(PatternRequest::Pause), PatternRequestStatus::Accepted);
     control.AudioBlock(nullptr, 128, false); Applied(control, PatternRequest::Pause);
     CHECK_EQ(control.Snapshot().transport, PatternTransportState::Stopped);

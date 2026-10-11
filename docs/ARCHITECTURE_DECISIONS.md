@@ -1614,3 +1614,14 @@ selected audio output.
 Teensy 4.1 remains the engine responsible for sequencing, synthesis,
 audio processing and MIDI timing. Hosting the terminal on another
 platform does not transfer these responsibilities to that platform.
+
+## D0054 - Paused pattern row replay
+
+Continue resumes from the beginning of the currently reported paused absolute row,
+preserving its loop index. Before the first consumed tick it resumes at zero.
+This supersedes next-row continuation. Pause silences voices and clears deferred
+audio Stops while retaining reported position and logical instrument continuation.
+The row-start and all row commands are consumed exactly once on subsequent rendering;
+notes retrigger and EndOfPosition OFF schedules anew. Exact tick-to-sample conversion
+and bounded cursor positioning define logical scheduling, without a new clock or
+host extrapolation. Start and STOP/reset retain their existing behavior.
