@@ -535,6 +535,18 @@ design remains unchanged.
   unsupported-pitch rejection, reconnect and ArkOS. This observed run does not
   complete hardware/performance validation or establish exact physical timing.
 
+* [x] Add portable non-realtime `LoadWavToBuffer` foundation in
+  `src/core/audio/wav_buffer_loader.h`: caller-owned PCM storage and bounded reader,
+  signed little-endian PCM16 mono/44100 Hz only. Validate RIFF/chunk extents,
+  fmt consistency, unique required chunks, padding, complete nonempty frames and
+  capacity before PCM copy. Metadata commits only on success; copy-time I/O failure
+  may partially modify unpublished storage. No allocations/audio dependencies.
+  In-memory host tests cover PCM, capacity, padding, format/container errors and I/O.
+* [ ] Integrate the portable loader with Teensy SD/preparation and validate hardware;
+  firmware loaders, diagnostic pattern and samples are unchanged. Retain the planned
+  extra PCM test channel and test.wav/test2.wav/test3.wav duration/meter validation;
+  no sample integration or resampling in this foundation.
+
 ## Deferred Tasks
 
 * [ ] Design tracker-style pitched-note entry with letter keys on desktop and ArkOS

@@ -142,6 +142,7 @@ add_executable(BroTrackerTests
     tests/test_scheduler.cpp
     tests/test_row_events.cpp
     tests/test_channel_state.cpp
+    tests/test_wav_buffer_loader.cpp
     tests/test_ram_sample_voice.cpp
     tests/test_ram_voice_block_renderer.cpp
     tests/test_pcm16_mixer.cpp

@@ -884,3 +884,29 @@ Full audio-graph cost, instrumentation overhead, stress testing, unsupported-pit
 rejection, reconnect testing and ArkOS validation remain open. Earlier pending-result
 statements describe implementation-time status; this run supplies initial hardware
 results without completing the broader validation checklist.
+
+### Portable WAV-to-buffer preparation (host-tested; SD integration pending)
+
+`LoadWavToBuffer` accepts a non-owning reader (size, absolute seek, bounded read),
+caller writable PCM storage and frame capacity. It supports signed PCM16 mono,
+44100 Hz only and explicitly decodes little-endian values. A complete container
+scan validates RIFF/WAVE extents, unique fmt/data, PCM metadata/alignment/byte rate,
+unknown chunks/odd-byte padding, nonempty complete frames and capacity before PCM
+copy. Chunk additions are bounded by the checked container end; trailing bytes
+outside RIFF are ignored. fmt is 16-byte PCM or has a consistent extension length.
+Short reads/seek/size failures and unsupported formats return explicit statuses.
+
+Success returns a non-owning Pcm16MonoView. All failures preserve output metadata;
+I/O failure during copying may modify part of the destination. Callers must load
+into unpublished storage with no active playback views and guarantee extents,
+lifetimes and non-overlap. This fixed-scratch, allocation-free operation scales
+with file/data size and must never run in an audio callback. Reader implementations
+must likewise avoid allocation if required. No Arduino/SD/audio dependency is added.
+
+Host fixtures validate decoding, padding, capacities, malformed/overflowing chunk
+sizes, truncation, unsupported formats and partial-copy I/O failures. Teensy SD
+adapter/preparation integration and hardware validation remain open. Existing firmware
+WAV loaders and playback environments are unchanged. Retain the diagnostic beepers
+and the deferred extra PCM channel using test.wav/test2.wav/test3.wav, with actual
+frame counts, rates and intended meter checked before deriving duration-based BPM.
+No new samples, pattern changes, pitch interpretation or resampling are introduced.
