@@ -19,7 +19,7 @@ namespace
     }
     struct PositionTransport : SerialTransport
     {
-        bool online = true;
+        bool online = true; unsigned write_limit=256;
         std::string input, output;
         bool Open(FILE*, const char*) override { return online; }
         void Close() override {}
@@ -31,7 +31,7 @@ namespace
             return static_cast<int>(count);
         }
         int Write(const char* data, unsigned size) override
-        { output.append(data, size); return static_cast<int>(size); }
+        { size=std::min(size,write_limit); output.append(data, size); return static_cast<int>(size); }
         const char* Error() const override { return "test disconnect"; }
     };
     struct Session
@@ -276,4 +276,22 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
     CHECK(!ResolvePatternDisplay(legacy).playback_highlight);
     RenderMainScreen(framebuffer, tune, preview); // Standalone/default remains exact.
     CHECK(std::memcmp(original.data(), framebuffer.PixelData(), original.size() * sizeof(Color)) == 0);
+}
+
+TEST_CASE(PausePreemptsStatusWaitAndUsesFreshAppliedPositionOnly) {
+    for (const unsigned limit : {256u,3u}) {
+        Session s; s.Connect(); s.Receive("BTPATTERN1 TRANSPORTCAP 1\nBTPATTERN1 POS 2 1 1 95 0 0 16 2\n");
+        s.port->write_limit=limit; s.now=1001;
+        s.Receive("BTPATTERN1 POS 2 1 1 95 0 0 16 2\n"); // Fresh position, STATUS queued.
+        CHECK(s.serial.Pause());
+        for(unsigned i=0;i<16 && s.port->output.find("BTTEST1 PAUSE\n")==std::string::npos;++i) s.Tick();
+        CHECK_EQ(s.port->output,"BTTEST1 STATUS\nBTTEST1 PAUSE\n");
+        CHECK(s.serial.TransportPending());
+        s.Receive("BTTEST1 STATE PLAYING\nBTPATTERN1 POS 2 1 1 96 1 0 16 2\n");
+        CHECK(s.serial.TransportPending()); CHECK_EQ(s.View().position.tick,95);
+        s.Receive("BTTEST1 PAUSED\n"); CHECK(s.serial.Paused());
+        CHECK(!s.View().fresh); CHECK(!s.View().position.valid); // Never fabricate paused tick 95.
+        s.Receive("BTPATTERN1 POS 2 2 1 100 1 0 16 2\n");
+        CHECK(s.View().fresh); CHECK_EQ(s.View().position.tick,100); CHECK_EQ(s.View().position.row,1);
+    }
 }

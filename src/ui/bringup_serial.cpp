@@ -247,6 +247,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
         const char* value = line_ + 14;
         if (std::strcmp(value, "PLAYING") && std::strcmp(value, "DONE") &&
             std::strcmp(value, "IDLE") && std::strcmp(value, "ERROR") && std::strcmp(value, "PAUSED")) return;
+        // A superseded STATUS reply cannot acknowledge or override transport.
+        if ((transport_queued_ != Command::None || pending_ == Command::Pause ||
+             pending_ == Command::Continue) && std::strcmp(value, "ERROR")) return;
         std::snprintf(state_, sizeof(state_), "%s", value);
         if (std::strcmp(value, "PLAYING") && std::strcmp(value, "PAUSED")) ClearPosition();
         if (!std::strcmp(value, "ERROR")) transport_queued_ = Command::None;
@@ -268,9 +271,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if (pending_ != expected) return;
         std::strcpy(state_, expected == Command::Pause ? "PAUSED" : "PLAYING");
         pending_ = Command::None;
-        live_.position.running = expected == Command::Continue;
-        live_.position.paused = expected == Command::Pause;
-        live_.position.version = 2;
+        // Do not relabel pre-command telemetry as the applied position. Firmware
+        // follows this ACK with a coherent fresh snapshot; wait for that barrier.
+        position_received_ = false;
     }
     else if (std::strcmp(line_, "BTTEST1 STOPPED") == 0)
     {
@@ -364,6 +367,10 @@ void BringUpSerial::Tick(std::uint32_t now)
         else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
         else overflow_ = true;
     }
+    // Transport outranks informational STATUS. Finish its line, but do not wait
+    // for its reply. STATE received during transport is ignored above; ACKs differ.
+    if (pending_ == Command::Status && transport_queued_ != Command::None && tx_offset_ == tx_size_)
+        pending_ = Command::None;
     if (pending_ != Command::None && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
@@ -374,7 +381,13 @@ void BringUpSerial::Tick(std::uint32_t now)
             start_queued_ = false;
         }
         else if (transport_queued_ != Command::None)
-        { const auto command = transport_queued_; transport_queued_ = Command::None; Send(command, now); }
+        {
+            const auto command = transport_queued_; transport_queued_ = Command::None; Send(command, now);
+            // Queue the write in this same service, before a host render/present.
+            const auto count = transport_->Write(tx_,tx_size_);
+            if (count > 0) { tx_offset_ = count; if(tx_offset_ == tx_size_) Log("TX complete:",tx_); }
+            else if (count < 0) { Disconnect(transport_->Error()); return; }
+        }
         else if (stop_queued_)
         {
             Send(Command::Stop, now);

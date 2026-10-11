@@ -175,3 +175,23 @@ TEST_CASE(PatternBringUp_CoherentConsumedPositionBeforeFirstTickAndAcrossLoops)
     status = control.Snapshot();
     CHECK(!status.running); CHECK(!status.position.valid); CHECK_EQ(status.next_sample, 0);
 }
+
+TEST_CASE(PauseNearBoundaryAppliesBeforeRenderingAnotherBlock) {
+    for (const unsigned count : {11u,12u}) {
+        PatternBringUpControl control; auto pattern=Pattern(); pattern.active_channels=1;
+        pattern.cells[1][0]={60,kNoInstrumentUpdate};
+        CHECK_EQ(control.InitializeAudio(12753,100,pattern,Bindings(100)),PatternPlayerStatus::Success);
+        CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
+        std::int16_t out[128]{}; control.AudioBlock(out,count,true); Applied(control,PatternRequest::Start);
+        const auto before=control.Snapshot();
+        CHECK_EQ(control.Submit(PatternRequest::Pause),PatternRequestStatus::Accepted);
+        control.AudioBlock(out,32,true); Applied(control,PatternRequest::Pause);
+        const auto paused=control.Snapshot(); CHECK_EQ(paused.next_sample,before.next_sample);
+        CHECK_EQ(paused.position.absolute_tick,before.position.absolute_tick);
+        CHECK_EQ(paused.position.pattern_row,count==11 ? 0 : 1);
+        for(unsigned i=0;i<32;++i) CHECK_EQ(out[i],0);
+        CHECK_EQ(control.Submit(PatternRequest::Continue),PatternRequestStatus::Accepted);
+        control.AudioBlock(out,1,true); Applied(control,PatternRequest::Continue);
+        CHECK_EQ(control.Snapshot().position.pattern_row,paused.position.pattern_row); CHECK_EQ(out[0],10);
+    }
+}

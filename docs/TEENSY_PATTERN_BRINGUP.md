@@ -721,3 +721,26 @@ Start and Enter STOP/reset are unchanged. The 2026-10-10 transport confirmation
 covered the former next-row behavior, not this revision. Windows + Teensy and ArkOS
 validation of current-row replay remain pending; physical timing/performance and
 paused-publication follow-up remain open.
+
+### Pause latency correction (hardware revalidation pending)
+
+Log investigation found non-row-boundary PAUSED ticks (including 5332, 6670,
+8052 and 9815), confirming no musical-row wait in audio-owner application. One
+request displayed tick 10687 (row 15/loop 6) before PAUSE and received paused tick
+10760 (row 0/loop 7): elapsed command/telemetry latency can cross a real boundary.
+The old log lacks per-command timestamps; it cannot establish physical latency.
+
+Windows now services queued input before rendering/presentation; shared serial
+scheduling starts PAUSE/CONTINUE writes in that service. Transport finishes any
+partial informational line but does not wait for STATUS acknowledgement. Late
+STATE replies cannot override a pending transport request. PAUSED/CONTINUED ACKs
+invalidate pre-command position freshness until the following coherent telemetry;
+the host does not relabel old playing telemetry as the applied paused position.
+Timestamped Windows transport input diagnostics support later measurement.
+
+The audio owner already applies PAUSE before rendering the earliest available
+block after receipt, preserving its actual last-consumed tick, silencing voices
+and clearing deferred Stops. Continue still replays that same row. No row subtraction,
+rewind compensation or host timing authority is introduced. Host tests cover
+partial STATUS writes, late replies and pauses on either side of a row boundary.
+Windows hardware latency/visual revalidation and timing/performance remain open.

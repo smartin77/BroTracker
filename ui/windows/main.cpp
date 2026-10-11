@@ -87,9 +87,12 @@ int main(int, char*[]) try {
             if (action != BringUpAction::None) {
                 const char* source = event.type == SDL_QUIT ? "window close" :
                     action == BringUpAction::PatternToggle ? "Space" : action == BringUpAction::ResetStop ? "Enter" : "Ctrl+X";
+                WindowsDiagnostic(log.get(), "Transport input", source);
                 controls.Request(action, source, SDL_GetTicks());
             }
         }
+        // Service freshly queued transport before rendering/presenting the UI.
+        controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         const HostPanelInformation panel{serial.Status(), controls.StopPending() ?

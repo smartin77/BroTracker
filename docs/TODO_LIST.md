@@ -336,6 +336,14 @@ design remains unchanged.
   This historical confirmation does not validate the later current-row replay revision.
 * [ ] Validate revised current-row Continue replay on Windows + Teensy and ArkOS.
   Paused publication remains a separate open follow-up; no protocol changes here.
+* [x] Correct host Pause latency: service Windows input before UI presentation,
+  begin transport writes without another service delay, finish partial lines but
+  bypass pending STATUS replies. Ignore late STATE during transport and await fresh
+  applied telemetry after PAUSED/CONTINUED instead of relabeling old position.
+  Host tests cover partial writes and both sides of row boundaries; audio-owner
+  application remains block-boundary based, with current-row Continue replay.
+* [ ] Revalidate Pause latency and coherent paused highlighting on Windows + Teensy;
+  exact command/output timing and realtime performance remain unmeasured.
 * [ ] Measure physical pause/continuation timing and realtime processing cost;
   pending-request/backpressure stress, legacy regression, ArkOS and MQS checks
   remain open. The user confirmation does not establish exact sample timing or

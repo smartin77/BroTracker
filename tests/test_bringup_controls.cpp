@@ -16,7 +16,7 @@ struct FakeTransport : SerialTransport {
     }
     int Write(const char* data, unsigned size) override { if (hold_write) return 0; outgoing.append(data, size); return size; }
     const char* Error() const override { return "fake disconnect"; }
-    void Expect(const char* value) { CHECK(outgoing == value); outgoing.clear(); }
+    void Expect(const char* value) { if(outgoing != value) std::fprintf(stderr,"expected [%s], received [%s]\n",value,outgoing.c_str()); CHECK(outgoing == value); outgoing.clear(); }
 };
 std::unique_ptr<SerialTransport> MakeSerialTransport() { return std::make_unique<FakeTransport>(); }
 struct Test {
