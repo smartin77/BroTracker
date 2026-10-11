@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/playback/native_rate_pattern_player.h"
+#include "pattern_performance.h"
 
 namespace BroTracker
 {
@@ -18,6 +19,7 @@ namespace BroTracker
     {
         // One audio-owner publication: applied transport, consumed position and
         // dimensions belong together. Copy only under platform interrupt exclusion.
+        PatternPerformance performance;
         bool running = false;
         PatternTransportState transport = PatternTransportState::Stopped;
         std::uint64_t next_sample = 0;
@@ -41,6 +43,9 @@ namespace BroTracker
     class PatternBringUpControl
     {
     public:
+        // Audio owner only; main loop snapshots this under the existing exclusion.
+        void RecordPerformance(std::uint32_t begin, std::uint32_t end, bool initialization,
+            std::uint32_t budget) noexcept { RecordPatternCycles(status_.performance,begin,end,initialization,budget); }
         [[nodiscard]] PatternRequestStatus Submit(PatternRequest request) noexcept
         {
             if (request != PatternRequest::Start && request != PatternRequest::Stop &&

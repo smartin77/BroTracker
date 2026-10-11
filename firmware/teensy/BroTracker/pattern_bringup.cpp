@@ -82,6 +82,10 @@ namespace
             // MQS may schedule updates during static construction, before setup.
             // Do not configure, allocate or latch false failures until memory is ready.
             if (!g_audio_ready) return;
+#ifdef BROTRACKER_PATTERN_PERF
+            const std::uint32_t begin=ARM_DWT_CYCCNT;
+            const bool first=!initialized_;
+#endif
             if (!initialized_)
             {
                 (void)g_control.InitializeAudio(kTempoHundredths,44100,kPattern,kBindings);
@@ -91,13 +95,28 @@ namespace
             if (!block)
             {
                 g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
+#ifdef BROTRACKER_PATTERN_PERF
+                RecordCost(begin,first);
+#endif
                 return; // Fail-stop: no timeline advance and no stale block transmitted.
             }
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
             transmit(block);
             release(block);
+#ifdef BROTRACKER_PATTERN_PERF
+            RecordCost(begin,first);
+#endif
         }
     private:
+#ifdef BROTRACKER_PATTERN_PERF
+        static void RecordCost(std::uint32_t begin, bool first) noexcept {
+            // Budget calculation/counter publication follows the measured end.
+            const auto end=ARM_DWT_CYCCNT;
+            std::uint32_t budget=0;
+            (void)PatternCycleBudget(F_CPU_ACTUAL,AUDIO_BLOCK_SAMPLES,AUDIO_SAMPLE_RATE_EXACT,budget);
+            g_control.RecordPerformance(begin,end,first,budget);
+        }
+#endif
         bool initialized_ = false;
     };
     PatternAudioSource g_source;
@@ -347,6 +366,18 @@ namespace
             break;
         }
         FlushSerial();
+#ifdef BROTRACKER_PATTERN_PERF
+        static std::uint32_t last_performance_ms=0;
+        if(g_protocol_connected && now-last_performance_ms>=1000) {
+            last_performance_ms=now; // Skip this interval, never enqueue/backlog.
+            if(!g_tx_count && !g_telemetry.Partial() && !g_pattern_transfer.HasData() && Serial.available()==0) {
+                char line[kPatternPerformanceLineCapacity]; std::size_t length=0;
+                if(FormatPatternPerformance(status.performance,line,sizeof(line),length) &&
+                    Serial.availableForWrite()>=static_cast<int>(length))
+                    Serial.write(reinterpret_cast<const std::uint8_t*>(line),length);
+            }
+        }
+#endif
     }
 }
     void PatternBringUpPlatformInit()
@@ -355,6 +386,11 @@ namespace
         pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,LOW);
         // No SD/log/time-sync initialization in this RAM-only opt-in path.
         // All globals are constructed; audio owner configures on its first update.
+#ifdef BROTRACKER_PATTERN_PERF
+        // Enable the supported DWT counter without resetting a shared core counter.
+        ARM_DEMCR |= ARM_DEMCR_TRCENA;
+        ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
+#endif
         AudioMemory(8);
         { InterruptGuard guard; g_audio_ready = true; }
     }

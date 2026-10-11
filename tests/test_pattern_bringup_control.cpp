@@ -195,3 +195,23 @@ TEST_CASE(PauseNearBoundaryAppliesBeforeRenderingAnotherBlock) {
         CHECK_EQ(control.Snapshot().position.pattern_row,paused.position.pattern_row); CHECK_EQ(out[0],10);
     }
 }
+
+TEST_CASE(PatternPerformanceWrapBudgetSaturationAndFormatting) {
+    std::uint32_t budget=99;
+    CHECK(PatternCycleBudget(600000000,128,44100,budget)); CHECK_EQ(budget,1741496);
+    CHECK(PatternCycleBudget(150000000,128,48000,budget)); CHECK_EQ(budget,400000);
+    CHECK(!PatternCycleBudget(0,128,44100,budget)); CHECK_EQ(budget,400000);
+    CHECK(!PatternCycleBudget(UINT32_MAX,UINT32_MAX,1,budget));
+    PatternPerformance s; RecordPatternCycles(s,UINT32_MAX-9,10,true,20);
+    CHECK_EQ(s.initialization_cycles,20); CHECK_EQ(s.maximum_cycles,0);
+    RecordPatternCycles(s,UINT32_MAX-9,10,false,20); CHECK_EQ(s.over_budget,0);
+    RecordPatternCycles(s,0,21,false,20); CHECK_EQ(s.over_budget,1); CHECK_EQ(s.maximum_cycles,21);
+    CHECK_EQ(s.callbacks,3); CHECK_EQ(s.steady_callbacks,2);
+    s={UINT32_MAX,UINT32_MAX,UINT32_MAX,UINT32_MAX,UINT32_MAX,UINT32_MAX};
+    RecordPatternCycles(s,0,1,false,0); CHECK_EQ(s.callbacks,UINT32_MAX); CHECK_EQ(s.over_budget,UINT32_MAX);
+    char line[kPatternPerformanceLineCapacity]; std::size_t length=0;
+    CHECK(FormatPatternPerformance(s,line,sizeof(line),length)); CHECK(length<sizeof(line)); CHECK_EQ(line[length-1],'\n');
+    CHECK(!FormatPatternPerformance(s,line,4,length));
+    PatternBringUpControl control; control.RecordPerformance(0,5,false,4);
+    CHECK_EQ(control.Snapshot().performance.over_budget,1);
+}

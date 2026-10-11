@@ -509,7 +509,19 @@ design remains unchanged.
 * [x] User confirmed on 2026-10-11 that, after clearing both channels, a published
   first-channel C-3 / instrument 01 pattern on rows 01 and 09 plays correctly.
   This does not confirm all paused-publication cases or measured hardware timing.
-* [ ] Validate pattern-derived note entry on Windows + Teensy and ArkOS.
+* [x] User-confirmed Windows pattern-derived note entry on 2026-10-11, including
+  after loading an existing pattern.
+* [ ] Validate pattern-derived entry on ArkOS.
+
+* [x] Implement optional teensy41_pattern_perf DWT callback diagnostics: separate
+  initialization cost, saturating callback/steady counts, steady maximum and budget
+  overruns derived from actual CPU clock/sample rate/block size. Includes audio-owner
+  transport/replacement; coherent fixed snapshot and bounded once-per-second PERF 1
+  main-loop reports skipped under backpressure. Portable arithmetic/format tests
+  validate implementation only; no hardware measurements yet.
+* [ ] Measure/retain actual Teensy diagnostic results for stopped, playing, paused
+  publication and Continue. Document instrumentation overhead/preemption; initialization
+  and steady results remain distinct. Existing hardware/performance checks stay open.
 
 ## Deferred Tasks
 

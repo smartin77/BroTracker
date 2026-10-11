@@ -812,3 +812,47 @@ specific publication/playback case, not all paused-publication checks, hardware 
 or realtime performance. Pattern-derived entry hardware validation remains pending.
 Tracker-style letter-key pitched entry on desktop/ArkOS attached keyboards is deferred;
 key mappings and octave controls are not yet designed.
+
+### Optional realtime cycle diagnostics (implementation only; results pending)
+
+Use `teensy41_pattern_perf` (extends `teensy41_pattern`, adds
+`BROTRACKER_PATTERN_PERF`) to enable DWT CYCCNT instrumentation. Ordinary pattern,
+USB trace and legacy firmware retain their existing behavior. No firmware build or
+hardware measurement was performed for this change.
+
+The first memory-ready callback, including one-time player initialization, records
+its cost separately. Subsequent callbacks track count, maximum elapsed cycles and
+counts strictly exceeding the floored block budget derived from F_CPU_ACTUAL,
+AUDIO_BLOCK_SAMPLES and AUDIO_SAMPLE_RATE_EXACT. Unsigned subtraction handles a
+counter wrap provided a callback takes less than one full 32-bit counter period.
+Counts saturate rather than wrap. Pre-memory-ready callbacks are excluded.
+
+The measured span includes allocation/failure handling, audio-owner transport and
+pattern replacement, rendering, transmit and release. Counter reads and instrumentation
+branches add overhead; post-span budget calculation/counter publication and the final
+function return are excluded. Higher-priority interrupt preemption contributes elapsed
+cycles; these are elapsed callback costs, not isolated player instruction counts or
+proof of end-to-end latency. Frequency changes within a callback are not modeled.
+
+The existing interrupt-protected snapshot carries coherent counters to the main loop.
+At most once per second while connected it may emit this LF-terminated line:
+
+```text
+BTPATTERN1 PERF 1 callbacks steady_callbacks initialization_cycles maximum_cycles over_budget budget_cycles
+```
+
+All six fields are unsigned 32-bit decimal values; maximum_cycles/over_budget refer
+only to steady callbacks. Formatting uses a fixed 96-byte buffer (including worst-case
+values). BTX logs the line without UI changes. Reports are skipped when ACKs, partial
+lines, snapshot transfer, pending serial input or insufficient TX capacity exist;
+there is no diagnostic backlog. Playback ownership and clock/sync policy are unchanged.
+
+Hardware checklist: build/upload the optional environment manually, retain the log
+and record CPU/sample-rate/block configuration. Observe stopped silence, then playing
+loops and Continue/retrigger. Pause, publish a supported replacement while Paused,
+then Continue; compare maxima/over-budget counters with idle operation. Exercise STOP
+and reconnect under serial load and verify acknowledgements remain prompt. Record
+initialization cost separately. Actual timing/performance results remain pending.
+
+User confirmation on 2026-10-11: pattern-derived note entry works on Windows,
+including after loading an existing pattern. ArkOS entry validation remains open.
