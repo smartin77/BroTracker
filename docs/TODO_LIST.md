@@ -575,12 +575,21 @@ design remains unchanged.
 * [x] Render the shared application grid as 8 channels x 32 rows (d1), in one
   pass with actual cells or empty --- -- padding. Active dimensions, edit bounds,
   snapshots/publication and playback are unchanged; standalone preview preserved.
-* [ ] Validate SD playback and padded layout on Windows + Teensy and ArkOS:
+* [x] Record user Windows validation on 2026-10-11: all 8 channels and 32 rows
+  show actual events or empty placeholders. The SD sample audibly plays alongside
+  beepers; louder PCM masks the quiet beepers, while removing the channel-3 note
+  confirms they still play clearly. This confirms audible coexistence, not measured
+  timing, absence of clipping or completion of the remaining hardware checklist.
+* [ ] Complete remaining SD playback checks on Windows + Teensy and validate ArkOS:
   completion, looping, Pause/Continue, stopped/paused publication, failure fallback,
   memory/cache behavior and measured realtime cost. Unity-gain saturation is
   possible with overlapping WAV/beepers; final gain policy remains open.
 
 ## Deferred Tasks
+
+* [ ] Define channel/instrument gain controls and the mixing headroom policy.
+* [ ] For actual muted channels, consider an X formed by two diagonal lines
+  inside the channel header, with 16 px padding where geometry permits.
 
 * [ ] Replace the disconnected empty pattern layout with a dedicated
   disconnected-device presentation, using M8 Headless as a visual reference.

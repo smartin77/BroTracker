@@ -1019,7 +1019,7 @@ is deferred, using M8 Headless as a visual reference. No UI implementation is
 included in this documentation change.
 
 
-### Opt-in prepared SD sample playback (hardware validation pending)
+### Opt-in prepared SD sample playback (partial Windows hardware validation)
 
 `teensy41_pattern_sd_playback` extends `teensy41_pattern_sd_prepare` with
 `BROTRACKER_PATTERN_SD_PLAYBACK`. Before audio activation, successful preparation
@@ -1047,8 +1047,14 @@ WAVPREP and PERF remain enabled; prior beeper measurements do not validate WAV c
 Manual checklist: verify successful WAVPREP and 16-row/three-channel readback;
 start, hear sample completion and loop retrigger; Stop, Pause/current-row Continue;
 try stopped and paused publication (Playing must reject); test preparation failure
-fallback; inspect PERF, RAM headroom and cache behavior. All new hardware checks
-and ArkOS visual validation remain pending.
+fallback; inspect PERF, RAM headroom and cache behavior. These remaining hardware
+checks and ArkOS validation remain open.
+
+User listening validation on **2026-10-11** confirms that the SD sample audibly
+plays alongside the beepers. Louder PCM masks the quiet beepers; removing the
+channel-3 note confirms they still play clearly. This establishes audible
+coexistence, not measured timing, absence of clipping or completion of the
+remaining hardware checklist.
 
 ### Display grid versus active pattern dimensions
 
@@ -1060,4 +1066,11 @@ pattern remains exactly that size: padding cannot be edited, published or played
 Live highlight/arrow still use only authoritative position; edit navigation stays
 within active dimensions. The standalone mockup and right panel are unchanged.
 This supports varying loaded contents without adding new-pattern creation or
-incremental rendering. Manual visual validation is pending.
+incremental rendering. User confirmed on **2026-10-11** that Windows displays all
+8 channels and 32 rows with actual events or empty placeholders. ArkOS visual
+validation remains pending.
+
+Deferred: define channel/instrument gain controls and the mixing headroom policy.
+For actual muted channels, consider an X formed by two diagonal lines inside the
+channel header, with 16 px padding where geometry permits. Neither gains nor the
+mute-marker UI are changed by this documentation update.
