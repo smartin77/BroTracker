@@ -279,10 +279,14 @@ design remains unchanged.
   atomic publication. Draft dirty comparison and Restore use the received baseline,
   including EndOfPosition. Firmware serves its immutable playback configuration
   from the main loop; the current fixture/audio sequence remains unchanged.
-* [ ] Validate snapshot-v2 OFF timing and shared editor on Windows + Teensy, then
-  ArkOS. Implement local draft publication/live-edit integration separately;
-  local toggles remain NOT SENT TO TEENSY. No hardware timing
-  or execution-budget validation is established by this core step.
+* [x] Validate snapshot-v2 pattern display and shared editor on Windows BTX +
+  Teensy 4.1: user confirmed on 2026-10-11 the pattern display, OFF timing toggling
+  (`¯` / `_`), Restore and unchanged audio.
+* [ ] Validate snapshot-v2 OFF timing and shared editor on ArkOS; end-of-position
+  hardware timing and realtime performance remain unmeasured.
+* [ ] Implement local draft publication/live-edit integration separately;
+  local toggles remain NOT SENT TO TEENSY. The Windows confirmation does not
+  establish end-of-position hardware timing or an execution budget.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning at the next row

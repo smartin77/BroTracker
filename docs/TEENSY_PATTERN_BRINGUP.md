@@ -514,6 +514,9 @@ modes; instrument-only empty-note editing remains normal. Dirty comparison and
 Restore include the actual received timing baseline, including EndOfPosition.
 The read-only device view also displays the received timing glyph. Host tests
 cover v2/legacy negotiation, roundtrip, checksum tampering, malformed/incomplete
-atomic rejection and baseline/Restore behavior. Windows + Teensy and ArkOS
-hardware validation of this new integration remains pending; earlier validation
-records do not validate v2. Physical timing/performance checks remain open.
+atomic rejection and baseline/Restore behavior. User-confirmed Windows BTX +
+Teensy 4.1 validation on **2026-10-11** covers pattern display, OFF timing toggling
+(`¯` / `_`), Restore and unchanged audio. Windows validation of this read-only
+snapshot/editor scope is complete. ArkOS validation, end-of-position hardware
+timing and realtime performance checks remain open; local toggles are still
+NOT SENT TO TEENSY and do not establish deferred Stop timing at physical outputs.
