@@ -519,9 +519,21 @@ design remains unchanged.
   transport/replacement; coherent fixed snapshot and bounded once-per-second PERF 1
   main-loop reports skipped under backpressure. Portable arithmetic/format tests
   validate implementation only; no hardware measurements yet.
-* [ ] Measure/retain actual Teensy diagnostic results for stopped, playing, paused
-  publication and Continue. Document instrumentation overhead/preemption; initialization
-  and steady results remain distinct. Existing hardware/performance checks stay open.
+* [x] Record 2026-10-11 Windows BTX + Teensy performance log evidence: 99 PERF
+  reports, final 40362 callbacks / 40361 steady callbacks; initialization 2249 cycles.
+  Observed cumulative maxima: stopped before playback 1457, playback before publication
+  42354, overall 90158 cycles. Budget 1741496 cycles, zero recorded overruns;
+  overall maximum is 5.18% of budget. It first appeared in reporting after publication,
+  but is not attributable exclusively to replacement.
+* [x] Record paused publication SUBMITTED/APPLIED and exact 32-cell snapshot-v2
+  readback on 2026-10-11: initial checksum 176805769, updated 391983933. Paused tick
+  28380 / zero-based row 7 / loop 18 stayed unchanged through publication; Continue
+  resumed within that row and STOP invalidated/reset position. No protocol errors
+  or disconnects occurred in this log. Evidence remains in the terminal log outside
+  disposable build exports.
+* [ ] Validate full audio-graph cost, instrumentation overhead, stress workloads,
+  unsupported-pitch rejection, reconnect and ArkOS. This observed run does not
+  complete hardware/performance validation or establish exact physical timing.
 
 ## Deferred Tasks
 

@@ -766,7 +766,7 @@ replacement and firmware BTPUBLISH1 behavior are unchanged. Paused F5 integratio
 below; hardware validation remains open. Playing publication
 remains blocked. No hardware confirmation applies to this new core foundation.
 
-### Capability-gated paused publication (hardware validation pending)
+### Capability-gated paused publication (observed run validated; remaining checks open)
 
 HELLO now additionally advertises `BTPUBLISH1 PAUSEDCAP 1`. Existing `BTPUBLISH1 CAP 1`
 remains unchanged and alone authorizes stopped-only host publication. Discovery
@@ -852,7 +852,35 @@ and record CPU/sample-rate/block configuration. Observe stopped silence, then pl
 loops and Continue/retrigger. Pause, publish a supported replacement while Paused,
 then Continue; compare maxima/over-budget counters with idle operation. Exercise STOP
 and reconnect under serial load and verify acknowledgements remain prompt. Record
-initialization cost separately. Actual timing/performance results remain pending.
+initialization cost separately. The observed results below cover one run; broader
+timing/performance validation remains open.
 
 User confirmation on 2026-10-11: pattern-derived note entry works on Windows,
 including after loading an existing pattern. ArkOS entry validation remains open.
+
+### 2026-10-11 Windows BTX + Teensy hardware log evidence
+
+The supplied terminal log contains **99 PERF reports**. The final report records
+**40362 callbacks / 40361 steady callbacks**, **2249 initialization cycles**, a
+**1741496-cycle budget** and **zero recorded overruns**. Observed cumulative steady
+maxima were **1457 cycles** while stopped before playback, **42354 cycles** during
+playback before publication, and **90158 cycles** overall (**5.18%** of budget).
+The overall maximum first appeared in reporting after publication; the cumulative
+counter does not identify its originating callback, so it must not be attributed
+exclusively to pattern replacement.
+
+Paused publication received SUBMITTED and APPLIED, followed by exact **32-cell v2
+readback**. Checksums were **176805769** initially and **391983933** after replacement.
+The paused position stayed at **tick 28380, zero-based row 7, loop 18** through
+publication. Continue resumed within that same row; STOP invalidated/reset position.
+No protocol errors or disconnects occurred in the supplied log. These are log
+observations, not a new claim about physical output phase or timing accuracy.
+
+Preserve the original evidence at
+`C:\Users\smartin\AppData\Roaming\BroTracker\BroTracker Terminal\brotracker-terminal.log`
+outside disposable build/review exports; archive it before another terminal run
+can overwrite it. This documentation update does not move or modify the log.
+Full audio-graph cost, instrumentation overhead, stress testing, unsupported-pitch
+rejection, reconnect testing and ArkOS validation remain open. Earlier pending-result
+statements describe implementation-time status; this run supplies initial hardware
+results without completing the broader validation checklist.
