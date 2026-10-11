@@ -104,7 +104,7 @@ Device BPM/POS/LOOP remain authoritative.
   PgDn toggle to the other mode; neither performs numeric instrument editing.
   Delete in this timing field restores `¯`. For pitched/empty notes the second
   field remains an instrument, so instrument-only events remain representable.
-  Timing uses explicit local metadata; raw instrument IDs are preserved separately
+  Timing uses core draft metadata; raw instrument IDs are preserved separately
   and never encoded or reinterpreted as timing. Changing the Note field resets
   timing to arrival mode.
 - Delete clears the selected normal field to
@@ -127,10 +127,11 @@ Device BPM/POS/LOOP remain authoritative.
   edits never resume after reconnect. Shift+Tab is the supported modified editor
   key. No piano keyboard mapping is provided.
 
-NOTE_OFF timing selection is **local only**: the device snapshot/protocol has no
-end-of-position timing representation, and Teensy continues its existing immediate
-row-start NOTE_OFF playback. Publication, protocol/runtime representation and
-end-of-position scheduling remain future work; selecting `_` does not change audio.
+NOTE_OFF timing is now core `NoteOffTiming` metadata copied from the validated
+read-only device snapshot into the draft, separate from instrument IDs. Version 2
+can carry EndOfPosition; legacy version 1 defaults to Arrival. Local changes still
+remain **NOT SENT TO TEENSY**: there is no publication or live editing. The current
+bring-up fixture retains Arrival timings and its audio sequence is unchanged.
 
 Dirty state compares active raw cells and OFF timing with the baseline; restoring
 original values clears it. Telemetry never moves the edit cursor or overwrites edits.
@@ -377,7 +378,7 @@ and cells unavailable rather than accumulating a queue.
 BTX replaces placeholders only for a complete snapshot whose active dimensions
 match reported position dimensions. It displays device tempo to one decimal while
 retaining integer hundredths, and uses the existing note/instrument formatters.
-OFF remains a note-off command; explicit instruments with OFF remain visible.
+OFF remains a note-off command; its second field displays timing while raw instrument IDs remain preserved in the snapshot/draft.
 Live playback highlighting stays independent of read-only cells and the hidden
 host edit cursor; standalone host preview remains unchanged. Windows/ArkOS share
 assembly and rendering. The completed read-only opt-in scope has host tests and
@@ -478,3 +479,41 @@ User confirmed the grey playback-row and arrow styling on Windows on
 timing/realtime performance and the other outstanding hardware checks. A bright
 edited-channel background remains a deferred design option; transport and editing
 are unchanged.
+
+### Snapshot v2 OFF timing compatibility (2026-10-11 implementation)
+
+New firmware advertises `BTPATTERN1 SNAPCAP 2` before the preserved `SNAPCAP 1`
+line after HELLO. BTX requests the highest advertised version known when queuing
+GET; ordinary firmware without snapshot capability receives no GET. Legacy hosts
+request v1 and receive exactly v1 payloads. No version upgrade occurs mid-transfer.
+A late v2 capability may leave the current transfer at compatible v1; reconnect
+requests a fresh snapshot without transport actions.
+
+```text
+host -> device: BTPATTERN1 GET 2 <id>
+device -> host: BTPATTERN1 BEGIN 2 <id> <rows> <channels> <tempo_hundredths> <count>
+device -> host: BTPATTERN1 CELL 2 <id> <index> <note> <instrument> <timing>
+device -> host: BTPATTERN1 END 2 <id> <count> <checksum>
+device -> host: BTPATTERN1 SNAPERR 2 <id>
+```
+
+Timing is unsigned decimal `0` (Arrival, `¯`, row-start Stop) or `1`
+(EndOfPosition, `_`, next-row-boundary Stop), meaningful only for NOTE_OFF.
+All active timing values are validated; instruments remain raw IDs. V2 FNV-1a32
+uses the same header bytes as v1, then note/instrument/timing byte triples in
+ordered row-major cells. V1 retains its byte-pair checksum and missing timing
+initializes to Arrival. Transfer identity and version must match the request;
+invalid timing, mismatched version, missing/out-of-order cells or checksum errors
+cancel staging without replacing the accepted snapshot. Existing 16x8 capacity,
+96-byte line storage, five-second timeout and disconnect cancellation remain.
+The sender reads the same immutable core pattern used to configure playback;
+formatting/transmission stay outside the audio callback with existing mux priority.
+
+The editor stores timing directly in the core draft. Both PgUp/PgDn toggle OFF
+modes; instrument-only empty-note editing remains normal. Dirty comparison and
+Restore include the actual received timing baseline, including EndOfPosition.
+The read-only device view also displays the received timing glyph. Host tests
+cover v2/legacy negotiation, roundtrip, checksum tampering, malformed/incomplete
+atomic rejection and baseline/Restore behavior. Windows + Teensy and ArkOS
+hardware validation of this new integration remains pending; earlier validation
+records do not validate v2. Physical timing/performance checks remain open.

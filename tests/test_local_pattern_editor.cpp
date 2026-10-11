@@ -387,3 +387,20 @@ TEST_CASE(LiveGreyRowAndFontArrowFollowReportedPositionOnly) {
         if (mode != 5) CHECK_EQ(fb.PixelData()[62 * 640 + 36].r, 255);
     }
 }
+
+TEST_CASE(EditorUsesActualCoreTimingBaselineAndRestore) {
+    auto live=ConnectedDraft(); live->device_pattern->pattern.cells[0][0]={NOTE_OFF,7};
+    live->device_pattern->pattern.note_off_timing[0][0]=BroTracker::NoteOffTiming::EndOfPosition;
+    LocalPatternEditor editor; editor.Sync(live); CHECK(!editor.Dirty());
+    CHECK_EQ(editor.OffTiming(0,0),BroTracker::NoteOffTiming::EndOfPosition);
+    CHECK_EQ(editor.Draft()->note_off_timing[0][0],BroTracker::NoteOffTiming::EndOfPosition);
+    CHECK(editor.Apply(EditorAction::Right)); CHECK(editor.Apply(EditorAction::Increment)); CHECK(editor.Dirty());
+    CHECK_EQ(editor.OffTiming(0,0),BroTracker::NoteOffTiming::Arrival);
+    CHECK(editor.Apply(EditorAction::Decrement)); CHECK(!editor.Dirty());
+    CHECK(editor.Apply(EditorAction::Clear)); CHECK(editor.Dirty());
+    CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+    CHECK_EQ(editor.OffTiming(0,0),BroTracker::NoteOffTiming::EndOfPosition);
+    CHECK_EQ(editor.Draft()->cells[0][0].instrument,7);
+    editor.Sync(std::nullopt); live->device_pattern->pattern.note_off_timing[0][0]=static_cast<BroTracker::NoteOffTiming>(2);
+    editor.Sync(live); CHECK(!editor.Ready());
+}

@@ -21,10 +21,10 @@ namespace
         return p;
     }
     std::vector<std::string> Lines(const RealtimePattern& pattern, std::uint32_t id = 1,
-        std::uint32_t tempo_hundredths = 12753)
+        std::uint32_t tempo_hundredths = 12753, unsigned version = 1)
     {
         PatternSnapshotSender sender(pattern, tempo_hundredths);
-        CHECK(sender.Begin(id, 0));
+        CHECK(sender.Begin(id, 0, version));
         std::vector<std::string> result;
         for (unsigned budget = 0; sender.HasData() && budget < 130; ++budget)
         {
@@ -226,7 +226,7 @@ TEST_CASE(PatternSnapshot_FairInterleavingAckPriorityPartialWritesAndPlaybackInd
 TEST_CASE(PatternSnapshot_HostLegacyDiscoveryFragmentationTimeoutAndReconnect)
 {
     Session legacy; legacy.Ready(false); legacy.Tick(); CHECK_EQ(legacy.transport->output, "");
-    legacy.Receive("BTPATTERN1 SNAPCAP 2\n"); legacy.Tick(); CHECK_EQ(legacy.transport->output, "");
+    legacy.Receive("BTPATTERN1 SNAPCAP 3\n"); legacy.Tick(); CHECK_EQ(legacy.transport->output, "");
     Session s; s.Ready(true); s.Tick(); CHECK_EQ(s.transport->output, "BTPATTERN1 GET 1 1\n");
     CHECK(s.serial.PlaybackView(s.now)->pattern_loading); CHECK(!s.serial.PlaybackView(s.now)->device_pattern);
     const auto pattern = Fixture(); const auto lines = Lines(pattern);
@@ -318,4 +318,52 @@ TEST_CASE(PatternSnapshot_DisplayActualDeviceCellsTempoAndDimensionGuard)
     live->position.rows = 4; CHECK(!ResolvePatternDisplay(live).device_pattern);
     live->device_pattern->tempo_hundredths = 12753;
     CHECK_EQ(live->device_pattern->tempo_hundredths, 12753); // Display precision never alters metadata.
+}
+
+TEST_CASE(SnapshotTimingV2RoundtripLegacyAndAtomicRejection) {
+    auto pattern=Fixture(); pattern.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    PatternSnapshotAssembler assembly;
+    CHECK(assembly.Request(1,0,2)); auto lines=Lines(pattern,1,12753,2);
+    for (const auto& line:lines) Feed(assembly,line);
+    CHECK(assembly.Snapshot()); Same(*assembly.Snapshot(),pattern);
+    CHECK_EQ(assembly.Snapshot()->pattern.note_off_timing[1][0],NoteOffTiming::EndOfPosition);
+    CHECK_EQ(assembly.Snapshot()->pattern.note_off_timing[2][0],NoteOffTiming::Arrival);
+    // Tamper a valid timing byte without updating checksum: retain accepted data.
+    CHECK(assembly.Request(2,0,2)); auto altered=Lines(pattern,2,12753,2);
+    altered[3].back()='0';
+    for (const auto& line:altered) Feed(assembly,line);
+    CHECK_EQ(assembly.Snapshot()->transfer_id,1);
+    CHECK_EQ(assembly.Snapshot()->pattern.note_off_timing[1][0],NoteOffTiming::EndOfPosition);
+    CHECK(assembly.Request(2,0,2)); altered=Lines(pattern,2,12753,2); altered[3].back()='2';
+    for (const auto& line:altered) Feed(assembly,line);
+    CHECK_EQ(assembly.Snapshot()->transfer_id,1);
+    CHECK(assembly.Request(3,0,2)); auto legacy=Lines(pattern,3);
+    CHECK_EQ(Feed(assembly,legacy[0]),SnapshotAssemblyStatus::Rejected);
+    CHECK_EQ(assembly.Snapshot()->transfer_id,1);
+    CHECK(assembly.Request(3,0));
+    for (const auto& line:legacy) Feed(assembly,line);
+    CHECK_EQ(assembly.Snapshot()->pattern.note_off_timing[1][0],NoteOffTiming::Arrival);
+    CHECK(assembly.Request(4,0,2)); auto incomplete=Lines(pattern,4,12753,2);
+    Feed(assembly,incomplete[0]); Feed(assembly,incomplete[1]);
+    CHECK_EQ(Feed(assembly,incomplete.back()),SnapshotAssemblyStatus::Rejected);
+    CHECK_EQ(assembly.Snapshot()->transfer_id,3);
+    std::uint32_t id=999; unsigned version=9;
+    const std::string request="BTPATTERN1 GET 2 123";
+    CHECK(ParseSnapshotRequest(request.data(),request.size(),id,version)); CHECK_EQ(version,2); CHECK_EQ(id,123);
+    pattern.note_off_timing[0][0]=static_cast<NoteOffTiming>(2);
+    PatternSnapshotSender invalid(pattern,12753); CHECK(!invalid.Begin(1,0,2));
+}
+
+TEST_CASE(SnapshotTimingCapabilityChoosesExplicitRequestVersion) {
+    Session session; session.Tick(); session.transport->output.clear();
+    session.Receive("BTTEST1 STATE PLAYING\nBTPATTERN1 SNAPCAP 2\nBTPATTERN1 SNAPCAP 1\n");
+    session.Tick(); CHECK(session.transport->output.find("BTPATTERN1 GET 2 1\n") != std::string::npos);
+    auto pattern=Fixture(); pattern.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    for (const auto& line:Lines(pattern,1,12753,2)) session.Receive(line+"\n");
+    const auto view=session.serial.PlaybackView(session.now);
+    CHECK(view && view->device_pattern);
+    CHECK_EQ(view->device_pattern->pattern.note_off_timing[1][0],NoteOffTiming::EndOfPosition);
+    Session legacy; legacy.Ready(true); legacy.Tick();
+    CHECK(legacy.transport->output.find("BTPATTERN1 GET 1 1\n") != std::string::npos);
+    CHECK(legacy.transport->output.find("GET 2") == std::string::npos);
 }

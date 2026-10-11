@@ -2,9 +2,7 @@
 #include "live_playback_view.h"
 
 enum class EditField { Note, Instrument };
-// D0019 runtime/protocol representation is deferred. This is local draft metadata,
-// never an instrument ID and never passed to the playback core.
-enum class LocalNoteOffTiming { Arrival, EndOfPosition };
+using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
     Decrement, NoteOff, Clear, Restore, SetValue };
 struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; };
@@ -26,7 +24,7 @@ public:
             for (unsigned c = 0; c < display.channels; ++c)
             {
                 const auto note = display.device_pattern->pattern.cells[r][c].note;
-                if (!IsPatternNote(note)) return;
+                if (!IsPatternNote(note) || !BroTracker::ValidNoteOffTiming(display.device_pattern->pattern.note_off_timing[r][c])) return;
             }
         baseline_ = *display.device_pattern;
         draft_ = baseline_.pattern;
@@ -38,7 +36,7 @@ public:
     std::optional<LocalNoteOffTiming> OffTiming(unsigned row, unsigned channel) const noexcept
     {
         if (!ready_ || row >= draft_.active_rows || channel >= draft_.active_channels) return std::nullopt;
-        return off_timing_[row][channel];
+        return draft_.note_off_timing[row][channel];
     }
     bool Dirty() const noexcept
     {
@@ -47,8 +45,7 @@ public:
             for (unsigned c = 0; c < draft_.active_channels; ++c)
                 if (draft_.cells[r][c].note != baseline_.pattern.cells[r][c].note ||
                     draft_.cells[r][c].instrument != baseline_.pattern.cells[r][c].instrument ||
-                    (draft_.cells[r][c].note == NOTE_OFF &&
-                     off_timing_[r][c] != LocalNoteOffTiming::Arrival)) return true;
+                    draft_.note_off_timing[r][c] != baseline_.pattern.note_off_timing[r][c]) return true;
         return false;
     }
     // Bounds/unsupported actions reject without changing draft or cursor.
@@ -75,14 +72,13 @@ public:
             next.field = EditField::Note; break;
         case EditorAction::Restore:
             draft_ = baseline_.pattern;
-            for (auto& row : off_timing_) for (auto& timing : row) timing = LocalNoteOffTiming::Arrival;
             return true;
         case EditorAction::Increment: case EditorAction::Decrement:
         case EditorAction::SetValue: case EditorAction::NoteOff: case EditorAction::Clear:
         {
             auto& cell = draft_.cells[next.row][next.channel];
             const bool note = next.field == EditField::Note;
-            auto& timing = off_timing_[next.row][next.channel];
+            auto& timing = draft_.note_off_timing[next.row][next.channel];
             if (!note && cell.note == NOTE_OFF)
             {
                 if (action == EditorAction::Clear) { timing = LocalNoteOffTiming::Arrival; return true; }
@@ -126,7 +122,5 @@ private:
     bool ready_ = false;
     BroTracker::DevicePatternSnapshot baseline_;
     BroTracker::RealtimePattern draft_;
-    LocalNoteOffTiming off_timing_[BroTracker::kRealtimePatternRowCapacity]
-        [BroTracker::kRealtimePatternChannelCapacity]{};
     EditCursor cursor_;
 };

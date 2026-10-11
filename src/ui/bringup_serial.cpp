@@ -42,6 +42,7 @@ void BringUpSerial::Disconnect(const char* reason)
     live_ = {};
     position_received_ = false;
     pattern_assembler_.Clear();
+    snapshot_version_ = 1;
     snapshot_supported_ = snapshot_requested_ = snapshot_failed_ = false;
     transport_supported_ = false; transport_queued_ = Command::None;
     std::strcpy(state_, "UNKNOWN");
@@ -152,9 +153,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
     Log("RX:", line_);
     if (!std::strcmp(line_, "BTPATTERN1 TRANSPORTCAP 1"))
     { if (connected_) transport_supported_ = true; }
-    else if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability))
+    else if (!std::strcmp(line_, BroTracker::kPatternSnapshotCapability) || !std::strcmp(line_, "BTPATTERN1 SNAPCAP 2"))
     {
-        if (connected_) snapshot_supported_ = true;
+        if (connected_) { snapshot_supported_ = true;
+            if (!std::strcmp(line_, "BTPATTERN1 SNAPCAP 2")) snapshot_version_ = 2; }
     }
     else if (!std::strncmp(line_, "BTPATTERN1 BEGIN", 15) ||
         !std::strncmp(line_, "BTPATTERN1 CELL", 14) ||
@@ -316,10 +318,10 @@ void BringUpSerial::Tick(std::uint32_t now)
             {
                 const auto id = next_snapshot_id_;
                 next_snapshot_id_ = id == UINT32_MAX ? 0 : id + 1;
-                (void)pattern_assembler_.Request(id, now);
+                (void)pattern_assembler_.Request(id, now, snapshot_version_);
                 static_assert(sizeof(tx_) >= sizeof("BTPATTERN1 GET 1 ") + 10 + 1,
                     "GET must fit maximum uint32 identity plus LF/NUL");
-                const int written = std::snprintf(tx_, sizeof(tx_), "BTPATTERN1 GET 1 %" PRIu32 "\n", id);
+                const int written = std::snprintf(tx_, sizeof(tx_), "BTPATTERN1 GET %u %" PRIu32 "\n", snapshot_version_, id);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(tx_))
                 { pattern_assembler_.Cancel(); snapshot_failed_ = true; tx_size_ = 0; }
                 else tx_size_ = static_cast<unsigned>(written);

@@ -273,9 +273,15 @@ design remains unchanged.
   Host tests cover independently expected PCM at 127.53 BPM across partitions,
   half-open boundaries, simultaneous channels, loop ordering, pause/continuation,
   metadata validation/copying, rollback/retry, capacity and arithmetic overflow.
-* [ ] Integrate core OFF timing with device protocol/snapshots, local draft
-  publication and firmware playback. Local UI timing remains disconnected;
-  existing firmware patterns continue to default to Arrival. No hardware timing
+* [x] Integrate core OFF timing into negotiated read-only snapshot v2 and the
+  shared local draft using `RealtimePattern` metadata. Version 1 remains compatible
+  and defaults missing timing to Arrival; v2 validates and checksums timing before
+  atomic publication. Draft dirty comparison and Restore use the received baseline,
+  including EndOfPosition. Firmware serves its immutable playback configuration
+  from the main loop; the current fixture/audio sequence remains unchanged.
+* [ ] Validate snapshot-v2 OFF timing and shared editor on Windows + Teensy, then
+  ArkOS. Implement local draft publication/live-edit integration separately;
+  local toggles remain NOT SENT TO TEENSY. No hardware timing
   or execution-budget validation is established by this core step.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation

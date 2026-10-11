@@ -18,6 +18,7 @@ namespace BroTracker
     enum class SnapshotMessageKind { Begin, Cell, End, Error };
     struct SnapshotMessage
     {
+        unsigned version = 1;
         SnapshotMessageKind kind = SnapshotMessageKind::Error;
         std::uint32_t fields[5]{};
     };
@@ -57,6 +58,13 @@ namespace BroTracker
         if (!SnapshotFields(line, length, "BTPATTERN1 GET 1 ", &value, 1)) return false;
         id = value; return true;
     }
+    inline bool ParseSnapshotRequest(const char* line, std::size_t length,
+        std::uint32_t& id, unsigned& version) noexcept {
+        std::uint32_t value;
+        if (SnapshotFields(line,length,"BTPATTERN1 GET 2 ",&value,1)) { id=value; version=2; return true; }
+        if (ParseSnapshotRequest(line,length,value)) { id=value; version=1; return true; }
+        return false;
+    }
     inline bool ParseSnapshotMessage(const char* line, std::size_t length,
         SnapshotMessage& output) noexcept
     {
@@ -66,6 +74,15 @@ namespace BroTracker
             {"BTPATTERN1 CELL 1 ", SnapshotMessageKind::Cell, 4},
             {"BTPATTERN1 END 1 ", SnapshotMessageKind::End, 3},
             {"BTPATTERN1 SNAPERR 1 ", SnapshotMessageKind::Error, 1}};
+        constexpr Definition extended[] = {
+            {"BTPATTERN1 BEGIN 2 ", SnapshotMessageKind::Begin, 5},
+            {"BTPATTERN1 CELL 2 ", SnapshotMessageKind::Cell, 5},
+            {"BTPATTERN1 END 2 ", SnapshotMessageKind::End, 3},
+            {"BTPATTERN1 SNAPERR 2 ", SnapshotMessageKind::Error, 1}};
+        for (const auto& definition : extended) {
+            SnapshotMessage value; value.version=2; value.kind=definition.kind;
+            if (SnapshotFields(line,length,definition.prefix,value.fields,definition.count)) { output=value; return true; }
+        }
         for (const auto& definition : definitions)
         {
             SnapshotMessage value; value.kind = definition.kind;
@@ -79,7 +96,8 @@ namespace BroTracker
     inline std::uint32_t SnapshotHashByte(std::uint32_t hash, std::uint8_t value) noexcept
     { return (hash ^ value) * 16777619u; }
     // FNV-1a32: rows byte, channels byte, tempo uint32 little-endian, then raw
-    // note/instrument byte pairs in row-major order. Not authentication or BTM.
+    // v1 note/instrument byte pairs; v2 note/instrument/timing triples in row-major
+    // order. Timing is 0=Arrival, 1=EndOfPosition. Not authentication or BTM.
     inline std::uint32_t SnapshotHeaderHash(std::uint32_t rows, std::uint32_t channels,
         std::uint32_t tempo_hundredths) noexcept
     {
@@ -96,10 +114,10 @@ namespace BroTracker
     class PatternSnapshotAssembler
     {
     public:
-        bool Request(std::uint32_t id, std::uint32_t now) noexcept
+        bool Request(std::uint32_t id, std::uint32_t now, unsigned version = 1) noexcept
         {
-            if (!id) return false;
-            Cancel(); id_ = id; started_ = now; active_ = true; return true;
+            if (!id || (version != 1 && version != 2)) return false;
+            Cancel(); version_ = version; id_ = id; started_ = now; active_ = true; return true;
         }
         void Cancel() noexcept { active_ = begun_ = false; next_cell_ = 0; }
         void Clear() noexcept { Cancel(); available_ = false; committed_ = {}; }
@@ -116,7 +134,7 @@ namespace BroTracker
             if (Tick(now) == SnapshotAssemblyStatus::Timeout) return SnapshotAssemblyStatus::Timeout;
             if (!active_) return SnapshotAssemblyStatus::Ignored;
             SnapshotMessage message;
-            if (!ParseSnapshotMessage(line, length, message) || message.fields[0] != id_) return Reject();
+            if (!ParseSnapshotMessage(line, length, message) || message.fields[0] != id_ || message.version != version_) return Reject();
             const auto* f = message.fields;
             if (message.kind == SnapshotMessageKind::Begin)
             {
@@ -131,12 +149,16 @@ namespace BroTracker
             else if (message.kind == SnapshotMessageKind::Cell)
             {
                 if (!begun_ || next_cell_ >= count_ || f[1] != next_cell_ ||
-                    !ValidSnapshotNote(f[2]) || f[3] > 255) return Reject();
+                    !ValidSnapshotNote(f[2]) || f[3] > 255 || (version_ == 2 && f[4] > 1)) return Reject();
                 const auto channels = staging_.pattern.active_channels;
                 staging_.pattern.cells[next_cell_ / channels][next_cell_ % channels] =
                     {static_cast<Note>(f[2]), static_cast<std::uint8_t>(f[3])};
                 hash_ = SnapshotHashByte(SnapshotHashByte(hash_, static_cast<std::uint8_t>(f[2])),
                     static_cast<std::uint8_t>(f[3]));
+                if (version_ == 2) {
+                    staging_.pattern.note_off_timing[next_cell_ / channels][next_cell_ % channels] = static_cast<NoteOffTiming>(f[4]);
+                    hash_ = SnapshotHashByte(hash_, static_cast<std::uint8_t>(f[4]));
+                }
                 ++next_cell_;
             }
             else if (message.kind == SnapshotMessageKind::End)
@@ -150,6 +172,7 @@ namespace BroTracker
         }
     private:
         SnapshotAssemblyStatus Reject() noexcept { Cancel(); return SnapshotAssemblyStatus::Rejected; }
+        unsigned version_ = 1;
         DevicePatternSnapshot staging_, committed_;
         bool active_ = false, begun_ = false, available_ = false;
         std::uint32_t id_ = 0, started_ = 0, next_cell_ = 0, count_ = 0, hash_ = 0;
@@ -163,15 +186,15 @@ namespace BroTracker
     public:
         PatternSnapshotSender(const RealtimePattern& pattern, std::uint32_t tempo_hundredths) noexcept
             : pattern_(pattern), tempo_hundredths_(tempo_hundredths) {}
-        bool Begin(std::uint32_t id, std::uint32_t now) noexcept
+        bool Begin(std::uint32_t id, std::uint32_t now, unsigned version = 1) noexcept
         {
-            if (!id || HasData() || !tempo_hundredths_ || !pattern_.active_rows ||
+            if ((version != 1 && version != 2) || !id || HasData() || !tempo_hundredths_ || !pattern_.active_rows ||
                 pattern_.active_rows > kRealtimePatternRowCapacity || !pattern_.active_channels ||
                 pattern_.active_channels > kRealtimePatternChannelCapacity) return false;
             for (std::size_t r = 0; r < pattern_.active_rows; ++r)
                 for (std::size_t c = 0; c < pattern_.active_channels; ++c)
-                    if (!ValidSnapshotNote(pattern_.cells[r][c].note)) return false;
-            id_ = id; started_ = now; phase_ = 0; active_ = true;
+                    if (!ValidSnapshotNote(pattern_.cells[r][c].note) || !ValidNoteOffTiming(pattern_.note_off_timing[r][c])) return false;
+            version_ = version; id_ = id; started_ = now; phase_ = 0; active_ = true;
             hash_ = SnapshotHeaderHash(pattern_.active_rows, pattern_.active_channels, tempo_hundredths_);
             return true;
         }
@@ -190,18 +213,23 @@ namespace BroTracker
                 const auto cells = unsigned(pattern_.active_rows) * pattern_.active_channels;
                 int written;
                 if (phase_ == 0)
-                    written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 BEGIN 1 %" PRIu32 " %u %u %" PRIu32 " %u\n",
-                        id_, unsigned(pattern_.active_rows), unsigned(pattern_.active_channels), tempo_hundredths_, cells);
+                    written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 BEGIN %u %" PRIu32 " %u %u %" PRIu32 " %u\n",
+                        version_, id_, unsigned(pattern_.active_rows), unsigned(pattern_.active_channels), tempo_hundredths_, cells);
                 else if (phase_ <= cells)
                 {
                     const auto index = phase_ - 1;
                     const auto& cell = pattern_.cells[index / pattern_.active_channels][index % pattern_.active_channels];
-                    written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 CELL 1 %" PRIu32 " %u %u %u\n",
+                    const auto timing = pattern_.note_off_timing[index / pattern_.active_channels][index % pattern_.active_channels];
+                    if (version_ == 2)
+                        written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 CELL 2 %" PRIu32 " %u %u %u %u\n",
+                            id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument), unsigned(timing));
+                    else written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 CELL 1 %" PRIu32 " %u %u %u\n",
                         id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument));
                     hash_ = SnapshotHashByte(SnapshotHashByte(hash_, cell.note), cell.instrument);
+                    if (version_ == 2) hash_ = SnapshotHashByte(hash_, static_cast<std::uint8_t>(timing));
                 }
-                else written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 END 1 %" PRIu32 " %u %" PRIu32 "\n",
-                    id_, cells, hash_);
+                else written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 END %u %" PRIu32 " %u %" PRIu32 "\n",
+                    version_, id_, cells, hash_);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(line_)) Clear();
                 else length_ = static_cast<std::size_t>(written);
             }
@@ -218,6 +246,7 @@ namespace BroTracker
             }
         }
     private:
+        unsigned version_ = 1;
         const RealtimePattern& pattern_;
         std::uint32_t tempo_hundredths_, id_ = 0, started_ = 0, hash_ = 0, phase_ = 0;
         bool active_ = false;

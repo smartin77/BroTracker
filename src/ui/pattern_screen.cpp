@@ -458,6 +458,12 @@ namespace
                         editor->OffTiming(row, channel) == LocalNoteOffTiming::EndOfPosition ? "_" : "¯",
                         instrument_color);
                 }
+                else if (note_value == NOTE_OFF && display.device_pattern)
+                {
+                    DrawFixedText(framebuffer, field_x + 4 * 6, y,
+                        display.device_pattern->pattern.note_off_timing[row][channel] == BroTracker::NoteOffTiming::EndOfPosition ? "_" : "\xC2\xAF",
+                        instrument_color);
+                }
                 else if (note_value == NOTE_OFF && (!display.device_mode || instrument_value == 0xFF))
                 {
                     DrawFixedText(

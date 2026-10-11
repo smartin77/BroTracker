@@ -147,6 +147,7 @@ namespace
         g_protocol_connected = true;
         OfferPosition(status);
         if (advertise_snapshot) {
+            (void)QueueLine("BTPATTERN1 SNAPCAP 2\n");
             (void)QueueLine("BTPATTERN1 SNAPCAP 1\n");
             (void)QueueLine("BTPATTERN1 TRANSPORTCAP 1\n");
         }
@@ -230,7 +231,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + 3 <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + 4 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
@@ -250,11 +251,11 @@ namespace
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
             else if (!std::strncmp(line, "BTPATTERN1 GET", 14))
             {
-                std::uint32_t id = 0;
-                if (!ParseSnapshotRequest(line, used, id) || !g_pattern_transfer.Begin(id, now))
+                std::uint32_t id = 0; unsigned version = 1;
+                if (!ParseSnapshotRequest(line, used, id, version) || !g_pattern_transfer.Begin(id, now, version))
                 {
                     char error[64];
-                    std::snprintf(error, sizeof(error), "BTPATTERN1 SNAPERR 1 %" PRIu32 "\n", id);
+                    std::snprintf(error, sizeof(error), "BTPATTERN1 SNAPERR %u %" PRIu32 "\n", version, id);
                     (void)QueueLine(error); // Snapshot errors do not change transport.
                 }
             }
