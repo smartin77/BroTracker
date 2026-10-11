@@ -329,9 +329,13 @@ design remains unchanged.
   no consumed tick leaves cleared state. Continue replays the row exactly once.
   All rejection paths preserve prior state/pattern; fixed work, no elapsed-loop scan.
   Host tests cover selection changes, loops, OFF timing, PCM, validation and rollback.
-* [ ] Integrate paused F5 replacement/capability negotiation and validate hardware
-  separately. Existing firmware publication stays stopped-only; Playing publication
-  remains explicitly blocked.
+* [x] Integrate paused publication via separate PAUSEDCAP 1, audio-owner transport
+  selection and synchronized APPLIED/readback. CAP 1 alone stays stopped-only.
+  Host F5 permits capability-gated Paused, reports specific unmet conditions and
+  clears obsolete availability warnings without hiding rejection/uncertainty.
+  STOP/exit remain available; Playing publication stays blocked, no auto Continue.
+* [ ] Validate paused F5 publication on Windows + Teensy; ArkOS and hardware
+  timing/performance remain open.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning to replay the
@@ -353,8 +357,10 @@ design remains unchanged.
   applied telemetry after PAUSED/CONTINUED instead of relabeling old position.
   Host tests cover partial writes and both sides of row boundaries; audio-owner
   application remains block-boundary based, with current-row Continue replay.
-* [ ] Revalidate Pause latency and coherent paused highlighting on Windows + Teensy;
-  exact command/output timing and realtime performance remain unmeasured.
+* [x] User-confirmed Windows BTX + Teensy pause-latency correction on 2026-10-11.
+  This confirms that correction only, not paused publication or measured timing.
+* [ ] Measure exact command/output timing and realtime performance; ArkOS validation
+  remains open.
 * [ ] Measure physical pause/continuation timing and realtime processing cost;
   pending-request/backpressure stress, legacy regression, ArkOS and MQS checks
   remain open. The user confirmation does not establish exact sample timing or

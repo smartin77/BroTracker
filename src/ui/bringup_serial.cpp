@@ -22,6 +22,7 @@ void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
     publication_.Disconnect();
+    paused_publication_supported_=false;
     publication_supported_=next_discovery_expected_=next_fresh_=false;
     next_publication_id_=0; publication_readback_requested_=false; next_refresh_=false; tx_publication_=false;
     if (start_queued_ || (pending_ == Command::Start && !start_write_attempted_))
@@ -58,6 +59,24 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
         if(const auto* snapshot=pattern_assembler_.Snapshot()) (void)editor.Rebase(*snapshot);
     }
     editor.SetLocked(PublicationBusy());
+    publication_.RefreshAvailability(PublicationUnavailable(editor));
+}
+
+const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& editor) const {
+    if(!connected_) return "Connect Teensy to publish";
+    if(!publication_supported_) return "Firmware does not support publication";
+    if(PublicationBusy()) return "Publication already in progress";
+    if(Playing()) return "Pause or stop playback to publish";
+    if(Paused() && !paused_publication_supported_) return "Stop playback: paused publication unsupported";
+    if(!Paused() && std::strcmp(state_,"IDLE")) return "Playback state unavailable for publication";
+    if(TransportPending() || pending_!=Command::None) return "Wait for transport reply";
+    if(pattern_assembler_.Active() || !snapshot_requested_) return "Wait for device pattern";
+    if(!editor.Baseline() || editor.Baseline()->version!=2 || snapshot_version_!=2) return "Timing-aware device pattern required";
+    if(!editor.Dirty()) return "No changes to publish";
+    if(!next_fresh_) return "Wait for publication identity refresh";
+    if(!next_publication_id_) return "Publication identities exhausted";
+    if(tx_offset_!=tx_size_) return "Wait for serial transmission";
+    return nullptr;
 }
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
@@ -67,13 +86,8 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
         if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
+    if(const auto* reason=PublicationUnavailable(editor)) { publication_.Unavailable(reason); return false; }
     const auto* baseline=editor.Baseline();
-    if(!connected_ || !publication_supported_ || !next_fresh_ || !next_publication_id_ ||
-        !baseline || baseline->version!=2 || snapshot_version_!=2 || !editor.Dirty() ||
-        std::strcmp(state_,"IDLE") || TransportPending() || pending_!=Command::None ||
-        pattern_assembler_.Active() || !snapshot_requested_ || tx_offset_!=tx_size_ || PublicationBusy()) {
-        publication_.Unavailable(); return false;
-    }
     if(!publication_.Begin(next_publication_id_,*baseline,*editor.Draft(),now)) return false;
     next_publication_id_=0; next_fresh_=false; next_discovery_expected_=false;
     next_refresh_=true; publication_readback_requested_=false;
@@ -188,7 +202,9 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strcmp(line_,BroTracker::kPatternPublicationCapability))
+    if (!std::strcmp(line_,BroTracker::kPausedPatternPublicationCapability))
+    { if(connected_) paused_publication_supported_=true; }
+    else if (!std::strcmp(line_,BroTracker::kPatternPublicationCapability))
     { if(connected_) publication_supported_=true; }
     else if (!std::strncmp(line_,"BTPUBLISH1 NEXT",14)) {
         std::uint32_t values[2]{};

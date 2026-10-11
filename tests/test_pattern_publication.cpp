@@ -132,12 +132,13 @@ TEST_CASE(PublicationAudioStateAndResolutionRejectionPreserveOldPattern) {
             if(mode==1) { CHECK_EQ(c.Submit(PatternRequest::Pause),PatternRequestStatus::Accepted); c.AudioBlock(out,1,true); CHECK(c.TakeApplied(ack)); }
         }
         auto candidate=active;
+        if(mode==1) candidate.active_rows=1;
         if(mode==2) candidate.cells[0][0].instrument=255;
         if(mode==3) candidate.cells[0][0].instrument=99;
         if(mode==4) candidate.cells[0][0].note=61;
         Stage(p,candidate,1); CHECK_EQ(c.SubmitPattern(*p.Frozen(),1),PatternRequestStatus::Accepted);
         const auto state=c.Snapshot(); c.AudioBlock(out,1,true); CHECK(c.TakeApplied(ack));
-        CHECK_EQ(ack.result,mode<2 ? PatternPlayerStatus::InvalidTransportState :
+        CHECK_EQ(ack.result,mode==0 ? PatternPlayerStatus::InvalidTransportState : mode==1 ? PatternPlayerStatus::InvalidDimensions :
             mode==2 ? PatternPlayerStatus::MissingInstrument : mode==3 ? PatternPlayerStatus::UnknownInstrument : PatternPlayerStatus::UnsupportedPitch);
         CHECK_EQ(c.Snapshot().transport,state.transport);
         CHECK(p.Complete(ack.publication_id,false,active)); Same(active,Pattern());
@@ -243,4 +244,30 @@ TEST_CASE(PublicationNextIdentityDiscoverySurvivesSessionsAndExhaustion) {
     CHECK(p.Complete(UINT32_MAX,false,active)); discover(0);
     CHECK_EQ(Feed(p,Transfer(active,UINT32_MAX)[0]),PublicationStatus::Identity);
     CHECK_EQ(Feed(p,Transfer(active,1)[0]),PublicationStatus::Identity); discover(0);
+}
+
+TEST_CASE(PausedPublicationSynchronizesReadbackWithoutRestartAndDiscoveryFits) {
+    CHECK_EQ(kPatternDiscoveryReplyCount,7);
+    const char* discovery[]={"BTTEST1 STATE PAUSED","BTPATTERN1 SNAPCAP 2","BTPATTERN1 SNAPCAP 1",
+        "BTPATTERN1 TRANSPORTCAP 1",kPatternPublicationCapability,kPausedPatternPublicationCapability,"BTPUBLISH1 NEXT 1 1"};
+    CHECK_EQ(sizeof(discovery)/sizeof(discovery[0]),kPatternDiscoveryReplyCount);
+    for(const auto* line:discovery) CHECK(std::strlen(line)<kPatternSnapshotLineCapacity);
+    auto active=Pattern(); PatternPublication p; PatternBringUpControl control;
+    CHECK_EQ(control.InitializeAudio(12753,100,active,Bindings()),PatternPlayerStatus::Success);
+    CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
+    std::int16_t out[32]{}; control.AudioBlock(out,24,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack));
+    CHECK_EQ(control.Submit(PatternRequest::Pause),PatternRequestStatus::Accepted);
+    control.AudioBlock(out,1,true); CHECK(control.TakeApplied(ack)); const auto before=control.Snapshot();
+    auto next=active; next.cells[before.position.pattern_row][0]={NOTE_OFF,255};
+    next.note_off_timing[before.position.pattern_row][0]=NoteOffTiming::EndOfPosition;
+    Stage(p,next,1); CHECK_EQ(control.SubmitPattern(*p.Frozen(),1),PatternRequestStatus::Accepted);
+    control.AudioBlock(out,1,true); CHECK(control.TakeApplied(ack)); CHECK_EQ(ack.result,PatternPlayerStatus::Success);
+    CHECK_EQ(control.Snapshot().transport,PatternTransportState::Paused); CHECK_EQ(out[0],0);
+    CHECK_EQ(control.Snapshot().position.absolute_tick,before.position.absolute_tick);
+    CHECK_EQ(control.Snapshot().position.loop_index,before.position.loop_index);
+    CHECK_EQ(control.Snapshot().next_sample,before.next_sample); Same(active,Pattern());
+    CHECK(p.Complete(1,true,active)); Same(active,next);
+    CHECK_EQ(control.Submit(PatternRequest::Continue),PatternRequestStatus::Accepted);
+    control.AudioBlock(out,1,true); CHECK(control.TakeApplied(ack)); CHECK_EQ(out[0],0);
+    CHECK_EQ(control.Snapshot().position.pattern_row,before.position.pattern_row);
 }

@@ -257,3 +257,20 @@ TEST_CASE(OneBasedDisplayPublicationPreservesRawInstrumentIds) {
     CHECK(receiver.Snapshot()); CHECK_EQ(receiver.Snapshot()->pattern.cells[0][0].instrument,0);
     CHECK_EQ(receiver.Snapshot()->pattern.cells[1][0].instrument,1);
 }
+
+TEST_CASE(PausedHostPublicationRequiresCapabilityAndRebasesWithoutContinuing) {
+    Session s; s.Ready(); s.Dirty(); s.Receive("BTTEST1 STATE PAUSED\n");
+    CHECK(!s.serial.Publish(s.editor,s.now)); CHECK(std::strstr(s.serial.PublicationStatus(),"paused publication unsupported"));
+    s.Receive("BTPUBLISH1 PAUSEDCAP 1\n"); CHECK_EQ(std::string(s.serial.PublicationStatus()),"");
+    CHECK(s.serial.Publish(s.editor,s.now)); s.Commit(); const auto draft=*s.editor.Draft();
+    s.Receive("BTPUBLISH1 SUBMITTED 1 7\nBTPUBLISH1 APPLIED 1 7\nBTTEST1 STATE PAUSED\nBTPUBLISH1 NEXT 1 8\n");
+    for(unsigned i=0;i<5;++i) s.Tick(); auto accepted=Baseline(); accepted.pattern=draft; s.Snapshot(2,accepted);
+    CHECK(s.serial.Paused()); CHECK(!s.editor.Dirty()); CHECK(!s.editor.Locked());
+    CHECK(s.port->output.find("CONTINUE")==std::string::npos); CHECK(s.port->output.find("STOP")==std::string::npos);
+    CHECK(!s.serial.Publish(s.editor,s.now)); CHECK(std::strstr(s.serial.PublicationStatus(),"No changes"));
+    CHECK(s.editor.Apply(EditorAction::Increment)); s.serial.SyncEditor(s.editor,s.now);
+    CHECK_EQ(std::string(s.serial.PublicationStatus()),"");
+    s.port->online=false; s.Tick(); s.port->online=true; s.now=2000; s.Tick();
+    s.Receive("BTTEST1 STATE PAUSED\nBTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 8\nBTPATTERN1 SNAPCAP 2\n");
+    CHECK(!s.serial.Publish(s.editor,s.now)); CHECK(std::strstr(s.serial.PublicationStatus(),"paused publication unsupported"));
+}

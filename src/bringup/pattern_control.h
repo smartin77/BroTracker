@@ -104,7 +104,10 @@ namespace BroTracker
                 request_head_ = (request_head_ + 1) % kPatternRequestCapacity;
                 --request_count_;
                 PatternPlayerStatus result = PatternPlayerStatus::Success;
-                if (request == PatternRequest::Replace) result = player_.ReplacePattern(*entry.pattern);
+                if (request == PatternRequest::Replace) {
+                    result = player_.GetTransportState() == PatternTransportState::Paused
+                        ? player_.ReplacePausedPattern(*entry.pattern) : player_.ReplacePattern(*entry.pattern);
+                }
                 else if (request == PatternRequest::Start)
                 {
                     result = player_.Start();

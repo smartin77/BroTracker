@@ -44,6 +44,7 @@ public:
 private:
     enum class Command { None, Hello, Status, Start, Stop, Pause, Continue };
     bool QueueTransport(Command command);
+    const char* PublicationUnavailable(const LocalPatternEditor& editor) const;
     Command transport_queued_ = Command::None;
     bool transport_supported_ = false;
     void Log(const char* message, const char* detail = "");
@@ -75,6 +76,7 @@ private:
     std::uint32_t sent_at_ = 0;
     bool attempted_ = false;
     BroTracker::HostPatternPublication publication_;
+    bool paused_publication_supported_ = false;
     bool publication_supported_ = false, next_discovery_expected_ = false, next_fresh_ = false;
     std::uint32_t next_publication_id_ = 0;
     bool publication_readback_requested_ = false, next_refresh_ = false;

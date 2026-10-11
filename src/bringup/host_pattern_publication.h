@@ -35,7 +35,7 @@ namespace BroTracker {
                 hash=SnapshotHashByte(SnapshotHashByte(SnapshotHashByte(hash,cell.note),cell.instrument),static_cast<std::uint8_t>(timing));
             }
             last_id_=id; pattern_=draft; tempo_=baseline.tempo_hundredths; id_=id; hash_=hash; line_index_=0; started_=now;
-            commit_possible_=submitted_=confirmed_=false; phase_=HostPublicationPhase::Sending;
+            commit_possible_=submitted_=confirmed_=availability_=false; phase_=HostPublicationPhase::Sending;
             Set("Publication sending"); return true;
         }
         bool CommitLine() const noexcept { return line_index_==Count()+1; }
@@ -84,7 +84,13 @@ namespace BroTracker {
             } else { phase_=HostPublicationPhase::Mismatch; Set("Publication readback differs; draft retained"); }
             return true;
         }
-        void Unavailable() noexcept { if(!Blocking()) Set("Publish unavailable: stop, dirty draft, v2 and NEXT required"); }
+        void Unavailable(const char* reason) noexcept {
+            if(Blocking() || phase_==HostPublicationPhase::Rejected || phase_==HostPublicationPhase::Mismatch) return;
+            Set(reason); availability_=true;
+        }
+        void RefreshAvailability(const char* reason) noexcept {
+            if(availability_ && std::strcmp(status_,reason ? reason : "")) { status_[0]=0; availability_=false; }
+        }
         // Wrong identity/version/phase, duplicate and malformed responses are ignored.
         bool Response(const char* line,std::size_t length,std::uint32_t now) noexcept {
             if(!line || length>=kPatternSnapshotLineCapacity) return false;
@@ -123,7 +129,7 @@ namespace BroTracker {
         RealtimePattern pattern_;
         std::uint32_t id_=0,last_id_=0,hash_=0,tempo_=0,started_=0;
         unsigned line_index_=0;
-        bool commit_possible_=false,submitted_=false,confirmed_=false;
+        bool commit_possible_=false,submitted_=false,confirmed_=false,availability_=false;
         HostPublicationPhase phase_=HostPublicationPhase::Idle;
         char status_[96]{};
     };

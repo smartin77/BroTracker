@@ -591,7 +591,7 @@ with no extension per cell. New HELLO or disconnect cancels only unsubmitted wor
 Before COMMIT submission, main freezes staging; only a const pointer and identity
 cross the existing interrupt-protected request FIFO. The audio owner calls
 ReplacePattern at a block boundary in FIFO order with START/STOP/PAUSE/CONTINUE,
-checking actual state rather than an earlier main-loop status. Playing/Paused
+checking actual state rather than an earlier main-loop status. Playing
 reject; no automatic STOP. Core validation reuses retained sample bindings and
 two logical passes (up to 256 events / 4096 binding comparisons), with fixed storage,
 no allocation/serial I/O. This adds bounded work but no measured realtime budget.
@@ -619,7 +619,7 @@ busy. No transaction status persistence across reboot is provided.
 
 Portable tests cover complete application/readback with both OFF modes, malformed
 and overflowing input, ordering/count/checksum failures, timeout/session cancellation,
-frozen storage/duplicate COMMIT, actual Playing/Paused rejection, retained old-pattern
+frozen storage/duplicate COMMIT, actual transport/dimension rejection, retained old-pattern
 playback after rejection, stopped-zero success, queue saturation, snapshot exclusion
 and ACK/telemetry interleaving under partial writes. Hardware validation of publication
 is pending for Windows + Teensy and ArkOS. Windows sending/rebasing is implemented
@@ -631,7 +631,8 @@ physical timing/performance checks open.
 F5 publishes the current dirty draft only on an unmodified physical keydown
 (Ctrl/Alt/GUI/Shift and OS-repeat events are ignored; lock-key state is harmless).
 It requires connected CAP 1 firmware, fresh nonzero NEXT discovery, an accepted
-snapshot v2 baseline, a ready dirty draft, authoritative IDLE/Stopped, and no
+snapshot v2 baseline, a ready changed draft, authoritative IDLE/Stopped (or Paused
+with PAUSEDCAP 1), and no
 pending transport, snapshot or publication. It never STOPs automatically.
 Space START/PAUSE/CONTINUE is blocked during publication/verification; Enter and
 numeric Enter STOP/reset, Ctrl+X and window close remain available. ArkOS shares
@@ -678,7 +679,7 @@ Windows hardware checklist (not yet confirmed):
    cursor/BPM remain unchanged. Press F5 again while clean: no publication.
 2. Publish an unsupported pitch/instrument: verify explicit rejection with dirty
    draft/baseline preserved. A later explicit F5 uses refreshed NEXT, not a retry.
-3. While Playing/Paused, or while transport/snapshot work is pending, F5 must not
+3. While Playing or Paused without PAUSEDCAP 1, or while transport/snapshot work is pending, F5 must not
    send BEGIN or STOP. During sending/verifying, edits and F4 are frozen, navigation
    works, Space cannot start; Enter/close still request STOP safely.
 4. Exercise partial writes/backpressure, timeout and disconnect around COMMIT;
@@ -759,6 +760,34 @@ Success retains reported tick/loop and next sample, remains Paused/silent and cl
 deferred Stops. Continue replays that row once using rebuilt selections, including
 new OFF timing scheduling. Failure preserves all state and the original pattern.
 Storage/work are fixed and bounded (at most 63 logical rows). Existing stopped-only
-replacement and firmware BTPUBLISH1 behavior are unchanged. Paused F5 integration,
-capability negotiation and hardware validation remain open; Playing publication
+replacement and firmware BTPUBLISH1 behavior are unchanged. Paused F5 integration and capability negotiation are now implemented as described
+below; hardware validation remains open. Playing publication
 remains blocked. No hardware confirmation applies to this new core foundation.
+
+### Capability-gated paused publication (hardware validation pending)
+
+HELLO now additionally advertises `BTPUBLISH1 PAUSEDCAP 1`. Existing `BTPUBLISH1 CAP 1`
+remains unchanged and alone authorizes stopped-only host publication. Discovery
+reserves seven queue slots for STATE, SNAPCAP 2/1, TRANSPORTCAP, CAP, PAUSEDCAP and
+NEXT; telemetry remains coalesced outside that ACK queue. BEGIN/CELL/COMMIT, IDs,
+checksums, frozen staging, timeout/uncertain outcomes and exact v2 readback are unchanged.
+At audio-owner application, Stopped calls ReplacePattern, Paused calls
+ReplacePausedPattern, and Playing rejects without mutation. Paused dimensions
+must match; success stays silent/Paused at the same reported row/loop and next
+sample. The main-loop readback source is synchronized before APPLIED.
+
+Windows F5 now accepts Paused only with PAUSEDCAP 1; Playing remains blocked.
+The capability is cleared on disconnect. Specific unmet-condition messages replace
+the generic availability warning and clear when that condition changes. Rejection
+and uncertain outcomes remain visible. STOP/exit stay available; publication never
+starts or continues automatically. This section supersedes earlier stopped-only
+integration limitations. ArkOS parsing is shared; handheld publication bindings
+remain deferred.
+
+User confirmation on 2026-10-11 validates the Windows pause-latency correction.
+That confirmation does not validate paused publication or exact hardware timing.
+Manual Windows checklist: pause in a later loop, edit a supported native-rate note,
+F5 and verify readback/clean draft with unchanged PAUSED row/loop; Continue must replay
+the replaced row once. Try unsupported pitch and verify connection/draft/baseline
+remain intact. Verify Playing F5 is blocked, STOP/close still work, and older CAP-only
+firmware permits only stopped F5. Hardware validation and realtime cost remain open.

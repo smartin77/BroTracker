@@ -8,6 +8,8 @@ namespace BroTracker
     static_assert(kPatternSnapshotLineCapacity >= sizeof("BTPUBLISH1 CELL 1 ") + 5 * 11,
         "Publication parser/line storage must fit uint32 fields plus LF/NUL");
     constexpr char kPatternPublicationCapability[] = "BTPUBLISH1 CAP 1";
+    constexpr char kPausedPatternPublicationCapability[] = "BTPUBLISH1 PAUSEDCAP 1";
+    constexpr unsigned kPatternDiscoveryReplyCount = 7; // STATE + five capabilities + NEXT.
     enum class PublicationKind { Begin, Cell, Commit };
     struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; };
     enum class PublicationStatus : unsigned
