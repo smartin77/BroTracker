@@ -600,6 +600,19 @@ design remains unchanged.
   Automatic host transfer, F4/F5 coordination and hardware validation are pending.
   Current user-visible behavior is unchanged; preview/publication imply no SD persistence.
 
+* [x] Implement opt-in device `BTPREVIEW1 CAP 1` volatile preview transfer and
+  audio-owner lifecycle: fixed ordered/checksummed OFF-aware staging, consumed
+  identities/NEXT, frozen handoff, ACCEPTED versus actual APPLIED/SUPERSEDED.
+  Keep published baseline, applied working and pending candidate metadata separate;
+  published GET remains baseline, explicit working/pending readback and STATE
+  recover uncertain outcomes. Preview supports all transports; stopped/paused
+  publication synchronizes both sources and supersedes previews; Playing rejects.
+  Host tests cover validation, ownership, boundary application, transport ordering,
+  reconnect retention and partial readback/telemetry arbitration. No hardware result.
+* [ ] Integrate automatic BTX draft preview transfer and F4 baseline restore/F5
+  promotion coordination; validate preview protocol/backpressure on Windows +
+  Teensy, then ArkOS. Existing user-visible editing remains unchanged. No SD persistence.
+
 ## Deferred Tasks
 
 * [ ] Define channel/instrument gain controls and the mixing headroom policy.

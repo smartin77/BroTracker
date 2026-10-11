@@ -6,7 +6,7 @@
 namespace BroTracker
 {
     constexpr std::size_t kPatternRequestCapacity = 8;
-    enum class PatternRequest { Start, Stop, Pause, Continue, Replace };
+    enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded };
     enum class PatternRequestStatus { Accepted, Full, InvalidRequest };
     enum class PatternFault { None, Configuration, Render, Allocation };
     struct PatternAppliedRequest
@@ -30,6 +30,7 @@ namespace BroTracker
         PatternPlayerStatus player_error = PatternPlayerStatus::Success;
         std::uint32_t failures = 0;
         std::uint32_t allocation_failures = 0;
+        std::uint32_t published_id = 0, working_id = 0, pending_preview_id = 0;
     };
 
     // Portable bring-up policy, not the final transport/protocol. No locks inside:
@@ -66,13 +67,25 @@ namespace BroTracker
             ++request_count_; publication_pending_ = true;
             return PatternRequestStatus::Accepted;
         }
+        // Same frozen ownership as publication, but replacement may stage while Playing.
+        [[nodiscard]] PatternRequestStatus SubmitPreview(const RealtimePattern& pattern,
+            std::uint32_t id) noexcept {
+            if (!id) return PatternRequestStatus::InvalidRequest;
+            if (publication_pending_ || request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
+            requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = {PatternRequest::Preview, &pattern, id};
+            ++request_count_; publication_pending_ = true;
+            return PatternRequestStatus::Accepted;
+        }
         bool TakeApplied(PatternAppliedRequest& output) noexcept
         {
-            if (applied_count_ == 0) return false;
+            if (applied_count_ == 0) {
+                if (!deferred_notification_) return false;
+                output = notification_; deferred_notification_ = false; return true;
+            }
             output = applied_[applied_head_];
             applied_head_ = (applied_head_ + 1) % kPatternRequestCapacity;
             --applied_count_;
-            if (output.request == PatternRequest::Replace) publication_pending_ = false;
+            if (output.request == PatternRequest::Replace || output.request == PatternRequest::Preview) publication_pending_ = false;
             return true;
         }
         PatternBringUpStatus Snapshot() const noexcept { return status_; }
@@ -90,8 +103,10 @@ namespace BroTracker
         }
 
         // Audio owner only. Apply at most eight requests at the block boundary,
-        // then render exactly once. A replacement reuses bounded two-pass core
-        // validation, adding <=256 events/4096 binding comparisons per block. Caller supplies <=128 frames and valid writable
+        // then render exactly once. Each replacement adds <=63 logical rows of
+        // validation/reconstruction, <=8 events and <=16 binding comparisons per
+        // event; a playing preview application adds <=31 rows during Render.
+        // Caller supplies <=128 frames and valid writable
         // output when storage_available. PCM lifetime/non-overlap follow the player.
         // Rejection zeros the entire available span, Stops and latches an error;
         // subsequent blocks stay silent, never retrying a frozen position. Explicit
@@ -102,16 +117,29 @@ namespace BroTracker
         void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available) noexcept
         {
             for (std::size_t budget = 0; budget < kPatternRequestCapacity &&
-                request_count_ != 0 && applied_count_ < kPatternRequestCapacity; ++budget)
+                request_count_ != 0 && !deferred_notification_ && applied_count_ < kPatternRequestCapacity; ++budget)
             {
                 const auto entry = requests_[request_head_];
+                const std::size_t needed = entry.request == PatternRequest::Preview || entry.request == PatternRequest::Replace
+                    ? 3 : status_.pending_preview_id ? 2 : 1;
+                if (kPatternRequestCapacity - applied_count_ < needed) break;
                 const auto request = entry.request;
                 request_head_ = (request_head_ + 1) % kPatternRequestCapacity;
                 --request_count_;
                 PatternPlayerStatus result = PatternPlayerStatus::Success;
-                if (request == PatternRequest::Replace) {
+                if (request == PatternRequest::Preview) {
+                    result = player_.ReplaceWorkingPattern(*entry.pattern);
+                    if (result == PatternPlayerStatus::Success) {
+                        SupersedePreview();
+                        status_.pending_preview_id = entry.id;
+                    }
+                }
+                else if (request == PatternRequest::Replace) {
                     result = player_.GetTransportState() == PatternTransportState::Paused
                         ? player_.ReplacePausedPattern(*entry.pattern) : player_.ReplacePattern(*entry.pattern);
+                    if (result == PatternPlayerStatus::Success) {
+                        SupersedePreview(); status_.published_id = entry.id; status_.working_id = 0; // Published revision, separate ID domain.
+                    }
                 }
                 else if (request == PatternRequest::Start)
                 {
@@ -128,6 +156,7 @@ namespace BroTracker
                 else result = player_.Continue();
                 applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result,entry.id};
                 ++applied_count_;
+                CompletePreview();
             }
             if (!storage_available)
             {
@@ -144,9 +173,29 @@ namespace BroTracker
                 }
             }
             else Zero(output, count);
+            CompletePreview();
             Publish();
         }
     private:
+        // One completion debt slot covers application when the ACK FIFO fills.
+        // While owed, no new requests are applied; rendering/transport timeline continues.
+        void Notify(PatternRequest kind, std::uint32_t id) noexcept {
+            PatternAppliedRequest event{kind,PatternPlayerStatus::Success,id};
+            if (applied_count_ < kPatternRequestCapacity) {
+                applied_[(applied_head_+applied_count_)%kPatternRequestCapacity] = event; ++applied_count_;
+            } else { notification_=event; deferred_notification_=true; }
+        }
+        void SupersedePreview() noexcept {
+            if (status_.pending_preview_id) Notify(PatternRequest::PreviewSuperseded,status_.pending_preview_id);
+            status_.pending_preview_id=0;
+        }
+        void CompletePreview() noexcept {
+            if (status_.pending_preview_id && !player_.HasPendingWorkingPattern()) {
+                status_.working_id=status_.pending_preview_id;
+                status_.pending_preview_id=0;
+                Notify(PatternRequest::PreviewApplied,status_.working_id);
+            }
+        }
         static void Increment(std::uint32_t& value) noexcept { if (value != UINT32_MAX) ++value; }
         static void Zero(std::int16_t* output, std::size_t count) noexcept
         { for (std::size_t i = 0; i < count; ++i) output[i] = 0; }
@@ -172,6 +221,8 @@ namespace BroTracker
         struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; };
         RequestEntry requests_[kPatternRequestCapacity]{};
         bool publication_pending_ = false;
+        bool deferred_notification_ = false;
+        PatternAppliedRequest notification_;
         PatternAppliedRequest applied_[kPatternRequestCapacity]{};
         std::size_t request_head_ = 0, request_count_ = 0;
         std::size_t applied_head_ = 0, applied_count_ = 0;

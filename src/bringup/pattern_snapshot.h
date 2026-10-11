@@ -179,9 +179,10 @@ namespace BroTracker
         std::uint32_t id_ = 0, started_ = 0, next_cell_ = 0, count_ = 0, hash_ = 0;
     };
 
-    // Firmware main-loop only. References the SAME immutable pattern/tempo used
-    // for audio configuration; lifetime must exceed sender use. No player access,
-    // interrupt exclusion, allocation or full-pattern copy. One cell per line.
+    // Firmware main-loop only. References caller-frozen readback metadata/tempo;
+    // keep it unchanged until HasData is false. Source may be baseline, applied
+    // working or pending metadata. No player access, interrupt exclusion or
+    // allocation; caller may freeze a fixed copy before Begin. One cell per line.
     class PatternSnapshotSender
     {
     public:
@@ -199,6 +200,10 @@ namespace BroTracker
             hash_ = SnapshotHeaderHash(pattern_.active_rows, pattern_.active_channels, tempo_hundredths_);
             return true;
         }
+        bool SetWorkingNamespace(bool working) noexcept {
+            if (HasData()) return false;
+            working_ = working; return true;
+        }
         void Clear() noexcept { active_ = false; length_ = offset_ = 0; }
         void Tick(std::uint32_t now) noexcept
         {
@@ -214,23 +219,23 @@ namespace BroTracker
                 const auto cells = unsigned(pattern_.active_rows) * pattern_.active_channels;
                 int written;
                 if (phase_ == 0)
-                    written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 BEGIN %u %" PRIu32 " %u %u %" PRIu32 " %u\n",
-                        version_, id_, unsigned(pattern_.active_rows), unsigned(pattern_.active_channels), tempo_hundredths_, cells);
+                    written = std::snprintf(line_, sizeof(line_), "%s BEGIN %u %" PRIu32 " %u %u %" PRIu32 " %u\n",
+                        working_ ? "BTPREVIEW1" : "BTPATTERN1", version_, id_, unsigned(pattern_.active_rows), unsigned(pattern_.active_channels), tempo_hundredths_, cells);
                 else if (phase_ <= cells)
                 {
                     const auto index = phase_ - 1;
                     const auto& cell = pattern_.cells[index / pattern_.active_channels][index % pattern_.active_channels];
                     const auto timing = pattern_.note_off_timing[index / pattern_.active_channels][index % pattern_.active_channels];
                     if (version_ == 2)
-                        written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 CELL 2 %" PRIu32 " %u %u %u %u\n",
-                            id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument), unsigned(timing));
-                    else written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 CELL 1 %" PRIu32 " %u %u %u\n",
-                        id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument));
+                        written = std::snprintf(line_, sizeof(line_), "%s CELL 2 %" PRIu32 " %u %u %u %u\n",
+                            working_ ? "BTPREVIEW1" : "BTPATTERN1", id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument), unsigned(timing));
+                    else written = std::snprintf(line_, sizeof(line_), "%s CELL 1 %" PRIu32 " %u %u %u\n",
+                        working_ ? "BTPREVIEW1" : "BTPATTERN1", id_, unsigned(index), unsigned(cell.note), unsigned(cell.instrument));
                     hash_ = SnapshotHashByte(SnapshotHashByte(hash_, cell.note), cell.instrument);
                     if (version_ == 2) hash_ = SnapshotHashByte(hash_, static_cast<std::uint8_t>(timing));
                 }
-                else written = std::snprintf(line_, sizeof(line_), "BTPATTERN1 END %u %" PRIu32 " %u %" PRIu32 "\n",
-                    version_, id_, cells, hash_);
+                else written = std::snprintf(line_, sizeof(line_), "%s END %u %" PRIu32 " %u %" PRIu32 "\n",
+                    working_ ? "BTPREVIEW1" : "BTPATTERN1", version_, id_, cells, hash_);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(line_)) Clear();
                 else length_ = static_cast<std::size_t>(written);
             }
@@ -247,6 +252,7 @@ namespace BroTracker
             }
         }
     private:
+        bool working_ = false;
         unsigned version_ = 1;
         const RealtimePattern& pattern_;
         std::uint32_t tempo_hundredths_, id_ = 0, started_ = 0, hash_ = 0, phase_ = 0;

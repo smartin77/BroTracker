@@ -8,6 +8,7 @@
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
 #include "bringup/pattern_publication.h"
+#include "bringup/pattern_preview.h"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #endif
@@ -132,8 +133,10 @@ namespace
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
-    PatternPublication g_publication;
-    PatternSnapshotSender g_pattern_transfer(g_active_pattern, kTempoHundredths);
+    PatternPublication g_publication, g_preview;
+    PatternPreviewReadback g_working;
+    RealtimePattern g_snapshot_source; // Frozen per readback, never audio-owned.
+    PatternSnapshotSender g_pattern_transfer(g_snapshot_source, kTempoHundredths);
     PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
     bool g_protocol_connected = false;
     std::uint32_t g_last_position_ms = 0;
@@ -171,14 +174,19 @@ namespace
             (void)QueueLine("BTPUBLISH1 CAP 1\n");
             (void)QueueLine("BTPUBLISH1 PAUSEDCAP 1\n");
         }
+        if (advertise_snapshot) (void)QueueLine("BTPREVIEW1 CAP 1\n");
+        char preview_discovery[96];
+        if (FormatPreviewDiscovery(g_preview,preview_discovery,sizeof(preview_discovery))) (void)QueueLine(preview_discovery);
+        if (FormatPreviewState(status.published_id,status.working_id,status.pending_preview_id,
+            preview_discovery,sizeof(preview_discovery))) (void)QueueLine(preview_discovery);
         // Main-loop discovery; no audio mutation. STATUS refreshes discovery too.
         char discovery[64];
         if (g_publication.FormatDiscovery(discovery,sizeof(discovery))) (void)QueueLine(discovery);
     }
-    void PublicationError(std::uint32_t id, PublicationStatus reason)
+    void PublicationError(std::uint32_t id, PublicationStatus reason, bool preview=false)
     {
         char error[96];
-        std::snprintf(error,sizeof(error),"BTPUBLISH1 ERROR 1 %" PRIu32 " %u\n", id, unsigned(reason));
+        std::snprintf(error,sizeof(error),"%s ERROR 1 %" PRIu32 " %u\n", preview ? "BTPREVIEW1" : "BTPUBLISH1", id, unsigned(reason));
         (void)QueueLine(error);
     }
     const char* ReplacementRejection(PatternPlayerStatus status)
@@ -245,6 +253,7 @@ namespace
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
             g_publication.NewSession();
+            g_preview.NewSession();
             g_protocol_connected = false;
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
@@ -256,7 +265,24 @@ namespace
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
             if (!ready) break;
-            if (applied.request == PatternRequest::Replace)
+            if (applied.request == PatternRequest::Preview || applied.request == PatternRequest::PreviewApplied ||
+                applied.request == PatternRequest::PreviewSuperseded) {
+                char reply[96];
+                const char* phase="REJECTED";
+                if (applied.request == PatternRequest::Preview) {
+                    const bool ok=applied.result==PatternPlayerStatus::Success;
+                    (void)g_working.Accepted(g_preview,applied.publication_id,ok);
+                    phase=ok ? "ACCEPTED" : "REJECTED";
+                } else if (applied.request == PatternRequest::PreviewApplied) {
+                    phase=g_working.Applied(applied.publication_id) ? "APPLIED" : "HANDOFFERROR";
+                } else { g_working.Superseded(applied.publication_id); phase="SUPERSEDED"; }
+                if (applied.result == PatternPlayerStatus::Success)
+                    std::snprintf(reply,sizeof(reply),"BTPREVIEW1 %s 1 %" PRIu32 "\n",phase,applied.publication_id);
+                else std::snprintf(reply,sizeof(reply),"BTPREVIEW1 REJECTED 1 %" PRIu32 " %s\n",
+                    applied.publication_id,ReplacementRejection(applied.result));
+                (void)QueueLine(reply);
+            }
+            else if (applied.request == PatternRequest::Replace)
             {
                 // Audio has finished reading frozen staging. Synchronize the
                 // main-owned readback source OUTSIDE interrupt exclusion, BEFORE
@@ -264,9 +290,10 @@ namespace
                 const bool synchronized = g_publication.Complete(applied.publication_id,
                     applied.result == PatternPlayerStatus::Success,g_active_pattern);
                 char reply[96];
-                if (synchronized && applied.result == PatternPlayerStatus::Success)
+                if (synchronized && applied.result == PatternPlayerStatus::Success) {
+                    g_working.Published(g_active_pattern,applied.publication_id);
                     std::snprintf(reply,sizeof(reply),"BTPUBLISH1 APPLIED 1 %" PRIu32 "\n",applied.publication_id);
-                else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
+                } else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
                     applied.publication_id,synchronized ? ReplacementRejection(applied.result) : "handoff-error");
                 (void)QueueLine(reply);
             }
@@ -286,6 +313,8 @@ namespace
         // Preserve timeout notifications under TX backpressure (do not Tick/drop).
         if (g_tx_count < kTxCapacity && g_publication.Tick(now))
             PublicationError(g_publication.Identity(),PublicationStatus::Timeout);
+        if (g_tx_count < kTxCapacity && g_preview.Tick(now))
+            PublicationError(g_preview.Identity(),PublicationStatus::Timeout,true);
         if (g_protocol_connected && now - g_last_position_ms >= 50)
         {
             OfferPosition(status);
@@ -319,44 +348,76 @@ namespace
             if (used && line[used - 1] == '\r') --used;
             line[used] = '\0';
             if (overflow) {
-                if (!std::strncmp(line,"BTPUBLISH1",10)) {
-                    g_publication.Cancel(); PublicationError(0,PublicationStatus::Malformed);
+                if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
+                    const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
+                    (preview ? g_preview : g_publication).Cancel(); PublicationError(0,PublicationStatus::Malformed,preview);
                 } else (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
                     "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
             }
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
-                if (!std::strcmp(line,"BTTEST1 HELLO")) g_publication.NewSession();
+                if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                 if(!std::strcmp(line,"BTTEST1 HELLO")) (void)g_preparation_report.Offer(g_preparation);
 #endif
             }
-            else if (!std::strncmp(line,"BTPUBLISH1",10))
+            else if (!std::strncmp(line,"BTPREVIEW1 GET 1 ",17)) {
+                std::uint32_t fields[2]{};
+                const auto latest=Snapshot();
+                const bool coherent=g_working.working_id==latest.working_id && g_working.published_id==latest.published_id;
+                if (!SnapshotFields(line,used,"BTPREVIEW1 GET 1 ",fields,2) || !fields[0] || fields[1]>1 ||
+                    !g_protocol_connected || !coherent || g_preview.Busy() || g_publication.Busy() || g_pattern_transfer.HasData() ||
+                    (fields[1]==1 && g_working.pending_id!=latest.pending_preview_id) || (fields[1]==1 && !g_working.pending_id)) {
+                    (void)QueueLine("BTPREVIEW1 READERR 1\n");
+                } else {
+                    g_snapshot_source=fields[1] ? g_working.pending : g_working.working;
+                    (void)g_pattern_transfer.SetWorkingNamespace(true);
+                    (void)g_pattern_transfer.Begin(fields[0],now,2);
+                    char label[96];
+                    std::snprintf(label,sizeof(label),"BTPREVIEW1 READ 1 %" PRIu32 " %" PRIu32 " %" PRIu32 " %" PRIu32 "\n",
+                        fields[0],fields[1],g_working.published_id,fields[1]?g_working.pending_id:g_working.working_id);
+                    (void)QueueLine(label);
+                }
+            }
+            else if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10))
             {
+                const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
+                auto& transfer=preview ? g_preview : g_publication;
+                const auto& other=preview ? g_publication : g_preview;
                 PublicationMessage message;
-                if (!ParsePublication(line,used,message)) {
-                    g_publication.Cancel(); PublicationError(0,PublicationStatus::Malformed);
-                } else if (!g_protocol_connected) PublicationError(message.fields[0],PublicationStatus::NotConnected);
+                if (!ParsePublication(line,used,message,preview)) {
+                    transfer.Cancel(); PublicationError(0,PublicationStatus::Malformed,preview);
+                } else if (!g_protocol_connected) PublicationError(message.fields[0],PublicationStatus::NotConnected,preview);
                 else {
-                    const auto result = g_publication.Accept(message,now,g_pattern_transfer.HasData());
+                    const auto result = transfer.Accept(message,now,g_pattern_transfer.HasData() || other.Busy());
                     if (result == PublicationStatus::Ready) {
-                        (void)g_publication.Freeze();
+                        (void)transfer.Freeze();
                         PatternRequestStatus accepted;
-                        { InterruptGuard guard; accepted = g_control.SubmitPattern(*g_publication.Frozen(),g_publication.Identity()); }
+                        { InterruptGuard guard; accepted = preview ? g_control.SubmitPreview(*transfer.Frozen(),transfer.Identity()) : g_control.SubmitPattern(*transfer.Frozen(),transfer.Identity()); }
                         if (accepted != PatternRequestStatus::Accepted) {
-                            g_publication.Finish(); PublicationError(message.fields[0],PublicationStatus::QueueFull);
+                            transfer.Finish(); PublicationError(message.fields[0],PublicationStatus::QueueFull,preview);
                         } else {
                             char reply[64];
-                            std::snprintf(reply,sizeof(reply),"BTPUBLISH1 SUBMITTED 1 %" PRIu32 "\n",message.fields[0]);
+                            std::snprintf(reply,sizeof(reply),"%s SUBMITTED 1 %" PRIu32 "\n",preview?"BTPREVIEW1":"BTPUBLISH1",message.fields[0]);
                             (void)QueueLine(reply); // Not proof of application; never automatically retries.
                         }
-                    } else if (result != PublicationStatus::Receiving) PublicationError(message.fields[0],result);
+                    } else if (result != PublicationStatus::Receiving) PublicationError(message.fields[0],result,preview);
+                    else if (preview && message.kind == PublicationKind::Begin) {
+                        char receipt[64];
+                        std::snprintf(receipt,sizeof(receipt),"BTPREVIEW1 RECEIVING 1 %" PRIu32 "\n",message.fields[0]);
+                        (void)QueueLine(receipt);
+                    }
                 }
             }
             else if (!std::strncmp(line, "BTPATTERN1 GET", 14))
             {
                 std::uint32_t id = 0; unsigned version = 1;
-                if (!ParseSnapshotRequest(line, used, id, version) || !g_pattern_transfer.Begin(id, now, version,g_publication.Busy()))
+                const bool parsed=ParseSnapshotRequest(line, used, id, version);
+                if (parsed && !g_pattern_transfer.HasData() && !g_publication.Busy() && !g_preview.Busy()) {
+                    g_snapshot_source=g_active_pattern;
+                    (void)g_pattern_transfer.SetWorkingNamespace(false);
+                }
+                if (!parsed || !g_pattern_transfer.Begin(id, now, version,g_publication.Busy() || g_preview.Busy()))
                 {
                     char error[64];
                     std::snprintf(error, sizeof(error), "BTPATTERN1 SNAPERR %u %" PRIu32 "\n", version, id);
@@ -417,6 +478,7 @@ namespace
         g_active_pattern = selected.pattern;
         g_selected_bindings = selected.bindings;
 #endif
+        g_working.working=g_active_pattern;
         AudioMemory(8);
         { InterruptGuard guard; g_audio_ready = true; }
     }

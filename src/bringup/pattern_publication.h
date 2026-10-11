@@ -9,7 +9,7 @@ namespace BroTracker
         "Publication parser/line storage must fit uint32 fields plus LF/NUL");
     constexpr char kPatternPublicationCapability[] = "BTPUBLISH1 CAP 1";
     constexpr char kPausedPatternPublicationCapability[] = "BTPUBLISH1 PAUSEDCAP 1";
-    constexpr unsigned kPatternDiscoveryReplyCount = 7; // STATE + five capabilities + NEXT.
+    constexpr unsigned kPatternDiscoveryReplyCount = 10; // Existing discovery + preview CAP/NEXT/STATE.
     enum class PublicationKind { Begin, Cell, Commit };
     struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; };
     enum class PublicationStatus : unsigned
@@ -19,13 +19,13 @@ namespace BroTracker
         SnapshotBusy = 9, QueueFull = 10, NotConnected = 11
     };
     inline bool ParsePublication(const char* line, std::size_t length,
-        PublicationMessage& output) noexcept
+        PublicationMessage& output, bool preview = false) noexcept
     {
         struct Definition { const char* prefix; PublicationKind kind; unsigned count; };
-        constexpr Definition definitions[] = {
-            {"BTPUBLISH1 BEGIN 1 ", PublicationKind::Begin, 4},
-            {"BTPUBLISH1 CELL 1 ", PublicationKind::Cell, 5},
-            {"BTPUBLISH1 COMMIT 1 ", PublicationKind::Commit, 3}};
+        const Definition definitions[] = {
+            {preview ? "BTPREVIEW1 BEGIN 1 " : "BTPUBLISH1 BEGIN 1 ", PublicationKind::Begin, 4},
+            {preview ? "BTPREVIEW1 CELL 1 " : "BTPUBLISH1 CELL 1 ", PublicationKind::Cell, 5},
+            {preview ? "BTPREVIEW1 COMMIT 1 " : "BTPUBLISH1 COMMIT 1 ", PublicationKind::Commit, 3}};
         for (const auto& d : definitions) {
             PublicationMessage parsed{d.kind, {}};
             if (SnapshotFields(line, length, d.prefix, parsed.fields, d.count)) {

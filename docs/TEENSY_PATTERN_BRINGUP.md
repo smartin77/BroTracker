@@ -1114,3 +1114,101 @@ rows, application reconstructs at most 31 once per Render, with existing 128-fra
 Host tests cover boundary/loop ordering, simultaneous triggers, deletion, instrument
 continuation, both OFF modes, Pause/Continue/Stop and transactional capacity retry.
 These are not Teensy performance or hardware results.
+
+
+### Device volatile preview protocol (host/hardware integration pending)
+
+Only opt-in pattern firmware advertises `BTPREVIEW1 CAP 1` on HELLO. Clients must
+wait for that capability; current BTX does not send preview transactions. HELLO
+and STATUS also return `BTPREVIEW1 NEXT 1 <next_id>` and
+`BTPREVIEW1 STATE 1 <published_id> <working_id> <pending_id>`.
+All integers are strict unsigned decimal, no signs/overflow/extra fields.
+IDs are uint32; NEXT=0 means exhausted until reboot. Preview and publication
+have separate identity domains. Published ID zero denotes the boot baseline;
+working ID zero denotes that published revision, otherwise an applied preview ID.
+Pending ID zero means none. STATE comes from the coherent audio-owner snapshot.
+
+Complete-pattern upload, LF-terminated (optional CR before LF):
+
+```text
+BTPREVIEW1 BEGIN 1 <id> <rows> <channels> <cell_count>
+BTPREVIEW1 CELL 1 <id> <index> <note> <instrument> <off_timing>
+BTPREVIEW1 COMMIT 1 <id> <cell_count> <checksum>
+```
+
+Dimensions must match the working pattern at audio-owner validation. Capacity is
+16 rows x 8 channels; cells are strictly ordered row-major indices 0..count-1.
+Notes preserve 24..127/254 OFF/255 empty; instruments preserve raw 0..254/255
+no-update. Timing is 0 Arrival or 1 EndOfPosition, separate from instrument IDs.
+Checksum is FNV-1a32: rows byte, channels byte, then note/instrument/timing bytes
+for every ordered cell (same publication hash). Tempo/rate/bindings stay unchanged.
+One preview OR publication transfer at a time; snapshot TX also excludes uploads.
+Receiving/ready staging times out after 5000 ms, using unsigned elapsed arithmetic.
+IDs increase from the highest staged BEGIN, including cancelled/rejected work;
+HELLO/disconnect cancel only unsubmitted staging and never reset the high-water mark.
+
+Replies distinguish each phase:
+
+```text
+BTPREVIEW1 RECEIVING 1 <id>
+BTPREVIEW1 SUBMITTED 1 <id>
+BTPREVIEW1 ACCEPTED 1 <id>
+BTPREVIEW1 APPLIED 1 <id>
+BTPREVIEW1 SUPERSEDED 1 <id>
+BTPREVIEW1 REJECTED 1 <id> <reason>
+BTPREVIEW1 ERROR 1 <id> <code>
+```
+
+RECEIVING acknowledges BEGIN; SUBMITTED acknowledges frozen handoff, not validation.
+ACCEPTED means core validation succeeded and copied the candidate. Playing may
+remain pending until a row-start; only an actual change of working metadata emits
+APPLIED. A newer accepted candidate or successful publication emits SUPERSEDED
+for the old pending ID. Invalid candidates preserve pending/applied metadata.
+REJECTED reasons use the publication compatibility reasons; ERROR numeric codes
+reuse PublicationStatus (malformed/busy/identity/dimensions/cell/completion/timeout/
+snapshot-busy/queue-full/not-connected). Neither rejection disconnects transport.
+Duplicate COMMIT never reapplies; frozen transactions reject further transfer lines.
+
+Authoritative readback (explicit selector 0 applied, 1 pending):
+
+```text
+BTPREVIEW1 GET 1 <read_id> <selector>
+BTPREVIEW1 READ 1 <read_id> <selector> <published_id> <revision_id>
+BTPREVIEW1 BEGIN 2 <read_id> <rows> <channels> <tempo_hundredths> <cell_count>
+BTPREVIEW1 CELL 2 <read_id> <index> <note> <instrument> <off_timing>
+BTPREVIEW1 END 2 <read_id> <cell_count> <checksum>
+```
+
+Read IDs must be nonzero; they are correlation IDs, not consumed preview identities.
+Readback uses the exact snapshot-v2 checksum including tempo and OFF metadata.
+`BTPREVIEW1 READERR 1` rejects invalid/busy/not-yet-synchronized requests or absent
+pending data. Retry readback explicitly after STATUS; never blindly resend COMMIT.
+Existing BTPATTERN1 GET continues to return the last published baseline, not preview.
+A frozen per-readback main-loop copy prevents revisions mixing if playback applies
+a candidate mid-transfer. Validate READ identity/revision and complete END before
+using cells. An outcome timeout after submission is uncertainty, never cancellation.
+After reconnect, discover STATE/NEXT and read applied/pending contents to resolve it;
+no automatic START, baseline restore or resend occurs.
+
+Main loop owns two fixed transaction staging objects, applied/pending metadata and
+one frozen readback source. Only one transfer can freeze at a time. Audio exclusively
+validates/replaces the player; staging stays immutable until its acceptance/rejection
+ack is consumed. ACCEPTED releases transfer storage after copying pending metadata;
+APPLIED copies that accepted metadata to working readback. Successful stopped/paused
+publication updates published and working sources before its APPLIED response and
+supersedes pending preview. Playing publication remains rejected. Preview follows
+core Pause/Continue and Stop/Start semantics, without clock/sync changes or persistence.
+
+RX is bounded to 128 bytes/one complete line per main-loop service; TX to 64 bytes,
+16 fixed lines, and unchanged complete-line arbitration with ACK priority and
+alternating telemetry/readback. Discovery reserves 10 lines (previous 7 plus preview
+CAP/NEXT/STATE). Formatting buffers cover uint32 extrema. The audio ACK FIFO retains
+ordered lifecycle events; requests wait for sufficient space, and one completion
+notification slot prevents loss if rendering finishes under ACK backpressure.
+No formatting, serial I/O, allocation or blocking occurs in audio processing.
+
+Portable tests cover strict identities/order/checksum/timing, timeout/cancellation,
+frozen ownership, actual boundary application, supersession, reconnect retention,
+Pause/Continue/Stop, publication exclusion/rejection and partial readback writes
+interleaved with telemetry. Teensy compilation/hardware behavior and automatic BTX
+sending/F4 restore/F5 promotion remain unvalidated or unimplemented in this step.
