@@ -562,10 +562,16 @@ design remains unchanged.
   implicit absent-live-view demo fallback. Main BTX always renders application
   unavailable-data layout while waiting/disconnected; no dummy notes/fake position
   or edit cursor. Explicit RenderPreviewScreen keeps tools/ui_preview BMP export.
-* [ ] Visually validate startup, disconnect/reconnect and unchanged live editor/
-  playback/panel behavior on Windows and ArkOS after mockup fallback removal.
+* [x] Record user-confirmed Windows startup and reconnect visual validation on
+  2026-10-11 after mockup fallback removal.
+* [ ] Validate ArkOS startup, disconnect/reconnect and live editor/playback/panel
+  presentation after mockup fallback removal.
 
 ## Deferred Tasks
+
+* [ ] Replace the disconnected empty pattern layout with a dedicated
+  disconnected-device presentation, using M8 Headless as a visual reference.
+  Design and implementation remain deferred.
 
 * [x] Implement opt-in teensy41_pattern_sd_prepare boot loading of Samples/test2.wav
   before g_audio_ready into a static 32-byte-aligned 131072-frame/256 KiB DMAMEM

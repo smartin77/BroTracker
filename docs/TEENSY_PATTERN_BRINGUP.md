@@ -1009,5 +1009,11 @@ without dummy notes, fixed playback position or fake edit cursor. Live snapshots
 drafts, highlight/arrow, edit cursor and padded information panel remain unchanged.
 RenderPreviewScreen is an explicit standalone-only preview API used by
  tools/ui_preview/main.cpp; its assets and BMP export remain available.
-Manual Windows/ArkOS visual validation of startup and disconnect/reconnect remains
-pending. Transport, publication, audio and firmware behavior are unchanged.
+User confirmed Windows startup and reconnect visual behavior on 2026-10-11
+after mockup fallback removal. ArkOS visual validation remains pending.
+Transport, publication, audio and firmware behavior are unchanged; outstanding
+physical timing and realtime performance checks remain open.
+
+A dedicated disconnected-device presentation replacing the empty pattern layout
+is deferred, using M8 Headless as a visual reference. No UI implementation is
+included in this documentation change.
