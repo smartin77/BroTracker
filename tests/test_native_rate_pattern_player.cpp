@@ -650,3 +650,67 @@ TEST_CASE(CoreOffTimingSampleConversionOverflowIsTransactional) {
     CHECK_EQ(player.Render(&out,1),PatternPlayerStatus::RangeOverflow);
     CHECK_EQ(out,999); CheckPlayback(player,saved);
 }
+
+TEST_CASE(StoppedPatternReplacementValidatesContinuationAndPlaysRetainedBindings) {
+    NativeRatePatternPlayer player;
+    auto original=Pattern(); auto bindings=Bindings(100);
+    CHECK_EQ(player.ReplacePattern(original),PatternPlayerStatus::NotConfigured);
+    CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+    RealtimePattern replacement; replacement.active_rows=3; replacement.active_channels=1;
+    replacement.cells[0][0]={NOTE_EMPTY,7}; // Selection without trigger.
+    replacement.cells[1][0]={60,0xFF};
+    replacement.cells[2][0]={NOTE_OFF,0xFF}; replacement.note_off_timing[2][0]=NoteOffTiming::EndOfPosition;
+    CHECK_EQ(player.ReplacePattern(replacement),PatternPlayerStatus::Success); CheckCleared(player);
+    CHECK_EQ(player.GetTransportState(),PatternTransportState::Stopped);
+    replacement.cells[1][0].note=61; // Copies caller metadata.
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t out[64]; CHECK_EQ(player.Render(out,60),PatternPlayerStatus::Success);
+    for (unsigned i=0;i<60;++i) {
+        // Row 1 triggers at floor(150000/12753)=11; next loop at row 4=47.
+        const unsigned trigger=i>=47 ? 47 : 11;
+        const auto expected=(i>=trigger && i-trigger<8) ? pcm[i-trigger] : 0;
+        CHECK_EQ(out[i],expected);
+    }
+    player.Stop();
+    // A later instrument selection cannot retroactively resolve the first note;
+    // validation must begin from cleared state, not assume a prior loop.
+    replacement.active_rows=2; replacement.cells[0][0]={60,7}; replacement.cells[1][0]={NOTE_EMPTY,99};
+    replacement.cells[0][0].instrument=0xFF;
+    CHECK_EQ(player.ReplacePattern(replacement),PatternPlayerStatus::MissingInstrument);
+    replacement.active_rows=3; replacement.cells[0][0]={NOTE_EMPTY,7};
+    replacement.cells[1][0]={60,0xFF}; replacement.cells[2][0]={NOTE_EMPTY,99};
+    // Selection at row zero repairs unknown last-loop selection: valid semantics.
+    CHECK_EQ(player.ReplacePattern(replacement),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); CHECK_EQ(player.Render(out,60),PatternPlayerStatus::Success);
+}
+TEST_CASE(StoppedPatternReplacementRejectionsPreserveAllPlayback) {
+    NativeRatePatternPlayer player; const auto original=Pattern(); const auto bindings=Bindings(100);
+    CHECK_EQ(player.Configure(12753,100,original,bindings),PatternPlayerStatus::Success);
+    const auto baseline=player;
+    for (unsigned kind=0;kind<7;++kind) {
+        auto candidate=original; PatternPlayerStatus expected;
+        switch(kind) {
+        case 0: candidate.active_rows=0; expected=PatternPlayerStatus::InvalidDimensions; break;
+        case 1: candidate.active_channels=9; expected=PatternPlayerStatus::InvalidDimensions; break;
+        case 2: candidate.cells[0][0].note=23; expected=PatternPlayerStatus::InvalidNote; break;
+        case 3: candidate.note_off_timing[0][0]=static_cast<NoteOffTiming>(2); expected=PatternPlayerStatus::InvalidNoteOffTiming; break;
+        case 4: candidate.cells[0][0].instrument=0xFF; expected=PatternPlayerStatus::MissingInstrument; break;
+        case 5: candidate.cells[0][0].instrument=99; expected=PatternPlayerStatus::UnknownInstrument; break;
+        default: candidate.cells[0][0].note=61; expected=PatternPlayerStatus::UnsupportedPitch; break;
+        }
+        CHECK_EQ(player.ReplacePattern(candidate),expected); CheckPlayback(player,baseline);
+        auto probe=player; auto reference=baseline; std::int16_t actual[12], wanted[12];
+        CHECK_EQ(probe.Start(),PatternPlayerStatus::Success); CHECK_EQ(reference.Start(),PatternPlayerStatus::Success);
+        CHECK_EQ(probe.Render(actual,12),PatternPlayerStatus::Success); CHECK_EQ(reference.Render(wanted,12),PatternPlayerStatus::Success);
+        for(unsigned i=0;i<12;++i) CHECK_EQ(actual[i],wanted[i]);
+    }
+    auto endoff=original; endoff.cells[1][0]={NOTE_OFF,0xFF}; endoff.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    CHECK_EQ(player.ReplacePattern(endoff),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); std::int16_t out[12];
+    CHECK_EQ(player.Render(out,12),PatternPlayerStatus::Success); const auto playing=player;
+    CHECK(NativeRatePatternPlayerTestAccess::Pending(player,0));
+    CHECK_EQ(player.ReplacePattern(original),PatternPlayerStatus::InvalidTransportState); CheckPlayback(player,playing);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success); const auto paused=player;
+    CHECK_EQ(player.ReplacePattern(original),PatternPlayerStatus::InvalidTransportState); CheckPlayback(player,paused);
+    player.Stop(); CHECK_EQ(player.ReplacePattern(original),PatternPlayerStatus::Success); CheckCleared(player);
+}

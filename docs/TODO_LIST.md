@@ -287,6 +287,17 @@ design remains unchanged.
 * [ ] Implement local draft publication/live-edit integration separately;
   local toggles remain NOT SENT TO TEENSY. The Windows confirmation does not
   establish end-of-position hardware timing or an execution budget.
+* [x] Add core-only `NativeRatePatternPlayer::ReplacePattern`: configured/Stopped
+  only, retaining tempo, rate and validated sample bindings. Active dimensions,
+  notes and OFF timing are checked; two bounded logical passes from cleared state
+  reuse sample preparation to reject missing/unknown instruments and unsupported
+  native-rate pitches while respecting instrument-only continuation. Success copies
+  complete pattern metadata and clears position, voices, continuation and deferred
+  Stops; rejection preserves all state. Host tests cover PCM playback/loops,
+  validation, Playing/Paused rejection and rollback. Render processing limits and
+  arithmetic exhaustion remain explicit runtime checks.
+* [ ] Integrate stopped-only replacement with publication/protocol/UI/firmware
+  and validate hardware behavior; no live editing is included in this foundation.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning at the next row

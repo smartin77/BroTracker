@@ -58,18 +58,8 @@ namespace BroTracker
         {
             if (tempo_hundredths == 0) return PatternPlayerStatus::InvalidTempo;
             if (sample_rate_hz == 0) return PatternPlayerStatus::InvalidSampleRate;
-            if (pattern.active_rows == 0 || pattern.active_rows > kRealtimePatternRowCapacity ||
-                pattern.active_channels == 0 || pattern.active_channels > kRealtimePatternChannelCapacity)
-                return PatternPlayerStatus::InvalidDimensions;
-            for (std::size_t row = 0; row < pattern.active_rows; ++row)
-                for (std::size_t channel = 0; channel < pattern.active_channels; ++channel)
-                {
-                    const Note note = pattern.cells[row][channel].note;
-                    if (!ValidNoteOffTiming(pattern.note_off_timing[row][channel]))
-                        return PatternPlayerStatus::InvalidNoteOffTiming;
-                    if (!IsPatternNote(note))
-                        return PatternPlayerStatus::InvalidNote;
-                }
+            const auto pattern_status = ValidatePattern(pattern);
+            if (pattern_status != PatternPlayerStatus::Success) return pattern_status;
             MusicalTickCursor cursor;
             (void)cursor.Configure(tempo_hundredths, sample_rate_hz);
             NativeRateSampleCommandPreparer preparer;
@@ -88,6 +78,42 @@ namespace BroTracker
             transport_ = PatternTransportState::Stopped;
             next_sample_ = 0;
             position_ = {};
+            return PatternPlayerStatus::Success;
+        }
+
+        // Stopped-only metadata replacement, not live editing or publication.
+        // Retains validated sample bindings, tempo and output rate. Caller-owned
+        // immutable PCM/lifetime guarantees from Configure continue to apply.
+        // Input must remain immutable during the call and not overlap this object.
+        // Preflight two complete logical passes from cleared channel state: the
+        // first establishes selections; the second checks loop continuation.
+        // Instrument-only updates remain selections (no sample lookup until a note).
+        // Bound: <=32 rows, <=256 events, <=4096 binding comparisons, fixed copies.
+        // No rendering or cursor advancement. Existing block/tick/command limits
+        // and arithmetic exhaustion remain Render-time checks, not acceptance guarantees.
+        // Rejection preserves ALL state. Success copies even inactive metadata,
+        // remains Stopped at zero, and clears voices, continuation and pending Stops.
+        [[nodiscard]] PatternPlayerStatus ReplacePattern(const RealtimePattern& pattern) noexcept
+        {
+            if (!configured_) return PatternPlayerStatus::NotConfigured;
+            if (transport_ != PatternTransportState::Stopped) return PatternPlayerStatus::InvalidTransportState;
+            const auto validation = ValidatePattern(pattern);
+            if (validation != PatternPlayerStatus::Success) return validation;
+            auto tentative = preparer_;
+            tentative.Reset();
+            for (std::uint64_t pass = 0; pass < 2; ++pass)
+                for (std::uint64_t row = 0; row < pattern.active_rows; ++row)
+                {
+                    RowEventBatch events{};
+                    const MusicalTick tick{(pass * pattern.active_rows + row) * kTicksPerRow, 0, 0};
+                    if (GenerateRowEvents(tick, pattern, events) != RowEventStatus::Success)
+                        return PatternPlayerStatus::ComponentError;
+                    RamVoiceCommandBatch commands{};
+                    const auto result = tentative.Prepare(events, commands);
+                    if (result != SampleCommandStatus::Success) return SampleStatus(result);
+                }
+            pattern_ = pattern;
+            Stop();
             return PatternPlayerStatus::Success;
         }
 
@@ -284,6 +310,22 @@ namespace BroTracker
             return PatternPlayerStatus::Success;
         }
     private:
+        static PatternPlayerStatus ValidatePattern(const RealtimePattern& pattern) noexcept
+        {
+            if (pattern.active_rows == 0 || pattern.active_rows > kRealtimePatternRowCapacity ||
+                pattern.active_channels == 0 || pattern.active_channels > kRealtimePatternChannelCapacity)
+                return PatternPlayerStatus::InvalidDimensions;
+            for (std::size_t row = 0; row < pattern.active_rows; ++row)
+                for (std::size_t channel = 0; channel < pattern.active_channels; ++channel)
+                {
+                    const Note note = pattern.cells[row][channel].note;
+                    if (!ValidNoteOffTiming(pattern.note_off_timing[row][channel]))
+                        return PatternPlayerStatus::InvalidNoteOffTiming;
+                    if (!IsPatternNote(note))
+                        return PatternPlayerStatus::InvalidNote;
+                }
+            return PatternPlayerStatus::Success;
+        }
         static PatternPlayerStatus SampleStatus(SampleCommandStatus status) noexcept
         {
             switch (status)
