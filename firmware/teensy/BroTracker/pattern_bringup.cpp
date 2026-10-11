@@ -6,6 +6,7 @@
 #include "bringup/pattern_control.h"
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
+#include "bringup/pattern_publication.h"
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -115,7 +116,9 @@ namespace
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
-    PatternSnapshotSender g_pattern_transfer(kPattern, kTempoHundredths);
+    RealtimePattern g_active_pattern = kPattern; // Main-loop readback source, changed only after audio acknowledgement.
+    PatternPublication g_publication;
+    PatternSnapshotSender g_pattern_transfer(g_active_pattern, kTempoHundredths);
     PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
     bool g_protocol_connected = false;
     std::uint32_t g_last_position_ms = 0;
@@ -150,6 +153,24 @@ namespace
             (void)QueueLine("BTPATTERN1 SNAPCAP 2\n");
             (void)QueueLine("BTPATTERN1 SNAPCAP 1\n");
             (void)QueueLine("BTPATTERN1 TRANSPORTCAP 1\n");
+            (void)QueueLine("BTPUBLISH1 CAP 1\n");
+        }
+    }
+    void PublicationError(std::uint32_t id, PublicationStatus reason)
+    {
+        char error[96];
+        std::snprintf(error,sizeof(error),"BTPUBLISH1 ERROR 1 %" PRIu32 " %u\n", id, unsigned(reason));
+        (void)QueueLine(error);
+    }
+    const char* ReplacementRejection(PatternPlayerStatus status)
+    {
+        switch (status) {
+        case PatternPlayerStatus::InvalidTransportState: return "playing-or-paused";
+        case PatternPlayerStatus::NotConfigured: return "not-configured";
+        case PatternPlayerStatus::MissingInstrument: return "missing-instrument";
+        case PatternPlayerStatus::UnknownInstrument: return "unknown-instrument";
+        case PatternPlayerStatus::UnsupportedPitch: return "unsupported-pitch";
+        default: return "invalid-pattern";
         }
     }
     void FlushSerial()
@@ -182,7 +203,7 @@ namespace
     }
     void ServiceSerial()
     {
-        static char line[64]; static std::size_t used = 0;
+        static char line[kPatternSnapshotLineCapacity]; static std::size_t used = 0;
         static bool overflow = false;
         static std::uint32_t reported_failures = 0;
         if (!Serial)
@@ -191,6 +212,7 @@ namespace
             g_tx_head = g_tx_count = 0;
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
+            g_publication.NewSession();
             g_protocol_connected = false;
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
@@ -202,10 +224,26 @@ namespace
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
             if (!ready) break;
-            (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR transport\n" :
-                applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" :
-                applied.request == PatternRequest::Pause ? "BTTEST1 PAUSED\n" :
-                applied.request == PatternRequest::Continue ? "BTTEST1 CONTINUED\n" : "BTTEST1 STOPPED\n");
+            if (applied.request == PatternRequest::Replace)
+            {
+                // Audio has finished reading frozen staging. Synchronize the
+                // main-owned readback source OUTSIDE interrupt exclusion, BEFORE
+                // APPLIED and before accepting GET/another publication.
+                const bool synchronized = g_publication.Complete(applied.publication_id,
+                    applied.result == PatternPlayerStatus::Success,g_active_pattern);
+                char reply[96];
+                if (synchronized && applied.result == PatternPlayerStatus::Success)
+                    std::snprintf(reply,sizeof(reply),"BTPUBLISH1 APPLIED 1 %" PRIu32 "\n",applied.publication_id);
+                else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
+                    applied.publication_id,synchronized ? ReplacementRejection(applied.result) : "handoff-error");
+                (void)QueueLine(reply);
+            }
+            else {
+                (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR transport\n" :
+                    applied.request == PatternRequest::Start ? "BTTEST1 STARTED\n" :
+                    applied.request == PatternRequest::Pause ? "BTTEST1 PAUSED\n" :
+                    applied.request == PatternRequest::Continue ? "BTTEST1 CONTINUED\n" : "BTTEST1 STOPPED\n");
+            }
             // Replace unsent pre-command telemetry; partial older lines finish
             // BEFORE the ACK, so the host's pending-command barrier rejects them.
             if (g_protocol_connected) OfferPosition(Snapshot());
@@ -213,6 +251,9 @@ namespace
         const auto status = Snapshot();
         const auto now = static_cast<std::uint32_t>(millis());
         g_pattern_transfer.Tick(now);
+        // Preserve timeout notifications under TX backpressure (do not Tick/drop).
+        if (g_tx_count < kTxCapacity && g_publication.Tick(now))
+            PublicationError(g_publication.Identity(),PublicationStatus::Timeout);
         if (g_protocol_connected && now - g_last_position_ms >= 50)
         {
             OfferPosition(status);
@@ -231,7 +272,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + 4 <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + 5 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
@@ -245,14 +286,42 @@ namespace
             }
             if (used && line[used - 1] == '\r') --used;
             line[used] = '\0';
-            if (overflow) (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
-                "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
-            else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS"))
+            if (overflow) {
+                if (!std::strncmp(line,"BTPUBLISH1",10)) {
+                    g_publication.Cancel(); PublicationError(0,PublicationStatus::Malformed);
+                } else (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
+                    "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
+            }
+            else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
+                if (!std::strcmp(line,"BTTEST1 HELLO")) g_publication.NewSession();
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
+            }
+            else if (!std::strncmp(line,"BTPUBLISH1",10))
+            {
+                PublicationMessage message;
+                if (!ParsePublication(line,used,message)) {
+                    g_publication.Cancel(); PublicationError(0,PublicationStatus::Malformed);
+                } else if (!g_protocol_connected) PublicationError(message.fields[0],PublicationStatus::NotConnected);
+                else {
+                    const auto result = g_publication.Accept(message,now,g_pattern_transfer.HasData());
+                    if (result == PublicationStatus::Ready) {
+                        (void)g_publication.Freeze();
+                        PatternRequestStatus accepted;
+                        { InterruptGuard guard; accepted = g_control.SubmitPattern(*g_publication.Frozen(),g_publication.Identity()); }
+                        if (accepted != PatternRequestStatus::Accepted) {
+                            g_publication.Finish(); PublicationError(message.fields[0],PublicationStatus::QueueFull);
+                        } else {
+                            char reply[64];
+                            std::snprintf(reply,sizeof(reply),"BTPUBLISH1 SUBMITTED 1 %" PRIu32 "\n",message.fields[0]);
+                            (void)QueueLine(reply); // Not proof of application; never automatically retries.
+                        }
+                    } else if (result != PublicationStatus::Receiving) PublicationError(message.fields[0],result);
+                }
+            }
             else if (!std::strncmp(line, "BTPATTERN1 GET", 14))
             {
                 std::uint32_t id = 0; unsigned version = 1;
-                if (!ParseSnapshotRequest(line, used, id, version) || !g_pattern_transfer.Begin(id, now, version))
+                if (!ParseSnapshotRequest(line, used, id, version) || !g_pattern_transfer.Begin(id, now, version,g_publication.Busy()))
                 {
                     char error[64];
                     std::snprintf(error, sizeof(error), "BTPATTERN1 SNAPERR %u %" PRIu32 "\n", version, id);

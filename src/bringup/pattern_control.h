@@ -5,13 +5,14 @@
 namespace BroTracker
 {
     constexpr std::size_t kPatternRequestCapacity = 8;
-    enum class PatternRequest { Start, Stop, Pause, Continue };
+    enum class PatternRequest { Start, Stop, Pause, Continue, Replace };
     enum class PatternRequestStatus { Accepted, Full, InvalidRequest };
     enum class PatternFault { None, Configuration, Render, Allocation };
     struct PatternAppliedRequest
     {
         PatternRequest request = PatternRequest::Stop;
         PatternPlayerStatus result = PatternPlayerStatus::Success;
+        std::uint32_t publication_id = 0;
     };
     struct PatternBringUpStatus
     {
@@ -46,8 +47,18 @@ namespace BroTracker
                 request != PatternRequest::Pause && request != PatternRequest::Continue)
                 return PatternRequestStatus::InvalidRequest;
             if (request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
-            requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = request;
+            requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = {request, nullptr, 0};
             ++request_count_;
+            return PatternRequestStatus::Accepted;
+        }
+        // Main-loop critical section. Storage must stay frozen until TakeApplied
+        // returns this ID. One outstanding replacement; FIFO order with transport.
+        [[nodiscard]] PatternRequestStatus SubmitPattern(const RealtimePattern& pattern,
+            std::uint32_t id) noexcept {
+            if (!id) return PatternRequestStatus::InvalidRequest;
+            if (publication_pending_ || request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
+            requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = {PatternRequest::Replace, &pattern, id};
+            ++request_count_; publication_pending_ = true;
             return PatternRequestStatus::Accepted;
         }
         bool TakeApplied(PatternAppliedRequest& output) noexcept
@@ -56,6 +67,7 @@ namespace BroTracker
             output = applied_[applied_head_];
             applied_head_ = (applied_head_ + 1) % kPatternRequestCapacity;
             --applied_count_;
+            if (output.request == PatternRequest::Replace) publication_pending_ = false;
             return true;
         }
         PatternBringUpStatus Snapshot() const noexcept { return status_; }
@@ -73,7 +85,8 @@ namespace BroTracker
         }
 
         // Audio owner only. Apply at most eight requests at the block boundary,
-        // then render exactly once. Caller supplies <=128 frames and valid writable
+        // then render exactly once. A replacement reuses bounded two-pass core
+        // validation, adding <=256 events/4096 binding comparisons per block. Caller supplies <=128 frames and valid writable
         // output when storage_available. PCM lifetime/non-overlap follow the player.
         // Rejection zeros the entire available span, Stops and latches an error;
         // subsequent blocks stay silent, never retrying a frozen position. Explicit
@@ -86,11 +99,13 @@ namespace BroTracker
             for (std::size_t budget = 0; budget < kPatternRequestCapacity &&
                 request_count_ != 0 && applied_count_ < kPatternRequestCapacity; ++budget)
             {
-                const auto request = requests_[request_head_];
+                const auto entry = requests_[request_head_];
+                const auto request = entry.request;
                 request_head_ = (request_head_ + 1) % kPatternRequestCapacity;
                 --request_count_;
                 PatternPlayerStatus result = PatternPlayerStatus::Success;
-                if (request == PatternRequest::Start)
+                if (request == PatternRequest::Replace) result = player_.ReplacePattern(*entry.pattern);
+                else if (request == PatternRequest::Start)
                 {
                     result = player_.Start();
                     if (result == PatternPlayerStatus::Success)
@@ -103,7 +118,7 @@ namespace BroTracker
                 else if (status_.fault != PatternFault::None) result = PatternPlayerStatus::InvalidTransportState;
                 else if (request == PatternRequest::Pause) result = player_.Pause();
                 else result = player_.Continue();
-                applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result};
+                applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result,entry.id};
                 ++applied_count_;
             }
             if (!storage_available)
@@ -146,7 +161,9 @@ namespace BroTracker
         }
         NativeRatePatternPlayer player_;
         PatternBringUpStatus status_;
-        PatternRequest requests_[kPatternRequestCapacity]{};
+        struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; };
+        RequestEntry requests_[kPatternRequestCapacity]{};
+        bool publication_pending_ = false;
         PatternAppliedRequest applied_[kPatternRequestCapacity]{};
         std::size_t request_head_ = 0, request_count_ = 0;
         std::size_t applied_head_ = 0, applied_count_ = 0;

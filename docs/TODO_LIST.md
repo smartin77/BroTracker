@@ -296,8 +296,20 @@ design remains unchanged.
   Stops; rejection preserves all state. Host tests cover PCM playback/loops,
   validation, Playing/Paused rejection and rollback. Render processing limits and
   arithmetic exhaustion remain explicit runtime checks.
-* [ ] Integrate stopped-only replacement with publication/protocol/UI/firmware
-  and validate hardware behavior; no live editing is included in this foundation.
+* [x] Add capability-gated opt-in firmware publication via `BTPUBLISH1 CAP 1`
+  and versioned BEGIN/CELL/COMMIT. Portable fixed 16x8 staging validates identity,
+  ordered cells, dimensions/count and FNV-1a32 including core OFF timing. One
+  transaction freezes storage until audio-owner acknowledgement; replacement is
+  ordered with transport and accepted only at the actual configured/Stopped state.
+  Main-loop readback synchronization precedes APPLIED; snapshot/publication
+  exclusion prevents mixed revisions. Five-second unsubmitted timeout/session
+  cancellation and increasing per-boot IDs prevent duplicate COMMIT application.
+  Submitted timeouts are uncertain outcomes requiring authoritative readback.
+  Host tests cover apply/readback, validation, immutable handoff, transport rejection,
+  FIFO backpressure, snapshot exclusion and telemetry/ACK interleaving.
+* [ ] Validate stopped-only publication on Windows + Teensy, then ArkOS; physical
+  timing/performance remain unmeasured. BTX sending controls, draft rebasing,
+  publication UI, live editing, sample transfer and persistence remain unimplemented.
 * [x] Implement explicit core Stopped/Playing/Paused transport and opt-in audio-owner
   Pause/Continue requests. Pause silences voices while retaining logical continuation
   and consumed position; Continue uses bounded absolute positioning at the next row

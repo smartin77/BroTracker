@@ -186,9 +186,9 @@ namespace BroTracker
     public:
         PatternSnapshotSender(const RealtimePattern& pattern, std::uint32_t tempo_hundredths) noexcept
             : pattern_(pattern), tempo_hundredths_(tempo_hundredths) {}
-        bool Begin(std::uint32_t id, std::uint32_t now, unsigned version = 1) noexcept
+        bool Begin(std::uint32_t id, std::uint32_t now, unsigned version = 1, bool publication_busy = false) noexcept
         {
-            if ((version != 1 && version != 2) || !id || HasData() || !tempo_hundredths_ || !pattern_.active_rows ||
+            if (publication_busy || (version != 1 && version != 2) || !id || HasData() || !tempo_hundredths_ || !pattern_.active_rows ||
                 pattern_.active_rows > kRealtimePatternRowCapacity || !pattern_.active_channels ||
                 pattern_.active_channels > kRealtimePatternChannelCapacity) return false;
             for (std::size_t r = 0; r < pattern_.active_rows; ++r)

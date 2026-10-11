@@ -520,3 +520,88 @@ Teensy 4.1 validation on **2026-10-11** covers pattern display, OFF timing toggl
 snapshot/editor scope is complete. ArkOS validation, end-of-position hardware
 timing and realtime performance checks remain open; local toggles are still
 NOT SENT TO TEENSY and do not establish deferred Stop timing at physical outputs.
+
+### Stopped-only pattern publication (host-tested; hardware pending)
+
+This opt-in firmware foundation advertises a separate `BTPUBLISH1 CAP 1` after
+HELLO. A future sender must discover this capability before using publication;
+legacy firmware receives no new commands. Current BTX has no sending controls,
+automatic publication/retry or draft rebasing: local drafts remain NOT SENT TO
+TEENSY. The boot fixture, tempo 12753, 44100 Hz, native-rate bindings and ordinary
+firmware/USB trace paths are unchanged. Only an explicitly submitted replacement
+can change the active pattern.
+
+```text
+device -> host: BTPUBLISH1 CAP 1
+host -> device: BTPUBLISH1 BEGIN 1 <id> <rows> <channels> <count>
+host -> device: BTPUBLISH1 CELL 1 <id> <index> <note> <instrument> <timing>
+host -> device: BTPUBLISH1 COMMIT 1 <id> <count> <checksum>
+device -> host: BTPUBLISH1 SUBMITTED 1 <id>
+device -> host: BTPUBLISH1 APPLIED 1 <id>
+device -> host: BTPUBLISH1 REJECTED 1 <id> <reason>
+device -> host: BTPUBLISH1 ERROR 1 <id> <code>
+```
+
+Lines use exact single spaces and unsigned decimal uint32 fields, ending in LF
+(optional trailing CR on input). No signs, extra fields, embedded NUL, overflow or
+unsupported versions. ID is nonzero and strictly increases across HELLO/disconnect
+sessions during one board boot: reuse is rejected, including after cancellation or
+lost ACK. At UINT32_MAX no further transaction can begin until an explicit reboot;
+never automatically reboot or retry. ERROR uses ID 0 when malformed input cannot
+be attributed safely. BEGIN dimensions are 1..16 rows and 1..8 channels; count is
+exactly rows*channels (maximum 128). Cells are ordered, zero-based row-major,
+exactly once; note is 24..127, 254=OFF or 255=empty, instrument is raw 0..255,
+timing is 0=Arrival / 1=EndOfPosition. Timing is separate from instruments and
+meaningful only for OFF. Inactive storage defaults empty/Arrival.
+
+Checksum is FNV-1a32, initial 2166136261, byte update `(hash XOR byte)*16777619`
+modulo 2^32: rows byte, channels byte, then every note/instrument/timing triple in
+row-major order. Tempo, sample rate, bindings, PCM and ID are not transferred.
+COMMIT requires all cells and exact count/hash. Partial or rejected staging never
+alters the active pattern. BEGIN/CELL have no success ACK; SUBMITTED confirms queue
+acceptance only. ERROR codes: 2 malformed/unsupported/overlong, 3 transaction busy,
+4 stale/invalid identity, 5 invalid dimensions/count, 6 invalid/duplicate/out-of-order
+cell, 7 incomplete/count/checksum COMMIT, 8 timeout, 9 snapshot busy, 10 request queue
+full, 11 no HELLO connection. REJECTED reasons are `playing-or-paused`,
+`not-configured`, `missing-instrument`, `unknown-instrument`, `unsupported-pitch`,
+`invalid-pattern`; `handoff-error` reports an internal synchronization inconsistency.
+Rejection does not STOP or mutate the existing core configuration/pattern.
+
+One fixed staging transaction has a five-second total deadline from valid BEGIN,
+with no extension per cell. New HELLO or disconnect cancels only unsubmitted work.
+Before COMMIT submission, main freezes staging; only a const pointer and identity
+cross the existing interrupt-protected request FIFO. The audio owner calls
+ReplacePattern at a block boundary in FIFO order with START/STOP/PAUSE/CONTINUE,
+checking actual state rather than an earlier main-loop status. Playing/Paused
+reject; no automatic STOP. Core validation reuses retained sample bindings and
+two logical passes (up to 256 events / 4096 binding comparisons), with fixed storage,
+no allocation/serial I/O. This adds bounded work but no measured realtime budget.
+Successful replacement remains stopped at position zero with continuation, voices
+and deferred Stops cleared, unless a later explicit transport request changes it.
+
+Submitted storage stays immutable through timeout, disconnect and HELLO until the
+audio-owner acknowledgement is extracted. A full applied FIFO delays processing
+without dropping requests. Main copies successful staging to the snapshot source
+outside interrupt exclusion, then releases storage and queues APPLIED. Rejection
+leaves the old snapshot source intact. GET is rejected while publication is
+receiving/submitted; publication is rejected while a snapshot (including a partial
+line) remains active. Subsequent GET therefore describes the applied revision,
+never a mixture or the original fixture after replacement.
+
+ACKs retain the existing bounded 16-line priority queue; position and snapshot
+lines alternate fairly and partial lines finish before switching lanes. RX handles
+at most 128 bytes/one line per service, with 96-byte line storage; TX writes at most
+64 bytes per service. Queue saturation backpressures RX. Publication has no dynamic
+queue, formatting or I/O in audio processing. After SUBMITTED, a host timeout or
+lost ACK is an **uncertain outcome**, not cancellation: do not resend COMMIT or
+publish automatically. Reconnect/HELLO and authoritative GET readback resolve the
+actual pattern once the pending transaction finishes; GET may report SNAPERR while
+busy. No transaction status persistence across reboot is provided.
+
+Portable tests cover complete application/readback with both OFF modes, malformed
+and overflowing input, ordering/count/checksum failures, timeout/session cancellation,
+frozen storage/duplicate COMMIT, actual Playing/Paused rejection, retained old-pattern
+playback after rejection, stopped-zero success, queue saturation, snapshot exclusion
+and ACK/telemetry interleaving under partial writes. Hardware validation of publication
+is pending for Windows + Teensy and ArkOS. No BTX sending UI, rebasing, live edits,
+sample transfer or persistence is implemented; physical timing/performance remain open.
