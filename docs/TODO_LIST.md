@@ -499,7 +499,22 @@ design remains unchanged.
 * [ ] Revalidate F5 deletion apply/readback and unsupported-pitch rejection on
   Windows + Teensy after the transport correction; ArkOS/hardware checks remain open.
 
+* [x] Add shared session-local remembered pitched-note entry: first PgUp/PgDn on
+  an empty Note field inserts the last edited pitch unchanged; subsequent actions
+  use existing cyclic/repeat behavior. No instrument insertion, no preference
+  changes from navigation/OFF/instrument/DELETE, no pattern/dirty/wire metadata.
+  Restore/readback preserve it; disconnect clears it. Host tests cover both directions,
+  cross-row/channel reuse, held repeat, Restore and confirmed-readback rebase.
+* [x] User confirmed on 2026-10-11 that, after clearing both channels, a published
+  first-channel C-3 / instrument 01 pattern on rows 01 and 09 plays correctly.
+  This does not confirm all paused-publication cases or measured hardware timing.
+* [ ] Validate remembered note entry on Windows + Teensy and ArkOS.
+
 ## Deferred Tasks
+
+* [ ] Design tracker-style pitched-note entry with letter keys on desktop and ArkOS
+  using an attached keyboard. Key mapping and octave controls remain undecided;
+  no implementation yet.
 
 * [ ] Design bounded local-editor undo/redo with atomic note/instrument/OFF-timing
   edit records, including combined Note DELETE. Preserve cursor independence;

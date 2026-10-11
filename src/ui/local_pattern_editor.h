@@ -114,7 +114,8 @@ public:
             else if (action == EditorAction::NoteOff) { if (!note) return false; replacement = NOTE_OFF; }
             else if (action == EditorAction::Increment || action == EditorAction::Decrement)
             {
-                if (old > maximum) replacement = minimum;
+                if (note && old == NOTE_EMPTY && remembered_note_) replacement = *remembered_note_;
+                else if (old > maximum) replacement = minimum;
                 else if (action == EditorAction::Increment) {
                     if (old == maximum && !note) return false;
                     replacement = old == maximum ? minimum : old + 1;
@@ -125,7 +126,11 @@ public:
                 }
             }
             else if (replacement < minimum || replacement > maximum) return false;
-            if (note) { cell.note = static_cast<Note>(replacement); timing = LocalNoteOffTiming::Arrival; }
+            if (note) {
+                cell.note = static_cast<Note>(replacement); timing = LocalNoteOffTiming::Arrival;
+                if (replacement >= kPatternNoteMinimum && replacement <= kPatternNoteMaximum)
+                    remembered_note_ = cell.note;
+            }
             else cell.instrument = static_cast<std::uint8_t>(replacement);
             return true;
         }
@@ -139,4 +144,7 @@ private:
     BroTracker::DevicePatternSnapshot baseline_;
     BroTracker::RealtimePattern draft_;
     EditCursor cursor_;
+    // Session-local entry preference: never copied from snapshots or included in
+    // dirty/publication data. Sync(disconnect) clears it with the editor session.
+    std::optional<Note> remembered_note_;
 };

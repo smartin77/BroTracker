@@ -439,3 +439,39 @@ TEST_CASE(OneBasedInstrumentDisplayAndRawEditorBounds) {
         CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"--");
     }
 }
+
+TEST_CASE(RememberedNoteEntryIsSessionLocalAndDirectionIndependent) {
+    for(const auto direction : {EditorAction::Increment,EditorAction::Decrement}) {
+        auto live=ConnectedDraft(); live->device_pattern->version=2;
+        LocalPatternEditor editor; editor.Sync(live);
+        CHECK(editor.Apply(direction)); const auto remembered=editor.Draft()->cells[0][0].note;
+        CHECK_EQ(remembered,direction==EditorAction::Increment ? 61 : 59);
+        CHECK(editor.Apply(EditorAction::Down)); CHECK(editor.Apply(EditorAction::NextChannel));
+        CHECK(editor.Apply(direction)); CHECK_EQ(editor.Draft()->cells[1][1].note,remembered);
+        CHECK_EQ(editor.Draft()->cells[1][1].instrument,255);
+        CHECK(editor.Apply(direction)); const auto changed=editor.Draft()->cells[1][1].note;
+        CHECK_EQ(changed,direction==EditorAction::Increment ? remembered+1 : remembered-1);
+        CHECK(editor.Apply(EditorAction::NoteOff)); CHECK(editor.Apply(EditorAction::Clear));
+        CHECK(editor.Apply(EditorAction::Right)); CHECK(editor.Apply(EditorAction::Increment));
+        CHECK(editor.Apply(EditorAction::Left)); CHECK(editor.Apply(direction));
+        CHECK_EQ(editor.Draft()->cells[1][1].note,changed); CHECK_EQ(editor.Draft()->cells[1][1].instrument,0);
+        CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+        CHECK(editor.Apply(direction)); CHECK_EQ(editor.Draft()->cells[1][1].note,changed);
+        auto readback=*editor.Baseline(); readback.pattern=*editor.Draft(); CHECK(editor.Rebase(readback));
+        CHECK(!editor.Dirty()); CHECK(editor.Apply(EditorAction::Down)); CHECK(editor.Apply(direction));
+        CHECK_EQ(editor.Draft()->cells[2][1].note,changed);
+        editor.Sync(std::nullopt); editor.Sync(live); CHECK(editor.Apply(EditorAction::Down));
+        CHECK(editor.Apply(direction)); CHECK_EQ(editor.Draft()->cells[1][0].note,kPatternNoteMinimum);
+    }
+}
+TEST_CASE(RememberedNoteHeldEntryThenDirectionalRepeat) {
+    for(const auto direction : {EditorAction::Increment,EditorAction::Decrement}) {
+        LocalPatternEditor editor; editor.Sync(ConnectedDraft()); CHECK(editor.Apply(EditorAction::SetValue,72));
+        CHECK(editor.Apply(EditorAction::Down)); EditorRepeat repeat;
+        CHECK(repeat.Begin(direction,0,editor)); CHECK_EQ(editor.Draft()->cells[1][0].note,72);
+        CHECK(!repeat.Tick(399,true,editor)); CHECK(repeat.Tick(400,true,editor));
+        CHECK_EQ(editor.Draft()->cells[1][0].note,direction==EditorAction::Increment ? 73 : 71);
+        CHECK(!repeat.Tick(499,true,editor)); CHECK(repeat.Tick(500,true,editor));
+        CHECK_EQ(editor.Draft()->cells[1][0].note,direction==EditorAction::Increment ? 74 : 70);
+    }
+}

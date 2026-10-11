@@ -94,10 +94,11 @@ Device BPM/POS/LOOP remain authoritative.
   second field -> next channel's Note; Left reverses this sequence. Horizontal
   arrows stop at the outermost fields without wrapping and preserve the row.
   Tab/Shift+Tab jump to the next/previous active channel's Note field, wrapping.
-- Page Up/Down increment/decrement the selected numeric value. An empty or OFF
-  Note field initializes to C-0 (raw 24); pitched values cycle through C-0..G-8
+- Page Up/Down increment/decrement the selected numeric value. An empty Note field
+  inserts the remembered edited pitch unchanged, or C-0 (raw 24) if none exists.
+  OFF initializes to C-0; pitched values cycle through C-0..G-8
   (24..127): incrementing G-8 wraps to C-0, decrementing C-0 wraps to G-8.
-  Empty instrument fields initialize to zero; instrument bounds do not wrap.
+  Empty instrument fields initialize to raw ID 0 (displayed 01); instrument bounds do not wrap.
 - O enters NOTE_OFF in the Note field, defaulting to arrival-time `¯`. For OFF,
   the second field selects timing: `¯` stops at the current position's beginning,
   `_` stops at its end, whose duration follows musical timing/BPM. Both PgUp and
@@ -791,3 +792,22 @@ F5 and verify readback/clean draft with unchanged PAUSED row/loop; Continue must
 the replaced row once. Try unsupported pitch and verify connection/draft/baseline
 remain intact. Verify Playing F5 is blocked, STOP/close still work, and older CAP-only
 firmware permits only stopped F5. Hardware validation and realtime cost remain open.
+
+### Remembered pitched-note entry
+
+The shared editor remembers the last pitched note entered or changed by editing.
+On an empty Note field, the first PgUp or PgDn inserts that note unchanged, without
+adding an instrument; subsequent actions follow the normal direction, cyclic bounds
+and held-key acceleration. With no remembered note, entry still initializes C-0.
+An existing pitched note changes immediately and updates the preference. OFF entry
+and instrument edits, navigation and DELETE do not overwrite it; increment/decrement
+from OFF still initializes C-0 and remembers that newly entered pitched note.
+Restore and publication/readback never derive the preference from pattern contents;
+it is separate from dirty comparison/wire data and clears on disconnect.
+
+User confirmation on 2026-10-11: after clearing both channels, a published first-channel
+pattern with C-3 / instrument 01 on rows 01 and 09 plays correctly. This confirms that
+specific publication/playback case, not all paused-publication checks, hardware timing
+or realtime performance. Remembered entry hardware validation remains pending.
+Tracker-style letter-key pitched entry on desktop/ArkOS attached keyboards is deferred;
+key mappings and octave controls are not yet designed.
