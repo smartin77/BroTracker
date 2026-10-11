@@ -842,7 +842,9 @@ static void RenderPatternScreen(
                 live->position.running ? "Device playing (reported logical position)" : "Device stopped",
                 header_value);
             info(display.device_pattern ? (editor && editor->Ready() ?
-                    (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - DEVICE BASELINE") :
+                    (live->preview_supported ?
+                        (editor->Dirty() ? "WORKING DRAFT * - UNPUBLISHED" : "WORKING DRAFT - PUBLISHED BASELINE") :
+                        (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - DEVICE BASELINE")) :
                     "Device pattern (read-only)") :
                 live->pattern_loading ? "Loading device pattern..." : "Device pattern unavailable", header_name);
             if (live->telemetry_available)

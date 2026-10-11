@@ -285,8 +285,9 @@ design remains unchanged.
 * [ ] Validate snapshot-v2 OFF timing and shared editor on ArkOS; end-of-position
   hardware timing and realtime performance remain unmeasured.
 * [ ] Validate explicit F5 local draft publication separately from the confirmed
-  read-only editor; live-edit integration remains open. Unsaved local toggles remain
-  NOT SENT TO TEENSY. Prior Windows confirmation does not establish publication,
+  read-only editor; automatic volatile preview is now host-tested but hardware
+  validation remains open. Legacy toggles remain NOT SENT TO TEENSY until explicit
+  publication. Prior Windows confirmation does not establish publication,
   end-of-position hardware timing or an execution budget.
 * [x] Add core-only `NativeRatePatternPlayer::ReplacePattern`: configured/Stopped
   only, retaining tempo, rate and validated sample bindings. Active dimensions,
@@ -446,7 +447,8 @@ design remains unchanged.
   telemetry never changes the draft/cursor. Evidence: `src/ui/local_pattern_editor.h`,
   `src/ui/editor_repeat.h` and host/editor/input/display tests. User-performed Windows
   validation on 2026-10-10 confirms the final editor behavior works as agreed.
-  Edits remain local until explicit F5 publication, now host-tested; publication
+  Legacy edits remain local until explicit F5 publication; capability-gated volatile
+  preview now has separate automatic transfer. Publication
   hardware validation, ArkOS sending bindings and live edits remain open.
 
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
@@ -593,12 +595,13 @@ design remains unchanged.
   before new triggers and discard remaining old deferred work. Pause retains the
   candidate for Continue; Stop/Start adopt it while resetting. Host tests cover
   boundary ownership, edits/OFF, loops, partition independence and rollback/retry.
-* [ ] Integrate the agreed volatile WYSIWYG model: accepted local edits automatically
+* [x] Integrate the shared Windows volatile WYSIWYG model: accepted local edits automatically
   transfer to working playback; F4 restores the last published baseline in editor
   and playback; F5 promotes the accepted draft to that baseline. Playing publication
   remains blocked; volatile preview is separate and allowed while Playing.
-  Automatic host transfer, F4/F5 coordination and hardware validation are pending.
-  Current user-visible behavior is unchanged; preview/publication imply no SD persistence.
+  Automatic host transfer and F4/F5 coordination are host-tested. Preview does not
+  rebase publication/clear dirty state; rejection stays visible without retry.
+  Hardware validation remains pending; preview/publication imply no SD persistence.
 
 * [x] Implement opt-in device `BTPREVIEW1 CAP 1` volatile preview transfer and
   audio-owner lifecycle: fixed ordered/checksummed OFF-aware staging, consumed
@@ -609,9 +612,16 @@ design remains unchanged.
   publication synchronizes both sources and supersedes previews; Playing rejects.
   Host tests cover validation, ownership, boundary application, transport ordering,
   reconnect retention and partial readback/telemetry arbitration. No hardware result.
-* [ ] Integrate automatic BTX draft preview transfer and F4 baseline restore/F5
-  promotion coordination; validate preview protocol/backpressure on Windows +
-  Teensy, then ArkOS. Existing user-visible editing remains unchanged. No SD persistence.
+* [x] Add shared `HostPatternPreview` and Windows wiring: 75 ms debounce capped
+  at 250 ms for continuous edits, frozen in-flight transfer plus latest coalesced
+  draft, strict response phases and authoritative readback recovery. F4 queues
+  baseline preview; F5 freezes selection and suppresses older previews until exact
+  published readback. Transport has complete-line priority; rejected revisions
+  remain visible without automatic retry. Tests cover partial writes, held edits,
+  dirty state, recovery, races and end-to-end PCM/Restore/publication.
+* [ ] Validate automatic preview, F4/F5 coordination, rejection, uncertainty/reconnect,
+  backpressure and pause latency on Windows + Teensy, then ArkOS. Handheld bindings
+  remain deferred. No SD persistence; physical timing/performance remain unmeasured.
 
 ## Deferred Tasks
 

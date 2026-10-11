@@ -39,17 +39,17 @@ namespace BroTracker {
             Set("Publication sending"); return true;
         }
         bool CommitLine() const noexcept { return line_index_==Count()+1; }
-        bool FormatLine(char* output,std::size_t capacity,std::size_t& length) const noexcept {
+        bool FormatLine(char* output,std::size_t capacity,std::size_t& length, bool preview=false) const noexcept {
             if (phase_!=HostPublicationPhase::Sending || !output || !capacity) return false;
             int written;
-            if (!line_index_) written=std::snprintf(output,capacity,"BTPUBLISH1 BEGIN 1 %" PRIu32 " %u %u %u\n",
-                id_,unsigned(pattern_.active_rows),unsigned(pattern_.active_channels),Count());
-            else if (CommitLine()) written=std::snprintf(output,capacity,"BTPUBLISH1 COMMIT 1 %" PRIu32 " %u %" PRIu32 "\n",id_,Count(),hash_);
+            if (!line_index_) written=std::snprintf(output,capacity,"%s BEGIN 1 %" PRIu32 " %u %u %u\n",
+                preview ? "BTPREVIEW1" : "BTPUBLISH1",id_,unsigned(pattern_.active_rows),unsigned(pattern_.active_channels),Count());
+            else if (CommitLine()) written=std::snprintf(output,capacity,"%s COMMIT 1 %" PRIu32 " %u %" PRIu32 "\n",preview ? "BTPREVIEW1" : "BTPUBLISH1",id_,Count(),hash_);
             else {
                 const auto index=line_index_-1, row=index/pattern_.active_channels, channel=index%pattern_.active_channels;
                 const auto cell=pattern_.cells[row][channel];
-                written=std::snprintf(output,capacity,"BTPUBLISH1 CELL 1 %" PRIu32 " %u %u %u %u\n",
-                    id_,index,unsigned(cell.note),unsigned(cell.instrument),unsigned(pattern_.note_off_timing[row][channel]));
+                written=std::snprintf(output,capacity,"%s CELL 1 %" PRIu32 " %u %u %u %u\n",
+                    preview ? "BTPREVIEW1" : "BTPUBLISH1",id_,index,unsigned(cell.note),unsigned(cell.instrument),unsigned(pattern_.note_off_timing[row][channel]));
             }
             if(written<0 || static_cast<std::size_t>(written)>=capacity) return false;
             length=static_cast<std::size_t>(written); return true;

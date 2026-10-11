@@ -40,6 +40,14 @@ public:
             !BroTracker::SamePattern(snapshot.pattern,draft_)) return false;
         baseline_=snapshot; draft_=snapshot.pattern; return true;
     }
+    // Recovery installs verified working metadata (or retained local edits), never
+    // rebases the published baseline. Validate before mutation; cursor is independent.
+    bool RecoverDraft(const BroTracker::RealtimePattern& pattern) noexcept {
+        if(!ready_ || pattern.active_rows!=draft_.active_rows || pattern.active_channels!=draft_.active_channels) return false;
+        for(unsigned r=0;r<pattern.active_rows;++r) for(unsigned c=0;c<pattern.active_channels;++c)
+            if(!IsPatternNote(pattern.cells[r][c].note) || !BroTracker::ValidNoteOffTiming(pattern.note_off_timing[r][c])) return false;
+        draft_=pattern; return true;
+    }
     bool Ready() const noexcept { return ready_; }
     const EditCursor& Cursor() const noexcept { return cursor_; }
     const BroTracker::RealtimePattern* Draft() const noexcept { return ready_ ? &draft_ : nullptr; }

@@ -153,6 +153,7 @@ add_executable(BroTrackerTests
     tests/test_pattern_snapshot.cpp
     tests/test_pattern_publication.cpp
     tests/test_host_pattern_publication.cpp
+    tests/test_host_pattern_preview.cpp
     tests/test_local_pattern_editor.cpp
     src/ui/font.cpp
     src/ui/text_renderer.cpp

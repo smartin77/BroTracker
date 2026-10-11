@@ -6,6 +6,7 @@
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
 #include "bringup/host_pattern_publication.h"
+#include "bringup/host_pattern_preview.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -20,8 +21,13 @@ public:
     void Tick(std::uint32_t now);
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
-    bool PublicationBusy() const { return publication_.Blocking(); }
-    const char* PublicationStatus() const { return publication_.Status(); }
+    bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
+    const char* PublicationStatus() const {
+        if(publish_queued_) return "Publication queued; waiting for preview";
+        if(PublicationBusy() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
+            publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
+        return preview_.Supported() ? preview_.Status() : publication_.Status();
+    }
     bool Start();
     bool Stop();
     bool Pause();
@@ -76,6 +82,11 @@ private:
     std::uint32_t sent_at_ = 0;
     bool attempted_ = false;
     BroTracker::HostPatternPublication publication_;
+    BroTracker::HostPatternPreview preview_;
+    bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
+    BroTracker::RealtimePattern observed_editor_;
+    BroTracker::DevicePatternSnapshot queued_baseline_;
+    BroTracker::RealtimePattern queued_publication_;
     bool paused_publication_supported_ = false;
     bool publication_supported_ = false, next_discovery_expected_ = false, next_fresh_ = false;
     std::uint32_t next_publication_id_ = 0;

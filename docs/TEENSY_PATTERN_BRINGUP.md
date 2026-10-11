@@ -86,9 +86,11 @@ USB trace instrumentation. The installed framework is not modified.
 
 After a complete validated device snapshot arrives, BTX creates a separate local
 draft. The device snapshot remains read-only. The orange field border is the edit
-cursor; the teal row highlight remains the reported playback position. The draft
-is labeled **NOT SENT TO TEENSY**: changing it does not change audible playback.
-Device BPM/POS/LOOP remain authoritative.
+cursor; the grey row highlight/arrow remains the reported playback position.
+With preview capability, edits automatically request volatile working playback;
+the panel reports synchronization and unpublished dirty state. Legacy firmware
+keeps **NOT SENT TO TEENSY** until explicit publication. Device BPM/POS/LOOP remain
+authoritative.
 
 - Up/Down move previous/next row within active dimensions. Right moves Note ->
   second field -> next channel's Note; Left reverses this sequence. Horizontal
@@ -113,7 +115,8 @@ Device BPM/POS/LOOP remain authoritative.
   0xFF, including OFF, and resets timing to Arrival. Delete in a normal Instrument
   field clears only that instrument; explicit instrument-only editing remains supported.
   Empty instruments display `--`; instrument ID 0 remains a valid ID displayed as `01`.
-- F4 discards local edits by restoring the device baseline, retaining the cursor.
+- F4 restores the last published baseline, retaining the cursor. With preview
+  capability it also sends a volatile working preview; it does not publish.
 - Space uses the capability-gated transport described below; Return and numeric Enter STOP/reset,
   Ctrl+X and window close remain independent of editing. OS repeats are ignored.
   PgUp/PgDn alone repeat under application
@@ -133,14 +136,18 @@ Device BPM/POS/LOOP remain authoritative.
 
 NOTE_OFF timing is now core `NoteOffTiming` metadata copied from the validated
 read-only device snapshot into the draft, separate from instrument IDs. Version 2
-can carry EndOfPosition; legacy version 1 defaults to Arrival. Local changes remain
-**NOT SENT TO TEENSY** until explicit F5 stopped-only publication and confirmed
-readback, described below. Live editing is not implemented. The current
-bring-up fixture retains Arrival timings and its audio sequence is unchanged.
+can carry EndOfPosition; legacy version 1 defaults to Arrival. With explicit
+BTPREVIEW1 capability, local changes now automatically update volatile working
+playback, subject to device validation and synchronization status. Legacy firmware
+retains **NOT SENT TO TEENSY** and explicit F5 publication. F5 is stopped/paused
+only where supported; Playing publication remains blocked. No SD persistence.
+The boot fixture is unchanged; only accepted previews change working contents.
 
 Dirty state compares active raw cells and OFF timing with the baseline; restoring
 original values clears it. Telemetry never moves the edit cursor or overwrites edits.
-Disconnect disables editing and discards the connection-scoped draft. Reconnect
+Disconnect disables editing and clears the connection-scoped editor. Preview-capable
+sessions retain a bounded recovery copy of local edits until authoritative readback;
+it cannot be sent before recovery. Reconnect
 requires a fresh complete snapshot; edits are never replayed or published.
 The fixed shared model/actions and draft rendering are reusable by ArkOS, but
 handheld editor bindings and hardware validation remain outstanding. Existing
@@ -528,18 +535,19 @@ atomic rejection and baseline/Restore behavior. User-confirmed Windows BTX +
 Teensy 4.1 validation on **2026-10-11** covers pattern display, OFF timing toggling
 (`¯` / `_`), Restore and unchanged audio. Windows validation of this read-only
 snapshot/editor scope is complete. ArkOS validation, end-of-position hardware
-timing and realtime performance checks remain open; local toggles are still
-NOT SENT TO TEENSY and do not establish deferred Stop timing at physical outputs.
+timing and realtime performance checks remain open. That historical validation
+covered local-only toggles, not later automatic preview or physical Stop timing.
 
 ### Stopped-only pattern publication (host-tested; hardware pending)
 
 This opt-in firmware foundation advertises a separate `BTPUBLISH1 CAP 1` after
 HELLO. A future sender must discover this capability before using publication;
 legacy firmware receives no new commands. Windows BTX now has explicit stopped-only F5 publication and confirmed-readback
-rebasing, as described below. There is no automatic publication/retry; unsubmitted
-local edits remain NOT SENT TO TEENSY. The boot fixture, tempo 12753, 44100 Hz, native-rate bindings and ordinary
-firmware/USB trace paths are unchanged. Only an explicitly submitted replacement
-can change the active pattern.
+rebasing, as described below. There is no automatic publication/retry; automatic
+volatile preview is separate and never changes the published baseline. Legacy
+local edits remain NOT SENT TO TEENSY until explicit publication. The boot fixture,
+tempo 12753, 44100 Hz, native-rate bindings and ordinary firmware/USB trace paths
+are unchanged. Validated working previews may change volatile playback contents.
 
 ```text
 device -> host: BTPUBLISH1 CAP 1
@@ -1083,9 +1091,9 @@ working playback pattern; F4 restores the last published baseline in both editor
 and playback; F5 promotes the accepted draft to that baseline. Playing publication
 remains blocked. Volatile preview is a separate operation allowed while Playing,
 and does not imply SD persistence. This step implements only portable core support;
-automatic host transfer, firmware protocol, F4/F5 integration and hardware validation
-remain pending. Existing user-visible controls/behavior and validation records do
-not establish this new model as complete.
+firmware protocol and shared Windows automatic host transfer/F4/F5 coordination
+are now implemented in subsequent steps below. Hardware validation remains pending;
+earlier validation records do not establish this new model as validated.
 
 `NativeRatePatternPlayer::ReplaceWorkingPattern` accepts only unchanged active
 dimensions and validates all active notes/OFF timing plus native-rate resolution
@@ -1119,7 +1127,8 @@ These are not Teensy performance or hardware results.
 ### Device volatile preview protocol (host/hardware integration pending)
 
 Only opt-in pattern firmware advertises `BTPREVIEW1 CAP 1` on HELLO. Clients must
-wait for that capability; current BTX does not send preview transactions. HELLO
+wait for that capability; Windows BTX now sends automatic previews only when it
+is advertised. HELLO
 and STATUS also return `BTPREVIEW1 NEXT 1 <next_id>` and
 `BTPREVIEW1 STATE 1 <published_id> <working_id> <pending_id>`.
 All integers are strict unsigned decimal, no signs/overflow/extra fields.
@@ -1210,5 +1219,76 @@ No formatting, serial I/O, allocation or blocking occurs in audio processing.
 Portable tests cover strict identities/order/checksum/timing, timeout/cancellation,
 frozen ownership, actual boundary application, supersession, reconnect retention,
 Pause/Continue/Stop, publication exclusion/rejection and partial readback writes
-interleaved with telemetry. Teensy compilation/hardware behavior and automatic BTX
-sending/F4 restore/F5 promotion remain unvalidated or unimplemented in this step.
+interleaved with telemetry. Teensy compilation/hardware behavior remains unvalidated;
+Windows sending/F4 restore/F5 promotion is implemented below, with hardware pending.
+
+
+### Windows automatic volatile preview (host-tested; hardware pending)
+
+Shared `HostPatternPreview` coordinates complete drafts with BTPREVIEW1 CAP/NEXT,
+strict identity/version/phase parsing and exact v2 working/pending readback. Windows
+uses it automatically for accepted local edits while Stopped, Paused or Playing;
+Playing application is still exclusively the device's next-row-boundary decision.
+ACCEPTED means staged, never synchronized playback. The panel distinguishes pending
+transfer, device validation, waiting for application, readback verification,
+synchronized state and rejection. Preview-capable drafts show UNPUBLISHED relative
+to the published baseline, rather than unconditional NOT SENT TO TEENSY.
+Unsupported notes/instruments stay visible with the rejection reason and no
+automatic retry of that same revision. Editing remains responsive during preview;
+playback highlighting and transport retain their authoritative device semantics.
+
+Fixed storage keeps immutable in-flight bytes separate from one coalesced latest
+desired draft, accepted state and bounded readback staging. Debounce is 75 ms after
+a change, capped at 250 ms from the first edit in a continuous burst (when the link
+is eligible). Held edits cannot postpone transfer indefinitely; backpressure and
+in-flight work may add latency. Serial work remains bounded, with partial writes
+and complete-line framing. Transport outranks the next preview line; a partially
+written line finishes first. Informational STATUS never delays PAUSE until its reply.
+
+F4 restores the published baseline locally and queues it as volatile preview,
+without publishing. During an in-flight preview, the restored revision remains the
+latest goal and is sent after that frozen transfer; an older draft cannot become
+the final requested working state. F5 freezes its selected revision and locks edit
+mutations/Restore while allowing navigation. It waits for existing preview/recovery
+work, suppresses later preview sending, then publishes only while Stopped or
+capability-supported Paused. Exact published v2 readback is required before baseline
+rebase and dirty-state clearing. STOP/exit stay available; submitted replacements
+are not cancelled by STOP. Start/Pause/Continue are blocked during publication.
+Legacy peers retain explicit F5-only behavior and receive no preview requests.
+
+Submitted timeout or disconnect is uncertainty. Recover published baseline through
+its normal GET, then STATE and exact applied/pending GET readback before selecting
+another revision. Never resend COMMIT, START or baseline restore automatically.
+The editor is disabled/cleared on disconnect; a private fixed recovery copy retains
+local edits. Reconnect reconstructs against the verified published baseline and
+verified working/pending contents, retaining recoverable local edits. A clean,
+synchronized session follows fresh device working state. A last attempted revision
+not found on the device remains visible as unapplied and is not automatically
+retried; a newer coalesced revision may send only after recovery resolves ordering.
+Editing during readback is captured before recovery installation, so it cannot be
+overwritten by an older snapshot. Dirty comparison remains against publication,
+not preview. No storage/persistence or automatic transport is introduced.
+
+Windows hardware checklist (all pending for this new scope):
+
+1. Confirm CAP/NEXT/STATE and initial published/working readbacks; edit a supported
+   native-rate note/instrument while stopped, paused and playing without F5.
+   Check pending versus APPLIED/readback and next-row audible changes.
+2. Hold PgUp/PgDn, make rapid edits and toggle OFF timing; verify responsive editing
+   and latest complete draft. Unsupported pitch must stay visible, connected and
+   rejected without repeated transfers or false synchronization.
+3. Press F4 during partial/in-flight preview; verify baseline playback eventually
+   returns while baseline/dirty comparison stays correct. Press F5 during preview
+   while stopped/paused; verify selected revision, exact published readback and
+   no later old preview overwrite. Playing F5 must remain blocked.
+4. Exercise Space/Enter and clean exit during transfer/backpressure; verify PAUSE
+   remains prompt and lines are not interleaved. Disconnect around COMMIT, reconnect
+   to running/paused playback and verify recovery without START or blind resend.
+5. Verify panel labels, independent edit/playback cursors, unchanged BPM and legacy
+   firmware fallback. ArkOS handheld publication/editor bindings remain outside
+   this step; shared code is reusable, ArkOS hardware validation remains open.
+
+Host tests include a partial-write simulated device using real parser/hash,
+audio-owner control and core PCM rendering: edits alter PCM, F4 restores playback,
+and F5 confirms a new baseline. These do not measure USB latency, Teensy realtime
+cost, physical row timing or hardware performance.

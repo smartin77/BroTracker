@@ -13,6 +13,7 @@ struct LivePlaybackView
     BroTracker::PatternTelemetry position;
     std::optional<BroTracker::DevicePatternSnapshot> device_pattern = std::nullopt;
     bool pattern_loading = false, pattern_failed = false;
+    bool preview_supported = false;
 };
 constexpr std::uint32_t kLivePositionStaleMs = 500;
 
