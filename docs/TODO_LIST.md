@@ -159,6 +159,22 @@ design remains unchanged.
   preparation now exist in the separate preparer below. Rendering consumes prepared
   positions without introducing a clock or synchronization policy; Teensy processing
   cost is unmeasured.
+* [x] Add separate portable `VariableRateSampleVoice` in
+  `src/core/audio/variable_rate_sample_voice.h`, tested in
+  `tests/test_variable_rate_sample_voice.cpp`: immutable non-owning PCM16 mono,
+  positive Q32.32 source-frame step with exact unity, matching source/output rates.
+  Separate integer position/fractional phase retain full caller-buffer size support;
+  checked advancement safely completes even for maximum steps. Exact int64 linear
+  interpolation rounds once to nearest with ties away from zero, clamps the second
+  endpoint at the last frame, then releases/zero-pads at completion. Transactional
+  validation, retrigger/replacement, Stop/Reset and exact partition independence;
+  unity output matches RamSampleVoice. No native-rate API or playback changes.
+  Linear interpolation is not band-limited (upward pitch may alias); rate changes
+  pitch and duration, not time stretching. Hardware cost is unmeasured.
+* [ ] Define reference-note/rate mapping and integrate variable-rate voices with
+  rendering/bindings/player and firmware/protocol/UI. General sample-rate conversion,
+  quality/anti-alias policy and hardware-performance validation remain open.
+  Duration does not establish sample reference pitch.
 * [x] Implement stateless `MixPcm16Mono` in `src/core/audio/pcm16_mixer.h`, with
   coverage in `tests/test_pcm16_mixer.cpp`: allocation-free mixing of eight PCM16
   mono channels using unity-gain `int32_t` summation. Saturation is applied once

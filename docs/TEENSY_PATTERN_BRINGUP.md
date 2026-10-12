@@ -1599,3 +1599,45 @@ does not modify or archive the log. Removing the diagnostic environment variable
 only prevents a new launch request: device gains remain until an explicit update
 or successful configuration/reboot restores them. Smoothing and final gain policy
 remain pending.
+
+### Portable variable-rate PCM voice (host-tested; not integrated)
+
+VariableRateSampleVoice is a separate PCM16 mono one-shot using the existing
+immutable non-owning Pcm16MonoView. The caller retains PCM and valid memory extents
+until Stop/Reset, valid Configure/retrigger, completion or destruction releases it.
+Destination spans must be disjoint from source PCM, the voice and request metadata.
+No sample ownership, allocation, I/O, locks, clock or floating-point work is added.
+Existing RamSampleVoice/native-rate player APIs and audible fixtures are unchanged.
+
+Configure explicitly sets the output rate and stops playback; zero rate rejects
+without mutation. Reset stops/releases while retaining configuration. Trigger
+accepts a positive uint64 Q32.32 source-frame step per output frame (2^32 is exact
+unity). Samples must still match configured rate; note-to-rate and general
+sample-rate conversion are separate future work. Valid triggers restart at zero
+and replace playback. Invalid triggers preserve the previous voice.
+
+Source integer position and fractional phase are stored separately, so the packed
+step does not restrict sample length to 2^32 frames. Caller-buffer byte limits
+match RamSampleVoice. Advancing uses fractional carry and compares the whole-frame
+increment with remaining frames before adding; maximum steps safely complete
+without wrapping or scanning skipped frames. Each output uses exact fixed-point
+linear interpolation and one nearest rounding, signed ties away from zero, using
+signed division rather than negative shifts. Weighted sums lie within
+[-2^47, 2^47-2^32]; rounding headroom fits int64. While position is inside the
+sample, interpolation's second endpoint clamps to the last source frame. Reaching
+or passing frame_count releases the view and zero-pads subsequent output.
+
+Render validates destination/count before mutation; rejection preserves state and
+output. Zero-length calls are no-ops permitting null. Silent/unconfigured voices
+render zero. Work is O(output frames), independent of sample length/step; arbitrary
+span partitioning produces exactly identical PCM and phase. Unity output and
+completion match RamSampleVoice bit for bit. Tests cover fractional/half/double
+steps, signed rounding/extrema, final/single-frame behavior, maximum-step and
+large-position arithmetic, retrigger/replacement, Stop/Reset and failure contracts.
+
+Linear interpolation is an initial quality choice, not band-limited resampling;
+upward transposition may alias. Changing playback rate changes both pitch and
+duration; this is not time stretching. No sample reference pitch is inferred from
+duration. Renderer/player/binding, firmware/protocol/UI integration, reference-note
+mapping, broader conversion and quality policy remain pending. Teensy execution
+cost is unmeasured; host tests are not hardware evidence.
