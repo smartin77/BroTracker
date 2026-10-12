@@ -171,10 +171,26 @@ design remains unchanged.
   unity output matches RamSampleVoice. No native-rate API or playback changes.
   Linear interpolation is not band-limited (upward pitch may alias); rate changes
   pitch and duration, not time stretching. Hardware cost is unmeasured.
-* [ ] Define reference-note/rate mapping and integrate variable-rate voices with
-  rendering/bindings/player and firmware/protocol/UI. General sample-rate conversion,
-  quality/anti-alias policy and hardware-performance validation remain open.
-  Duration does not establish sample reference pitch.
+* [x] Record D0055's agreed sample model: source rate, reference note, signed
+  fine tuning and rhythmic tempo remain separate. Preserve explicit tuning;
+  otherwise reference internal 60 (Yamaha C-3), zero correction, original speed/
+  pitch/duration as a playback anchor, not measured C tuning. Sample BPM does not
+  determine pitch. Positive tuning raises playback rate; storage precision remains
+  undecided. This is a design decision, not implemented metadata initialization.
+* [ ] Add reference-note interval mapping as the next variable-rate foundation;
+  integrate tuning metadata and rendering/bindings/player, firmware/protocol/UI.
+  D0055 defines source/output ratio * note-interval ratio * fine-tuning ratio.
+  Keep PCM16 mono 44100 Hz as implemented baseline; preserve future 8000/22050/
+  48000 Hz conversion paths without fixing retained-versus-converted PCM storage.
+  Low rate does not imply 8-bit PCM. Current voice requires matching sample rates.
+* [ ] Add optional original BPM/quarter-note beat-length metadata and explicitly
+  enabled loop-tempo matching (target/original BPM). Derive BPM from duration only
+  with known beat count, never infer meter/bar count or reference pitch. Rate matching
+  changes pitch and duration; requested semitone offset/fractional residual is speed
+  transposition, not a musical root. Define combination with note transposition
+  without double application. Analysis suggestions/manual correction, time stretching,
+  quality/anti-alias policy and hardware-performance validation remain pending.
+  Current beeper C-3/D-3 bindings are trigger anchors, not measured tuning.
 * [x] Implement stateless `MixPcm16Mono` in `src/core/audio/pcm16_mixer.h`, with
   coverage in `tests/test_pcm16_mixer.cpp`: allocation-free mixing of eight PCM16
   mono channels using unity-gain `int32_t` summation. Saturation is applied once

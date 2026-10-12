@@ -1625,3 +1625,79 @@ The row-start and all row commands are consumed exactly once on subsequent rende
 notes retrigger and EndOfPosition OFF schedules anew. Exact tick-to-sample conversion
 and bounded cursor positioning define logical scheduling, without a new clock or
 host extrapolation. Start and STOP/reset retain their existing behavior.
+
+## D0055 — Sample Rate, Reference Pitch and Loop Tempo
+
+Source sample rate, reference note, fine tuning and rhythmic loop tempo are separate
+properties. Sample BPM must not automatically determine reference pitch. This
+extends D00010 (sample format baseline), follows D0018 (Yamaha note numbering),
+and uses D0029's quarter-note beat definition for tempo metadata.
+
+### Reference pitch and initialization
+
+Preserve valid explicit reference-note/tuning metadata when available. Without
+explicit tuning metadata, default to internal reference note 60 (Yamaha C-3) and
+zero tuning correction. At that note, reproduce original speed, pitch and duration.
+This fallback is a playback anchor, not a claim that the recording is tuned to C.
+
+Users may set a known/measured reference note and fine tuning. Future analysis may
+suggest values but must not silently replace explicit settings. Fine tuning is a
+signed playback correction: positive correction raises playback pitch/rate. Exact
+storage units and precision remain an implementation decision.
+
+The playback relationship is:
+
+```text
+source-frame step =
+    (source_sample_rate / output_sample_rate)
+    * 2^((target_note - reference_note) / 12)
+    * fine_tuning_ratio
+```
+
+Zero tuning correction means a ratio of one. The mathematical relationship does
+not prescribe floating-point processing, metadata storage or a final rate API.
+
+### Sample-rate support and storage
+
+PCM16 mono 44100 Hz remains the current implementation baseline. Preserve a path
+for lower-rate samples, including 8000 and 22050 Hz, and future 48000 Hz. At the
+reference note, source/output conversion must reproduce original speed/duration
+and pitch. Source rate and PCM bit depth are independent: low rate does not mean
+8-bit PCM. These additional rates/formats are not currently implemented.
+
+Do not fix the final storage strategy: retained lower-rate PCM or correctly
+converted internal PCM may be selected later. Either must preserve duration/pitch
+and consistent metadata, including the effective PCM rate used for playback.
+
+### Rhythmic loops and tempo matching
+
+Original BPM and musical length in quarter-note beats are optional, independent
+metadata. Calculate tempo from exact duration only when the musical beat count is
+known (`BPM = 60 * quarter_note_beats / duration_seconds`); duration alone cannot
+establish meter or bar count. Future tempo detection suggests values with manual
+correction rather than silently declaring musical length.
+
+Matching loop tempo by changing playback rate requires explicit enablement; it
+is never the default for every sample:
+
+```text
+tempo_ratio = target_BPM / original_BPM
+```
+
+This changes both pitch and duration, distinct from pitch-preserving time stretching,
+which remains separate future work. When requested, express speed transposition
+as the nearest integer semitone offset plus a signed fractional residual. This
+rate-derived offset does not identify the recording's musical root note.
+
+Combining tempo matching with note transposition must have explicit semantics;
+do not silently apply the same rate adjustment twice. Their user-facing policy
+and exact representation remain future integration decisions.
+
+### Implementation status
+
+VariableRateSampleVoice currently accepts explicit positive Q32.32 steps and
+requires matching source/output rates. Reference-note interval mapping is the next
+foundation. General source/output conversion, tuning metadata integration, tempo
+matching, analysis and time stretching remain pending. Current beeper C-3/D-3
+bindings are trigger anchors, not measured physical tuning. This decision adds no
+playback implementation or changes to the native-rate baseline.
