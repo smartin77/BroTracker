@@ -1,7 +1,7 @@
 #pragma once
 
 #include "native_rate_sample_commands.h"
-#include "core/audio/pcm16_mixer.h"
+#include "core/audio/pcm16_gain_mixer.h"
 #include <limits>
 
 namespace BroTracker
@@ -26,7 +26,7 @@ namespace BroTracker
         SampleRateMismatch, RangeOverflow, InvalidDestination, InvalidFrameCount,
         MissingInstrument, UnknownInstrument, UnsupportedPitch,
         ArithmeticExhausted, TickBudgetExceeded, CommandCapacityExceeded,
-        ComponentError, InvalidTransportState, InvalidNoteOffTiming
+        ComponentError, InvalidTransportState, InvalidNoteOffTiming, InvalidGain
     };
     enum class PatternTransportState { Stopped, Playing, Paused };
 
@@ -75,12 +75,27 @@ namespace BroTracker
             cursor_ = cursor;
             preparer_ = preparer;
             renderer_ = renderer;
+            gains_ = {}; // Successful configuration restores exact unity.
             configured_ = true;
             transport_ = PatternTransportState::Stopped;
             next_sample_ = 0;
             position_ = {};
             return PatternPlayerStatus::Success;
         }
+
+        // Single-owner audio contribution only, not tracker mute. Validate all
+        // eight Q16 gains before committing. Valid updates take effect on the next
+        // Render without altering voices, transport, position, deferred Stops or
+        // staged previews. May be set before Configure; successful Configure resets
+        // unity, failed Configure preserves them. Other transport/replacement calls
+        // retain gains. Abrupt changes may click; smoothing is separate future work.
+        [[nodiscard]] PatternPlayerStatus SetChannelGains(const Pcm16ChannelGains& gains) noexcept {
+            for (const auto gain : gains.channels)
+                if (gain > kPcm16UnityGain) return PatternPlayerStatus::InvalidGain;
+            gains_ = gains;
+            return PatternPlayerStatus::Success;
+        }
+        Pcm16ChannelGains GetChannelGains() const noexcept { return gains_; }
 
         // Stopped-only metadata replacement, not live editing or publication.
         // Retains validated sample bindings, tempo and output rate. Caller-owned
@@ -378,7 +393,7 @@ namespace BroTracker
             }
             if (renderer.Render(outputs, frame_count, commands) != RamBlockStatus::Success)
                 return PatternPlayerStatus::ComponentError;
-            if (MixPcm16Mono(inputs, mono_scratch_, frame_count) != Pcm16MixStatus::Success)
+            if (MixPcm16MonoWithGains(inputs, gains_, mono_scratch_, frame_count) != Pcm16GainMixStatus::Success)
                 return PatternPlayerStatus::ComponentError;
             pattern_ = working_pattern;
             preview_pending_ = preview_pending;
@@ -446,6 +461,7 @@ namespace BroTracker
         struct DeferredStop { bool active = false; std::uint64_t sample = 0; };
         struct PendingStops { DeferredStop entries[kRealtimePatternChannelCapacity]{}; } pending_;
         std::uint32_t tempo_hundredths_ = 0, sample_rate_hz_ = 0;
+        Pcm16ChannelGains gains_;
         RealtimePattern pattern_;
         RealtimePattern preview_pattern_; // Single bounded pending volatile candidate.
         bool preview_pending_ = false;

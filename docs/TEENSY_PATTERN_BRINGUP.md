@@ -1333,7 +1333,7 @@ lifecycle policies. Host tests cover atomic/full-pattern restoration, branch
 invalidation, capacity, locking, baseline transitions, recovery and automatic
 preview after Undo/Redo; manual validation and input integration remain pending.
 
-### Portable per-channel gain mixer (host-tested; not integrated)
+### Portable per-channel gain mixer (host-tested)
 
 `MixPcm16MonoWithGains` is separate from the unchanged unity mixer and existing
 playback. Eight unsigned Q16 gains span 0..65536; 65536 is exact unity and the
@@ -1357,8 +1357,33 @@ muted-header styling. Tests cover unity equivalence, partial gains and both
 rounding signs, cancellation/order independence, saturation, invalid requests,
 input preservation and partition-independent output. No hardware cost was measured.
 
-No player, firmware protocol, UI or diagnostic fixture levels change. Gain
-controls/integration, instrument/master gain, panning, smoothing and final mixing
+Core player integration is recorded below; firmware protocol, UI and diagnostic
+fixture levels remain unchanged. Gain controls, instrument/master gain, panning, smoothing and final mixing
 headroom policy remain separate work. Undo/Redo input bindings remain deferred
 until unified ArkOS/keyboard interaction design; no buttons or shortcuts are
 reserved, and held-key transaction grouping remains undecided.
+
+### Core player channel gain integration (host-tested; hardware pending)
+
+NativeRatePatternPlayer now uses MixPcm16MonoWithGains. All eight channel gains
+start at exact unity, preserving bit-identical current playback. SetChannelGains
+validates the entire Q16 set before mutation and returns InvalidGain for values
+above unity. GetChannelGains returns a read-only snapshot by value. The single
+owner may set gains before configuration; successful Configure resets unity,
+while every failed Configure retains gains and playback.
+
+Updates affect the next Render, including already-sounding voices, without
+resetting transport, position, continuation, deferred OFF or pending previews.
+Start, Stop, Pause/Continue, published replacement and volatile working replacement
+retain gains. Rendering keeps tentative playback state and internal scratch;
+rejection preserves caller output and all playback state. Zero gain changes only
+audio contribution, not tracker mute or event processing. Abrupt changes may click;
+smoothing is future work.
+
+Host tests cover exact unity/partial/zero PCM, complete-set validation rollback,
+transport/replacement preservation, Configure semantics, deferred OFF and
+partition-independent output with gain changes at identical absolute sample
+boundaries. No gain commands or UI controls, fixture-level changes, instrument or
+master gain, or smoothing are added. Firmware/UI integration, final headroom policy
+and Teensy performance measurement of this gain-aware render path remain pending;
+prior unity-mixer hardware measurements do not measure the new path.

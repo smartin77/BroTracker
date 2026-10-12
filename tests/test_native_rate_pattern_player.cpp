@@ -76,6 +76,7 @@ namespace
         CHECK_EQ(a_position.loop_index, e_position.loop_index);
         for (std::uint32_t c=0;c<8;++c)
         {
+            CHECK_EQ(actual.GetChannelGains().channels[c],expected.GetChannelGains().channels[c]);
             CHECK_EQ(NativeRatePatternPlayerTestAccess::Pending(actual,c),NativeRatePatternPlayerTestAccess::Pending(expected,c));
             CHECK_EQ(NativeRatePatternPlayerTestAccess::PendingSample(actual,c),NativeRatePatternPlayerTestAccess::PendingSample(expected,c));
             LogicalChannelState a,b;
@@ -991,4 +992,91 @@ TEST_CASE(WorkingPreviewBoundaryOwnershipAndLateRollbackRetry) {
     CHECK_EQ(player.Render(nullptr,0),PatternPlayerStatus::Success); CHECK(player.HasPendingWorkingPattern());
     CHECK_EQ(player.Render(output,1),PatternPlayerStatus::Success); CHECK_EQ(output[0],0);
     CHECK(!player.HasPendingWorkingPattern());
+}
+
+TEST_CASE(PatternPlayerGainPcmAndTransactionalUpdates) {
+    NativeRatePatternPlayer player;
+    for(auto gain:player.GetChannelGains().channels) CHECK_EQ(gain,kPcm16UnityGain);
+    CHECK_EQ(player.Configure(12753,44100,Pattern(),Bindings()),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t out[2];
+    CHECK_EQ(player.Render(out,2),PatternPlayerStatus::Success);
+    CHECK_EQ(out[0],20); CHECK_EQ(out[1],40); // unchanged unity
+    auto gains=player.GetChannelGains(); gains.channels[0]=kPcm16UnityGain/2; gains.channels[1]=0;
+    const auto reference=player;
+    CHECK_EQ(player.SetChannelGains(gains),PatternPlayerStatus::Success);
+    CHECK_EQ(player.GetNextSamplePosition(),reference.GetNextSamplePosition());
+    CHECK_EQ(player.Render(out,2),PatternPlayerStatus::Success);
+    CHECK_EQ(out[0],15); CHECK_EQ(out[1],20); // ongoing voices, no restart
+    const auto saved=player;
+    for(unsigned c=0;c<8;++c) {
+        auto bad=gains; bad.channels[c]=kPcm16UnityGain+1;
+        CHECK_EQ(player.SetChannelGains(bad),PatternPlayerStatus::InvalidGain); CheckPlayback(player,saved);
+    }
+    out[0]=999; out[1]=999;
+    CHECK_EQ(player.Render(out,129),PatternPlayerStatus::InvalidFrameCount);
+    CheckPlayback(player,saved); CHECK_EQ(out[0],999); CHECK_EQ(out[1],999);
+    CHECK_EQ(player.Render(out,2),PatternPlayerStatus::Success); CHECK_EQ(out[0],25); CHECK_EQ(out[1],30);
+    for(auto& gain:gains.channels) gain=0;
+    CHECK_EQ(player.SetChannelGains(gains),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Render(out,2),PatternPlayerStatus::Success); CHECK_EQ(out[0],0); CHECK_EQ(out[1],0);
+}
+TEST_CASE(PatternPlayerGainsSurviveTransportReplacementAndConfigureFailure) {
+    NativeRatePatternPlayer player; auto pattern=Pattern();
+    CHECK_EQ(player.Configure(12753,44100,pattern,Bindings()),PatternPlayerStatus::Success);
+    Pcm16ChannelGains gains; gains.channels[0]=12345; gains.channels[7]=0;
+    const auto check=[&]() { for(unsigned c=0;c<8;++c) CHECK_EQ(player.GetChannelGains().channels[c],gains.channels[c]); };
+    CHECK_EQ(player.SetChannelGains(gains),PatternPlayerStatus::Success);
+    CHECK_EQ(player.ReplacePattern(pattern),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.ReplaceWorkingPattern(pattern),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success); check();
+    std::int16_t out;
+    CHECK_EQ(player.Render(&out,1),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Pause(),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.ReplacePausedPattern(pattern),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.ReplaceWorkingPattern(pattern),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.Continue(),PatternPlayerStatus::Success); check();
+    CHECK_EQ(player.ReplaceWorkingPattern(pattern),PatternPlayerStatus::Success);
+    CHECK(player.HasPendingWorkingPattern());
+    CHECK_EQ(player.SetChannelGains(gains),PatternPlayerStatus::Success); CHECK(player.HasPendingWorkingPattern());
+    const auto saved=player;
+    CHECK_EQ(player.Configure(0,44100,pattern,Bindings()),PatternPlayerStatus::InvalidTempo); CheckPlayback(player,saved);
+    auto bad=pattern; bad.active_rows=0;
+    CHECK_EQ(player.Configure(12753,44100,bad,Bindings()),PatternPlayerStatus::InvalidDimensions); CheckPlayback(player,saved);
+    auto bindings=Bindings(); bindings.bindings[0].sample.sample_rate_hz=48000;
+    CHECK_EQ(player.Configure(12753,44100,pattern,bindings),PatternPlayerStatus::SampleRateMismatch); CheckPlayback(player,saved);
+    player.Stop(); check(); CHECK_EQ(player.Start(),PatternPlayerStatus::Success); check(); player.Stop(); check();
+    CHECK_EQ(player.Configure(12753,44100,pattern,Bindings()),PatternPlayerStatus::Success);
+    for(auto gain:player.GetChannelGains().channels) CHECK_EQ(gain,kPcm16UnityGain);
+}
+TEST_CASE(PatternPlayerGainBoundariesPartitionIndependenceAndDeferredOff) {
+    const std::int16_t sample[32]={100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,
+        100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100};
+    NativeRateSampleBindings bindings; bindings.count=1; bindings.bindings[0]={7,60,{sample,32,100}};
+    RealtimePattern pattern; pattern.active_rows=2; pattern.active_channels=1;
+    pattern.cells[0][0]={60,7}; pattern.cells[1][0]={NOTE_OFF,255};
+    pattern.note_off_timing[1][0]=NoteOffTiming::EndOfPosition;
+    const auto collect=[&](unsigned limit) {
+        NativeRatePatternPlayer player; CHECK_EQ(player.Configure(12753,100,pattern,bindings),PatternPlayerStatus::Success);
+        CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+        std::vector<std::int16_t> output(36);
+        for(unsigned begin=0;begin<36;) {
+            if(begin==5 || begin==14 || begin==25) {
+                auto gains=player.GetChannelGains(); gains.channels[0]=begin==5 ? kPcm16UnityGain/2 : begin==14 ? 0 : kPcm16UnityGain;
+                const auto position=player.GetNextSamplePosition();
+                const auto pending=NativeRatePatternPlayerTestAccess::Pending(player,0);
+                CHECK_EQ(player.SetChannelGains(gains),PatternPlayerStatus::Success);
+                CHECK_EQ(player.GetNextSamplePosition(),position);
+                CHECK_EQ(NativeRatePatternPlayerTestAccess::Pending(player,0),pending);
+            }
+            unsigned end=std::min(36u,begin+limit);
+            for(auto boundary:{5u,14u,25u}) if(begin<boundary) end=std::min(end,boundary);
+            CHECK_EQ(player.Render(output.data()+begin,end-begin),PatternPlayerStatus::Success); begin=end;
+        }
+        return output;
+    };
+    const auto regular=collect(4),irregular=collect(7);
+    CHECK(regular==irregular);
+    // Row boundaries at samples 11,23,35. End OFF at 23 precedes loop trigger.
+    for(unsigned i=0;i<36;++i) CHECK_EQ(regular[i],i<5 ? 100 : i<14 ? 50 : i<25 ? 0 : 100);
 }

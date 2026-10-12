@@ -181,10 +181,23 @@ design remains unchanged.
   writes, preserving output on rejection and caller memory/lifetime/non-overlap
   guarantees. Host tests cover unity, silence/partial gain, signed rounding,
   cancellation, saturation, partition independence and invalid requests.
-  No player/firmware/UI integration or level changes. Zero gain is an audio
+  Player integration is recorded separately below; no firmware/UI controls or
+  fixture level changes. Zero gain is an audio
   contribution, not tracker mute/event suppression. Hardware cost is unmeasured;
   gain controls, instrument/master gain, panning, smoothing and final headroom
   policy remain pending.
+* [x] Integrate `MixPcm16MonoWithGains` into `NativeRatePatternPlayer` with
+  transactional `SetChannelGains` and read-only copied gain inspection. All eight
+  channels default to exact unity; values above unity reject without mutation.
+  Updates affect the next Render without resetting voices, position, transport,
+  deferred OFF or pending working previews. Start/Stop/Pause/Continue and published
+  or working replacement retain gains. Successful Configure resets unity; failed
+  Configure preserves gains/playback. Render rollback/output guarantees remain.
+  Tests cover exact unity/partial/zero PCM, validation, lifecycle preservation,
+  deferred OFF and identical absolute gain-change boundaries across partitions.
+  Zero gain is not tracker mute; abrupt changes may click. Firmware/protocol/UI
+  gain controls, instrument/master gain, smoothing, final headroom policy and
+  integrated gain-path Teensy performance measurement remain pending.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
@@ -640,7 +653,7 @@ design remains unchanged.
 ## Deferred Tasks
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
-  integrate the separate gain-aware primitive without implying tracker mute.
+  add firmware/UI gain control without implying tracker mute.
 * [ ] For actual muted channels, consider an X formed by two diagonal lines
   inside the channel header, with 16 px padding where geometry permits.
 
