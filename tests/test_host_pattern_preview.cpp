@@ -90,6 +90,7 @@ struct PreviewPort : SerialTransport {
         if(end!=std::string::npos) { const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line); }
         return static_cast<int>(n);
     }
+    bool gain_capability=false;
     void State() {
         const auto s=control.Snapshot();
         input+="BTTEST1 STATE "+std::string(s.running?"PLAYING":s.transport==PatternTransportState::Paused?"PAUSED":"IDLE")+"\n";
@@ -97,6 +98,10 @@ struct PreviewPort : SerialTransport {
         input+="BTPUBLISH1 NEXT 1 "+std::to_string(publication.NextIdentity())+"\n";
         if(capability) input+="BTPREVIEW1 CAP 1\nBTPREVIEW1 NEXT 1 "+std::to_string(preview.NextIdentity())+"\nBTPREVIEW1 STATE 1 "+
             std::to_string(s.published_id)+" "+std::to_string(s.working_id)+" "+std::to_string(s.pending_preview_id)+"\n";
+        if(gain_capability) {
+            char gain_state[96]; CHECK(FormatPatternGainState(s.gains,s.applied_gain_id,s.next_gain_id,gain_state,sizeof(gain_state)));
+            input+="BTGAIN1 CAP 1\n"; input+=gain_state;
+        }
         input+="BTPATTERN1 POS 2 "+std::to_string(s.running?1:s.transport==PatternTransportState::Paused?2:0)+" "+
             std::to_string(s.position.valid)+" "+std::to_string(s.position.absolute_tick)+" "+std::to_string(s.position.pattern_row)+" "+
             std::to_string(s.position.loop_index)+" 2 1\n";
@@ -118,6 +123,15 @@ struct PreviewPort : SerialTransport {
             CHECK_EQ(control.Submit(line=="BTTEST1 START"?PatternRequest::Start:line=="BTTEST1 STOP"?PatternRequest::Stop:
                 line=="BTTEST1 PAUSE"?PatternRequest::Pause:PatternRequest::Continue),PatternRequestStatus::Accepted); Advance(0); return;
         }
+        if(line=="BTGAIN1 GET 1") {
+            const auto s=control.Snapshot(); char state[96];
+            CHECK(FormatPatternGainState(s.gains,s.applied_gain_id,s.next_gain_id,state,sizeof(state))); input+=state; return;
+        }
+        PatternGainMessage gain;
+        if(ParsePatternGains(line.data(),line.size(),gain)) {
+            CHECK_EQ(control.SubmitGains(gain.gains,gain.id),PatternRequestStatus::Accepted);
+            input+="BTGAIN1 SUBMITTED 1 "+std::to_string(gain.id)+"\n"; Advance(0); return;
+        }
         const bool is_preview=line.find("BTPREVIEW1")==0; PublicationMessage m;
         if(!ParsePublication(line.data(),line.size(),m,is_preview)) { CHECK(false); return; }
         auto& transfer=is_preview?preview:publication; const auto result=transfer.Accept(m,0,(is_preview?publication:preview).Busy());
@@ -135,7 +149,8 @@ struct PreviewPort : SerialTransport {
         PatternAppliedRequest ack;
         while(control.TakeApplied(ack)) {
             const auto id=std::to_string(ack.publication_id);
-            if(ack.request==PatternRequest::Preview) {
+            if(ack.request==PatternRequest::Gains) { input+="BTGAIN1 APPLIED 1 "+id+"\n"; }
+            else if(ack.request==PatternRequest::Preview) {
                 CHECK(metadata.Accepted(preview,ack.publication_id,ack.result==PatternPlayerStatus::Success));
                 input+=ack.result==PatternPlayerStatus::Success?"BTPREVIEW1 ACCEPTED 1 "+id+"\n":"BTPREVIEW1 REJECTED 1 "+id+" unsupported-pitch\n";
             } else if(ack.request==PatternRequest::PreviewApplied) {
@@ -252,4 +267,40 @@ TEST_CASE(HostPreviewLateReceiptAndFreshCleanReconnectDoNotResend) {
     Discover(p,2,1); Read(p,draft,2,0,1); CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
     p.RetainLocal(false); p.Disconnect(); Discover(p,3,2); auto remote=draft; remote.cells[0][0]={NOTE_EMPTY,7};
     Read(p,remote,3,0,2); CHECK(SamePattern(*p.RecoveredDraft(),remote)); CHECK(!p.TryBegin(baseline,1000));
+}
+
+TEST_CASE(HostGainSerialPcmTransportPreviewPublicationAndReconnect) {
+    PreviewSession s; s.port->gain_capability=true;
+    Pcm16ChannelGains initial; initial.channels[0]=32768;
+    CHECK_EQ(s.port->control.SubmitGains(initial,1),PatternRequestStatus::Accepted); s.port->Advance(0);
+    s.Pump(); CHECK(s.serial.ChannelGainsAvailable()); CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],32768u);
+    CHECK(s.port->output.find("BTGAIN1 SET")==std::string::npos);
+    const auto accepted=*s.serial.ChannelGains();
+    s.port->input+="BTGAIN1 STATE 1 "+std::string(300,'9')+"\n";
+    s.port->input+="BTGAIN1 STATE 1 1 2 65537 0 0 0 0 0 0 0\n";
+    s.Tick(); CHECK(s.serial.Connected()); CHECK(s.editor.Ready());
+    CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],accepted.gains.channels[0]);
+    CHECK(s.serial.Start()); s.Pump(30); s.port->Advance(1); CHECK_EQ(s.port->audio.back(),6); // ties away from zero
+    // A queued complete gain line must yield to transport before its first byte.
+    auto first=initial; first.channels[0]=16384; CHECK(s.serial.RequestChannelGains(first));
+    s.Tick(); const auto ordering=s.port->output.size(); CHECK(s.serial.Pause()); s.Pump(100);
+    const auto pause=s.port->output.find("BTTEST1 PAUSE",ordering);
+    const auto gain=s.port->output.find("BTGAIN1 SET",ordering);
+    CHECK(pause!=std::string::npos); CHECK(gain!=std::string::npos); CHECK(pause<gain);
+    CHECK(s.serial.Continue()); s.Pump(40);
+    auto desired=initial; desired.channels[0]=0; CHECK(s.serial.RequestChannelGains(desired));
+    s.port->limit=1; s.Tick(); s.Tick(); CHECK(s.serial.Pause());
+    s.Pump(400); CHECK(s.serial.Paused()); CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],0u);
+    CHECK(!s.editor.Dirty()); CHECK(!s.editor.CanUndo());
+    CHECK(s.serial.Continue()); s.Pump(40); s.port->Advance(1); CHECK_EQ(s.port->audio.back(),0);
+    CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); s.Pump(1000); CHECK(s.editor.Dirty());
+    CHECK(s.serial.Stop()); s.Pump(50); CHECK(s.serial.Publish(s.editor,s.now)); s.Pump(1000);
+    CHECK(!s.editor.Dirty()); CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],0u);
+    CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,60);
+    s.port->online=false; s.Tick(); CHECK(!s.serial.ChannelGainsAvailable()); CHECK(!s.serial.DesiredChannelGains());
+    const auto offset=s.port->output.size(); s.port->online=true; s.Pump(1000);
+    CHECK(s.serial.ChannelGainsAvailable()); CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],0u);
+    CHECK(s.port->output.find("BTGAIN1 SET",offset)==std::string::npos);
+    PreviewSession legacy; legacy.Pump(); CHECK(!legacy.serial.RequestChannelGains(initial));
+    CHECK(legacy.port->output.find("BTGAIN1")==std::string::npos);
 }

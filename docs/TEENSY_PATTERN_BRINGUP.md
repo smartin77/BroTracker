@@ -1455,3 +1455,54 @@ readback, queue/ACK backpressure and transport/preview/publication composition.
 Teensy compilation/upload and hardware validation were not performed. Prior PERF
 reports do not validate the gain-aware rendering cost. Later hardware checks must
 cover all transport states, partial writes, backpressure and reconnect retention.
+
+### Shared host gain coordination (implemented; no controls yet)
+
+BringUpSerial exposes RequestChannelGains for one complete Q16 set, capability and
+availability queries, read-only authoritative values/applied ID/NEXT, local desired
+values and synchronization phase/status. HostChannelGains is portable fixed-storage
+logic for Windows and future ArkOS callers. No widget, shortcut, handheld binding,
+level change, smoothing or instrument/master gain is added.
+
+A dedicated strict ten-field STATE parser accepts applied ID zero and exhausted
+NEXT zero, validates all gains, exact fields/spacing and uint32 overflow, and rejects
+inconsistent nonzero NEXT <= applied ID. It does not expand or weaken existing
+snapshot/transfer parsers. Malformed/overlong/version-mismatched messages leave
+accepted gain state unchanged and do not disrupt transport or pattern handling.
+Only explicit BTGAIN1 CAP 1 enables sends; legacy peers receive no gain traffic.
+Discovery retains initial device gains, including non-unity values, and never
+implicitly queues unity defaults.
+
+An explicit valid request updates one latest desired set. Sending freezes eight
+gains and consumes a fresh identity; later requests coalesce without modifying
+that line. Transport outranks the next unsent gain line, while partial lines finish
+before switching. Gain SET/GET are serialized against active publication and
+snapshot/preview transfer/recovery work; gain replies have their own parser and
+cannot acknowledge transport or alter draft/baseline/history. Stop, pattern preview,
+publication and F4/F5 do not reset or resend gains. Legacy and ordinary pattern
+controls retain their semantics. Gain requests are not pattern edits or tracker mute.
+
+SUBMITTED only proves receipt. APPLIED initiates GET verification; synchronized
+status requires matching authoritative applied ID and all eight values. Local
+newer desired values remain pending until the previous identity is resolved.
+Known ERROR/REJECTED responses retain authoritative values, consume the attempted
+host identity and never automatically retry the rejected set. A fresh explicit
+request may retry with a new identity. Wrong/duplicate/phase-invalid replies do not
+change state. NEXT zero prevents sends; counters never wrap or reuse identities.
+
+After five seconds from the first attempted SET write, the outcome is uncertain.
+GET polls at most once per second; no blind SET resend. STATE with accepted but
+unapplied identity blocks newer work until application is authoritative. Discovery
+also detects prior-session accepted-but-unapplied work from NEXT versus applied ID.
+If it cannot resolve (for example, configuration reset after an accepted identity),
+it remains uncertain rather than assuming cancellation. Disconnect clears capability,
+verified availability and all previous-session desired/in-flight values. Reconnect
+reads authoritative state without resetting gains or replaying desires; callers
+must issue a fresh request after resolution. No automatic Start or baseline restore.
+
+Host tests cover extrema/malformed ten-field parsing, non-unity discovery,
+immutable/coalesced requests, partial writes, rejection/exhaustion, timeout and
+reconnect recovery, complete-line PAUSE priority, and host/device PCM composition
+with preview/publication. Windows target builds and portable tests do not establish
+hardware performance. User-facing controls, ArkOS integration/validation, hardware
+backpressure/reconnect checks and gain-path Teensy measurement remain pending.

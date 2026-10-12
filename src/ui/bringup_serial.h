@@ -7,6 +7,7 @@
 #include "local_pattern_editor.h"
 #include "bringup/host_pattern_publication.h"
 #include "bringup/host_pattern_preview.h"
+#include "bringup/host_channel_gains.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -28,6 +29,17 @@ public:
             publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
         return preview_.Supported() ? preview_.Status() : publication_.Status();
     }
+    // Shared explicit request API. No editor, UI, dirty state or history mutation.
+    bool RequestChannelGains(const BroTracker::Pcm16ChannelGains& gains) {
+        return connected_ && gains_.Request(gains);
+    }
+    bool ChannelGainsSupported() const { return connected_ && gains_.Supported(); }
+    bool ChannelGainsAvailable() const { return connected_ && gains_.Available(); }
+    const BroTracker::HostGainState* ChannelGains() const { return connected_ ? gains_.Authoritative() : nullptr; }
+    const BroTracker::Pcm16ChannelGains* DesiredChannelGains() const { return gains_.Desired(); }
+    BroTracker::HostGainPhase ChannelGainPhase() const { return gains_.Phase(); }
+    bool ChannelGainsSynchronized() const { return connected_ && gains_.Synchronized(); }
+    const char* ChannelGainStatus() const { return gains_.Status(); }
     bool Start();
     bool Stop();
     bool Pause();
@@ -83,6 +95,8 @@ private:
     bool attempted_ = false;
     BroTracker::HostPatternPublication publication_;
     BroTracker::HostPatternPreview preview_;
+    BroTracker::HostChannelGains gains_;
+    bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
     BroTracker::RealtimePattern observed_editor_;
     BroTracker::DevicePatternSnapshot queued_baseline_;

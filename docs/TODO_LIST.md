@@ -209,6 +209,20 @@ design remains unchanged.
   transport/preview/publication preservation, readback and ACK backpressure.
   BTX sending controls and hardware validation remain pending. Prior PERF results
   do not measure the gain-aware path; abrupt changes can click, zero is not mute.
+* [x] Add shared `HostChannelGains` / `BringUpSerial` coordination: explicit CAP,
+  strict dedicated ten-field STATE validation, authoritative gain/ID inspection,
+  synchronization phase and complete-set request API. Fixed immutable in-flight
+  set plus latest coalesced desired set; no initial unity/default send. SUBMITTED
+  and APPLIED remain distinct from exact STATE verification. Requests preserve
+  pattern dirty/baseline/history semantics. Complete-line transport priority and
+  serialized preview/publication/readback traffic use bounded partial writes.
+  Five-second uncertain outcome recovery polls authoritative STATE at most once
+  per second; unresolved accepted IDs block newer sends. Reconnect discards all
+  old desired gains and requires a fresh explicit request after verified discovery.
+  Legacy peers receive no gain commands. Portable tests cover parsing, coalescing,
+  errors, exhaustion, recovery, framing and PCM with preview/publication.
+  User-facing gain controls/bindings, hardware validation and gain-path Teensy
+  performance measurement remain pending.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,

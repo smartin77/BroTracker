@@ -21,6 +21,7 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
+    gains_.Disconnect(); tx_gains_=false;
     publication_.Disconnect();
     preview_.Disconnect(); tx_preview_=false;
     if(publish_queued_) { publish_queued_=false; preview_.Suspend(false); }
@@ -240,7 +241,10 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strncmp(line_,"BTPREVIEW1",10)) {
+    if (!std::strncmp(line_,"BTGAIN1",7)) {
+        if(connected_) (void)gains_.Response(line_,used_,now);
+    }
+    else if (!std::strncmp(line_,"BTPREVIEW1",10)) {
         if(connected_) (void)preview_.Response(line_,used_,now);
     }
     else if (!std::strcmp(line_,BroTracker::kPausedPatternPublicationCapability))
@@ -358,6 +362,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
+    gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
     if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout) {
@@ -379,6 +384,7 @@ void BringUpSerial::Tick(std::uint32_t now)
         tx_size_=0; tx_publication_=false;
     }
     if(tx_preview_ && tx_offset_==0 && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
+    if(tx_gains_ && tx_offset_==0 && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
@@ -386,6 +392,7 @@ void BringUpSerial::Tick(std::uint32_t now)
         if (pending_ == Command::Start) start_write_attempted_ = true;
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
+        if(tx_gains_) gains_.BeforeWrite(now);
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
         if (count > 0)
         {
@@ -394,6 +401,7 @@ void BringUpSerial::Tick(std::uint32_t now)
                 Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
+                if(tx_gains_) { gains_.LineComplete(); tx_gains_=false; }
             }
         }
         else if (count < 0)
@@ -417,9 +425,11 @@ void BringUpSerial::Tick(std::uint32_t now)
                 Log("RX error: overlong line discarded");
                 // Conservatively cancel staging, but never touch applied transport,
                 // position or a previously committed snapshot.
-                if(preview_.Supported()) preview_.ReadFailure();
-                if (pattern_assembler_.Active())
-                { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                if(std::strncmp(line_,"BTGAIN1",7)) {
+                    if(preview_.Supported()) preview_.ReadFailure();
+                    if (pattern_assembler_.Active())
+                    { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                }
             }
             else OnLine(now);
             used_ = 0;
@@ -478,6 +488,19 @@ void BringUpSerial::Tick(std::uint32_t now)
                 { pattern_assembler_.Cancel(); snapshot_failed_ = true; tx_size_ = 0; }
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
+            }
+        }
+        else if (connected_ && gains_.Supported() && !PublicationBusy() &&
+            !pattern_assembler_.Active() && (!preview_.Supported() || (!preview_.TransferBusy() && !preview_.Recovering())) &&
+            (gains_.NeedsRead(now) || gains_.Sending() || gains_.Begin(now))) {
+            if(gains_.NeedsRead(now) && !gains_.Sending()) {
+                std::strcpy(tx_,"BTGAIN1 GET 1\n"); tx_size_=static_cast<unsigned>(std::strlen(tx_));
+                tx_offset_=0; gains_.ReadSent(now);
+            } else {
+                std::size_t length=0;
+                if(gains_.FormatLine(tx_,sizeof(tx_),length)) {
+                    tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_gains_=true;
+                }
             }
         }
         else if (connected_ && preview_.Supported() && !publication_.Blocking() && !pattern_assembler_.Active()) {
