@@ -1332,3 +1332,33 @@ session. Sample/synth editor histories are separate future work with undecided
 lifecycle policies. Host tests cover atomic/full-pattern restoration, branch
 invalidation, capacity, locking, baseline transitions, recovery and automatic
 preview after Undo/Redo; manual validation and input integration remain pending.
+
+### Portable per-channel gain mixer (host-tested; not integrated)
+
+`MixPcm16MonoWithGains` is separate from the unchanged unity mixer and existing
+playback. Eight unsigned Q16 gains span 0..65536; 65536 is exact unity and the
+fixed gain metadata defaults every channel to unity. It retains exact fractional
+PCM contributions in int64_t, rounds the accumulated sum once to nearest integer
+with ties away from zero, then saturates to PCM16. Signed division defines both
+polarities explicitly; no implementation-dependent negative shifts are used.
+Eight full-scale weighted channels sum within [-17179869184,17179344896];
+rounding adds at most 32768 magnitude, safely within int64_t. Cancellation is
+independent of channel order, and unity output is bit-identical to MixPcm16Mono.
+
+Whole-request gain/pointer/count validation occurs before writing. Invalid gains
+are rejected even for zero frames; valid zero-frame requests permit null pointers.
+Positive spans require all eight input pointers, even at zero gain, and a valid
+destination. Frame/byte representability is checked before pointer arithmetic.
+Rejection preserves output. Caller guarantees valid memory extents/lifetimes,
+immutable metadata and destination non-overlap with inputs and request metadata;
+inputs may share read-only storage. Processing is allocation-free and O(8*frames).
+Zero gain is silent audio contribution, not tracker mute, event suppression or
+muted-header styling. Tests cover unity equivalence, partial gains and both
+rounding signs, cancellation/order independence, saturation, invalid requests,
+input preservation and partition-independent output. No hardware cost was measured.
+
+No player, firmware protocol, UI or diagnostic fixture levels change. Gain
+controls/integration, instrument/master gain, panning, smoothing and final mixing
+headroom policy remain separate work. Undo/Redo input bindings remain deferred
+until unified ArkOS/keyboard interaction design; no buttons or shortcuts are
+reserved, and held-key transaction grouping remains undecided.

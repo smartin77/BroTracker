@@ -172,6 +172,19 @@ design remains unchanged.
   and irregular block partitions. This core mono primitive does not implement final
   volume controls, panning or effects; production playback integration
   and measured Teensy performance remain outstanding.
+* [x] Add separate `MixPcm16MonoWithGains` in `src/core/audio/pcm16_gain_mixer.h`,
+  tested in `tests/test_pcm16_gain_mixer.cpp`: eight channels, unsigned Q16 gains
+  0..65536 (exact unity), default unity; exact int64 accumulation, one nearest
+  rounding with signed ties away from zero, then final PCM16 saturation.
+  Proven eight-channel full-scale bounds preserve cancellation/order independence;
+  unity is bit-identical to unchanged `MixPcm16Mono`. Validate all metadata before
+  writes, preserving output on rejection and caller memory/lifetime/non-overlap
+  guarantees. Host tests cover unity, silence/partial gain, signed rounding,
+  cancellation, saturation, partition independence and invalid requests.
+  No player/firmware/UI integration or level changes. Zero gain is an audio
+  contribution, not tracker mute/event suppression. Hardware cost is unmeasured;
+  gain controls, instrument/master gain, panning, smoothing and final headroom
+  policy remain pending.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
@@ -626,7 +639,8 @@ design remains unchanged.
 
 ## Deferred Tasks
 
-* [ ] Define channel/instrument gain controls and the mixing headroom policy.
+* [ ] Define channel/instrument gain controls and the final mixing headroom policy;
+  integrate the separate gain-aware primitive without implying tracker mute.
 * [ ] For actual muted channels, consider an X formed by two diagonal lines
   inside the channel header, with 16 px padding where geometry permits.
 
@@ -669,8 +683,9 @@ design remains unchanged.
   Same-session unchanged readback preserves history; changed recovery clears it.
   `ResetContext` explicitly clears new-project/session context. Host tests cover
   restoration, capacity, locking, baseline/recovery and preview composition.
-* [ ] Add undo/redo input bindings and decide held-key transaction grouping;
-  manually validate Windows/ArkOS history behavior. No shortcuts added yet.
+* [ ] Design undo/redo input bindings within unified ArkOS/keyboard interaction
+  and decide held-key transaction grouping; manually validate Windows/ArkOS
+  history behavior. No buttons or shortcuts are reserved.
 * [ ] Design separate sample-editor and synth-editor histories; lifecycle policy
   and protocol-backed editing-context continuity remain undecided.
 
