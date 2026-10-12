@@ -601,7 +601,8 @@ design remains unchanged.
   remains blocked; volatile preview is separate and allowed while Playing.
   Automatic host transfer and F4/F5 coordination are host-tested. Preview does not
   rebase publication/clear dirty state; rejection stays visible without retry.
-  Hardware validation remains pending; preview/publication imply no SD persistence.
+  User confirmed automatic preview on Windows BTX + Teensy on 2026-10-12;
+  exhaustive recovery/backpressure checks remain open. No SD persistence.
 
 * [x] Implement opt-in device `BTPREVIEW1 CAP 1` volatile preview transfer and
   audio-owner lifecycle: fixed ordered/checksummed OFF-aware staging, consumed
@@ -619,7 +620,7 @@ design remains unchanged.
   published readback. Transport has complete-line priority; rejected revisions
   remain visible without automatic retry. Tests cover partial writes, held edits,
   dirty state, recovery, races and end-to-end PCM/Restore/publication.
-* [ ] Validate automatic preview, F4/F5 coordination, rejection, uncertainty/reconnect,
+* [ ] Complete exhaustive validation of F4/F5 coordination, rejection, uncertainty/reconnect,
   backpressure and pause latency on Windows + Teensy, then ArkOS. Handheld bindings
   remain deferred. No SD persistence; physical timing/performance remain unmeasured.
 
@@ -655,10 +656,23 @@ design remains unchanged.
   using an attached keyboard. Key mapping and octave controls remain undecided;
   no implementation yet.
 
-* [ ] Design bounded local-editor undo/redo with atomic note/instrument/OFF-timing
-  edit records, including combined Note DELETE. Preserve cursor independence;
-  define history behavior for Restore, confirmed publication/rebase and disconnect.
-  Undo must never publish changes automatically.
+* [x] Implement pattern-context data undo/redo in `pattern_edit_history.h` and
+  `LocalPatternEditor`: latest 64 fixed transactions, complete before/after
+  note/instrument/OFF timing and coordinates; full-capacity F4 Restore is atomic.
+  Navigation/no-ops add no entries, new edits discard redo, oldest entries evict
+  deterministically. Cursor and published baseline remain independent; matching
+  F5 readback/rebase preserves history. Undo/Redo feed automatic preview, never
+  publication. Publication locks mutation but permits navigation. Storage is
+  65,804 bytes on the current host ABI (8-byte changes, 128 per transaction).
+  Disconnect retains disabled bounded history until recovery, but the protocol
+  cannot prove editing-context identity: reconnect conservatively clears it.
+  Same-session unchanged readback preserves history; changed recovery clears it.
+  `ResetContext` explicitly clears new-project/session context. Host tests cover
+  restoration, capacity, locking, baseline/recovery and preview composition.
+* [ ] Add undo/redo input bindings and decide held-key transaction grouping;
+  manually validate Windows/ArkOS history behavior. No shortcuts added yet.
+* [ ] Design separate sample-editor and synth-editor histories; lifecycle policy
+  and protocol-backed editing-context continuity remain undecided.
 
 * [ ] Evaluate the bright edited-channel background as a separate design option;
   current live mode retains only the orange field-edit border.

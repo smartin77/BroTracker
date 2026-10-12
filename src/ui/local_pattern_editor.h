@@ -1,22 +1,25 @@
 #pragma once
 #include "live_playback_view.h"
+#include "pattern_edit_history.h"
 #include "bringup/host_pattern_publication.h"
 
 enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
-    Decrement, NoteOff, Clear, Restore, SetValue };
+    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo };
 struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; };
 
 // Host-only, fixed-capacity connection-scoped draft. No transport or publication.
 // Sync accepts only the shared parser's complete, validated snapshot. Subsequent
-// telemetry/snapshots cannot overwrite edits; disconnect explicitly discards them.
+// telemetry/snapshots cannot overwrite edits. Disconnect disables editing and retains
+// bounded history privately until recovery; current protocol has no context identity,
+// so reconnect conservatively invalidates history even for identical contents.
 class LocalPatternEditor
 {
 public:
     void Sync(const std::optional<LivePlaybackView>& live) noexcept
     {
-        if (!live) { *this = LocalPatternEditor{}; return; }
+        if (!live) { ready_=false; locked_=false; baseline_={}; draft_={}; cursor_={}; return; }
         if (ready_) return;
         const auto display = ResolvePatternDisplay(live);
         if (!display.device_pattern) return;
@@ -27,6 +30,7 @@ public:
                 const auto note = display.device_pattern->pattern.cells[r][c].note;
                 if (!IsPatternNote(note) || !BroTracker::ValidNoteOffTiming(display.device_pattern->pattern.note_off_timing[r][c])) return;
             }
+        history_.Clear(); // No protocol-backed context continuity across reconnect.
         baseline_ = *display.device_pattern;
         draft_ = baseline_.pattern;
         ready_ = true;
@@ -46,6 +50,7 @@ public:
         if(!ready_ || pattern.active_rows!=draft_.active_rows || pattern.active_channels!=draft_.active_channels) return false;
         for(unsigned r=0;r<pattern.active_rows;++r) for(unsigned c=0;c<pattern.active_channels;++c)
             if(!IsPatternNote(pattern.cells[r][c].note) || !BroTracker::ValidNoteOffTiming(pattern.note_off_timing[r][c])) return false;
+        if(!BroTracker::SamePattern(draft_,pattern)) history_.Clear();
         draft_=pattern; return true;
     }
     bool Ready() const noexcept { return ready_; }
@@ -66,8 +71,27 @@ public:
                     draft_.note_off_timing[r][c] != baseline_.pattern.note_off_timing[r][c]) return true;
         return false;
     }
+    // Explicit project/new-pattern/session termination boundary; no file identity assumed.
+    void ResetContext() noexcept {
+        ready_=locked_=false; baseline_={}; draft_={}; cursor_={}; history_.Clear();
+    }
+    bool CanUndo() const noexcept { return ready_ && !locked_ && history_.CanUndo(); }
+    bool CanRedo() const noexcept { return ready_ && !locked_ && history_.CanRedo(); }
+    bool Undo() noexcept { return CanUndo() && history_.Undo(draft_); }
+    bool Redo() noexcept { return CanRedo() && history_.Redo(draft_); }
+    // Record resulting data only; navigation/no-ops do not enter history.
+    bool Apply(EditorAction action, unsigned value = 0) noexcept {
+        if(action==EditorAction::Undo) return Undo();
+        if(action==EditorAction::Redo) return Redo();
+        if(!ready_) return false;
+        const auto before=draft_;
+        const bool success=ApplyImpl(action,value);
+        if(success) history_.Record(before,draft_);
+        return success;
+    }
+private:
     // Bounds/unsupported actions reject without changing draft or cursor.
-    bool Apply(EditorAction action, unsigned value = 0) noexcept
+    bool ApplyImpl(EditorAction action, unsigned value) noexcept
     {
         if (!ready_) return false;
         if (locked_ && action != EditorAction::Up && action != EditorAction::Down &&
@@ -155,6 +179,7 @@ public:
         return true;
     }
 private:
+    PatternEditHistory history_;
     bool ready_ = false, locked_ = false;
     BroTracker::DevicePatternSnapshot baseline_;
     BroTracker::RealtimePattern draft_;

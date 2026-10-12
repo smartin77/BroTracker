@@ -491,3 +491,88 @@ TEST_CASE(PatternDerivedHeldEntryThenDirectionalRepeat) {
         CHECK_EQ(editor.Draft()->cells[1][0].note,direction==EditorAction::Increment ? 74 : 70);
     }
 }
+
+TEST_CASE(EditorHistoryAtomicDeleteRestoreAndBaseline) {
+    LocalPatternEditor editor; auto live=ConnectedDraft(); editor.Sync(live);
+    CHECK(!editor.CanUndo());
+    CHECK(editor.Apply(EditorAction::NoteOff));
+    CHECK(editor.Apply(EditorAction::Right));
+    CHECK(editor.Apply(EditorAction::Increment));
+    CHECK(editor.Apply(EditorAction::Left));
+    const auto cursor=editor.Cursor();
+    CHECK(editor.Apply(EditorAction::Clear));
+    CHECK_EQ(editor.Draft()->cells[0][0].note,NOTE_EMPTY);
+    CHECK_EQ(editor.Draft()->cells[0][0].instrument,255);
+    CHECK(editor.Undo());
+    CHECK_EQ(editor.Draft()->cells[0][0].note,NOTE_OFF);
+    CHECK_EQ(editor.Draft()->cells[0][0].instrument,1);
+    CHECK(editor.OffTiming(0,0)==BroTracker::NoteOffTiming::EndOfPosition);
+    CHECK_EQ(editor.Cursor().row,cursor.row); CHECK(editor.Cursor().field==cursor.field);
+    CHECK(editor.Redo()); CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+    CHECK(editor.Undo()); CHECK(editor.Dirty());
+    CHECK_EQ(editor.Draft()->cells[0][0].note,NOTE_EMPTY);
+    CHECK(editor.Redo()); CHECK(!editor.Dirty());
+    CHECK(editor.Apply(EditorAction::Increment));
+    auto published=*editor.Baseline(); published.version=2; published.pattern=*editor.Draft();
+    CHECK(editor.Rebase(published)); CHECK(!editor.Dirty());
+    CHECK(editor.Undo()); CHECK(editor.Dirty()); CHECK_EQ(editor.Draft()->cells[0][0].note,60);
+    CHECK(editor.Redo()); CHECK(!editor.Dirty());
+    // Earlier Restore retains its captured target despite the changed baseline.
+    CHECK(editor.Undo()); CHECK(editor.Undo()); CHECK_EQ(editor.Draft()->cells[0][0].note,NOTE_EMPTY);
+    CHECK(editor.Redo()); CHECK_EQ(editor.Draft()->cells[0][0].note,60);
+}
+TEST_CASE(EditorHistoryWholePatternRestoreAndBranching) {
+    LocalPatternEditor editor; editor.Sync(ConnectedDraft());
+    CHECK(editor.Apply(EditorAction::Increment));
+    CHECK(editor.Apply(EditorAction::Down)); CHECK(editor.Apply(EditorAction::Increment));
+    CHECK(editor.Apply(EditorAction::NextChannel)); CHECK(editor.Apply(EditorAction::Right));
+    CHECK(editor.Apply(EditorAction::Increment));
+    const auto changed=*editor.Draft();
+    CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+    CHECK(editor.Undo()); CHECK(BroTracker::SamePattern(changed,*editor.Draft()));
+    CHECK(editor.Redo()); CHECK(!editor.Dirty()); CHECK(editor.Undo());
+    CHECK(editor.Apply(EditorAction::Increment)); CHECK(!editor.CanRedo());
+    editor.SetLocked(true); CHECK(!editor.CanUndo()); CHECK(!editor.Undo()); CHECK(!editor.Redo());
+    CHECK(!editor.Apply(EditorAction::Restore)); CHECK(editor.Apply(EditorAction::Up));
+    editor.SetLocked(false); CHECK(editor.CanUndo());
+    editor.ResetContext(); CHECK(!editor.Ready()); CHECK(!editor.CanUndo());
+    editor.Sync(ConnectedDraft()); CHECK(!editor.CanUndo());
+}
+TEST_CASE(EditorHistoryCapacityNoOpsAndRecovery) {
+    LocalPatternEditor editor; auto live=ConnectedDraft(); editor.Sync(live);
+    CHECK(editor.Apply(EditorAction::SetValue,60)); CHECK(!editor.CanUndo());
+    CHECK(editor.Apply(EditorAction::Down)); CHECK(!editor.CanUndo());
+    for(unsigned i=0;i<70;++i) CHECK(editor.Apply(EditorAction::Increment));
+    unsigned undone=0; while(editor.Undo()) ++undone;
+    CHECK_EQ(undone,64u); CHECK_EQ(editor.Draft()->cells[1][0].note,65);
+    for(unsigned i=0;i<64;++i) { CHECK(editor.Redo()); }
+    CHECK(!editor.CanRedo());
+    const auto unchanged=*editor.Draft(); CHECK(editor.RecoverDraft(unchanged)); CHECK(editor.CanUndo());
+    // Preview readback never changes baseline or dirty comparison.
+    CHECK(editor.Dirty()); CHECK_EQ(editor.Baseline()->pattern.cells[1][0].note,NOTE_EMPTY);
+    auto different=unchanged; different.cells[1][0].note=60;
+    CHECK(editor.RecoverDraft(different)); CHECK(!editor.CanUndo());
+    CHECK(editor.Apply(EditorAction::Increment)); CHECK(editor.CanUndo());
+    editor.Sync(std::nullopt); CHECK(!editor.Ready()); CHECK(!editor.CanUndo()); CHECK(!editor.Undo());
+    // Even an identical snapshot cannot prove context continuity in this protocol.
+    editor.Sync(live); CHECK(!editor.CanUndo()); CHECK(!editor.CanRedo());
+}
+
+TEST_CASE(EditorHistoryFullCapacityTransaction) {
+    auto live=ConnectedDraft(); live->position.channels=8;
+    live->device_pattern->pattern.active_channels=8;
+    LocalPatternEditor editor; editor.Sync(live);
+    const auto baseline=*editor.Draft();
+    for(unsigned r=0;r<16;++r) {
+        for(unsigned c=0;c<8;++c) {
+            CHECK(editor.Apply(EditorAction::SetValue,70));
+            CHECK(editor.Apply(EditorAction::NextChannel));
+        }
+        if(r<15) CHECK(editor.Apply(EditorAction::Down));
+    }
+    const auto modified=*editor.Draft();
+    CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
+    CHECK(editor.Undo()); CHECK(BroTracker::SamePattern(*editor.Draft(),modified));
+    CHECK(editor.Redo()); CHECK(BroTracker::SamePattern(*editor.Draft(),baseline));
+    CHECK_EQ(sizeof(PatternEditHistory::Change),8u);
+}

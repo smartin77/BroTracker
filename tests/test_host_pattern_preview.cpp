@@ -177,6 +177,11 @@ TEST_CASE(AutomaticPreviewPcmRestorePublicationAndLegacyFallback) {
     CHECK(s.serial.Publish(s.editor,s.now)); CHECK(s.editor.Locked()); s.Pump(400);
     CHECK(!s.editor.Dirty()); CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,60);
     CHECK_EQ(s.port->metadata.working.cells[1][0].note,60);
+    CHECK(s.editor.CanUndo()); CHECK(s.editor.Undo()); s.Tick(); s.Pump(400);
+    CHECK(s.editor.Dirty()); CHECK_EQ(s.port->metadata.working.cells[1][0].note,NOTE_OFF);
+    CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,60);
+    CHECK(s.editor.Redo()); s.Tick(); s.Pump(400); CHECK(!s.editor.Dirty());
+    CHECK_EQ(s.port->metadata.working.cells[1][0].note,60);
     PreviewSession legacy; legacy.port->capability=false; legacy.Pump(); CHECK(legacy.editor.Ready());
     CHECK(legacy.editor.Apply(EditorAction::Down)); legacy.Note(60); legacy.Pump();
     CHECK(legacy.port->output.find("BTPREVIEW1")==std::string::npos); CHECK_EQ(legacy.port->metadata.working.cells[1][0].note,NOTE_OFF);

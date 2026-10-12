@@ -1292,3 +1292,43 @@ Host tests include a partial-write simulated device using real parser/hash,
 audio-owner control and core PCM rendering: edits alter PCM, F4 restores playback,
 and F5 confirms a new baseline. These do not measure USB latency, Teensy realtime
 cost, physical row timing or hardware performance.
+
+### Automatic preview Windows confirmation (2026-10-12)
+
+The user confirmed automatic draft preview works correctly on Windows BTX + Teensy. This does not establish exhaustive reconnect/backpressure behavior, physical timing or realtime performance. ArkOS validation remains open.
+
+### Bounded pattern edit history (portable foundation; manual validation pending)
+
+History belongs to the LocalPatternEditor pattern context, not the visible screen
+or an input binding. It survives screen changes when that context is retained.
+Undo/Redo are exposed as actions and methods with availability queries; no keyboard
+shortcuts or held-key grouping have been added. Each accepted data edit records
+coordinates and complete before/after note, instrument and OFF timing. Combined
+Note Delete and F4 Restore are atomic; Restore captures all changed active cells
+and the baseline at invocation, unaffected by subsequent publication.
+
+The latest 64 transactions use fixed storage, each capable of 128 changed cells.
+Each change is 8 bytes; transaction storage plus ring counters is 65,804 bytes on
+this host ABI, plus the editor's existing pattern/snapshot storage and one bounded
+pattern copy during edit recording. Single-cell transactions use one change;
+unused slots remain reserved so full-pattern Restore never allocates. Work is
+bounded by 128 cells per edit/Undo/Redo. No navigation/no-op history entries;
+new edits after Undo discard redo, and capacity evicts the oldest transaction.
+
+Undo/Redo preserve cursor and published baseline. Dirty comparison uses the
+current baseline, so Undo after confirmed F5 makes the draft dirty against that
+new baseline. Exact matching publication readback preserves history. Unchanged
+preview readback also preserves history; Undo/Redo/F4 use the normal automatic
+preview path and never publish. Publication locks Undo/Redo/Restore, not navigation.
+
+Temporary disconnect disables editing and retains history privately in bounded
+storage. The present protocol has no editing-context/session identity that safely
+proves continuity, so reconnect initialization conservatively clears history even
+when dimensions, tempo or contents match. Recovery that changes draft contents
+also clears incompatible history. No partial or unrelated readback may reattach
+history. ResetContext is the explicit new-pattern/project or session-termination
+boundary; it assumes no final file/project identity format. Destruction ends the
+session. Sample/synth editor histories are separate future work with undecided
+lifecycle policies. Host tests cover atomic/full-pattern restoration, branch
+invalidation, capacity, locking, baseline transitions, recovery and automatic
+preview after Undo/Redo; manual validation and input integration remain pending.
