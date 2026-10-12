@@ -482,7 +482,7 @@ namespace
                 return NOTE_OFF;
             }
 
-            if (value.size() < 3)
+            if (value.size() != 3 || (value[1] != '-' && value[1] != '#'))
             {
                 throw std::runtime_error(
                     "Invalid note value.");
@@ -550,9 +550,10 @@ namespace
             }
 
             // Matches the Yamaha display convention used by FormatNote (D0018).
-            return static_cast<Note>(
-                (octave + 2) * 12 +
-                semitone);
+            const unsigned note = (octave + 2) * 12 + semitone;
+            if (!IsPitchedPatternNote(note))
+                throw std::runtime_error("Unsupported pattern note.");
+            return static_cast<Note>(note);
         }
     };
 }

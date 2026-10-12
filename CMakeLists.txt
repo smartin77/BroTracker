@@ -20,7 +20,7 @@ endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
 add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp)
-target_include_directories(BroTrackerBringUp PUBLIC src)
+target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)
 else()
@@ -35,12 +35,15 @@ add_library(BroTrackerCore STATIC
     src/core/note_names.cpp
 )
 
-target_include_directories(BroTrackerCore PUBLIC src)
+target_include_directories(BroTrackerCore PUBLIC src libraries/scheduler/src)
 
 add_executable(BroTracker
     src/main.cpp
     src/runtime/runtime.cpp
     libraries/scheduler/src/scheduler.cpp
+    libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
+    libraries/scheduler/src/pattern_position.cpp
     src/runtime/storage.cpp
 )
 
@@ -137,10 +140,36 @@ add_executable(BroTrackerTests
     tests/test_note_formatter.cpp
     tests/test_tune_loader.cpp
     tests/test_scheduler.cpp
+    tests/test_row_events.cpp
+    tests/test_channel_state.cpp
+    tests/test_wav_buffer_loader.cpp
+    tests/test_ram_sample_voice.cpp
+    tests/test_ram_voice_block_renderer.cpp
+    tests/test_pcm16_mixer.cpp
+    tests/test_pcm16_gain_mixer.cpp
+    tests/test_native_rate_sample_commands.cpp
+    tests/test_native_rate_pattern_player.cpp
+    tests/test_pattern_bringup_control.cpp
+    tests/test_pattern_gains.cpp
+    tests/test_host_channel_gains.cpp
+    tests/test_diagnostic_channel_gains.cpp
+    tests/test_pattern_telemetry.cpp
+    tests/test_pattern_snapshot.cpp
+    tests/test_pattern_publication.cpp
+    tests/test_host_pattern_publication.cpp
+    tests/test_host_pattern_preview.cpp
+    tests/test_local_pattern_editor.cpp
+    src/ui/font.cpp
+    src/ui/text_renderer.cpp
+    src/ui/pattern_screen.cpp
+    src/renderer/framebuffer.cpp
     libraries/scheduler/src/scheduler.cpp
+    libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
+    libraries/scheduler/src/pattern_position.cpp
 )
 
-target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore)
+target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp)
 target_include_directories(BroTrackerTests PRIVATE src tests libraries/scheduler/src)
 
 add_test(
@@ -183,3 +212,11 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
 endif()
+
+# Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,
+# without exposing the fake Arduino/SD API to other production/host targets.
+add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
+    libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
+    libraries/sd_access/src ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)

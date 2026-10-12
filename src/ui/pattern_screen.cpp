@@ -19,6 +19,7 @@
 #include "core/note_formatter.h"
 #include "renderer/color.h"
 #include "text_renderer.h"
+#include "instrument_formatter.h"
 
 namespace
 {
@@ -81,38 +82,24 @@ namespace
         int section_padding = 3;
         int frame_gap = 3;
         int right_navigation_height = 26;
+        int right_section_x = 457;
+        int content_padding = 8;
     };
 
     constexpr Layout layout{};
 
-    std::string InstrumentToString(
-        std::uint8_t instrument)
-    {
-        if (instrument == 0xFF)
-        {
-            return "--";
-        }
-
-        return std::string{
-            static_cast<char>(
-                '0' + instrument / 10),
-
-            static_cast<char>(
-                '0' + instrument % 10)
-        };
-    }
-
     void DrawMainHeader(
         Framebuffer& framebuffer,
         const Tune& tune,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display)
     {
         std::ostringstream tempo_stream;
 
         tempo_stream
             << std::fixed
             << std::setprecision(1)
-            << tune.tempo;
+            << (display.device_pattern ? display.device_pattern->tempo_hundredths / 100.0 : tune.tempo);
 
         framebuffer.Rectangle(
             layout.pattern_x,
@@ -132,7 +119,7 @@ namespace
             framebuffer,
             43,
             9,
-            tune.title,
+            display.device_mode ? (display.device_pattern ? "TEENSY PATTERN" : "TEENSY (DATA UNKNOWN)") : tune.title,
             header_value);
 
         const std::string header_labels[] =
@@ -145,15 +132,16 @@ namespace
 
         const std::string header_values[] =
         {
-            tempo_stream.str(),
+            display.device_mode && !display.device_pattern ? "--" : tempo_stream.str(),
             
-            pattern.number < 10
+            display.device_mode ? "--" : pattern.number < 10
                 ? "0" + std::to_string(pattern.number)
                 : std::to_string(pattern.number),
 
-            "16",
+            display.device_mode ? (display.playback_highlight ?
+                (display.row < 9 ? "0" : "") + std::to_string(display.row + 1) : "--") : "16",
 
-            "03%"
+            display.device_mode ? "--" : "03%"
         };
 
         const int header_item_count =
@@ -275,7 +263,7 @@ namespace
     }
 
     void DrawRowHeader(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, int channels = layout.channel_count)
     {
         DrawCenteredFixedText(
             framebuffer,
@@ -313,16 +301,16 @@ namespace
                 cell_x,
                 layout.channel_width,
                 38,
-                std::to_string(channel + 1),
+                channel < channels ? std::to_string(channel + 1) : "--",
                 channel_number);
         }
     }
 
     void DrawRowNumbers(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, int rows = layout.visible_rows)
     {
         for (int row = 0;
-            row < layout.visible_rows;
+            row < rows;
             ++row)
         {
             const int y =
@@ -359,7 +347,8 @@ namespace
 
     void DrawPatternChannels(
         Framebuffer& framebuffer,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display, const LocalPatternEditor* editor)
     {
         constexpr int FIELD_WIDTH = 6 * 6;
 
@@ -388,7 +377,20 @@ namespace
                 std::uint8_t note_value = NOTE_EMPTY;
                 std::uint8_t instrument_value = 0xFF;
 
-                if (channel <
+                if (display.device_mode)
+                {
+                    // One pass: unavailable/out-of-active cells keep empty defaults.
+                    if (display.device_pattern && row < static_cast<int>(display.rows) &&
+                        channel < static_cast<int>(display.channels))
+                    {
+                        const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
+                        const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
+                        note_value = cell.note;
+                        instrument_value = cell.instrument;
+                    }
+                }
+
+                if (!display.device_mode && channel <
                     static_cast<int>(
                         pattern.channels.size()))
                 {
@@ -408,7 +410,7 @@ namespace
                 }
 
                 const bool is_current_position =
-                    channel == current_pattern_channel &&
+                    !display.device_mode && channel == current_pattern_channel &&
                     row == current_pattern_row - 1;
 
                 const bool is_empty_event =
@@ -438,7 +440,19 @@ namespace
                         AccidentalMode::Sharp),
                     note_color);
 
-                if (note_value == NOTE_OFF)
+                if (note_value == NOTE_OFF && editor && editor->Ready())
+                {
+                    DrawFixedText(framebuffer, field_x + 4 * 6, y,
+                        editor->OffTiming(row, channel) == LocalNoteOffTiming::EndOfPosition ? "_" : "¯",
+                        instrument_color);
+                }
+                else if (note_value == NOTE_OFF && display.device_pattern)
+                {
+                    DrawFixedText(framebuffer, field_x + 4 * 6, y,
+                        display.device_pattern->pattern.note_off_timing[row][channel] == BroTracker::NoteOffTiming::EndOfPosition ? "_" : "\xC2\xAF",
+                        instrument_color);
+                }
+                else if (note_value == NOTE_OFF && (!display.device_mode || instrument_value == 0xFF))
                 {
                     DrawFixedText(
                         framebuffer,
@@ -453,7 +467,7 @@ namespace
                         framebuffer,
                         field_x + 4 * 6,
                         y,
-                        InstrumentToString(
+                        FormatInstrument(
                             instrument_value),
                         instrument_color);
                 }
@@ -568,21 +582,41 @@ namespace
 
     void DrawPattern(
         Framebuffer& framebuffer,
-        const Pattern& pattern)
+        const Pattern& pattern,
+        const PatternDisplayState& display, const LocalPatternEditor* editor)
     {
         DrawPatternFrame(framebuffer);
 
-        DrawCurrentPatternRow(
-            framebuffer);
-
-        DrawCurrentPosition(
-            framebuffer);
+        if (!display.device_mode)
+        {
+            DrawCurrentPatternRow(framebuffer);
+            DrawCurrentPosition(framebuffer);
+        }
+        else if (display.playback_highlight)
+        {
+            framebuffer.FilledRectangle(layout.pattern_x + 2,
+                layout.first_row_y + static_cast<int>(display.row) * layout.row_height,
+                layout.row_number_width + static_cast<int>(display.channels) * layout.channel_width - 2,
+                layout.row_height, current_row_background);
+            // U+00A6 is the font's custom arrow (BFM entry 166), not a bar.
+            DrawFixedText(framebuffer, layout.row_number_width - 6,
+                layout.first_row_y + static_cast<int>(display.row) * layout.row_height + 2,
+                "\xC2\xA6", row_marker);
+        }
 
         DrawRowHeader(framebuffer);
         DrawRowNumbers(framebuffer);
         DrawPatternChannels(
             framebuffer,
-            pattern);
+            pattern, display, editor);
+        if (display.device_pattern && editor && editor->Ready())
+        {
+            const auto& cursor = editor->Cursor();
+            const int x = layout.channel_start_x + static_cast<int>(cursor.channel) * layout.channel_width +
+                (layout.channel_width - 36) / 2 + (cursor.field == EditField::Instrument ? 24 : 0);
+            framebuffer.Rectangle(x - 2, layout.first_row_y + static_cast<int>(cursor.row) * layout.row_height,
+                cursor.field == EditField::Note ? 22 : 16, layout.row_height, Color{255, 160, 64});
+        }
     }
 
     enum class RightMenuId
@@ -608,7 +642,7 @@ namespace
     void DrawRightMenu(
         Framebuffer& framebuffer)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
         constexpr int RIGHT_MENU_HEIGHT =
@@ -671,7 +705,7 @@ namespace
     void DrawRightWorkspace(
         Framebuffer& framebuffer)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
 
@@ -697,9 +731,9 @@ namespace
     }
 
     void DrawRightChannelNavigation(
-        Framebuffer& framebuffer)
+        Framebuffer& framebuffer, const PatternDisplayState& display)
     {
-        constexpr int RIGHT_SECTION_X = 457;
+        constexpr int RIGHT_SECTION_X = layout.right_section_x;
         constexpr int RIGHT_SECTION_WIDTH =
             SCREEN_WIDTH - RIGHT_SECTION_X;
 
@@ -718,7 +752,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 8,
             NAVIGATION_Y + 9,
-            "CH 1-8",
+            display.device_mode ? (display.channels ? "CH 1-" + std::to_string(display.channels) : "CH --") : "CH 1-8",
             row_header_bright);
 
         DrawFixedText(
@@ -732,7 +766,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 80,
             NAVIGATION_Y + 9,
-            "01",
+            display.device_mode ? "--" : "01",
             header_value);
 
         DrawFixedText(
@@ -746,7 +780,7 @@ namespace
             framebuffer,
             RIGHT_SECTION_X + 110,
             NAVIGATION_Y + 9,
-            "08",
+            display.device_mode ? (display.channels ? "0" + std::to_string(display.channels) : "--") : "08",
             header_name);
 
         DrawFixedText(
@@ -758,26 +792,95 @@ namespace
     }
 }
 
-void RenderMainScreen(
+static void RenderPatternScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
-    const Pattern& pattern)
+    const Pattern& pattern,
+    const std::optional<LivePlaybackView>& live, const LocalPatternEditor* editor,
+    const HostPanelInformation& host)
 {
     framebuffer.Clear(background);
+    const auto display = ResolvePatternDisplay(live, !live);
+    // Never show a draft against unrelated or unavailable device dimensions.
+    if (editor && (!display.device_pattern || !editor->Ready() ||
+        editor->Draft()->active_rows != display.rows ||
+        editor->Draft()->active_channels != display.channels)) editor = nullptr;
 
     DrawMainHeader(
         framebuffer,
         tune,
-        pattern);
+        pattern, display);
 
     DrawPattern(
         framebuffer,
-        pattern);
+        pattern, display, editor);
 
-    DrawCurrentEventEdit(
-        framebuffer);
+    if (!display.device_mode) DrawCurrentEventEdit(framebuffer);
 
     DrawRightMenu(framebuffer);
     DrawRightWorkspace(framebuffer);
-    DrawRightChannelNavigation(framebuffer);
+    if (display.device_mode || !host.connection_status.empty() || !host.transport_hints.empty() || !host.publication_status.empty())
+    {
+        // Derive the padded content interior from the same workspace bounds.
+        const int x = layout.right_section_x + 1 + layout.content_padding;
+        int y = layout.header_height + layout.frame_gap + 1 + layout.content_padding;
+        const int width = static_cast<int>(::SCREEN_WIDTH) - layout.right_section_x - 2 - 2 * layout.content_padding;
+        const int bottom = static_cast<int>(::SCREEN_HEIGHT) - layout.right_navigation_height - layout.frame_gap -
+            1 - layout.content_padding;
+        const auto info = [&](const std::string& text, Color color) {
+            y += DrawWrappedFixedText(framebuffer, x, y, width, bottom - y, text, color) + 8;
+        };
+        // Connection/errors and pending transport stay visible even before HELLO.
+        if (!host.connection_status.empty()) info(host.connection_status, header_value);
+        if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
+        if (!host.publication_status.empty()) info(host.publication_status, header_value);
+        if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
+        if (display.device_mode)
+        {
+            // Shared read-only presentation: zero is a gain, never a tracker mute.
+            if (!live->gains_supported) info("Channel gains unavailable", header_name);
+            else {
+                info(live->gain_status.empty() ? "Channel gains awaiting state" : live->gain_status, header_name);
+                const auto values = [&](const BroTracker::Pcm16ChannelGains& gains) {
+                    std::string text;
+                    for (unsigned c=0;c<8;++c) {
+                        if(c) text += " ";
+                        text += std::to_string(c+1) + ":" + std::to_string(gains.channels[c]);
+                    }
+                    return text;
+                };
+                if(live->channel_gains) info("Applied Q16 ID " + std::to_string(live->channel_gains->applied_id) +
+                    " " + values(live->channel_gains->gains), header_value);
+                else info("Applied gains unavailable", header_value);
+                if(live->desired_gains) info("Desired Q16 " + values(*live->desired_gains), header_value);
+            }
+            info(!live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
+                !live->fresh ? "Position unavailable / stale; no extrapolation" :
+                live->position.paused ? "Device PAUSED (reported logical position)" :
+                live->position.running ? "Device playing (reported logical position)" : "Device stopped",
+                header_value);
+            info(display.device_pattern ? (editor && editor->Ready() ?
+                    (live->preview_supported ?
+                        (editor->Dirty() ? "WORKING DRAFT * - UNPUBLISHED" : "WORKING DRAFT - PUBLISHED BASELINE") :
+                        (editor->Dirty() ? "LOCAL DRAFT * - NOT SENT TO TEENSY" : "LOCAL DRAFT - DEVICE BASELINE")) :
+                    "Device pattern (read-only)") :
+                live->pattern_loading ? "Loading device pattern..." : "Device pattern unavailable", header_name);
+            if (live->telemetry_available)
+                info("ROWS " + std::to_string(display.rows) + " CH " + std::to_string(display.channels) +
+                    " LOOP " + (live->fresh && live->position.valid ? std::to_string(live->position.loop) : "--"),
+                    header_value);
+        }
+    }
+    DrawRightChannelNavigation(framebuffer, display);
+}
+
+void RenderMainScreen(Framebuffer& framebuffer, const Tune& tune, const Pattern& pattern,
+    const std::optional<LivePlaybackView>& live, const LocalPatternEditor* editor,
+    const HostPanelInformation& host) {
+    // Missing connection is unavailable application data, never a preview request.
+    const std::optional<LivePlaybackView> unavailable=LivePlaybackView{};
+    RenderPatternScreen(framebuffer,tune,pattern,live ? live : unavailable,editor,host);
+}
+void RenderPreviewScreen(Framebuffer& framebuffer, const Tune& tune, const Pattern& pattern) {
+    RenderPatternScreen(framebuffer,tune,pattern,std::nullopt,nullptr,{});
 }

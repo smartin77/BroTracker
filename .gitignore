@@ -2,6 +2,7 @@
 _backyard/
 BroTracker/
 !firmware/teensy/BroTracker/
+/firmware/teensy/BroTracker/*.ino.cpp
 build/
 out/
 .cache/

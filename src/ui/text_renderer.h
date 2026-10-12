@@ -16,6 +16,11 @@
 
 bool LoadUiFont(const char* filename);
 
+// Word-wrap ASCII informational text within a half-open rectangle; split long words.
+// Every glyph pixel is clipped to that rectangle. Returns occupied line height.
+int DrawWrappedFixedText(Framebuffer& framebuffer, int x, int y,
+    int width, int height, const std::string& text, Color color);
+
 void DrawText(
     Framebuffer& framebuffer,
     int x,

@@ -153,19 +153,6 @@ int main(int, char*[])
         bring_up_log,
         "framebuffer creation: success");
 
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "main screen rendering: start");
-
-    RenderMainScreen(
-        framebuffer,
-        tune,
-        tune.patterns.front());
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "main screen rendering: success");
-
     SdlDisplayBackend display("BroTracker Terminal");
 
     WriteBringUpDiagnostic(
@@ -186,25 +173,6 @@ int main(int, char*[])
     WriteBringUpDiagnostic(
         bring_up_log,
         "SDL display initialization: success");
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "first framebuffer Present: start");
-
-    if (!display.Present(framebuffer))
-    {
-        WriteSdlFailure(
-            bring_up_log,
-            "first framebuffer Present: failure");
-        LogError("Failed to present the BroTracker framebuffer.");
-        return 1;
-    }
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "first framebuffer Present: success");
-
-    LogInfo("BroTracker framebuffer displayed.");
 
     SDL_GameController* game_controller = nullptr;
     const int input_init_result = SDL_InitSubSystem(
@@ -300,6 +268,7 @@ int main(int, char*[])
     WriteBringUpDiagnostic(bring_up_log,
         "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
     BringUpSerial serial(bring_up_log);
+    LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 
     WriteBringUpDiagnostic(
@@ -309,6 +278,7 @@ int main(int, char*[])
     while (!controls.Quit())
     {
         controls.Tick(SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());
         SDL_Event event;
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
@@ -330,17 +300,14 @@ int main(int, char*[])
             }
         }
 
-        // Temporary bring-up status overlay; leave the tracker layout alone.
-        framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16, 16, 16});
-        DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255, 255, 255});
-        DrawFixedText(framebuffer, 8, 456,
+        const HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             controller_id < 0 ? "Mapped SDL GameController required" :
             !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
             serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
             !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
-            "L1 / B: START | R1 / X: EXIT",
-            Color{255, 255, 255});
+            "L1 / B: START | R1 / X: EXIT", serial.PublicationStatus()};
+        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if (!controls.Quit() && !display.Present(framebuffer))
         {

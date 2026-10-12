@@ -8,6 +8,7 @@
 #include "input.h"
 #include "diagnostics.h"
 #include "audio_bridge.h"
+#include "bringup/diagnostic_channel_gains.h"
 #include "core/constants.h"
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
@@ -56,7 +57,6 @@ int main(int, char*[]) try {
     Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
     if (tune.patterns.empty()) return failure("Tune load failed");
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
-    RenderMainScreen(framebuffer, tune, tune.patterns.front());
     SdlDisplayBackend display("BroTracker Terminal", false);
     if (!display.Initialize(640, 480)) return failure("SDL initialization failed");
     std::fprintf(log.get(), "SDL driver=%s; fixed window 640x480; RGB24 framebuffer\n", SDL_GetCurrentVideoDriver());
@@ -66,26 +66,49 @@ int main(int, char*[]) try {
         WindowsDiagnostic(log.get(), "Windows audio disabled", error.what());
     }
     BringUpSerial serial(log.get());
+    BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
+    if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
+        WindowsDiagnostic(log.get(), "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
+    LocalPatternEditor editor;
+    WindowsEditorInput editor_input;
     BringUpControls controls(serial, log.get());
-    std::fprintf(log.get(), "Controls: Space START/RESTART; Enter STOP (stay); Ctrl+X/window close EXIT\n");
+    std::fprintf(log.get(), "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F4 Restore; F5 stopped/paused Publish; capability-gated automatic preview\n");
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());
+        BroTracker::Pcm16ChannelGains diagnostic_request;
+        if(diagnostic_gains.TakeRequest(serial.Connected(),serial.ChannelGainsSupported(),serial.ChannelGainsSynchronized(),diagnostic_request)) {
+            const bool accepted=serial.RequestChannelGains(diagnostic_request);
+            WindowsDiagnostic(log.get(),"Diagnostic channel gains",accepted ? "One complete request accepted; no automatic retry/reconnect replay" : "Request not accepted; no retry");
+        }
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if (MapWindowsPublish(event)) {
+                (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
+                if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());
+                continue;
+            }
+            if (editor_input.Handle(event, SDL_GetTicks(), editor)) continue;
             const auto action = MapWindowsAction(event);
             if (action != BringUpAction::None) {
                 const char* source = event.type == SDL_QUIT ? "window close" :
-                    action == BringUpAction::Start ? "Space" : action == BringUpAction::Stop ? "Enter" : "Ctrl+X";
+                    action == BringUpAction::PatternToggle ? "Space" : action == BringUpAction::ResetStop ? "Enter" : "Ctrl+X";
+                WindowsDiagnostic(log.get(), "Transport input", source);
                 controls.Request(action, source, SDL_GetTicks());
             }
         }
-        framebuffer.FilledRectangle(0, 436, SCREEN_WIDTH, 44, Color{16,16,16});
-        DrawFixedText(framebuffer, 8, 440, serial.Status(), Color{255,255,255});
-        DrawFixedText(framebuffer, 8, 456, controls.StopPending() ?
+        serial.SyncEditor(editor,SDL_GetTicks()); // Capture edits before incoming recovery replies.
+        // Service freshly queued transport before rendering/presenting the UI.
+        controls.Tick(SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());
+        editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
+        const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT", Color{255,255,255});
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status()};
+        RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log.get(), "Terminal error", SDL_GetError()); display_failed = true;
             controls.Request(BringUpAction::Exit, "display error", SDL_GetTicks());

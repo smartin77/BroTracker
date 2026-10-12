@@ -244,6 +244,42 @@ MIDI value unchanged
 Compatibility:
 Alternative display conventions may be supported
 
+### Supported pattern-note range
+
+BroTracker uses Yamaha octave numbering: note value 60 is displayed as C-3.
+
+Supported pitched pattern notes are values 24 through 127, displayed as
+C-0 through G-8. Negative octaves are not supported in pattern editing
+or display.
+
+The note field uses exactly three characters. The hyphen is exclusively
+a separator between a natural note name and its octave, for example C-0.
+Sharp notes use the accidental in that position, for example C#0.
+
+Incrementing or decrementing an empty or NOTE_OFF field initializes it
+to C-0. Subsequent pitched-note editing cycles through C-0..G-8: incrementing
+G-8 wraps to C-0 and decrementing C-0 wraps to G-8. Held editing renews a 400 ms
+pause upon reaching the endpoint before wrapping, resetting acceleration.
+A separate keydown at an endpoint wraps immediately, then waits 400 ms before
+repeating. Instrument-value bounds remain separate and do not wrap.
+
+Values below 24 must not be silently clamped, transposed or relabeled.
+Consumers must handle them explicitly as unsupported pattern notes.
+
+This restriction does not redefine MIDI note numbering or restrict
+future independent MIDI routing.
+
+### User-visible instrument numbering
+
+Instrument numbers are one-based decimal: internal ID 0 displays as `01`, ID 1
+as `02`. `00` is never a displayed or editable instrument number. Internal IDs,
+bindings and wire values remain unchanged; 0xFF remains no update, shown as `--`.
+The formatter uses a minimum of two digits and expands to three for 100..255;
+it never truncates or reinterprets `00` as 100. This introduces no 100-instrument
+limit. The existing raw ID range 0..254 is unchanged. Empty-field increment or
+decrement selects raw ID 0 (`01`); instrument editing remains bounded without
+wrapping. NOTE_OFF timing glyphs remain separate from instrument numbering.
+
 ## D0019 - Note-Off Events
 
 BroTracker supports an explicit `NOTE_OFF` event in pattern data.
@@ -1578,3 +1614,14 @@ selected audio output.
 Teensy 4.1 remains the engine responsible for sequencing, synthesis,
 audio processing and MIDI timing. Hosting the terminal on another
 platform does not transfer these responsibilities to that platform.
+
+## D0054 - Paused pattern row replay
+
+Continue resumes from the beginning of the currently reported paused absolute row,
+preserving its loop index. Before the first consumed tick it resumes at zero.
+This supersedes next-row continuation. Pause silences voices and clears deferred
+audio Stops while retaining reported position and logical instrument continuation.
+The row-start and all row commands are consumed exactly once on subsequent rendering;
+notes retrigger and EndOfPosition OFF schedules anew. Exact tick-to-sample conversion
+and bounded cursor positioning define logical scheduling, without a new clock or
+host extrapolation. Start and STOP/reset retain their existing behavior.

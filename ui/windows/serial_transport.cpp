@@ -4,6 +4,7 @@
 #include <setupapi.h>
 #include "teensy_identity.h"
 #include "diagnostics.h"
+#include "serial_write_limits.h"
 #include "ui/serial_transport.h"
 #include <atomic>
 #include <array>
@@ -25,7 +26,7 @@ class WindowsSerialTransport final : public SerialTransport {
     std::mutex mutex_;
     std::array<char, 4096> rx_{};
     unsigned head_ = 0, size_ = 0;
-    std::array<char, 32> tx_{};
+    std::array<char, kWindowsSerialWriteCapacity> tx_{};
     unsigned tx_size_ = 0;
     int tx_result_ = 0;
     char error_[256]{};
@@ -106,7 +107,7 @@ class WindowsSerialTransport final : public SerialTransport {
         bool first_state = true;
         char received_line[256]{}; unsigned received_used = 0;
         while (!stop_) {
-            char outgoing[32]{}; unsigned outgoing_size = 0;
+            char outgoing[kWindowsSerialWriteCapacity]{}; unsigned outgoing_size = 0;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (tx_size_ && !tx_result_) {
@@ -178,7 +179,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         if (tx_result_) { int result = tx_result_; tx_result_ = 0; tx_size_ = 0; return result; }
         if (!tx_size_) {
-            if (count > tx_.size()) return -1;
+            count = WindowsSerialWritePrefix(count);
             std::memcpy(tx_.data(), data, count); tx_size_ = count;
         }
         return 0;

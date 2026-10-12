@@ -17,6 +17,7 @@ std::string FormatNote(
         return "OFF";
     }
 
+    if (!IsPitchedPatternNote(note)) return "???";
     const std::uint8_t semitone = note % 12;
 
     // Yamaha display convention: MIDI note 60 = C3 (see D0018).

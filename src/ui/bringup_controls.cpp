@@ -4,7 +4,17 @@ void BringUpControls::Log(const char* message) {
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
-    const bool active = serial_.Connected() && !serial_.Finished();
+    if (action == BringUpAction::PatternToggle) {
+        if (!serial_.SupportsPatternTransport()) action = BringUpAction::Start;
+        else {
+            if (stop_pending_ || exit_after_stop_ || serial_.TransportPending()) return;
+            if (serial_.Paused()) { if (serial_.Continue()) Log("CONTINUE queued"); }
+            else if (serial_.Playing()) { if (serial_.Pause()) Log("PAUSE queued"); }
+            else { if (serial_.Start()) Log("START from pattern zero queued"); }
+            return;
+        }
+    }
+    const bool active = serial_.Connected() && (!serial_.Finished() || serial_.PublicationBusy());
     const bool exit = action == BringUpAction::Exit || (action == BringUpAction::StopExit && !active);
     const char* verb = exit ? "EXIT" : action == BringUpAction::Start ? (active ? "RESTART" : "START") : "STOP";
     if (log_) { std::fprintf(log_, "Controls: %s requested by %s\n", verb, source); std::fflush(log_); }
@@ -19,7 +29,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         return;
     }
-    if (!active) {
+    if (!active && !(action == BringUpAction::ResetStop && serial_.Connected())) {
         quit_ = exit_after_stop_;
         Log(quit_ ? "EXIT: no STOP necessary" : "STOP: already ready/stopped/finished; staying");
     } else if (serial_.Stop()) {
