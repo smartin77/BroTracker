@@ -197,7 +197,18 @@ design remains unchanged.
   deferred OFF and identical absolute gain-change boundaries across partitions.
   Zero gain is not tracker mute; abrupt changes may click. Firmware/protocol/UI
   gain controls, instrument/master gain, smoothing, final headroom policy and
-  integrated gain-path Teensy performance measurement remain pending.
+  integrated gain-path Teensy performance measurement remain pending. Device
+  protocol implementation is recorded separately below.
+* [x] Add opt-in `BTGAIN1 CAP 1` device gain control: strict complete eight-gain
+  Q16 SET, copied fixed FIFO ownership, audio-owner application before Render,
+  SUBMITTED versus APPLIED, and coherent GET/STATUS applied-ID/gain readback.
+  Increasing boot-scoped identities reject duplicates; NEXT=0 means exhausted.
+  Reconnect never resets/resends gains; queue rejection consumes no identity.
+  Discovery reserves 12 of 16 TX lines, preserving framing/ACK priority and
+  telemetry fairness. Portable tests cover parsing, atomic/copied requests,
+  transport/preview/publication preservation, readback and ACK backpressure.
+  BTX sending controls and hardware validation remain pending. Prior PERF results
+  do not measure the gain-aware path; abrupt changes can click, zero is not mute.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
@@ -653,7 +664,7 @@ design remains unchanged.
 ## Deferred Tasks
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
-  add firmware/UI gain control without implying tracker mute.
+  add host/UI gain control and validate the device protocol without implying mute.
 * [ ] For actual muted channels, consider an X formed by two diagonal lines
   inside the channel header, with 16 px padding where geometry permits.
 

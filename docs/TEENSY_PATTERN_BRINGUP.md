@@ -1210,8 +1210,8 @@ core Pause/Continue and Stop/Start semantics, without clock/sync changes or pers
 
 RX is bounded to 128 bytes/one complete line per main-loop service; TX to 64 bytes,
 16 fixed lines, and unchanged complete-line arbitration with ACK priority and
-alternating telemetry/readback. Discovery reserves 10 lines (previous 7 plus preview
-CAP/NEXT/STATE). Formatting buffers cover uint32 extrema. The audio ACK FIFO retains
+alternating telemetry/readback. Discovery now reserves 12 lines (including preview CAP/NEXT/STATE
+and gain CAP/STATE). Formatting buffers cover uint32 extrema. The audio ACK FIFO retains
 ordered lifecycle events; requests wait for sufficient space, and one completion
 notification slot prevents loss if rendering finishes under ACK backpressure.
 No formatting, serial I/O, allocation or blocking occurs in audio processing.
@@ -1387,3 +1387,71 @@ boundaries. No gain commands or UI controls, fixture-level changes, instrument o
 master gain, or smoothing are added. Firmware/UI integration, final headroom policy
 and Teensy performance measurement of this gain-aware render path remain pending;
 prior unity-mixer hardware measurements do not measure the new path.
+
+### Device channel gains: BTGAIN1 (implemented; hardware validation pending)
+
+Only opt-in pattern firmware advertises `BTGAIN1 CAP 1` during HELLO. Ordinary
+legacy/USB-trace firmware is unchanged. Future clients must wait for that explicit
+capability; no BTX gain controls or bindings are implemented here.
+
+Exact newline-terminated grammar (decimal unsigned integers, single spaces):
+
+```text
+BTGAIN1 CAP 1
+BTGAIN1 SET 1 <id> <g0> <g1> <g2> <g3> <g4> <g5> <g6> <g7>
+BTGAIN1 SUBMITTED 1 <id>
+BTGAIN1 APPLIED 1 <id>
+BTGAIN1 REJECTED 1 <id>
+BTGAIN1 GET 1
+BTGAIN1 STATE 1 <applied_id> <next_id> <g0> <g1> <g2> <g3> <g4> <g5> <g6> <g7>
+BTGAIN1 ERROR 1 <id_or_zero> <reason>
+```
+
+Gains are Q16 0..65536 (exact unity), in internal channel order 0..7. No signs,
+extra/missing fields, trailing spaces, overflow or out-of-range gains are accepted.
+RX accepts LF or CRLF with existing framing. ERROR reasons are `malformed`,
+`not-connected`, `queue-full`, `identity` or `invalid-gain`; malformed payloads
+report identity zero. Invalid requests preserve gain/playback state and connection.
+
+IDs are nonzero uint32 and strictly greater than the highest previously accepted
+SET identity for this device boot. Each accepted request consumes its identity,
+including across HELLO/disconnect; duplicate or older SET is rejected, never
+reapplied. Queue-full rejection consumes no identity. NEXT is highest accepted+1,
+or zero after UINT32_MAX (exhausted until reboot). IDs are a separate domain from
+preview/publication. APPLIED ID zero means configured unity defaults. Successful
+Configure resets gain values and applied ID, but does not reset identity protection.
+
+SET copies all eight values into the existing eight-entry request FIFO; there are
+no retained parser pointers or sample transfers. Main-loop Submit/TakeApplied and
+snapshot reads use interrupt exclusion. The audio owner applies FIFO requests at
+the earliest available block boundary before rendering, including while Stopped,
+Paused or Playing. SUBMITTED proves queue acceptance only; APPLIED is formatted
+by the main loop only after owner completion. ACK saturation leaves requests
+queued rather than losing acknowledgements. The complete set applies atomically;
+multiple queued sets keep input order, with the last applied set used for rendering.
+No formatting, serial I/O, allocation or blocking occurs in the audio callback.
+
+GET and HELLO/STATUS emit coherent applied values/identity and NEXT without changing
+playback. NEXT may reflect accepted-but-unapplied work; it is not an application
+acknowledgement. After a lost ACK/reconnect, obtain readback instead of blindly
+resending; if a submitted ID is not yet applied, wait/read again. No reconnect
+reset, automatic resend or automatic transport is defined. Readback is current
+state, not a historical log of every intermediate gain set.
+
+Worst-case STATE (two maximum uint32 IDs and eight unity gains) fits 96-byte line
+storage. HELLO reserves 12 of 16 fixed TX entries; STATUS needs five. Existing
+128-byte/one-line RX and 64-byte TX service bounds remain. Gain replies use the
+command FIFO, retain acknowledgement priority, and finish partial lines before
+switching lanes; snapshot/telemetry arbitration is unchanged. Request entries add
+32 copied gain bytes each (256 bytes for eight slots), plus fixed status metadata.
+Transport/preview/publication remain ordered through the same owner queue.
+
+Default unity and fixtures are unchanged. Transport, preview and publication
+retain gains; zero contribution does not suppress events or indicate tracker mute.
+Abrupt changes may click; smoothing, instrument/master gain and final headroom
+policy remain separate. Portable tests cover strict parsing, bounded formatting,
+copied ownership, application/readback, identity exhaustion, reconnect-style
+readback, queue/ACK backpressure and transport/preview/publication composition.
+Teensy compilation/upload and hardware validation were not performed. Prior PERF
+reports do not validate the gain-aware rendering cost. Later hardware checks must
+cover all transport states, partial writes, backpressure and reconnect retention.

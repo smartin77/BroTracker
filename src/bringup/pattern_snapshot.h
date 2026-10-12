@@ -32,8 +32,8 @@ namespace BroTracker
         const auto prefix_length = std::strlen(prefix);
         if (!line || length >= kPatternSnapshotLineCapacity || length <= prefix_length ||
             std::memcmp(line, prefix, prefix_length)) return false;
-        std::uint32_t parsed[5]{};
-        if (count > 5) return false;
+        std::uint32_t parsed[9]{}; // Largest bounded request: gain identity + eight values.
+        if (count > 9) return false;
         auto cursor = prefix_length;
         for (std::size_t i = 0; i < count; ++i)
         {

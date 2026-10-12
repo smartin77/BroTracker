@@ -9,6 +9,7 @@
 #include "bringup/pattern_snapshot.h"
 #include "bringup/pattern_publication.h"
 #include "bringup/pattern_preview.h"
+#include "bringup/pattern_gains.h"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #endif
@@ -129,6 +130,8 @@ namespace
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
     constexpr std::size_t kTxCapacity = 16;
+    static_assert(kTxCapacity >= kPatternDiscoveryReplyCount, "Discovery must fit TX FIFO");
+    static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
@@ -159,6 +162,11 @@ namespace
             p.loop_index, status.active_rows, status.active_channels,
             status.transport == PatternTransportState::Paused, 2});
     }
+    void QueueGains(const PatternBringUpStatus& status) {
+        char line[kPatternGainLineCapacity];
+        if(FormatPatternGainState(status.gains,status.applied_gain_id,status.next_gain_id,line,sizeof(line)))
+            (void)QueueLine(line);
+    }
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
@@ -175,6 +183,8 @@ namespace
             (void)QueueLine("BTPUBLISH1 PAUSEDCAP 1\n");
         }
         if (advertise_snapshot) (void)QueueLine("BTPREVIEW1 CAP 1\n");
+        if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
+        QueueGains(status);
         char preview_discovery[96];
         if (FormatPreviewDiscovery(g_preview,preview_discovery,sizeof(preview_discovery))) (void)QueueLine(preview_discovery);
         if (FormatPreviewState(status.published_id,status.working_id,status.pending_preview_id,
@@ -282,6 +292,12 @@ namespace
                     applied.publication_id,ReplacementRejection(applied.result));
                 (void)QueueLine(reply);
             }
+            else if (applied.request == PatternRequest::Gains) {
+                char reply[64];
+                std::snprintf(reply,sizeof(reply),"BTGAIN1 %s 1 %" PRIu32 "\n",
+                    applied.result==PatternPlayerStatus::Success ? "APPLIED" : "REJECTED",applied.publication_id);
+                (void)QueueLine(reply);
+            }
             else if (applied.request == PatternRequest::Replace)
             {
                 // Audio has finished reading frozen staging. Synchronize the
@@ -348,7 +364,8 @@ namespace
             if (used && line[used - 1] == '\r') --used;
             line[used] = '\0';
             if (overflow) {
-                if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
+                if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
+                else if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
                     const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
                     (preview ? g_preview : g_publication).Cancel(); PublicationError(0,PublicationStatus::Malformed,preview);
                 } else (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
@@ -360,6 +377,24 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                 if(!std::strcmp(line,"BTTEST1 HELLO")) (void)g_preparation_report.Offer(g_preparation);
 #endif
+            }
+            else if (!std::strncmp(line,"BTGAIN1",7)) {
+                if(!std::strcmp(line,"BTGAIN1 GET 1")) QueueGains(Snapshot());
+                else {
+                    PatternGainMessage message;
+                    PatternRequestStatus accepted=PatternRequestStatus::InvalidRequest;
+                    const bool parsed=ParsePatternGains(line,used,message);
+                    if(parsed && g_protocol_connected) {
+                        InterruptGuard guard; accepted=g_control.SubmitGains(message.gains,message.id);
+                    }
+                    char reply[96];
+                    if(accepted==PatternRequestStatus::Accepted)
+                        std::snprintf(reply,sizeof(reply),"BTGAIN1 SUBMITTED 1 %" PRIu32 "\n",message.id);
+                    else std::snprintf(reply,sizeof(reply),"BTGAIN1 ERROR 1 %" PRIu32 " %s\n",parsed?message.id:0,
+                        !parsed ? "malformed" : !g_protocol_connected ? "not-connected" :
+                        accepted==PatternRequestStatus::Full ? "queue-full" : accepted==PatternRequestStatus::Identity ? "identity" : "invalid-gain");
+                    (void)QueueLine(reply);
+                }
             }
             else if (!std::strncmp(line,"BTPREVIEW1 GET 1 ",17)) {
                 std::uint32_t fields[2]{};

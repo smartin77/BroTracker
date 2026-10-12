@@ -9,7 +9,7 @@ namespace BroTracker
         "Publication parser/line storage must fit uint32 fields plus LF/NUL");
     constexpr char kPatternPublicationCapability[] = "BTPUBLISH1 CAP 1";
     constexpr char kPausedPatternPublicationCapability[] = "BTPUBLISH1 PAUSEDCAP 1";
-    constexpr unsigned kPatternDiscoveryReplyCount = 10; // Existing discovery + preview CAP/NEXT/STATE.
+    constexpr unsigned kPatternDiscoveryReplyCount = 12; // Existing discovery + gain CAP/STATE.
     enum class PublicationKind { Begin, Cell, Commit };
     struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; };
     enum class PublicationStatus : unsigned
