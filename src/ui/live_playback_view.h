@@ -2,6 +2,8 @@
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
 #include <optional>
+#include "bringup/host_channel_gains.h"
+#include <string>
 
 // UI-only snapshot. Freshness never advances or extrapolates musical position.
 // Connected legacy devices have no telemetry; stale/pending/error snapshots have
@@ -14,6 +16,10 @@ struct LivePlaybackView
     std::optional<BroTracker::DevicePatternSnapshot> device_pattern = std::nullopt;
     bool pattern_loading = false, pattern_failed = false;
     bool preview_supported = false;
+    bool gains_supported = false;
+    std::optional<BroTracker::HostGainState> channel_gains;
+    std::optional<BroTracker::Pcm16ChannelGains> desired_gains;
+    std::string gain_status;
 };
 constexpr std::uint32_t kLivePositionStaleMs = 500;
 

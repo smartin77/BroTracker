@@ -576,3 +576,26 @@ TEST_CASE(EditorHistoryFullCapacityTransaction) {
     CHECK(editor.Redo()); CHECK(BroTracker::SamePattern(*editor.Draft(),baseline));
     CHECK_EQ(sizeof(PatternEditHistory::Change),8u);
 }
+
+TEST_CASE(SharedGainPresentationContainedAndNeverPaintsMuteOrPattern) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Framebuffer fb(640,480); Tune tune; Pattern preview; auto live=ConnectedDraft();
+    LocalPatternEditor editor; editor.Sync(live);
+    HostPanelInformation panel{"Connected - PLAYING","STOP pending, then EXIT","Preview synchronized"};
+    RenderMainScreen(fb,tune,preview,live,&editor,panel);
+    const std::vector<Color> before(fb.PixelData(),fb.PixelData()+640*480);
+    live->gains_supported=true; BroTracker::HostGainState applied; applied.applied_id=UINT32_MAX;
+    applied.gains.channels[2]=0; live->channel_gains=applied;
+    BroTracker::Pcm16ChannelGains desired; desired.channels[2]=12345; live->desired_gains=desired;
+    for(auto status:{"Channel gains pending","Channel gains submitted; awaiting application","Channel gains rejected"}) {
+        live->gain_status=status; RenderMainScreen(fb,tune,preview,live,&editor,panel);
+        unsigned changed=0;
+        for(unsigned y=0;y<480;++y) for(unsigned x=0;x<640;++x) {
+            if(!std::memcmp(&before[y*640+x],&fb.PixelData()[y*640+x],sizeof(Color))) continue;
+            CHECK(x>=466 && x<631); CHECK(y>=38 && y<442); ++changed;
+        }
+        CHECK(changed>0); CHECK(!editor.Dirty());
+    }
+    live->channel_gains.reset(); live->desired_gains.reset(); live->gain_status="Channel gains awaiting state";
+    RenderMainScreen(fb,tune,preview,live,&editor,panel); CHECK(!editor.CanUndo());
+}

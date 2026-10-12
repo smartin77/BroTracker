@@ -8,6 +8,7 @@
 #include "input.h"
 #include "diagnostics.h"
 #include "audio_bridge.h"
+#include "bringup/diagnostic_channel_gains.h"
 #include "core/constants.h"
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
@@ -65,6 +66,9 @@ int main(int, char*[]) try {
         WindowsDiagnostic(log.get(), "Windows audio disabled", error.what());
     }
     BringUpSerial serial(log.get());
+    BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
+    if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
+        WindowsDiagnostic(log.get(), "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
     LocalPatternEditor editor;
     WindowsEditorInput editor_input;
     BringUpControls controls(serial, log.get());
@@ -73,6 +77,11 @@ int main(int, char*[]) try {
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
+        BroTracker::Pcm16ChannelGains diagnostic_request;
+        if(diagnostic_gains.TakeRequest(serial.Connected(),serial.ChannelGainsSupported(),serial.ChannelGainsSynchronized(),diagnostic_request)) {
+            const bool accepted=serial.RequestChannelGains(diagnostic_request);
+            WindowsDiagnostic(log.get(),"Diagnostic channel gains",accepted ? "One complete request accepted; no automatic retry/reconnect replay" : "Request not accepted; no retry");
+        }
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
@@ -98,7 +107,7 @@ int main(int, char*[]) try {
         const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish", serial.PublicationStatus()};
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log.get(), "Terminal error", SDL_GetError()); display_failed = true;

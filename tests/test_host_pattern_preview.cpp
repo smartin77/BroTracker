@@ -1,3 +1,4 @@
+#include "bringup/diagnostic_channel_gains.h"
 #include "test_framework.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/pattern_preview.h"
@@ -303,4 +304,23 @@ TEST_CASE(HostGainSerialPcmTransportPreviewPublicationAndReconnect) {
     CHECK(s.port->output.find("BTGAIN1 SET",offset)==std::string::npos);
     PreviewSession legacy; legacy.Pump(); CHECK(!legacy.serial.RequestChannelGains(initial));
     CHECK(legacy.port->output.find("BTGAIN1")==std::string::npos);
+}
+
+TEST_CASE(WindowsDiagnosticGainSubmissionOnceLeavesPatternAndTransportIndependent) {
+    PreviewSession s; s.port->gain_capability=true; s.Pump();
+    const auto baseline=s.port->baseline.pattern;
+    BroTracker::DiagnosticChannelGainRequest config("16384,65536,65536,65536,65536,65536,65536,65536");
+    BroTracker::Pcm16ChannelGains request;
+    CHECK(config.TakeRequest(s.serial.Connected(),s.serial.ChannelGainsSupported(),s.serial.ChannelGainsSynchronized(),request));
+    CHECK(s.serial.RequestChannelGains(request)); s.Pump();
+    CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],16384u);
+    CHECK(s.serial.ChannelGainsSynchronized()); CHECK(!s.serial.Playing()); CHECK(!s.editor.Dirty()); CHECK(!s.editor.CanUndo());
+    CHECK(BroTracker::SamePattern(baseline,s.port->baseline.pattern));
+    const auto after=s.port->output.size();
+    CHECK(!config.TakeRequest(true,true,true,request)); s.Pump();
+    CHECK(s.port->output.find("BTGAIN1 SET",after)==std::string::npos);
+    s.port->online=false; s.Tick(); CHECK(!config.TakeRequest(false,false,false,request));
+    s.port->online=true; s.Pump(500); CHECK(!config.TakeRequest(true,true,true,request));
+    CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],16384u);
+    CHECK(s.port->output.find("BTGAIN1 SET",after)==std::string::npos);
 }

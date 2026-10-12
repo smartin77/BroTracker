@@ -834,8 +834,26 @@ static void RenderPatternScreen(
         if (!host.connection_status.empty()) info(host.connection_status, header_value);
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
         if (!host.publication_status.empty()) info(host.publication_status, header_value);
+        if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
         if (display.device_mode)
         {
+            // Shared read-only presentation: zero is a gain, never a tracker mute.
+            if (!live->gains_supported) info("Channel gains unavailable", header_name);
+            else {
+                info(live->gain_status.empty() ? "Channel gains awaiting state" : live->gain_status, header_name);
+                const auto values = [&](const BroTracker::Pcm16ChannelGains& gains) {
+                    std::string text;
+                    for (unsigned c=0;c<8;++c) {
+                        if(c) text += " ";
+                        text += std::to_string(c+1) + ":" + std::to_string(gains.channels[c]);
+                    }
+                    return text;
+                };
+                if(live->channel_gains) info("Applied Q16 ID " + std::to_string(live->channel_gains->applied_id) +
+                    " " + values(live->channel_gains->gains), header_value);
+                else info("Applied gains unavailable", header_value);
+                if(live->desired_gains) info("Desired Q16 " + values(*live->desired_gains), header_value);
+            }
             info(!live->telemetry_available ? "Position telemetry unavailable (legacy / waiting)" :
                 !live->fresh ? "Position unavailable / stale; no extrapolation" :
                 live->position.paused ? "Device PAUSED (reported logical position)" :

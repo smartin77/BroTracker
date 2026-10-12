@@ -1506,3 +1506,61 @@ reconnect recovery, complete-line PAUSE priority, and host/device PCM compositio
 with preview/publication. Windows target builds and portable tests do not establish
 hardware performance. User-facing controls, ArkOS integration/validation, hardware
 backpressure/reconnect checks and gain-path Teensy measurement remain pending.
+
+### Read-only gains and Windows diagnostic request (hardware pending)
+
+Windows and ArkOS use the shared padded/clipped information panel to show verified
+applied channel gains in Q16 and their applied identity, separate desired values,
+and synchronization/error status. Unsupported capability or unavailable state is
+explicit. Values are numbered by channel 1..8; zero is not tracker mute and draws
+no X/header marker. Connection, transport and pattern preview/publication messages
+retain their priority and remain separate. No interactive mixer controls are added.
+
+Windows alone accepts the optional `BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS` process
+environment variable. Supply exactly eight comma-separated unsigned decimal Q16
+values 0..65536. Signs, spaces, empty/extra/missing fields, overflow and out-of-range
+values reject the whole configuration. Parsing uses fixed storage and at most
+87 bytes (ten decimal digits per uint32 field, allowing leading zeroes). Invalid
+configuration sends nothing and reports a clear panel/log diagnostic. With no
+variable set, no gain request is made and current device gains are preserved.
+
+A valid configuration waits for CAP 1 and verified synchronized gain state, then
+submits one complete set through RequestChannelGains in the initial connected
+session. No repeat request, uncertain-outcome retry, reconnect replay or overriding
+of later device changes occurs. If the first session ends before discovery, it
+will not submit on reconnect. If validation/identity recovery prevents availability,
+it remains waiting rather than resetting playback or gains. This diagnostic is
+independent of draft data, F4/F5 and Undo/Redo history; no shortcut or handheld
+binding is introduced.
+
+Example from the repository root, after packaging the updated Windows executable:
+
+```powershell
+$env:BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS = '65536,65536,16384,65536,65536,65536,65536,65536'
+.\deploy\windows\BroTrackerTerminal.exe
+Remove-Item Env:BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS
+```
+
+This lowers channel 3 to one-quarter unity and retains unity on every other
+channel. Removing the variable prevents a request on the next launch; it does
+not reset the device's retained gains. A separate explicit all-unity launch can
+restore unity; reconnect within an existing launch never replays its configuration.
+Abrupt changes may click. Smoothing and final gain/headroom policy remain future
+work; diagnostic values do not establish fixture levels or a final mixer design.
+
+Windows hardware checklist (all new results pending):
+
+1. Launch without the variable, then with malformed data: verify no SET and no
+   gain/playback change; malformed configuration must be visible in panel/log.
+2. Use the channel-3-only reduction above; compare PCM/beeper audibility and verify
+   APPLIED plus exact STATE readback. Desired and applied labels must stay distinct.
+3. Exercise Start/Stop/Pause/Continue, draft preview, F4 and stopped/paused F5.
+   Verify gains persist without changing pattern dirty/baseline/history semantics.
+4. Unplug/replug or reconnect BTX; verify authoritative gains are restored without
+   another diagnostic SET or automatic transport action. Check panel containment,
+   unavailable state and rejection/recovery reporting under backpressure.
+5. Capture PERF during stopped/playing/paused publication/Continue for the new
+   gain-aware render path. Earlier PERF reports do not measure this implementation.
+
+Portable parsing/one-shot and shared rendering tests are software evidence only.
+ArkOS visual validation and Teensy execution cost remain unmeasured.

@@ -227,6 +227,10 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
     auto view = live_;
     if (const auto* snapshot = pattern_assembler_.Snapshot()) view.device_pattern = *snapshot;
     view.preview_supported=preview_.Supported();
+    view.gains_supported=gains_.Supported();
+    view.gain_status=gains_.Status();
+    if(const auto* applied=gains_.Authoritative()) view.channel_gains=*applied;
+    if(const auto* desired=gains_.Desired()) view.desired_gains=*desired;
     view.pattern_loading = pattern_assembler_.Active();
     view.pattern_failed = snapshot_failed_;
     view.fresh = position_received_ && now - position_at_ < kLivePositionStaleMs;

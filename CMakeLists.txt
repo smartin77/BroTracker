@@ -152,6 +152,7 @@ add_executable(BroTrackerTests
     tests/test_pattern_bringup_control.cpp
     tests/test_pattern_gains.cpp
     tests/test_host_channel_gains.cpp
+    tests/test_diagnostic_channel_gains.cpp
     tests/test_pattern_telemetry.cpp
     tests/test_pattern_snapshot.cpp
     tests/test_pattern_publication.cpp

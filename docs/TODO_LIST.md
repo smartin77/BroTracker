@@ -223,6 +223,20 @@ design remains unchanged.
   errors, exhaustion, recovery, framing and PCM with preview/publication.
   User-facing gain controls/bindings, hardware validation and gain-path Teensy
   performance measurement remain pending.
+* [x] Add shared read-only right-panel gain presentation: verified applied Q16
+  values/identity, separately labelled desired values, synchronization/rejection
+  and unavailable capability/state. Existing wrapping/clipping and padding apply;
+  zero remains an audio gain value with no tracker mute markers. Windows-only
+  `BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS` optionally parses eight comma-separated
+  unsigned Q16 values into fixed storage and submits one explicit request after
+  capability and verified synchronization in the initial connection. Missing or
+  invalid configuration sends nothing; no retry/reconnect replay. No controls,
+  shortcuts, handheld bindings, fixture-level changes or history interaction.
+  Host tests cover parsing, one-shot policy, coordination and panel containment.
+* [ ] Validate read-only gain presentation and the Windows diagnostic request on
+  Teensy: reduce channel 3 only, check applied readback and retention across
+  transport/preview/publication/reconnect; capture PERF for the gain-aware path.
+  New hardware results are pending; smoothing/final gain policy remain open.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
