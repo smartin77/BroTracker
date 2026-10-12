@@ -117,8 +117,8 @@ TEST_CASE(LocalEditorNoteInitializationOctaveAndLimits) {
     CHECK(!editor.Apply(EditorAction::SetValue, 23));
     CHECK(editor.Apply(EditorAction::Clear));
     CHECK(editor.Apply(EditorAction::Increment));
-    CHECK_EQ(editor.Draft()->cells[0][0].note, 24);
-    CHECK(editor.Apply(EditorAction::Decrement)); CHECK_EQ(editor.Draft()->cells[0][0].note, 127);
+    CHECK_EQ(editor.Draft()->cells[0][0].note, 60);
+    CHECK(editor.Apply(EditorAction::Decrement)); CHECK_EQ(editor.Draft()->cells[0][0].note, 59);
     CHECK(editor.Apply(EditorAction::NoteOff));
     CHECK(editor.Apply(EditorAction::Decrement));
     CHECK_EQ(editor.Draft()->cells[0][0].note, 24);
@@ -463,7 +463,7 @@ TEST_CASE(PatternDerivedEntrySkipsSpecialCellsAndStaysInChannel) {
         CHECK(editor.Apply(EditorAction::Restore));
         for(unsigned i=0;i<5;++i) CHECK(editor.Apply(EditorAction::Up));
         CHECK(editor.Apply(EditorAction::Clear)); CHECK(editor.Apply(direction));
-        CHECK_EQ(editor.Draft()->cells[0][1].note,24); // No other channel or end-of-pattern wrap.
+        CHECK_EQ(editor.Draft()->cells[0][1].note,60); // No other channel or end-of-pattern wrap.
     }
 }
 TEST_CASE(PatternDerivedEntryReflectsDraftDeletionAndExistingPitchChanges) {
@@ -474,7 +474,7 @@ TEST_CASE(PatternDerivedEntryReflectsDraftDeletionAndExistingPitchChanges) {
         CHECK_EQ(editor.Draft()->cells[1][0].note,pitch);
         CHECK(editor.Apply(EditorAction::Clear)); CHECK(editor.Apply(EditorAction::Up));
         CHECK(editor.Apply(EditorAction::Clear)); CHECK(editor.Apply(EditorAction::Down));
-        CHECK(editor.Apply(direction)); CHECK_EQ(editor.Draft()->cells[1][0].note,24);
+        CHECK(editor.Apply(direction)); CHECK_EQ(editor.Draft()->cells[1][0].note,60);
         CHECK(editor.Apply(EditorAction::NoteOff)); CHECK(editor.Apply(direction));
         CHECK_EQ(editor.Draft()->cells[1][0].note,24); // Existing OFF initialization preserved.
     }
@@ -598,4 +598,42 @@ TEST_CASE(SharedGainPresentationContainedAndNeverPaintsMuteOrPattern) {
     }
     live->channel_gains.reset(); live->desired_gains.reset(); live->gain_status="Channel gains awaiting state";
     RenderMainScreen(fb,tune,preview,live,&editor,panel); CHECK(!editor.CanUndo());
+}
+
+TEST_CASE(EmptyNoteC3FallbackPreservesInstrumentAndHistory) {
+    for (const auto direction : {EditorAction::Increment, EditorAction::Decrement}) {
+        auto live = ConnectedDraft();
+        auto& pattern = live->device_pattern->pattern;
+        pattern.cells[0][0] = {NOTE_OFF, 7};
+        pattern.cells[1][0] = {NOTE_EMPTY, 9};
+        pattern.cells[3][0] = {NOTE_EMPTY, 5};
+        pattern.cells[0][1] = {84, 1}; // Other channels cannot provide a pitch.
+        LocalPatternEditor editor; editor.Sync(live);
+        for (unsigned row = 0; row < 3; ++row) CHECK(editor.Apply(EditorAction::Down));
+        const auto cursor = editor.Cursor();
+        CHECK(editor.Apply(direction));
+        CHECK_EQ(editor.Draft()->cells[3][0].note, 60);
+        CHECK_EQ(editor.Draft()->cells[3][0].instrument, 5);
+        CHECK(editor.Undo());
+        CHECK_EQ(editor.Draft()->cells[3][0].note, NOTE_EMPTY);
+        CHECK_EQ(editor.Draft()->cells[3][0].instrument, 5);
+        CHECK(!editor.Dirty());
+        CHECK(editor.Redo());
+        CHECK_EQ(editor.Draft()->cells[3][0].note, 60);
+        CHECK_EQ(editor.Cursor().row, cursor.row);
+        CHECK_EQ(editor.Cursor().channel, cursor.channel);
+        CHECK(editor.Cursor().field == cursor.field);
+        CHECK(editor.Apply(direction));
+        CHECK_EQ(editor.Draft()->cells[3][0].note,
+                 direction == EditorAction::Increment ? 61 : 59);
+        CHECK_EQ(editor.Draft()->cells[3][0].instrument, 5);
+        CHECK(editor.Apply(EditorAction::Restore));
+        EditorRepeat repeat;
+        CHECK(repeat.Begin(direction, 0, editor));
+        CHECK_EQ(editor.Draft()->cells[3][0].note, 60);
+        CHECK(!repeat.Tick(399, true, editor));
+        CHECK(repeat.Tick(400, true, editor));
+        CHECK_EQ(editor.Draft()->cells[3][0].note,
+                 direction == EditorAction::Increment ? 61 : 59);
+    }
 }

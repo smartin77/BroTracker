@@ -256,8 +256,10 @@ The note field uses exactly three characters. The hyphen is exclusively
 a separator between a natural note name and its octave, for example C-0.
 Sharp notes use the accidental in that position, for example C#0.
 
-Incrementing or decrementing an empty or NOTE_OFF field initializes it
-to C-0. Subsequent pitched-note editing cycles through C-0..G-8: incrementing
+Incrementing or decrementing an empty Note field inserts the nearest preceding
+pitched note in the current draft channel unchanged, or C-3 (internal 60) if none
+exists. NOTE_OFF initialization remains C-0. Subsequent pitched-note editing
+cycles through C-0..G-8: incrementing
 G-8 wraps to C-0 and decrementing C-0 wraps to G-8. Held editing renews a 400 ms
 pause upon reaching the endpoint before wrapping, resetting acceleration.
 A separate keydown at an endpoint wraps immediately, then waits 400 ms before

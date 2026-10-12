@@ -98,7 +98,7 @@ authoritative.
   Tab/Shift+Tab jump to the next/previous active channel's Note field, wrapping.
 - Page Up/Down increment/decrement the selected numeric value. An empty Note field
   inserts the nearest preceding pitched note from this draft channel unchanged,
-  or C-0 (raw 24) if none exists.
+  or C-3 (raw 60) if none exists.
   OFF initializes to C-0; pitched values cycle through C-0..G-8
   (24..127): incrementing G-8 wraps to C-0, decrementing C-0 wraps to G-8.
   Empty instrument fields initialize to raw ID 0 (displayed 01); instrument bounds do not wrap.
@@ -807,7 +807,7 @@ firmware permits only stopped F5. Hardware validation and realtime cost remain o
 On the first PgUp or PgDn in an empty Note field, search backward from the
 preceding row in the current draft channel. Insert the nearest pitched note
 unchanged, skipping empty, instrument-only and NOTE_OFF cells. With no preceding
-pitch, initialize C-0. Never search another channel or wrap across the pattern
+pitch, initialize C-3 (raw 60). Never search another channel or wrap across the pattern
 boundary. No instrument is inserted. Subsequent actions use normal direction,
 cyclic bounds and held-key acceleration; existing pitched notes change immediately,
 and OFF still initializes C-0. Lookup reflects draft edits/deletions and works

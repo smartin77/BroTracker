@@ -147,7 +147,7 @@ private:
             else if (action == EditorAction::Increment || action == EditorAction::Decrement)
             {
                 if (note && old == NOTE_EMPTY) {
-                    replacement = minimum;
+                    replacement = 60; // Yamaha C-3 fallback; OFF initialization remains separate.
                     // Bounded preceding-row lookup in this draft channel only.
                     for (unsigned row=next.row; row>0; ) {
                         const auto candidate=draft_.cells[--row][next.channel].note;
