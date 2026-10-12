@@ -1548,7 +1548,8 @@ restore unity; reconnect within an existing launch never replays its configurati
 Abrupt changes may click. Smoothing and final gain/headroom policy remain future
 work; diagnostic values do not establish fixture levels or a final mixer design.
 
-Windows hardware checklist (all new results pending):
+Windows hardware checklist (application/transport and limited PERF evidence below;
+remaining checks pending):
 
 1. Launch without the variable, then with malformed data: verify no SET and no
    gain/playback change; malformed configuration must be visible in panel/log.
@@ -1563,4 +1564,38 @@ Windows hardware checklist (all new results pending):
    gain-aware render path. Earlier PERF reports do not measure this implementation.
 
 Portable parsing/one-shot and shared rendering tests are software evidence only.
-ArkOS visual validation and Teensy execution cost remain unmeasured.
+ArkOS visual validation and full gain-path stress/performance validation remain
+open; the limited Teensy callback measurements below are separate evidence.
+
+### Windows gain log evidence (2026-10-12)
+
+The supplied latest `brotracker-terminal.log` records one diagnostic SET:
+
+```text
+BTGAIN1 SET 1 1 65536 65536 16384 65536 65536 65536 65536 65536
+BTGAIN1 SUBMITTED 1 1
+BTGAIN1 APPLIED 1 1
+BTGAIN1 STATE 1 1 2 65536 65536 16384 65536 65536 65536 65536 65536
+```
+
+Exact readback confirms channel 3 at quarter unity and every other channel at
+unity. Subsequent STATE lines retain these values through the logged Start,
+Pause/Continue and Stop operations. No protocol errors or disconnects were recorded.
+This is log evidence, not user listening or visual confirmation.
+
+Across 160 PERF reports, the highest reported steady callback maximum was
+55901 cycles against a 1741496-cycle budget (approximately 3.21%), with zero
+reported budget overruns. The maximum is cumulative since firmware boot,
+including activity before this BTX session; it cannot be attributed exclusively
+to reduced gain. These callback measurements do not establish whole-audio-graph
+cost or isolate instrumentation/preemption overhead.
+
+Audible comparison, reconnect retention, publication retention, clipping absence,
+exhaustive stress validation and ArkOS validation remain open. The normal terminal
+log in AppData is overwritten on the next launch by default. Archive the supplied
+validated log separately before further runs, outside disposable review exports;
+the AppData log path is not permanent evidence storage. This documentation update
+does not modify or archive the log. Removing the diagnostic environment variable
+only prevents a new launch request: device gains remain until an explicit update
+or successful configuration/reboot restores them. Smoothing and final gain policy
+remain pending.

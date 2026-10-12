@@ -233,10 +233,22 @@ design remains unchanged.
   invalid configuration sends nothing; no retry/reconnect replay. No controls,
   shortcuts, handheld bindings, fixture-level changes or history interaction.
   Host tests cover parsing, one-shot policy, coordination and panel containment.
-* [ ] Validate read-only gain presentation and the Windows diagnostic request on
-  Teensy: reduce channel 3 only, check applied readback and retention across
-  transport/preview/publication/reconnect; capture PERF for the gain-aware path.
-  New hardware results are pending; smoothing/final gain policy remain open.
+* [x] Record 2026-10-12 Windows BTX + Teensy terminal-log evidence: one diagnostic
+  SET selected channel 3 gain 16384, all other channels 65536; SUBMITTED/APPLIED
+  identity 1 and exact STATE readback confirm application. Logged Start,
+  Pause/Continue and Stop retained the set; no protocol errors or disconnects.
+  Across 160 PERF reports, highest cumulative steady maximum was 55901 cycles
+  against 1741496 budget (3.21%), zero reported budget overruns. The maximum
+  includes activity since firmware boot before this BTX session; it is not
+  exclusively reduced-gain cost or whole-audio-graph cost. Archive the supplied
+  validated log separately before further runs, outside disposable build exports;
+  the normal AppData terminal log is overwritten on the next launch by default.
+* [ ] Complete gain hardware checks: visual presentation, audible comparison,
+  reconnect/publication retention, clipping absence and exhaustive stress testing.
+  Full-graph cost and instrumentation overhead remain open, as do ArkOS checks,
+  smoothing and final gain policy. Removing the diagnostic environment variable
+  does not restore device gains; an explicit update or successful configuration/
+  reboot is required.
 * [x] Implement bounded, allocation-free `NativeRateSampleCommandPreparer` in
   `src/core/playback/native_rate_sample_commands.h`, with coverage in
   `tests/test_native_rate_sample_commands.cpp`: up to 16 unique sample bindings,
