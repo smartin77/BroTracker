@@ -177,12 +177,22 @@ design remains unchanged.
   pitch/duration as a playback anchor, not measured C tuning. Sample BPM does not
   determine pitch. Positive tuning raises playback rate; storage precision remains
   undecided. This is a design decision, not implemented metadata initialization.
-* [ ] Add reference-note interval mapping as the next variable-rate foundation;
-  integrate tuning metadata and rendering/bindings/player, firmware/protocol/UI.
-  D0055 defines source/output ratio * note-interval ratio * fine-tuning ratio.
-  Keep PCM16 mono 44100 Hz as implemented baseline; preserve future 8000/22050/
-  48000 Hz conversion paths without fixing retained-versus-converted PCM storage.
-  Low rate does not imply 8-bit PCM. Current voice requires matching sample rates.
+* [x] Implement portable `NoteToPlaybackStep` in `note_playback_step.h` with
+  checked-in `note_playback_steps.h` constants and exact-integer generation source
+  `tools/generate_note_playback_steps.py`: explicit target/reference pitches 24..127,
+  positive Q32.32 equal-tempered ratio, exact unity/octaves, full interval range
+  -103..103. Reject special/out-of-range notes without changing output. Nearest
+  quantization error < half Q32 LSB; relative error < 0.045 ppm. No runtime floating
+  point/allocation/I/O. Tests cover all intervals against independent 512-bit exact
+  arithmetic, monotonicity, invalid notes and octave voice PCM/partition composition.
+  Reference pitch remains explicit; beeper anchors are not measured tuning.
+* [ ] Integrate note mapping, tuning metadata and variable-rate rendering/bindings/
+  player, firmware/protocol/UI. Existing unsupported-pitch behavior is unchanged.
+  Fractional-semitone correction remains a separate future layer. D0055 defines
+  source/output ratio * note-interval ratio * fine-tuning ratio. Keep PCM16 mono
+  44100 Hz as implemented baseline; preserve future 8000/22050/48000 Hz conversion
+  paths without fixing retained-versus-converted storage. Low rate does not imply
+  8-bit PCM. Current voice requires matching rates; hardware cost remains unmeasured.
 * [ ] Add optional original BPM/quarter-note beat-length metadata and explicitly
   enabled loop-tempo matching (target/original BPM). Derive BPM from duration only
   with known beat count, never infer meter/bar count or reference pitch. Rate matching

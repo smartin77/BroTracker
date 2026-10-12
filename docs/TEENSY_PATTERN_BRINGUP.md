@@ -1638,6 +1638,46 @@ large-position arithmetic, retrigger/replacement, Stop/Reset and failure contrac
 Linear interpolation is an initial quality choice, not band-limited resampling;
 upward transposition may alias. Changing playback rate changes both pitch and
 duration; this is not time stretching. No sample reference pitch is inferred from
-duration. Renderer/player/binding, firmware/protocol/UI integration, reference-note
-mapping, broader conversion and quality policy remain pending. Teensy execution
+duration. Reference-note mapping is now provided below. Renderer/player/binding,
+firmware/protocol/UI integration, broader conversion and quality policy remain
+pending. Teensy execution
 cost is unmeasured; host tests are not hardware evidence.
+
+### Portable reference-note interval mapping (host-tested; not integrated)
+
+`NoteToPlaybackStep(target_note, reference_note, output)` accepts explicit pitched
+pattern values 24..127 and returns positive Q32.32 `2^((target-reference)/12)`.
+Empty/OFF/out-of-range target or reference rejects before subtraction, preserving
+output. Equal notes produce exact unity (2^32); every supported whole-octave
+interval produces exact representable powers of two. All intervals -103..103 are
+supported without counter overflow or arbitrary octave restrictions.
+
+The 207 immutable uint64 constants (1656 bytes) in `note_playback_steps.h` are
+reproducible with `tools/generate_note_playback_steps.py`. Generation uses exact
+Python integers: binary search the twelfth root of 2^(384+interval), then compare
+its exact half-integer boundary to round to nearest Q32.32, ties upward. No floating
+point/pow, allocation, I/O or independent clock occurs in the runtime API; runtime
+work is fixed validation and one lookup. Absolute ratio error is strictly below
+2^-33 (half a Q32 LSB); over the supported range relative error is below 4.5e-8
+(0.045 ppm). Whole octaves/unity have zero quantization error.
+
+Host tests independently verify all intervals against 512-bit integer bounds
+`(2*q-1)^12 < 2^(396+interval) < (2*q+1)^12`, using a fixed-limb reference distinct
+from the generator's root search. This establishes nearest quantization without
+floating-point reference tolerances. Additional tests cover all target/reference
+pairs for monotonicity/exact octaves, directions/extrema, invalid-output preservation,
+and independently expected octave playback/partition independence composed with
+VariableRateSampleVoice. To check checked-in generation without rewriting:
+
+```text
+python tools/generate_note_playback_steps.py --check
+```
+
+Reference pitch is explicit metadata/playback anchor, never inferred from WAV
+duration or BPM. Existing C-3/D-3 beepers are not relabelled as physically tuned.
+Fractional-semitone tuning has a separate future composition boundary; no detune
+or source/output-rate conversion is implemented here. This completes D0055's
+next mapping foundation, not binding/player integration. Existing native-rate
+unsupported-pitch behavior, fixtures, firmware/protocol/UI are unchanged.
+Playback integration, tuning metadata and hardware validation/performance remain
+pending; linear interpolation aliasing and pitch/duration limitations still apply.
