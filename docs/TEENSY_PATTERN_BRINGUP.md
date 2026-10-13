@@ -1747,3 +1747,56 @@ with the variable-rate renderer and unity mixer verifies independently expected
 fractional PCM and partition independence. Native-rate playback remains unchanged.
 Variable-rate pattern-player, firmware/protocol/UI integration and hardware timing/
 performance validation remain pending.
+
+### Variable-rate pattern-player core (host-tested; not integrated)
+
+`VariableRatePatternPlayer` is a separate portable core player. It reuses the
+musical cursor, row generator, `VariableRateSampleCommandPreparer`,
+`VariableRateVoiceBlockRenderer` and gain-aware mono mixer. Fixed pattern/binding
+metadata is copied; PCM remains immutable and caller-owned with valid extents
+through configuration lifetime. Source/output rates must match. Explicit reference
+notes map to Q32.32 transposition; no finetune, tempo matching or source-rate
+conversion. Linear interpolation may alias and changes pitch and duration together.
+
+The native-rate player, its API and current firmware playback are unchanged.
+The separate player exposes `VariableRatePatternPlayerStatus`,
+`VariableRatePatternTransportState` and `VariableRateConsumedPatternPosition`.
+Configure validates active dimensions/notes/OFF metadata and binding/tempo/rate
+requirements transactionally, stops playback and restores unity gains on success.
+Like the native player, initial Configure leaves instrument lookup to Render;
+replacement validation checks two complete logical passes before acceptance.
+
+Start/repeated Start restarts zero. Stop clears voices, continuation, deferred
+Stops and reported position. Pause silences voices and clears deferred Stops,
+retaining continuation/position; Continue uses exact bounded cursor positioning
+to replay that same absolute row once, retaining the loop. Arrival OFF stops at
+row start; EndOfPosition stops at the absolute next-row boundary before new
+triggers there. Position reports the latest tick consumed by successful rendering.
+Channel gains are transactional, default to exact unity and persist through
+transport/replacement; zero gain is audio attenuation, not tracker mute. Abrupt
+gain updates may click; smoothing remains pending.
+
+Stopped replacement resets playback; paused replacement reconstructs continuation
+from the new pattern before the paused row without consuming it. Same-dimension
+volatile working replacements stage one supersedable candidate while Playing,
+apply before the next unconsumed row's events and preserve timeline/sounding voices.
+Due old deferred Stops precede new triggers; remaining old deferred work is cleared.
+Reconstruction uses a cleared prefix in loop zero or one full pass plus prefix in
+later loops. Pause retains the candidate; Stop/Start adopt it while clearing playback.
+Successful Configure or published replacement supersedes it. No baseline/persistence
+or transfer protocol is owned by this core.
+
+Initial limits remain 128 output frames, 16 audio commands and 512 emitted ticks
+plus one completion pull. Fixed scratch/state, bounded processing, allocation-free
+and noexcept. Whole-render preflight uses tentative state and internal PCM scratch;
+rejection preserves transport, cursor, continuation, voices/fractional phase, gains,
+position, pending Stops/candidate and caller output. Callers must handle rejection;
+no firmware underrun policy or measured Teensy budget is established.
+
+Host tests cover independently expected unity/octave/fractional mixed PCM and
+partition independence through loops, Pause/current-row replay, both OFF modes,
+deferred Stop/new-trigger ordering, gains, all replacement modes, pending-candidate
+handling, validation, processing limits and rollback/smaller retries. Direct unity
+comparison with native-rate playback covers equivalent patterns/bindings through
+transport and replacements. Core orchestration is complete; firmware/protocol/UI
+integration and hardware timing/performance validation remain pending.

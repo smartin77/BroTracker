@@ -208,8 +208,26 @@ design remains unchanged.
   reference/note bounds, exact unity/octaves, ordering, rollback and independently
   expected fractional mixed PCM across block partitions. No native-rate changes;
   variable-rate player/firmware/UI integration and hardware validation remain open.
-* [ ] Integrate note mapping, tuning metadata and variable-rate rendering/bindings/
-  player, firmware/protocol/UI. Existing unsupported-pitch behavior is unchanged.
+* [x] Add separate `VariableRatePatternPlayer` in
+  `src/core/playback/variable_rate_pattern_player.h`, with coverage in
+  `tests/test_variable_rate_pattern_player.cpp`. Completed core orchestration reuses
+  cursor/row generation, explicit-reference-note preparation, variable-rate rendering
+  and gain-aware mono mixing. Transactional Configure/Render; Start restarts zero,
+  Stop clears playback, Pause silences and Continue replays the reported current row.
+  Exact deferred EndOfPosition Stops precede boundary triggers; coherent consumed
+  position and unity-default transactional gains preserve established lifecycles.
+  Stopped/paused replacement and same-dimension volatile preview use complete
+  two-pass validation/reconstruction, bounded candidate supersession and next-row
+  application without restarting sounding voices. Fixed 128 frames, 16 commands,
+  512 ticks plus completion pull; rejection preserves state/output without truncation.
+  Immutable caller-owned PCM and matching rates only, allocation-free/noexcept.
+  Tests validate independent unity/octave/fractional PCM, loop partitions, both OFF
+  modes, transport, gains, replacement/preview, limits and rollback/retry including
+  fractional phase; equivalent unity bindings match native-rate PCM. Native-rate
+  player/API and firmware remain unchanged. Hardware performance is unmeasured.
+* [ ] Integrate variable-rate player/bindings into firmware/protocol/UI and validate
+  hardware timing/performance. Existing native-rate unsupported-pitch behavior is
+  unchanged; this portable player is a separate path. Integrate tuning metadata later.
   Fractional-semitone correction remains a separate future layer. D0055 defines
   source/output ratio * note-interval ratio * fine-tuning ratio. Keep PCM16 mono
   44100 Hz as implemented baseline; preserve future 8000/22050/48000 Hz conversion
