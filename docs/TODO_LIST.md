@@ -837,6 +837,18 @@ design remains unchanged.
   remains open. Windows per-user Debug/5 config was explicitly authorized; ordinary
   startup never rewrites config. Hardware timing/performance checks remain open.
 
+* [x] Reproduce and correct captured host STOP failure (2026-10-13, local
+  23:14:21): an asynchronous Windows write owned a preview CELL despite returning
+  zero; cancellation replaced it with STOP and misattributed its completion.
+  Track write attempts independently of reported offset, finish owned lines before
+  transport, and apply the same ownership guard to preview/publication/gain lanes.
+  Delayed/partial completion, backpressure and disconnect/recovery regressions
+  preserve drafts and forbid automatic START/publication. No SDL/firmware fix.
+* [ ] Revalidate captured STOP correction on Windows + Teensy using Return and
+  keypad Enter during rapid preview transfers. Previous user non-recurrence remains
+  historical evidence; the newly captured failure supersedes the earlier absence
+  of a reproducing log. Host tests establish the cause; hardware success is pending.
+
 ## Deferred Tasks
 
 * [ ] Add configurable PgUp/PgDn direction inversion, including held-key

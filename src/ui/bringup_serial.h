@@ -111,6 +111,8 @@ private:
     std::uint32_t next_publication_id_ = 0;
     bool publication_readback_requested_ = false, next_refresh_ = false;
     bool tx_publication_ = false;
+    // Zero reported bytes may still mean the asynchronous worker owns the line.
+    bool tx_write_attempted_=false;
     char tx_[BroTracker::kPatternSnapshotLineCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
     char line_[256]{};

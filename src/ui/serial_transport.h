@@ -12,6 +12,9 @@ public:
     virtual void Close() = 0;
     virtual bool Healthy() = 0;
     virtual int Read(char* data, unsigned size) = 0;
+    // An asynchronous Write may copy/own the payload even when it returns zero.
+    // Retry the same outstanding bytes until completion; never replace them with
+    // another command. Positive completion belongs to that request, <=size.
     virtual int Write(const char* data, unsigned size) = 0;
     virtual const char* Error() const = 0;
 };

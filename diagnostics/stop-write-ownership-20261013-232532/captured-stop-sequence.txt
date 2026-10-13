@@ -1,0 +1,35 @@
+[utc=2026-10-13T21:14:21.805Z local=2026-10-13T23:14:21.805+02:00 mono_ms=20664607] USB bring-up: [host_ms=185278] TX complete: BTPREVIEW1 CELL 1 68 9 255 255 0
+[utc=2026-10-13T21:14:21.827Z local=2026-10-13T23:14:21.827+02:00 mono_ms=20664629] USB bring-up: [host_ms=185300] TX complete: BTPREVIEW1 CELL 1 68 10 255 255 0
+[utc=2026-10-13T21:14:21.829Z local=2026-10-13T23:14:21.829+02:00 mono_ms=20664631] Transport input: Enter
+[utc=2026-10-13T21:14:21.830Z local=2026-10-13T23:14:21.830+02:00 mono_ms=20664632] Controls: STOP requested by Enter
+[utc=2026-10-13T21:14:21.831Z local=2026-10-13T23:14:21.831+02:00 mono_ms=20664633] USB bring-up: [host_ms=185301] STOP requested 
+[utc=2026-10-13T21:14:21.832Z local=2026-10-13T23:14:21.832+02:00 mono_ms=20664634] Controls: STOP queued; remain in application
+[utc=2026-10-13T21:14:21.833Z local=2026-10-13T23:14:21.833+02:00 mono_ms=20664635] USB bring-up: [host_ms=185306] queued for TX: STOP
+[utc=2026-10-13T21:14:23.432Z local=2026-10-13T23:14:23.432+02:00 mono_ms=20666234] Transport input: Space
+[utc=2026-10-13T21:14:26.563Z local=2026-10-13T23:14:26.563+02:00 mono_ms=20669365] USB bring-up: [host_ms=190036] RX: BTPREVIEW1 ERROR 1 68 8
+[utc=2026-10-13T21:14:27.835Z local=2026-10-13T23:14:27.835+02:00 mono_ms=20670637] USB bring-up: [host_ms=191308] disconnected/error: command/handshake timeout; execution unconfirmed
+[utc=2026-10-13T21:14:27.836Z local=2026-10-13T23:14:27.836+02:00 mono_ms=20670638] Controls: STOP unconfirmed; remaining in application
+[utc=2026-10-13T21:14:27.847Z local=2026-10-13T23:14:27.847+02:00 mono_ms=20670649] Windows CDC: serial handle closed
+[utc=2026-10-13T21:14:29.866Z local=2026-10-13T23:14:29.866+02:00 mono_ms=20672668] USB bring-up: [host_ms=193339] queued for TX: HELLO
+[utc=2026-10-13T21:14:29.880Z local=2026-10-13T23:14:29.880+02:00 mono_ms=20672682] Windows CDC: BTTEST1 STATE PLAYING
+[utc=2026-10-13T21:14:29.885Z local=2026-10-13T23:14:29.885+02:00 mono_ms=20672687] USB bring-up: [host_ms=193358] TX complete: BTTEST1 HELLO
+[utc=2026-10-13T21:14:29.887Z local=2026-10-13T23:14:29.887+02:00 mono_ms=20672689] USB bring-up: [host_ms=193358] RX: BTTEST1 STATE PLAYING
+[utc=2026-10-13T21:14:29.893Z local=2026-10-13T23:14:29.893+02:00 mono_ms=20672695] USB bring-up: [host_ms=193358] RX: BTPUBLISH1 PAUSEDCAP 1
+[utc=2026-10-13T21:14:29.923Z local=2026-10-13T23:14:29.923+02:00 mono_ms=20672725] USB bring-up: [host_ms=193396] TX complete: BTPATTERN1 GET 2 51
+[utc=2026-10-13T21:14:30.079Z local=2026-10-13T23:14:30.079+02:00 mono_ms=20672881] USB bring-up: [host_ms=193552] TX complete: BTPREVIEW1 GET 1 52 0
+[utc=2026-10-13T21:14:30.872Z local=2026-10-13T23:14:30.872+02:00 mono_ms=20673674] USB bring-up: [host_ms=194345] queued for TX: STATUS
+[utc=2026-10-13T21:14:30.892Z local=2026-10-13T23:14:30.892+02:00 mono_ms=20673694] USB bring-up: [host_ms=194365] TX complete: BTTEST1 STATUS
+[utc=2026-10-13T21:14:30.893Z local=2026-10-13T23:14:30.893+02:00 mono_ms=20673695] USB bring-up: [host_ms=194365] RX: BTTEST1 STATE PLAYING
+[utc=2026-10-13T21:14:31.872Z local=2026-10-13T23:14:31.872+02:00 mono_ms=20674674] USB bring-up: [host_ms=195345] queued for TX: STATUS
+[utc=2026-10-13T21:14:31.892Z local=2026-10-13T23:14:31.892+02:00 mono_ms=20674694] USB bring-up: [host_ms=195365] TX complete: BTTEST1 STATUS
+[utc=2026-10-13T21:14:31.981Z local=2026-10-13T23:14:31.981+02:00 mono_ms=20674782] Transport input: Space
+[utc=2026-10-13T21:14:31.982Z local=2026-10-13T23:14:31.982+02:00 mono_ms=20674784] USB bring-up: [host_ms=195455] queued for TX: PAUSE
+[utc=2026-10-13T21:14:32.002Z local=2026-10-13T23:14:32.002+02:00 mono_ms=20674804] USB bring-up: [host_ms=195475] TX complete: BTTEST1 PAUSE
+[utc=2026-10-13T21:14:32.004Z local=2026-10-13T23:14:32.004+02:00 mono_ms=20674806] USB bring-up: [host_ms=195475] RX: BTTEST1 PAUSED
+[utc=2026-10-13T21:14:32.707Z local=2026-10-13T23:14:32.707+02:00 mono_ms=20675509] Transport input: Enter
+[utc=2026-10-13T21:14:32.708Z local=2026-10-13T23:14:32.708+02:00 mono_ms=20675510] Controls: STOP requested by Enter
+[utc=2026-10-13T21:14:32.709Z local=2026-10-13T23:14:32.709+02:00 mono_ms=20675511] USB bring-up: [host_ms=196180] STOP requested 
+[utc=2026-10-13T21:14:32.710Z local=2026-10-13T23:14:32.710+02:00 mono_ms=20675512] Controls: STOP queued; remain in application
+[utc=2026-10-13T21:14:32.711Z local=2026-10-13T23:14:32.711+02:00 mono_ms=20675513] USB bring-up: [host_ms=196184] queued for TX: STOP
+[utc=2026-10-13T21:14:32.730Z local=2026-10-13T23:14:32.730+02:00 mono_ms=20675532] USB bring-up: [host_ms=196203] TX complete: BTTEST1 STOP
+[utc=2026-10-13T21:14:32.750Z local=2026-10-13T23:14:32.750+02:00 mono_ms=20675552] USB bring-up: [host_ms=196223] RX: BTTEST1 STOPPED

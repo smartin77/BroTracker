@@ -2000,3 +2000,50 @@ This is host-only implementation, separate from manual Windows/ArkOS validation.
 No firmware timestamp, formatting, telemetry/PERF rate or audio-callback work changes.
 Existing hardware records and outstanding timing/backpressure checks are preserved;
 the postponed hardware scenario was not run. Final controls/playback remain unchanged.
+
+
+### Captured STOP write-ownership failure (2026-10-13)
+
+The current supplied log now captures the previously unconfirmed failure. Local
+23:14:21.827 completes preview 68 CELL 10; Enter arrives at 23:14:21.829 and STOP
+is queued at 23:14:21.833. There is no STOP TX completion or STOPPED; playback POS
+continues. Preview ERROR 1 68 8 at 23:14:26.563 is staging timeout after the transfer
+stalled, not evidence of an SDL input failure. STOP becomes unconfirmed at
+23:14:27.836. Host reopening restores PLAYING through HELLO at 23:14:29, without
+proving a board reset. PAUSED at 23:14:32.004 and STOPPED at 23:14:32.750 demonstrate
+that later transport requests succeed. Earlier user reports of non-recurrence are
+retained as historical observations, not proof this failure never existed.
+
+Original logs/config were copied unchanged to
+`diagnostics/stop-write-ownership-20261013-232532/` before testing. The manifest
+records revision/status. Source originals remain untouched.
+
+A deterministic asynchronous worker fixture reproduces the cause: Write copies
+and owns a preview CELL but returns zero pending completion. The scheduler used
+`tx_offset==0` as permission to discard that line when STOP arrived. The worker
+then returned the old CELL completion to the new STOP buffer. With completion
+larger than STOP, reported offset exceeded its length; STOP was never actually
+written and its ACK timer expired. Partial completion can instead break framing.
+This reproduces the ownership and missing-STOP path; it does not identify every
+individual USB packet from the original log.
+
+The host now tracks a write attempt separately from reported byte offset. Once
+attempted, bytes remain immutable through pending/partial completion; STOP gains
+priority after that complete line, not by replacing an owned request. The same
+rule guards preview, publication and gain cancellation and the immediate transport
+write path. No debounce, firmware, serial wire protocol or SDL mapping change.
+
+Tests cover STOP while an asynchronous CELL is owned at zero reported offset,
+backpressure, full/partial completion, preserved draft/connection, and real disconnect
+recovery without automatic START, STOP replay or publication. A fresh explicit STOP
+still works after recovery. Host tests establish this defect and correction; physical
+keyboard and Windows + Teensy correction validation remain pending. No hardware
+success is inferred from the historical log.
+
+Retest:
+
+1. Launch the updated Windows package, START and hold PgUp/PgDn to generate previews.
+2. Press Return and keypad Enter during CELL transmission. Verify the owned line
+   finishes, STOP TX completes and STOPPED follows; retain draft and connection.
+3. Release held keys; confirm stopped/reset position and no automatic restart/F5.
+   Repeat under slow/backpressured transfer and retain timestamped logs separately.

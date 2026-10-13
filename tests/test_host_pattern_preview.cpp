@@ -74,6 +74,15 @@ struct PreviewPort : SerialTransport {
     PatternPreviewReadback metadata; DevicePatternSnapshot baseline=PreviewBaseline();
     std::int16_t pcm[64]{}; bool online=true, capability=true; unsigned limit=3;
     std::string input, output, partial; std::vector<std::int16_t> audio; unsigned writes=0;
+    bool asynchronous=false,ownership_violation=false;
+    std::string owned_write; unsigned completed_write=0;
+    void CompleteWrite(unsigned count=96) {
+        CHECK(!owned_write.empty()); CHECK(!completed_write);
+        completed_write=std::min<unsigned>(count,static_cast<unsigned>(owned_write.size()));
+        output.append(owned_write.data(),completed_write); partial.append(owned_write.data(),completed_write);
+        const auto end=partial.find('\n');
+        if(end!=std::string::npos) {const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line);}
+    }
     PreviewPort() {
         std::fill(std::begin(pcm),std::end(pcm),11); NativeRateSampleBindings b{}; b.count=1;
         b.bindings[0]={7,60,{pcm,64,100}};
@@ -81,13 +90,19 @@ struct PreviewPort : SerialTransport {
     }
     bool Open(FILE*,const char*) override { return online; }
     bool Healthy() override { return online; }
-    void Close() override { input.clear(); partial.clear(); }
+    void Close() override { input.clear(); partial.clear(); owned_write.clear(); completed_write=0; }
     const char* Error() const override { return "fixture disconnect"; }
     int Read(char* data,unsigned count) override {
         const auto n=std::min<std::size_t>(count,input.size()); std::memcpy(data,input.data(),n); input.erase(0,n); return static_cast<int>(n);
     }
     int Write(const char* data,unsigned count) override {
         ++writes;
+        if(asynchronous) {
+            if(!owned_write.empty() && (count<owned_write.size() || std::memcmp(data,owned_write.data(),owned_write.size()))) ownership_violation=true;
+            if(completed_write) {const auto done=completed_write; completed_write=0; owned_write.clear(); return static_cast<int>(done);}
+            if(owned_write.empty()) owned_write.assign(data,std::min(count,limit));
+            return 0;
+        }
         const auto n=std::min(count,limit); output.append(data,n); partial.append(data,n);
         auto end=partial.find('\n');
         if(end!=std::string::npos) { const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line); }
@@ -426,4 +441,51 @@ TEST_CASE(PreviewDiagnosticsCorrelateLocalRevisionAndWireTimestamps) {
     }
     std::fclose(log);
     BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Basic);
+}
+
+TEST_CASE(PreviewAsyncOwnedCellCannotBeReplacedByStopAtZeroReportedOffset) {
+    for(unsigned completion : {3u,96u}) {
+        PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); const auto draft=*s.editor.Draft();
+        s.port->asynchronous=true; s.port->limit=96; s.now+=100;
+        for(unsigned i=0;i<300 && s.port->owned_write.find("BTPREVIEW1 CELL")!=0;++i) {
+            if(!s.port->owned_write.empty()) s.port->CompleteWrite();
+            s.Tick();
+        }
+        CHECK(s.port->owned_write.find("BTPREVIEW1 CELL")==0);
+        const auto cell=s.port->owned_write; CHECK(s.serial.Stop());
+        const auto before=s.port->output.size(); s.Tick(); s.Tick(); // Backpressure must retain payload.
+        CHECK_EQ(s.port->owned_write,cell); CHECK(!s.port->ownership_violation);
+        s.port->CompleteWrite(completion); s.Tick();
+        for(unsigned i=0;i<500 && !s.serial.Stopped();++i) {
+            if(!s.port->owned_write.empty()) s.port->CompleteWrite(completion);
+            s.Tick();
+        }
+        CHECK(!s.port->ownership_violation); CHECK(s.serial.Stopped()); CHECK(s.serial.Connected());
+        CHECK(SamePattern(draft,*s.editor.Draft()));
+        const auto wire=s.port->output.substr(before);
+        CHECK(wire.find("BTTEST1 STOP\n")!=std::string::npos);
+        CHECK(wire.find("BTTEST1 START\n")==std::string::npos);
+        CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewAsyncStopDisconnectRecoveryRetainsDraftWithoutReplay) {
+    PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+    CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); const auto draft=*s.editor.Draft();
+    s.port->asynchronous=true; s.port->limit=96; s.now+=100;
+    for(unsigned i=0;i<300 && s.port->owned_write.find("BTPREVIEW1 CELL")!=0;++i) {
+        if(!s.port->owned_write.empty()) { s.port->CompleteWrite(); }
+        s.Tick();
+    }
+    CHECK(s.port->owned_write.find("BTPREVIEW1 CELL")==0); CHECK(s.serial.Stop()); s.Tick();
+    CHECK(!s.port->ownership_violation);
+    s.port->online=false; s.Tick(); CHECK(!s.editor.Ready());
+    const auto mark=s.port->output.size(); s.port->asynchronous=false; s.port->online=true; s.Pump(1000);
+    CHECK(s.serial.Connected()); CHECK(s.serial.Playing()); CHECK(SamePattern(draft,*s.editor.Draft()));
+    const auto recovery=s.port->output.substr(mark);
+    CHECK(recovery.find("BTTEST1 START\n")==std::string::npos);
+    CHECK(recovery.find("BTTEST1 STOP\n")==std::string::npos);
+    CHECK(recovery.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(s.serial.Stop()); s.Pump(100); CHECK(s.serial.Stopped());
 }

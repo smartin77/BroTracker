@@ -50,6 +50,7 @@ void BringUpSerial::Disconnect(const char* reason)
     pending_ = Command::None;
     start_queued_ = stop_queued_ = false;
     tx_size_ = tx_offset_ = used_ = 0;
+    tx_write_attempted_=false;
     overflow_ = false;
     live_ = {};
     position_received_ = false;
@@ -175,7 +176,7 @@ bool BringUpSerial::Stop()
 {
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
     publication_.StopRequested();
-    if(tx_publication_ && tx_offset_==0 && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
+    if(tx_publication_ && tx_offset_==0 && !tx_write_attempted_ && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
         tx_size_=0; tx_publication_=false; // Whole unattempted line may be dropped, never a partial line.
     }
     stop_queued_ = true;
@@ -427,11 +428,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         Send(Command::Hello, now);
     }
     if (!transport_->Healthy()) { Disconnect(transport_->Error()); return; }
-    if(tx_publication_ && tx_offset_==0 && publication_.Phase()!=BroTracker::HostPublicationPhase::Sending) {
+    if(tx_publication_ && tx_offset_==0 && !tx_write_attempted_ && publication_.Phase()!=BroTracker::HostPublicationPhase::Sending) {
         tx_size_=0; tx_publication_=false;
     }
-    if(tx_preview_ && tx_offset_==0 && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
-    if(tx_gains_ && tx_offset_==0 && TransportPending()) { tx_size_=0; tx_gains_=false; }
+    if(tx_preview_ && tx_offset_==0 && !tx_write_attempted_ && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
+    if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
@@ -440,12 +441,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_gains_) gains_.BeforeWrite(now);
+        tx_write_attempted_=true;
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
         write_backpressure_=count >= 0 && static_cast<unsigned>(count) < tx_size_ - tx_offset_;
         if (count > 0)
         {
             tx_offset_ += count;
             if (tx_offset_ == tx_size_) {
+                tx_write_attempted_=false;
                 Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
@@ -504,8 +507,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         {
             const auto command = transport_queued_; transport_queued_ = Command::None; Send(command, now);
             // Queue the write in this same service, before a host render/present.
+            tx_write_attempted_=true;
             const auto count = transport_->Write(tx_,tx_size_);
-            if (count > 0) { tx_offset_ = count; if(tx_offset_ == tx_size_) Log("TX complete:",tx_); }
+            if (count > 0) { tx_offset_ = count; if(tx_offset_ == tx_size_) {tx_write_attempted_=false; Log("TX complete:",tx_);} }
             else if (count < 0) { Disconnect(transport_->Error()); return; }
         }
         else if (stop_queued_)
