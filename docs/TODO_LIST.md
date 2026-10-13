@@ -798,7 +798,21 @@ design remains unchanged.
   backpressure and pause latency on Windows + Teensy, then ArkOS. Handheld bindings
   remain deferred. No SD persistence; physical timing/performance remain unmeasured.
 
+* [x] Correct host preview service cadence: bounded ready-line bursts and complete
+  Windows worker line capacity, stopping on backpressure and retaining transport
+  priority. Regression tests cover a 32-cell transfer, newer edits during delayed
+  readback, and device identity rollback versus powered-device reconnect.
+* [ ] Revalidate reported valid-edit delays of 3?4 loops and stale draft display
+  after USB/device reset on Windows + Teensy. Host regressions reproduce service
+  cadence and reset-retention defects; no hardware fix confirmation yet.
+  On 2026-10-13 the user confirmed beeper/PCM transposition, audible distinction
+  of both OFF timings, and continued playback after forced BTX kill/relaunch
+  with Teensy powered. This does not establish exact edit/application latency.
+
 ## Deferred Tasks
+
+* [ ] Add configurable PgUp/PgDn direction inversion, including held-key
+  acceleration; OFF mode toggling remains unchanged. No input inversion yet.
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
   add host/UI gain control and validate the device protocol without implying mute.

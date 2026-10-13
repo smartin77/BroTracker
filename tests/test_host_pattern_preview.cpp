@@ -72,7 +72,7 @@ struct PreviewPort : SerialTransport {
     PatternBringUpControl control; PatternPublication preview,publication;
     PatternPreviewReadback metadata; DevicePatternSnapshot baseline=PreviewBaseline();
     std::int16_t pcm[64]{}; bool online=true, capability=true; unsigned limit=3;
-    std::string input, output, partial; std::vector<std::int16_t> audio;
+    std::string input, output, partial; std::vector<std::int16_t> audio; unsigned writes=0;
     PreviewPort() {
         std::fill(std::begin(pcm),std::end(pcm),11); NativeRateSampleBindings b{}; b.count=1;
         b.bindings[0]={7,60,{pcm,64,100}};
@@ -86,6 +86,7 @@ struct PreviewPort : SerialTransport {
         const auto n=std::min<std::size_t>(count,input.size()); std::memcpy(data,input.data(),n); input.erase(0,n); return static_cast<int>(n);
     }
     int Write(const char* data,unsigned count) override {
+        ++writes;
         const auto n=std::min(count,limit); output.append(data,n); partial.append(data,n);
         auto end=partial.find('\n');
         if(end!=std::string::npos) { const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line); }
@@ -105,7 +106,7 @@ struct PreviewPort : SerialTransport {
         }
         input+="BTPATTERN1 POS 2 "+std::to_string(s.running?1:s.transport==PatternTransportState::Paused?2:0)+" "+
             std::to_string(s.position.valid)+" "+std::to_string(s.position.absolute_tick)+" "+std::to_string(s.position.pattern_row)+" "+
-            std::to_string(s.position.loop_index)+" 2 1\n";
+            std::to_string(s.position.loop_index)+" "+std::to_string(baseline.pattern.active_rows)+" "+std::to_string(baseline.pattern.active_channels)+"\n";
     }
     void Snapshot(const RealtimePattern& pattern,unsigned id,bool working) {
         PatternSnapshotSender sender(pattern,12753); CHECK(sender.SetWorkingNamespace(working)); CHECK(sender.Begin(id,0,2));
@@ -284,7 +285,7 @@ TEST_CASE(HostGainSerialPcmTransportPreviewPublicationAndReconnect) {
     CHECK(s.serial.Start()); s.Pump(30); s.port->Advance(1); CHECK_EQ(s.port->audio.back(),6); // ties away from zero
     // A queued complete gain line must yield to transport before its first byte.
     auto first=initial; first.channels[0]=16384; CHECK(s.serial.RequestChannelGains(first));
-    s.Tick(); const auto ordering=s.port->output.size(); CHECK(s.serial.Pause()); s.Pump(100);
+    const auto ordering=s.port->output.size(); CHECK(s.serial.Pause()); s.Pump(100);
     const auto pause=s.port->output.find("BTTEST1 PAUSE",ordering);
     const auto gain=s.port->output.find("BTGAIN1 SET",ordering);
     CHECK(pause!=std::string::npos); CHECK(gain!=std::string::npos); CHECK(pause<gain);
@@ -323,4 +324,71 @@ TEST_CASE(WindowsDiagnosticGainSubmissionOnceLeavesPatternAndTransportIndependen
     s.port->online=true; s.Pump(500); CHECK(!config.TakeRequest(true,true,true,request));
     CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],16384u);
     CHECK(s.port->output.find("BTGAIN1 SET",after)==std::string::npos);
+}
+
+TEST_CASE(PreviewReadyWritesHaveBoundedServiceLatency) {
+    PreviewSession s; s.port->limit=96;
+    s.port->baseline.pattern.active_rows=16; s.port->baseline.pattern.active_channels=2;
+    NativeRateSampleBindings bindings{}; bindings.count=1;
+    bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+    CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+    s.port->metadata.working=s.port->baseline.pattern;
+    s.Pump(); CHECK(s.editor.Ready());
+    CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+    s.now+=100;
+    // Ready I/O must drain a complete small transfer without one SDL frame per cell.
+    s.Tick(); s.Tick();
+    CHECK(s.port->output.find("BTPREVIEW1 COMMIT")!=std::string::npos);
+}
+TEST_CASE(PreviewResetDiscardsOldDraftButPoweredReconnectRetainsWorking) {
+    HostPatternPreview p; auto baseline=PreviewBaseline();
+    Discover(p,5,4); auto working=baseline.pattern; working.cells[0][0].note=62;
+    Read(p,working,1,0,4); CHECK(SamePattern(*p.RecoveredDraft(),working));
+    p.RecoveredInstalled(); p.RetainLocal(true); p.Disconnect();
+    Discover(p,5,4); Read(p,working,2,0,4);
+    CHECK(SamePattern(*p.RecoveredDraft(),working));
+    p.RecoveredInstalled(); p.Disconnect(); Discover(p,1,0);
+    Read(p,baseline.pattern,3,0,0);
+    CHECK(SamePattern(*p.RecoveredDraft(),baseline.pattern));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+    CHECK(!p.TryBegin(baseline,1000));
+}
+
+TEST_CASE(PreviewDelayedReadbackPreservesNewerEditsAndFreshHostAdoptsPoweredWorking) {
+    HostPatternPreview p; auto baseline=PreviewBaseline(); Discover(p,5,4);
+    auto working=baseline.pattern; working.cells[0][0].note=62;
+    Read(p,working,1,0,4); CHECK(SamePattern(*p.RecoveredDraft(),working));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+    CHECK(!p.TryBegin(baseline,1000)); // New host must not restore its boot baseline.
+    p.RecoveredInstalled(); auto draft=working; draft.cells[0][0].note=63;
+    p.Observe(draft,1100); CHECK(p.TryBegin(baseline,1175)); Sent(p,5);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 5")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 5"));
+    auto newer=draft; newer.cells[0][0].note=64; p.Observe(newer,1200);
+    Discover(p,6,5); Read(p,draft,2,0,5);
+    CHECK(SamePattern(*p.RecoveredDraft(),newer));
+    CHECK(p.TryBegin(baseline,1300)); Sent(p,6);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 6")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 6"));
+    Discover(p,7,6); Read(p,newer,3,0,6);
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+}
+
+TEST_CASE(PreviewServiceStopsOnBackpressureWithoutLosingLatestRevision) {
+    PreviewSession s; s.Pump(); CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+    s.port->limit=0; s.now+=100; s.Tick();
+    const auto before=s.port->writes; s.Tick(); CHECK_EQ(s.port->writes,before+1);
+    CHECK(s.serial.Connected()); CHECK(s.editor.Dirty());
+    CHECK(s.editor.Apply(EditorAction::Restore)); s.Tick();
+    s.port->limit=3; s.Pump(500);
+    CHECK(SamePattern(s.port->metadata.working,s.port->baseline.pattern));
+    CHECK(!s.editor.Dirty()); CHECK(s.serial.Connected());
+}
+
+TEST_CASE(PreviewResetAfterFirstReceiptBeforeNextRefreshDropsStaleDraft) {
+    HostPatternPreview p; auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    auto draft=baseline.pattern; draft.cells[0][0].note=62;
+    p.Observe(draft,100); CHECK(p.TryBegin(baseline,175)); Sent(p,1);
+    p.RetainLocal(true); p.Disconnect(); Discover(p,1,0);
+    Read(p,baseline.pattern,2,0,0);
+    CHECK(SamePattern(*p.RecoveredDraft(),baseline.pattern));
+    CHECK(!p.TryBegin(baseline,1000));
 }

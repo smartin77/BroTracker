@@ -366,6 +366,18 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
+    // Fixed burst: ready transfers do not pay one UI/render interval per cell.
+    // Each pass rechecks transport priority and retains partial-line ownership.
+    // No waiting for I/O completion; asynchronous/backpressured writes stay pending.
+    for (unsigned pass = 0; pass < 64; ++pass) {
+        write_backpressure_=false;
+        ServiceSerial(now);
+        if (!opened_ || !connected_ || write_backpressure_) break;
+    }
+}
+
+void BringUpSerial::ServiceSerial(std::uint32_t now)
+{
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -398,6 +410,7 @@ void BringUpSerial::Tick(std::uint32_t now)
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_gains_) gains_.BeforeWrite(now);
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
+        write_backpressure_=count >= 0 && static_cast<unsigned>(count) < tx_size_ - tx_offset_;
         if (count > 0)
         {
             tx_offset_ += count;

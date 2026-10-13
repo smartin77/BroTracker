@@ -20,6 +20,7 @@ public:
     void RetainLocal(bool dirty) noexcept { retain_local_=dirty; }
     void Disconnect() noexcept {
         if(!retain_local_ && phase_==HostPreviewPhase::Synchronized) latest_valid_=attempted_valid_=false;
+        reconnecting_=true;
         supported_=next_fresh_=state_fresh_=false; next_=0; accepted_=current_=0; recovered_ready_=false;
         readback_.Clear(); read_active_=read_label_=false; verified_=pending_verified_=false;
         phase_=HostPreviewPhase::Recovering; Set("Preview outcome unknown; recovering device state");
@@ -90,7 +91,18 @@ public:
         }
         std::uint32_t f[5]{};
         if(SnapshotFields(line,length,"BTPREVIEW1 NEXT ",f,2) && f[0]==1 && supported_ && discovery_) {
+            // NEXT is a device-lifetime high-water mark, including rejected BEGINs.
+            // A rollback after reconnect proves the old working context is gone.
+            if(reconnecting_) {
+                if(f[1] && f[1]-1 < consumed_high_water_) {
+                    latest_valid_=attempted_valid_=false; debouncing_=false;
+                    retain_local_=false; consumed_high_water_=0;
+                    Set("Device identities reset; loading authoritative working pattern");
+                }
+                reconnecting_=false;
+            }
             if(current_ && f[1] && f[1]<=current_) return false;
+            consumed_high_water_=f[1] ? f[1]-1 : UINT32_MAX;
             next_=f[1]; next_fresh_=true; return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 STATE ",f,4) && f[0]==1 && supported_ && discovery_) {
@@ -104,7 +116,9 @@ public:
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 RECEIVING 1 ",f,1)) {
             if((!Sending() && phase_!=HostPreviewPhase::Waiting) || f[0]!=current_ || receiving_) return false;
-            receiving_=true; return true;
+            receiving_=true;
+            if(current_>consumed_high_water_) consumed_high_water_=current_;
+            return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 SUBMITTED 1 ",f,1)) {
             if(phase_!=HostPreviewPhase::Waiting || f[0]!=current_ || !receiving_ || submitted_) return false;
@@ -191,6 +205,8 @@ private:
     PatternSnapshotAssembler readback_;
     HostPreviewPhase phase_=HostPreviewPhase::Recovering;
     bool supported_=false,discovery_=false,next_fresh_=false,state_fresh_=false,suspended_=false;
+    bool reconnecting_=false;
+    std::uint32_t consumed_high_water_=0;
     bool retain_local_=false,debouncing_=false,latest_valid_=false,attempted_valid_=false,receiving_=false,submitted_=false,commit_possible_=false;
     bool read_active_=false,read_label_=false,verified_=false,pending_verified_=false,recovered_ready_=false;
     unsigned selector_=0;

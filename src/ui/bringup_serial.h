@@ -69,6 +69,8 @@ private:
     void Disconnect(const char* reason);
     void Send(Command command, std::uint32_t now);
     void OnLine(std::uint32_t now);
+    void ServiceSerial(std::uint32_t now);
+    bool write_backpressure_=false;
     void ClearPosition();
     BroTracker::PatternSnapshotAssembler pattern_assembler_;
     unsigned snapshot_version_ = 1;

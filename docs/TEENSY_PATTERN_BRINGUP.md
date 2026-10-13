@@ -1863,3 +1863,43 @@ Windows BTX + Teensy hardware checklist (all pending for this environment):
 - Capture PERF while Playing, previewing, publishing while Paused and Continuing.
   Prior native-rate PERF results are not validation of the variable-rate path.
   Inspect memory usage and stress/backpressure behavior separately; ArkOS remains open.
+
+
+### Working-preview corrections and evidence (2026-10-13)
+
+The user confirmed beeper/PCM transposition, an audible distinction between
+Arrival and EndOfPosition OFF, and playback continuation after forced Windows
+BTX termination/relaunch while Teensy remained powered. The supplied
+`brotracker-terminal(2).log` records PLAYING and `BTPREVIEW1 STATE 1 0 4 0`,
+with no START or publication writes. Unpublished working playback retention is
+intentional; it is neither publication nor SD persistence. Archive validated logs
+separately before another launch overwrites the normal terminal log.
+
+The earlier review summary reports valid edits becoming audible after 3?4 loops
+and a D-3 display/C-3 boot-fixture mismatch after USB reset. Missing-instrument
+rejections are separate validation failures, not evidence explaining every delay.
+Neither log establishes precise local-edit-to-application latency.
+
+Host tests reproduce one-line-per-service transfer pacing and stale local-draft
+retention after device identity reset. Shared serial service now performs at most
+64 bounded passes per Tick, rechecking transport priority between complete lines
+and stopping on partial/blocked writes. Each pass retains its 1024-byte receive
+limit. The Windows worker holds a full bounded protocol line instead of imposing
+32-byte fragmentation. No service waits for I/O completion; elapsed transfer time
+still depends on service cadence and backpressure. Core application remains at
+the next eligible row boundary, and a changed row already passed naturally waits
+for its next occurrence.
+
+On reconnect, a lower device NEXT high-water mark invalidates retained draft
+context; complete verified working readback supplies the displayed draft. A
+powered-device reconnect with unchanged identities retains recoverable local
+edits and authoritative working/pending readback. A fresh host adopts verified
+working data, not the boot fixture. No automatic START or publication is sent.
+Identity rollback is not a general boot/session UUID; where reset cannot be
+established, retained unmatched edits remain explicitly unsynchronized.
+
+Rebuild Windows BTX for these host corrections; firmware is unchanged. Hardware
+revalidation remains open: rapid valid edits, supersession/readback delays, USB
+reset reconciliation and powered-device reconnect. Physical timing, exhaustive
+backpressure/recovery and ArkOS validation remain open. Configurable PgUp/PgDn
+inversion (including held acceleration) is deferred; OFF toggling stays unchanged.
