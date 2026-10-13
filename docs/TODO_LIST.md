@@ -849,3 +849,24 @@ design remains unchanged.
   Duration determines tempo; determining a musical note additionally requires a
   known or measured reference pitch. No sample integration, resampling or tuning
   implementation is included in this task.
+
+### Pattern Length and Playback Flow
+
+Follow [D0056](ARCHITECTURE_DECISIONS.md#d0056--pattern-length-and-playback-flow):
+stored pattern length, playback flow and visible row count are separate. Current
+16-row realtime capacity and single-pattern looping remain unchanged.
+
+* [ ] Implement per-pattern stored lengths of 16, 32 or 64 rows and a tune default
+  used only for newly created patterns; changing the default must not resize
+  existing patterns. Extend bounded core capacities, validation and transfer
+  contracts deliberately; preserve four rows per quarter note without LPB changes.
+* [ ] Define flow FX names/codes/parameters, same-row conflicts, invalid targets,
+  combination rules, end-of-sequence and standalone loop behavior before implementing
+  order-list sequencing, Pattern Break and Position Jump. Complete the current row
+  before transitions; target order entries rather than pattern IDs. Retain skipped
+  stored events, including shorter played sections within a longer stored pattern.
+* [ ] Define and test sounding audio/MIDI note, instrument-continuation and deferred
+  EndOfPosition OFF behavior at transitions, including paused-row replay interaction.
+* [ ] Decide live length changes, resizing/data retention and undo semantics.
+* [ ] Design paging/scrolling for 64-row patterns on the current 32-row display;
+  preserve independent edit and playback positions and existing navigation decisions.

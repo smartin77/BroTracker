@@ -1703,3 +1703,49 @@ foundation. General source/output conversion, tuning metadata integration, tempo
 matching, analysis and time stretching remain pending. Current beeper C-3/D-3
 bindings are trigger anchors, not measured physical tuning. This decision adds no
 playback implementation or changes to the native-rate baseline.
+
+## D0056 — Pattern Length and Playback Flow
+
+Each pattern has its own stored length: 16, 32 or 64 rows. The tune provides a
+default length for newly created patterns; changing that default does not resize
+existing patterns. Stored length is distinct from playback flow and from the
+number of rows visible in the UI. Row numbering remains a presentation choice
+per [D0016](#d0016---pattern-row-numbering), with zero-based internal indices.
+
+### Playback flow
+
+Future Pattern Break FX completes the current row, then continues at an explicitly
+selected row of the next order-list entry. Future Position Jump FX completes the
+current row, then continues at a selected order-list entry. Jump targets refer to
+sequence/order entries, not directly to pattern IDs: one pattern may occur more
+than once in the sequence. Combining Jump and Break may select both the destination
+order entry and destination row; exact combination rules remain pending.
+
+These FX do not resize patterns or delete skipped events. For example, a stored
+64-row pattern with a break on displayed row 16 (decimal one-based) plays its first
+16 rows before continuing elsewhere, retaining all 64 stored rows. Break also
+permits shorter played sections, such as 12 rows within a stored 16-row pattern.
+
+Keep four rows per quarter note per
+[D0029](#d0029---timing-model-and-microtiming). Variable pattern length does not
+introduce LPB or change the timing model. External-format importers remain
+responsible for conversion per [D0031](#d0031---external-format-import); this
+decision does not adopt an external format's FX encoding or combination rules.
+
+### Pending decisions
+
+- FX names, codes and parameter representation.
+- Conflict resolution for multiple flow commands on one row.
+- Invalid destination handling.
+- End-of-sequence behavior and standalone pattern-loop semantics.
+- Sounding audio/MIDI notes, instrument continuation and deferred EndOfPosition
+  OFF handling at transitions. Interaction with paused current-row replay per
+  [D0054](#d0054---paused-pattern-row-replay) must also be defined.
+- Live length changes, resizing/data retention and undo semantics.
+- Paging/scrolling for 64-row patterns on the current 32-row display.
+
+### Implementation status
+
+The current 16-row realtime capacity and single-pattern looping remain unchanged.
+This decision records design only; it does not implement variable realtime pattern
+capacity, multiple-pattern sequencing or flow FX.
