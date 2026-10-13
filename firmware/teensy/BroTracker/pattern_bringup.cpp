@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <Audio.h>
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
-#include "bringup/pattern_control.h"
+#include "bringup/pattern_player_selection.h"
 #include "bringup/pattern_fixture.h"
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
@@ -21,7 +21,7 @@ namespace BroTracker
 {
 namespace
 {
-    static_assert(AUDIO_BLOCK_SAMPLES == kNativeRatePatternFrameCapacity,
+    static_assert(AUDIO_BLOCK_SAMPLES == kSelectedPatternFrameCapacity,
         "Pattern bring-up requires the current 128-frame Teensy audio blocks");
     // Short, low-amplitude, immutable diagnostic PCM fixtures, not a synth engine.
     // Integer compile-time square/triangle bursts taper to zero; no audio-time synthesis.
@@ -42,13 +42,13 @@ namespace
     constexpr auto kSampleB = MakeSample(true);
     constexpr std::uint32_t kTempoHundredths = 12753;
     const RealtimePattern kPattern = MakeBeeperPattern();
-    const NativeRateSampleBindings kBindings = [] {
-        NativeRateSampleBindings bindings{}; bindings.count = 2;
+    const SelectedPatternBindings kBindings = [] {
+        SelectedPatternBindings bindings{}; bindings.count = 2;
         bindings.bindings[0] = {0,60,{kSampleA.data(),kSampleA.size(),44100}};
         bindings.bindings[1] = {1,62,{kSampleB.data(),kSampleB.size(),44100}};
         return bindings;
     }();
-    PatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
+    SelectedPatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
     constexpr std::size_t kPreparedFrameCapacity=131072;
     DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
@@ -56,7 +56,7 @@ namespace
     SdPreparationReport g_preparation_report;
 #endif
     RealtimePattern g_active_pattern = kPattern; // Main readback source; updated after audio acknowledgement.
-    NativeRateSampleBindings g_selected_bindings = kBindings; // Frozen before audio activation.
+    SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
     bool g_audio_ready = false; // Published under InterruptGuard after AudioMemory.
 
     // Save/restore PRIMASK, including callers with interrupts already disabled.

@@ -225,9 +225,22 @@ design remains unchanged.
   modes, transport, gains, replacement/preview, limits and rollback/retry including
   fractional phase; equivalent unity bindings match native-rate PCM. Native-rate
   player/API and firmware remain unchanged. Hardware performance is unmeasured.
-* [ ] Integrate variable-rate player/bindings into firmware/protocol/UI and validate
-  hardware timing/performance. Existing native-rate unsupported-pitch behavior is
-  unchanged; this portable player is a separate path. Integrate tuning metadata later.
+* [x] Add opt-in `teensy41_pattern_variable_rate`, extending SD playback with PERF.
+  Compile-time selection owns only the chosen player; shared bounded control FIFOs,
+  serial protocol, ownership/readback and fault policies are retained. Reference
+  bindings 60/62 keep unchanged beepers at unity; prepared SD reference 60 retains
+  the third-channel fixture and two-beeper failure fallback. Supported notes 24..127
+  transpose through explicit references; matching rates only, no finetune/tempo match.
+  Host target `BroTrackerVariableRateBringUpTests` uses the actual selection flag and
+  validates transposition, transport/OFF/gains, SD selection, preview/publication,
+  frozen handoff, identities/readback/backpressure, PERF arithmetic and failures.
+  Existing environments/native-rate regression coverage remain unchanged.
+* [ ] Build/upload and validate the variable-rate environment on Windows BTX + Teensy:
+  reference/semitone/octave playback, automatic preview/F4, stopped/paused F5,
+  Pause/current-row Continue, both OFF modes, reconnect without Start, memory usage
+  and PERF. Prior native-rate measurements do not validate this rendering path.
+  Linear interpolation may alias and changes pitch/duration together; ArkOS and
+  hardware timing/performance remain open. Integrate tuning metadata later.
   Fractional-semitone correction remains a separate future layer. D0055 defines
   source/output ratio * note-interval ratio * fine-tuning ratio. Keep PCM16 mono
   44100 Hz as implemented baseline; preserve future 8000/22050/48000 Hz conversion

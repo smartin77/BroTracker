@@ -20,15 +20,18 @@ inline RealtimePattern MakeBeeperPattern() noexcept {
     pattern.cells[14][1] = {NOTE_OFF,kNoInstrumentUpdate};
     return pattern;
 }
-struct PatternBringUpFixture {
+template<class Bindings>
+struct BasicPatternBringUpFixture {
     RealtimePattern pattern;
-    NativeRateSampleBindings bindings;
+    Bindings bindings;
 };
+using PatternBringUpFixture = BasicPatternBringUpFixture<NativeRateSampleBindings>;
 // Input is the boot fixture's two validated beeper bindings (IDs 0/1).
 // Invalid/unavailable prepared views retain the original two-channel fixture.
-inline PatternBringUpFixture SelectPatternBringUpFixture(
-    const NativeRateSampleBindings& beepers, Pcm16MonoView prepared, bool enable_sd) noexcept {
-    PatternBringUpFixture fixture{MakeBeeperPattern(), beepers};
+template<class Bindings>
+inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
+    const Bindings& beepers, Pcm16MonoView prepared, bool enable_sd) noexcept {
+    BasicPatternBringUpFixture<Bindings> fixture{MakeBeeperPattern(), beepers};
     RamSampleVoice validator;
     (void)validator.Configure(44100);
     if (enable_sd && validator.Trigger(prepared) == RamVoiceStatus::Success) {

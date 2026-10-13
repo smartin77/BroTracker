@@ -119,6 +119,20 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 enable_testing()
+# Exercise exactly the compile-time player/control selection used by the opt-in
+# firmware, without Arduino/SD or building/uploading a board image.
+add_executable(BroTrackerVariableRateBringUpTests
+    tests/test_main.cpp
+    tests/test_variable_rate_bringup_control.cpp
+    tests/test_variable_rate_bringup_protocol.cpp
+    tests/test_variable_rate_bringup_gains.cpp
+    libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
+    libraries/scheduler/src/pattern_position.cpp)
+target_compile_definitions(BroTrackerVariableRateBringUpTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE)
+target_include_directories(BroTrackerVariableRateBringUpTests PRIVATE src tests libraries/scheduler/src)
+add_test(NAME BroTrackerVariableRateBringUpTests COMMAND BroTrackerVariableRateBringUpTests)
+
 add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp)
 target_include_directories(BroTrackerHostClockInputTests PRIVATE libraries/teensy_diagnostics/src)
 add_test(NAME BroTrackerHostClockInputTests COMMAND BroTrackerHostClockInputTests)

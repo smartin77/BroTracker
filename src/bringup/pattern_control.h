@@ -43,7 +43,8 @@ namespace BroTracker
     // Fixed request AND acknowledgement FIFOs preserve accepted order. If the
     // acknowledgement FIFO is full, leave requests pending rather than losing
     // acknowledgements. Full request FIFO explicitly rejects without overwriting.
-    class PatternBringUpControl
+    template<class Player, class Bindings>
+    class BasicPatternBringUpControl
     {
     public:
         // Audio owner only; main loop snapshots this under the existing exclusion.
@@ -112,7 +113,7 @@ namespace BroTracker
         // Never configures/restarts from HELLO, reconnect or the main loop.
         [[nodiscard]] PatternPlayerStatus InitializeAudio(std::uint32_t tempo_hundredths,
             std::uint32_t rate, const RealtimePattern& pattern,
-            const NativeRateSampleBindings& bindings) noexcept
+            const Bindings& bindings) noexcept
         {
             const auto result = player_.Configure(tempo_hundredths, rate, pattern, bindings);
             if (result != PatternPlayerStatus::Success) Fail(PatternFault::Configuration, result);
@@ -240,7 +241,7 @@ namespace BroTracker
             status_.active_rows = player_.GetActiveRows();
             status_.active_channels = player_.GetActiveChannels();
         }
-        NativeRatePatternPlayer player_;
+        Player player_;
         PatternBringUpStatus status_;
         struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; };
         RequestEntry requests_[kPatternRequestCapacity]{};
@@ -252,4 +253,6 @@ namespace BroTracker
         std::size_t request_head_ = 0, request_count_ = 0;
         std::size_t applied_head_ = 0, applied_count_ = 0;
     };
+    // Existing default/API stays native-rate. Only the chosen specialization owns a player.
+    using PatternBringUpControl = BasicPatternBringUpControl<NativeRatePatternPlayer, NativeRateSampleBindings>;
 }

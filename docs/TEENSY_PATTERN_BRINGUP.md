@@ -1798,5 +1798,68 @@ partition independence through loops, Pause/current-row replay, both OFF modes,
 deferred Stop/new-trigger ordering, gains, all replacement modes, pending-candidate
 handling, validation, processing limits and rollback/smaller retries. Direct unity
 comparison with native-rate playback covers equivalent patterns/bindings through
-transport and replacements. Core orchestration is complete; firmware/protocol/UI
-integration and hardware timing/performance validation remain pending.
+transport and replacements. Core orchestration is complete; opt-in firmware
+integration is described below. Hardware timing/performance validation remains pending.
+
+### Opt-in variable-rate firmware (host-tested; hardware validation pending)
+
+`teensy41_pattern_variable_rate` extends `teensy41_pattern_sd_playback`, retaining
+SD preparation/WAVPREP, RAM2 storage and PERF diagnostics. It adds only
+`BROTRACKER_PATTERN_VARIABLE_RATE`. Other environments retain their native-rate
+player and behavior. Compile-time aliases select one player/control instance;
+a fixed facade translates core status/position types into the existing control
+interface, without virtual dispatch, heap allocation or a second player instance.
+The bounded audio-owner FIFO, applied ACK ordering and serial protocol implementation
+are shared. No discovery syntax, queue capacities or identity rules change.
+
+Boot pattern notes, 12753 hundredths BPM, unity gains and active dimensions are
+unchanged. Beeper PCM uses explicit reference notes 60 and 62, preserving original
+unity output. Successful SD preparation binds the same immutable caller-owned
+`Samples/test2.wav` at reference 60/internal instrument 2 (display 03); failure
+retains the two-beeper fixture and WAVPREP failure report. Preparation and selected
+metadata construction finish before audio activation. RAM2 placement stays a
+caller-storage choice, preserving future optional PSRAM. References are playback
+anchors, not measured physical tuning. Source/output rates must match (current
+44100 Hz fixture); no finetune, tempo matching or lower-rate WAV support.
+
+Supported pitched notes 24..127 resolve through variable-rate mapping for Render,
+preview and publication validation. Existing native-rate environments still reject
+unsupported pitch changes. Start/Stop, Pause/current-row Continue, both OFF timings,
+gains, telemetry and snapshots retain their semantics. Stopped/paused publication
+remains allowed; Playing publication rejects. Volatile preview works while Playing
+and applies at the next row boundary. Frozen transfer ownership, accepted versus
+applied notifications, supersession and authoritative baseline/working readback
+remain unchanged. Reconnect never starts playback or resets gains/patterns.
+
+All player mutation remains audio-owner-only. Main-loop parsing/formatting and
+boot-time SD I/O stay outside audio processing. Render rejection zeroes the block,
+Stops and latches a fault; allocation failure stops/resets without advancing and
+increments its diagnostic counter. PERF includes audio-owner transport/replacement
+work, with the same wrap-safe counters and budget calculation. The 128-frame,
+16-command and 512-tick-plus-completion limits remain explicit. Linear interpolation
+is not band-limited: upward transposition may alias; rate changes affect pitch and
+duration together, without time stretching. Unity-gain summation may saturate;
+final gain/headroom policy and smoothing remain future work.
+
+Host validation runs both native regressions and `BroTrackerVariableRateBringUpTests`,
+compiled with the same selection flag as firmware. It covers reference/semitone/
+octave PCM, full supported note boundaries, SD success/fallback, transport/OFF order,
+gains, preview/publication rejection and readback, frozen storage, identity/reconnect
+handling, bounded ACK backpressure and render/allocation faults. These portable
+checks do not establish Teensy compilation, memory headroom or realtime performance.
+
+Windows BTX + Teensy hardware checklist (all pending for this environment):
+
+- Build/upload the new environment; inspect linker RAM1/RAM2/stack headroom and
+  confirm WAVPREP success or the unchanged beeper fallback, with stopped/silent boot.
+- Compare each instrument at its reference, one semitone above, one octave above
+  and one octave below; confirm pitch/duration coupling rather than tempo matching.
+- Check automatic preview and F4 restoration; publish with F5 while Stopped and
+  Paused, verifying readback and retained paused row/loop. Playing F5 remains blocked.
+- Verify Pause/Continue replays the current row; exercise both OFF modes and a new
+  note at the deferred Stop boundary. Exact physical timing remains unmeasured.
+- Reconnect during playback and while paused without automatic Start/Continue;
+  verify applied/pending preview, baseline and gain readback without blind retries.
+- Capture PERF while Playing, previewing, publishing while Paused and Continuing.
+  Prior native-rate PERF results are not validation of the variable-rate path.
+  Inspect memory usage and stress/backpressure behavior separately; ArkOS remains open.
