@@ -170,7 +170,8 @@ struct PreviewPort : SerialTransport {
 };
 struct PreviewSession {
     PreviewPort* port=new PreviewPort;
-    BringUpSerial serial{nullptr,std::unique_ptr<SerialTransport>(port)};
+    BringUpSerial serial;
+    explicit PreviewSession(FILE* log=nullptr):serial(log,std::unique_ptr<SerialTransport>(port)) {}
     LocalPatternEditor editor; unsigned now=0;
     void Tick() { serial.Tick(now); serial.SyncEditor(editor,now); now+=10; }
     void Pump(unsigned steps=250) { for(unsigned i=0;i<steps;++i) Tick(); }
@@ -391,4 +392,35 @@ TEST_CASE(PreviewResetAfterFirstReceiptBeforeNextRefreshDropsStaleDraft) {
     Read(p,baseline.pattern,2,0,0);
     CHECK(SamePattern(*p.RecoveredDraft(),baseline.pattern));
     CHECK(!p.TryBegin(baseline,1000));
+}
+
+TEST_CASE(PreviewStopDuringTransferAndRecoveryPreservesDraftWithoutF5) {
+    for(bool dirty : {false,true}) for(bool recovery : {false,true}) {
+        PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+        if(dirty) { CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); }
+        s.port->limit=1; s.now+=100; s.Tick(); s.Tick();
+        if(recovery) { s.port->online=false; s.Tick(); s.port->online=true; s.Pump(1000); }
+        const auto draft=*s.editor.Draft(); const auto baseline=*s.editor.Baseline();
+        const auto mark=s.port->output.size(); CHECK(s.serial.Stop()); s.port->limit=3; s.Pump(1000);
+        CHECK(s.serial.Stopped()); CHECK(s.serial.Connected()); CHECK(s.editor.Ready());
+        CHECK(SamePattern(draft,*s.editor.Draft())); CHECK(SamePattern(baseline.pattern,s.editor.Baseline()->pattern));
+        CHECK(s.port->output.find("BTTEST1 STOP\n",mark)!=std::string::npos);
+        CHECK(s.port->output.find("BTTEST1 START\n",mark)==std::string::npos);
+        CHECK(s.port->output.find("BTPUBLISH1 BEGIN",mark)==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewDiagnosticsCorrelateLocalRevisionAndWireTimestamps) {
+    FILE* log=std::tmpfile(); CHECK(log!=nullptr);
+    {
+        PreviewSession s(log); s.Pump();
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); s.Pump();
+        std::rewind(log); std::string text; char chunk[256];
+        while(std::fgets(chunk,sizeof(chunk),log)) text+=chunk;
+        CHECK(text.find("[host_ms=")!=std::string::npos);
+        CHECK(text.find("local draft changed: checksum=")!=std::string::npos);
+        CHECK(text.find("TX complete: BTPREVIEW1 COMMIT")!=std::string::npos);
+        CHECK(text.find("RX: BTPREVIEW1 APPLIED")!=std::string::npos);
+    }
+    std::fclose(log);
 }

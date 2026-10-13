@@ -1903,3 +1903,79 @@ revalidation remains open: rapid valid edits, supersession/readback delays, USB
 reset reconciliation and powered-device reconnect. Physical timing, exhaustive
 backpressure/recovery and ArkOS validation remain open. Configurable PgUp/PgDn
 inversion (including held acceleration) is deferred; OFF toggling stays unchanged.
+
+
+### Working-preview latency and STOP regression review (2026-10-13)
+
+The user reports improved preview responsiveness after the prior correction.
+The alleged Enter STOP failure did not recur in subsequent user testing, and
+neither supplied log captures that defect. Keep regression tracking; no Enter
+fix is claimed. An edit appearing visually ahead of the highlight does not prove
+that its device row-start event is still pending. After a power-cycle, boot-fixture
+restoration is expected: published and working patterns currently live only in RAM.
+Powered-device BTX relaunch retention remains intentional, without automatic START
+or publication.
+
+Evidence is archived in `diagnostics/preview-validation-20261013-221030/` outside
+build exports: both supplied logs, the previous current log, pre-test executable,
+source revision/status, scripts, exact tested executable SHA256, readbacks and
+measurement captures. The expected environment is `teensy41_pattern_variable_rate`;
+the existing firmware was not rebuilt/uploaded and its binary identity cannot be
+verified through the current protocol. The packaged Windows executable was built
+with the host timing diagnostics. Original logs remain unchanged; archive the
+normal AppData terminal log before another launch overwrites it.
+
+The supplied logs contain 25/78 preview BEGINs, 19/73 APPLIED replies and 6/4
+REJECTED replies respectively, plus successful STOP replies. Missing-instrument
+rejections remain explicit validation outcomes, not explanations for every valid
+edit delay. Those logs lack local-edit timestamps, so they cannot establish
+local-edit-to-application latency. New main-thread diagnostics attach monotonic
+host millisecond ticks to draft-checksum changes and serial TX/RX. They do not log
+inside audio processing or alter debounce, repeat or scheduling policy.
+
+With BTX closed and COM3 exclusively owned by the bounded serial harness, six
+48-cell previews were applied while Playing, interspersed with Pause/Continue.
+Host-observed timing was:
+
+| Preview ID | BEGIN -> COMMIT | COMMIT -> ACCEPTED | COMMIT -> APPLIED |
+| --- | ---: | ---: | ---: |
+| 1 | 34 ms | 3 ms | 68 ms |
+| 2 | 27 ms | 2 ms | 105 ms |
+| 3 | 50 ms | 19 ms | 19 ms |
+| 4 | 31 ms | 8 ms | 170 ms |
+| 5 | 53 ms | 6 ms | 6 ms |
+| 6 | 31 ms | 13 ms | 113 ms |
+
+These timestamps include USB/host buffering and observation delay; they are not
+exact audio-owner or audible-onset measurements. The first changed row-zero note
+was APPLIED with the next observed position in row 6, so hearing that note on its
+following row-zero occurrence is normal. A 16-row loop at 127.53 BPM lasts about
+1.882 seconds. This small run did not show multi-loop application delay, but does
+not resolve every reported local-edit delay or separate all telemetry lag.
+Original working cells/OFF metadata were restored and matched the final 48-cell
+readback exactly. Published baseline was not changed; device was left Stopped.
+Direct serial STOP reset was acknowledged. No automatic START/publication occurred
+on reconnect; STARTs in the harness were explicit test operations.
+
+All seven configured Windows host test targets pass, including both Enter mappings,
+clean/dirty STOP during preview transfer/recovery, held editing and framing/priority
+coverage. The initial new input test incorrectly assumed Enter cancels a separately
+held PgUp; that assertion was corrected rather than changing the repeat policy.
+Actual BTX window-message injection could not obtain foreground focus and aborted
+before sending keys. BTX was closed through its normal window-close path, and the
+attempt logs were retained. Neither direct serial testing nor synthetic SDL mapping
+tests establish physical keyboard behavior. No new transport/scheduling defect was
+established; audible timing, exhaustive recovery/backpressure and ArkOS remain open.
+
+Human validation still needed:
+
+1. Run the packaged BTX; verify a ready device pattern and explicit instrument.
+2. While Playing, edit a pitched note several rows ahead, then a row just passed;
+   retain timestamped draft, BEGIN/COMMIT, ACCEPTED/APPLIED and POS records, noting
+   audible change separately from the highlight. Repeat with rapid edits.
+3. Press Return and keypad Enter while clean/dirty, during preview/readback and
+   while holding PgUp/PgDn. Verify STOP/reset without F5, draft preservation and
+   connection retention; release held keys and confirm no automatic restart.
+4. Relaunch BTX with Teensy powered, then separately power-cycle Teensy. Verify
+   authoritative working retention in the first case and boot restoration in the
+   second. Archive each log before the next launch.

@@ -104,6 +104,29 @@ int main() {
             CHECK(MapWindowsAction(stop) == BringUpAction::None);
         }
     }
+    // Both physical Enter keys bypass editing even while accelerated edits are held.
+    // SDL mapping coverage is distinct from direct serial STOP hardware testing.
+    for(auto enter : {SDLK_RETURN,SDLK_KP_ENTER}) {
+        for(bool dirty : {false,true}) {
+            CHECK(editor.Apply(EditorAction::Restore));
+            if(dirty) CHECK(editor.Apply(EditorAction::Increment));
+            const auto before_stop=*editor.Draft();
+            SDL_Event initial_stop{}; initial_stop.type=SDL_KEYDOWN; initial_stop.key.keysym.sym=enter;
+            CHECK(!input.Handle(initial_stop,2999,editor));
+            CHECK(MapWindowsAction(initial_stop)==BringUpAction::ResetStop);
+            CHECK(BroTracker::SamePattern(before_stop,*editor.Draft()));
+            key(SDLK_PAGEUP,3000); // Arm accelerated editing.
+            const auto after_key=*editor.Draft();
+            SDL_Event stop{}; stop.type=SDL_KEYDOWN; stop.key.keysym.sym=enter;
+            CHECK(!input.Handle(stop,3001,editor));
+            CHECK(MapWindowsAction(stop)==BringUpAction::ResetStop);
+            CHECK(BroTracker::SamePattern(after_key,*editor.Draft()));
+            key(SDLK_PAGEUP,3002,SDL_KEYUP);
+            input.Tick(6000,KMOD_NONE,editor);
+            CHECK(BroTracker::SamePattern(after_key,*editor.Draft()));
+            CHECK(editor.Ready());
+        }
+    }
     e.key.keysym.sym = SDLK_x; CHECK(MapWindowsAction(e) == BringUpAction::None);
     for (auto mod : {KMOD_LCTRL, KMOD_RCTRL}) {
         e.key.keysym.mod = mod; CHECK(MapWindowsAction(e) == BringUpAction::Exit);

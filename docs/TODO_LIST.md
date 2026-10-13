@@ -809,6 +809,22 @@ design remains unchanged.
   of both OFF timings, and continued playback after forced BTX kill/relaunch
   with Teensy powered. This does not establish exact edit/application latency.
 
+* [x] Add bounded host-millisecond diagnostics for local draft checksums and
+  serial TX/RX, plus Enter/keypad mapping and STOP regressions during clean/dirty
+  preview transfer/recovery and held editing. No debounce or scheduling change.
+* [ ] Complete working-preview latency and Enter hardware regression validation.
+  The user reports improved preview responsiveness and that the alleged Enter
+  STOP failure did not recur; no log reproduces an Enter defect and no speculative
+  fix was made. Automated 2026-10-13 serial tests applied six previews: BEGIN to
+  COMMIT 27-53 ms, COMMIT to ACCEPTED 2-19 ms, and COMMIT to APPLIED 6-170 ms
+  (host observations). Original 48-cell working data was restored; STOP reset
+  was acknowledged. This does not measure audible onset or local-edit latency.
+  SDL mapping tests pass; hardware window-message injection aborted on focus
+  gating before keys were sent. Physical Return/keypad checks remain open.
+  A passed row can naturally wait for its next loop; highlight timing alone does
+  not establish whether its row-start event has been consumed. Power-cycle
+  restoration is expected because baseline and working data remain RAM-only.
+
 ## Deferred Tasks
 
 * [ ] Add configurable PgUp/PgDn direction inversion, including held-key

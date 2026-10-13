@@ -82,6 +82,7 @@ private:
     std::unique_ptr<SerialTransport> transport_;
     bool opened_ = false;
     FILE* log_;
+    std::uint32_t diagnostic_now_=0;
     const char* test_device_;
     bool connected_ = false;
     bool stopped_ = false;

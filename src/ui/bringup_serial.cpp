@@ -14,7 +14,7 @@ BringUpSerial::~BringUpSerial() = default;
 void BringUpSerial::Log(const char* message, const char* detail)
 {
     if (!log_) return;
-    std::fprintf(log_, "USB bring-up: %s %s\n", message, detail);
+    std::fprintf(log_, "[host_ms=%" PRIu32 "] USB bring-up: %s %s\n", diagnostic_now_, message, detail);
     std::fflush(log_);
 }
 
@@ -57,6 +57,19 @@ void BringUpSerial::Disconnect(const char* reason)
 
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
+    diagnostic_now_=now;
+    if(editor_seen_ && editor.Ready() && !BroTracker::SamePattern(observed_editor_,*editor.Draft())) {
+        const auto& draft=*editor.Draft();
+        auto hash=BroTracker::PublicationHeaderHash(draft.active_rows,draft.active_channels);
+        for(unsigned r=0;r<draft.active_rows;++r) for(unsigned c=0;c<draft.active_channels;++c) {
+            hash=BroTracker::SnapshotHashByte(hash,draft.cells[r][c].note);
+            hash=BroTracker::SnapshotHashByte(hash,draft.cells[r][c].instrument);
+            hash=BroTracker::SnapshotHashByte(hash,static_cast<std::uint8_t>(draft.note_off_timing[r][c]));
+        }
+        char detail[96];
+        std::snprintf(detail,sizeof(detail),"checksum=%" PRIu32 " row=%u channel=%u",hash,editor.Cursor().row,editor.Cursor().channel);
+        Log("local draft changed:",detail);
+    }
     // Capture edits before applying an asynchronously completed recovery readback.
     // A transport disconnect may already have cleared capability this frame.
     if(preview_session_ && editor_seen_ && editor.Ready() && !publish_queued_ &&
@@ -366,6 +379,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
+    diagnostic_now_=now;
     // Fixed burst: ready transfers do not pay one UI/render interval per cell.
     // Each pass rechecks transport priority and retains partial-line ownership.
     // No waiting for I/O completion; asynchronous/backpressured writes stay pending.

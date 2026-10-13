@@ -1,0 +1,294 @@
+﻿{
+    "rows":  16,
+    "channels":  3,
+    "cells":  [
+                  {
+                      "index":  0,
+                      "note":  60,
+                      "instrument":  0,
+                      "timing":  0
+                  },
+                  {
+                      "index":  1,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  2,
+                      "note":  60,
+                      "instrument":  2,
+                      "timing":  0
+                  },
+                  {
+                      "index":  3,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  4,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  5,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  6,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  7,
+                      "note":  62,
+                      "instrument":  1,
+                      "timing":  0
+                  },
+                  {
+                      "index":  8,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  9,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  10,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  11,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  12,
+                      "note":  60,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  13,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  14,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  15,
+                      "note":  60,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  16,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  17,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  18,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  19,
+                      "note":  254,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  20,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  21,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  22,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  23,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  24,
+                      "note":  60,
+                      "instrument":  0,
+                      "timing":  0
+                  },
+                  {
+                      "index":  25,
+                      "note":  62,
+                      "instrument":  1,
+                      "timing":  0
+                  },
+                  {
+                      "index":  26,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  27,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  28,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  29,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  30,
+                      "note":  254,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  31,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  32,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  33,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  34,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  35,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  36,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  37,
+                      "note":  62,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  38,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  39,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  40,
+                      "note":  62,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  41,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  42,
+                      "note":  254,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  43,
+                      "note":  254,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  44,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  45,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  46,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  },
+                  {
+                      "index":  47,
+                      "note":  255,
+                      "instrument":  255,
+                      "timing":  0
+                  }
+              ]
+}

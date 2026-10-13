@@ -1,0 +1,4007 @@
+﻿[
+    {
+        "ms":  12,
+        "direction":  "TX",
+        "line":  "BTTEST1 HELLO"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE IDLE"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 SNAPCAP 2"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 SNAPCAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 TRANSPORTCAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 CAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 PAUSEDCAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTGAIN1 CAP 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 0 0"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 WAVPREP 1 1 1 0 0 68284 44100 131072 538970144"
+    },
+    {
+        "ms":  44,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  118,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  134,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  183,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  232,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  280,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  328,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  376,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  425,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  537,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  537,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  584,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  632,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  681,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  730,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  777,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  824,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  888,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  935,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 123665 123664 2541 502 0 1741496"
+    },
+    {
+        "ms":  1088,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1185,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1185,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1252,
+        "direction":  "TX",
+        "line":  "BTPATTERN1 GET 2 100"
+    },
+    {
+        "ms":  1252,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1281,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 BEGIN 2 100 16 3 12753 48"
+    },
+    {
+        "ms":  1281,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 0 60 0 0"
+    },
+    {
+        "ms":  1281,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 1 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 2 60 2 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 3 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 4 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 5 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 6 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 7 62 1 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 8 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 9 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 10 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 11 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 12 60 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 13 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 14 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 15 60 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 16 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 17 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 18 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 19 254 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 20 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 21 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 22 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 23 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 24 60 0 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 25 62 1 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 26 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 27 255 255 0"
+    },
+    {
+        "ms":  1282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 28 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 29 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 30 254 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 31 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 32 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 33 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 34 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 35 255 255 0"
+    },
+    {
+        "ms":  1283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 36 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 37 62 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 38 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 39 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 40 62 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 41 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 42 254 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 43 254 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 44 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 45 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 46 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 CELL 2 100 47 255 255 0"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 END 2 100 48 935035518"
+    },
+    {
+        "ms":  1310,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1329,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1377,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1478,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1478,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1526,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1574,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1638,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1687,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1735,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1784,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1871,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 GET 1 101 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 READ 1 101 0 0 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 BEGIN 2 101 16 3 12753 48"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 0 60 0 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 1 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 2 60 2 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 3 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 4 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 5 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 6 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 7 62 1 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 8 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 9 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 10 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 11 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 12 60 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 13 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 14 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 15 60 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 16 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 17 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 18 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 19 254 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 20 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 21 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 22 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 23 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 24 60 0 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 25 62 1 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 26 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 27 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 28 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 29 255 255 0"
+    },
+    {
+        "ms":  1879,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 30 254 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 31 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 32 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 33 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 34 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 35 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 36 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 37 62 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 38 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 39 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 40 62 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 41 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 42 254 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 43 254 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 44 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 45 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 46 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 101 47 255 255 0"
+    },
+    {
+        "ms":  1880,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 END 2 101 48 935035518"
+    },
+    {
+        "ms":  1927,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1927,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  1975,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2025,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2025,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 124009 124008 2541 502 0 1741496"
+    },
+    {
+        "ms":  2074,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2138,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2187,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2236,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2284,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2380,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2380,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2428,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2707,
+        "direction":  "TX",
+        "line":  "BTTEST1 STOP"
+    },
+    {
+        "ms":  2707,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2707,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2707,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2707,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2707,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2729,
+        "direction":  "RX",
+        "line":  "BTTEST1 STOPPED"
+    },
+    {
+        "ms":  2729,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2729,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2777,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2825,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2873,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2921,
+        "direction":  "TX",
+        "line":  "BTTEST1 START"
+    },
+    {
+        "ms":  2937,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  2937,
+        "direction":  "RX",
+        "line":  "BTTEST1 STARTED"
+    },
+    {
+        "ms":  2937,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2 0 0 16 3"
+    },
+    {
+        "ms":  2986,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 40 0 0 16 3"
+    },
+    {
+        "ms":  3041,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 82 0 0 16 3"
+    },
+    {
+        "ms":  3041,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 124354 124353 2541 58751 0 1741496"
+    },
+    {
+        "ms":  3073,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 123 1 0 16 3"
+    },
+    {
+        "ms":  3138,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 163 1 0 16 3"
+    },
+    {
+        "ms":  3190,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  3192,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 203 2 0 16 3"
+    },
+    {
+        "ms":  3235,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 1"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 0 0"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 220 2 0 16 3"
+    },
+    {
+        "ms":  3236,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 246 2 0 16 3"
+    },
+    {
+        "ms":  3284,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 286 2 0 16 3"
+    },
+    {
+        "ms":  3332,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 326 3 0 16 3"
+    },
+    {
+        "ms":  3380,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 367 3 0 16 3"
+    },
+    {
+        "ms":  3537,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 1 16 3 48"
+    },
+    {
+        "ms":  3540,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 0 61 0 0"
+    },
+    {
+        "ms":  3540,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 1 255 255 0"
+    },
+    {
+        "ms":  3552,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 2 60 2 0"
+    },
+    {
+        "ms":  3553,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 3 255 255 0"
+    },
+    {
+        "ms":  3553,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 4 255 255 0"
+    },
+    {
+        "ms":  3553,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 5 255 255 0"
+    },
+    {
+        "ms":  3554,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 6 255 255 0"
+    },
+    {
+        "ms":  3554,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 7 62 1 0"
+    },
+    {
+        "ms":  3555,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 8 255 255 0"
+    },
+    {
+        "ms":  3555,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 9 255 255 0"
+    },
+    {
+        "ms":  3555,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 10 255 255 0"
+    },
+    {
+        "ms":  3556,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 11 255 255 0"
+    },
+    {
+        "ms":  3556,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 12 60 255 0"
+    },
+    {
+        "ms":  3557,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 13 255 255 0"
+    },
+    {
+        "ms":  3557,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 14 255 255 0"
+    },
+    {
+        "ms":  3557,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 15 60 255 0"
+    },
+    {
+        "ms":  3558,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 16 255 255 0"
+    },
+    {
+        "ms":  3558,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 17 255 255 0"
+    },
+    {
+        "ms":  3559,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 18 255 255 0"
+    },
+    {
+        "ms":  3559,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 19 254 255 0"
+    },
+    {
+        "ms":  3559,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 20 255 255 0"
+    },
+    {
+        "ms":  3560,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 21 255 255 0"
+    },
+    {
+        "ms":  3560,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 22 255 255 0"
+    },
+    {
+        "ms":  3561,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 23 255 255 0"
+    },
+    {
+        "ms":  3561,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 24 60 0 0"
+    },
+    {
+        "ms":  3561,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 25 62 1 0"
+    },
+    {
+        "ms":  3562,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 26 255 255 0"
+    },
+    {
+        "ms":  3562,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 27 255 255 0"
+    },
+    {
+        "ms":  3563,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 28 255 255 0"
+    },
+    {
+        "ms":  3563,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 29 255 255 0"
+    },
+    {
+        "ms":  3563,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 30 254 255 0"
+    },
+    {
+        "ms":  3564,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 31 255 255 0"
+    },
+    {
+        "ms":  3564,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 32 255 255 0"
+    },
+    {
+        "ms":  3564,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 33 255 255 0"
+    },
+    {
+        "ms":  3565,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 34 255 255 0"
+    },
+    {
+        "ms":  3565,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 35 255 255 0"
+    },
+    {
+        "ms":  3566,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 36 255 255 0"
+    },
+    {
+        "ms":  3566,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 37 62 255 0"
+    },
+    {
+        "ms":  3566,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 38 255 255 0"
+    },
+    {
+        "ms":  3567,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 39 255 255 0"
+    },
+    {
+        "ms":  3567,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 40 62 255 0"
+    },
+    {
+        "ms":  3568,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 41 255 255 0"
+    },
+    {
+        "ms":  3568,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 42 254 255 0"
+    },
+    {
+        "ms":  3568,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 43 254 255 0"
+    },
+    {
+        "ms":  3569,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 44 255 255 0"
+    },
+    {
+        "ms":  3569,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 45 255 255 0"
+    },
+    {
+        "ms":  3570,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 46 255 255 0"
+    },
+    {
+        "ms":  3570,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 1 47 255 255 0"
+    },
+    {
+        "ms":  3571,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 1 48 3518847229"
+    },
+    {
+        "ms":  3572,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 407 4 0 16 3"
+    },
+    {
+        "ms":  3572,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 450 4 0 16 3"
+    },
+    {
+        "ms":  3572,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 490 5 0 16 3"
+    },
+    {
+        "ms":  3572,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 1"
+    },
+    {
+        "ms":  3572,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 1"
+    },
+    {
+        "ms":  3574,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 530 5 0 16 3"
+    },
+    {
+        "ms":  3574,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 1"
+    },
+    {
+        "ms":  3574,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 533 5 0 16 3"
+    },
+    {
+        "ms":  3638,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 570 5 0 16 3"
+    },
+    {
+        "ms":  3639,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 1"
+    },
+    {
+        "ms":  3639,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 578 6 0 16 3"
+    },
+    {
+        "ms":  3685,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 613 6 0 16 3"
+    },
+    {
+        "ms":  3734,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 653 6 0 16 3"
+    },
+    {
+        "ms":  3830,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 694 7 0 16 3"
+    },
+    {
+        "ms":  3830,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 734 7 0 16 3"
+    },
+    {
+        "ms":  3877,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 777 8 0 16 3"
+    },
+    {
+        "ms":  3925,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 817 8 0 16 3"
+    },
+    {
+        "ms":  4023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 857 8 0 16 3"
+    },
+    {
+        "ms":  4023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 897 9 0 16 3"
+    },
+    {
+        "ms":  4023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 124698 124697 2541 103879 0 1741496"
+    },
+    {
+        "ms":  4137,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 938 9 0 16 3"
+    },
+    {
+        "ms":  4137,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 980 10 0 16 3"
+    },
+    {
+        "ms":  4236,
+        "direction":  "TX",
+        "line":  "BTTEST1 PAUSE"
+    },
+    {
+        "ms":  4237,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1021 10 0 16 3"
+    },
+    {
+        "ms":  4249,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1061 11 0 16 3"
+    },
+    {
+        "ms":  4249,
+        "direction":  "RX",
+        "line":  "BTTEST1 PAUSED"
+    },
+    {
+        "ms":  4249,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 1073 11 0 16 3"
+    },
+    {
+        "ms":  4282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 1073 11 0 16 3"
+    },
+    {
+        "ms":  4329,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 1073 11 0 16 3"
+    },
+    {
+        "ms":  4377,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 1073 11 0 16 3"
+    },
+    {
+        "ms":  4441,
+        "direction":  "TX",
+        "line":  "BTTEST1 CONTINUE"
+    },
+    {
+        "ms":  4457,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 1073 11 0 16 3"
+    },
+    {
+        "ms":  4457,
+        "direction":  "RX",
+        "line":  "BTTEST1 CONTINUED"
+    },
+    {
+        "ms":  4457,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1058 11 0 16 3"
+    },
+    {
+        "ms":  4651,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1079 11 0 16 3"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1119 11 0 16 3"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1162 12 0 16 3"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1202 12 0 16 3"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 2"
+    },
+    {
+        "ms":  4653,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 1 0"
+    },
+    {
+        "ms":  4654,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  4654,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1226 12 0 16 3"
+    },
+    {
+        "ms":  4683,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1243 12 0 16 3"
+    },
+    {
+        "ms":  4731,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1283 13 0 16 3"
+    },
+    {
+        "ms":  4779,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1326 13 0 16 3"
+    },
+    {
+        "ms":  4827,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1366 14 0 16 3"
+    },
+    {
+        "ms":  4909,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 2 16 3 48"
+    },
+    {
+        "ms":  4909,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 0 60 0 0"
+    },
+    {
+        "ms":  4910,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 1 255 255 0"
+    },
+    {
+        "ms":  4910,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 2 60 2 0"
+    },
+    {
+        "ms":  4911,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 3 255 255 0"
+    },
+    {
+        "ms":  4912,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 4 255 255 0"
+    },
+    {
+        "ms":  4912,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 5 255 255 0"
+    },
+    {
+        "ms":  4913,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 6 255 255 0"
+    },
+    {
+        "ms":  4913,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 7 62 1 0"
+    },
+    {
+        "ms":  4914,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 8 255 255 0"
+    },
+    {
+        "ms":  4914,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 9 255 255 0"
+    },
+    {
+        "ms":  4915,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 10 255 255 0"
+    },
+    {
+        "ms":  4915,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 11 255 255 0"
+    },
+    {
+        "ms":  4916,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 12 60 255 0"
+    },
+    {
+        "ms":  4916,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 13 255 255 0"
+    },
+    {
+        "ms":  4917,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 14 255 255 0"
+    },
+    {
+        "ms":  4918,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 15 60 255 0"
+    },
+    {
+        "ms":  4918,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 16 255 255 0"
+    },
+    {
+        "ms":  4919,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 17 255 255 0"
+    },
+    {
+        "ms":  4919,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 18 255 255 0"
+    },
+    {
+        "ms":  4920,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 19 254 255 0"
+    },
+    {
+        "ms":  4920,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 20 255 255 0"
+    },
+    {
+        "ms":  4921,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 21 255 255 0"
+    },
+    {
+        "ms":  4921,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 22 255 255 0"
+    },
+    {
+        "ms":  4922,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 23 255 255 0"
+    },
+    {
+        "ms":  4922,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 24 60 0 0"
+    },
+    {
+        "ms":  4923,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 25 62 1 0"
+    },
+    {
+        "ms":  4924,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 26 255 255 0"
+    },
+    {
+        "ms":  4924,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 27 255 255 0"
+    },
+    {
+        "ms":  4925,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 28 255 255 0"
+    },
+    {
+        "ms":  4925,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 29 255 255 0"
+    },
+    {
+        "ms":  4926,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 30 254 255 0"
+    },
+    {
+        "ms":  4926,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 31 255 255 0"
+    },
+    {
+        "ms":  4927,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 32 255 255 0"
+    },
+    {
+        "ms":  4928,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 33 255 255 0"
+    },
+    {
+        "ms":  4928,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 34 255 255 0"
+    },
+    {
+        "ms":  4929,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 35 255 255 0"
+    },
+    {
+        "ms":  4929,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 36 255 255 0"
+    },
+    {
+        "ms":  4930,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 37 62 255 0"
+    },
+    {
+        "ms":  4930,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 38 255 255 0"
+    },
+    {
+        "ms":  4931,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 39 255 255 0"
+    },
+    {
+        "ms":  4931,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 40 62 255 0"
+    },
+    {
+        "ms":  4932,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 41 255 255 0"
+    },
+    {
+        "ms":  4933,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 42 254 255 0"
+    },
+    {
+        "ms":  4933,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 43 254 255 0"
+    },
+    {
+        "ms":  4934,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 44 255 255 0"
+    },
+    {
+        "ms":  4934,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 45 255 255 0"
+    },
+    {
+        "ms":  4935,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 46 255 255 0"
+    },
+    {
+        "ms":  4935,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 2 47 255 255 0"
+    },
+    {
+        "ms":  4936,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 2 48 2638594644"
+    },
+    {
+        "ms":  4937,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1406 14 0 16 3"
+    },
+    {
+        "ms":  4937,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 2"
+    },
+    {
+        "ms":  4937,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1446 15 0 16 3"
+    },
+    {
+        "ms":  4937,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 2"
+    },
+    {
+        "ms":  4938,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 2"
+    },
+    {
+        "ms":  4938,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1461 15 0 16 3"
+    },
+    {
+        "ms":  4986,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1489 15 0 16 3"
+    },
+    {
+        "ms":  5024,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1529 15 0 16 3"
+    },
+    {
+        "ms":  5024,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 125043 125042 2541 103879 0 1741496"
+    },
+    {
+        "ms":  5041,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 2"
+    },
+    {
+        "ms":  5041,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1536 0 1 16 3"
+    },
+    {
+        "ms":  5073,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1570 0 1 16 3"
+    },
+    {
+        "ms":  5138,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1610 0 1 16 3"
+    },
+    {
+        "ms":  5186,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1650 1 1 16 3"
+    },
+    {
+        "ms":  5235,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1693 1 1 16 3"
+    },
+    {
+        "ms":  5332,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1733 2 1 16 3"
+    },
+    {
+        "ms":  5332,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1773 2 1 16 3"
+    },
+    {
+        "ms":  5380,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1814 2 1 16 3"
+    },
+    {
+        "ms":  5428,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1856 3 1 16 3"
+    },
+    {
+        "ms":  5481,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1896 3 1 16 3"
+    },
+    {
+        "ms":  5529,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1937 4 1 16 3"
+    },
+    {
+        "ms":  5566,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 3"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 2 0"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1972 4 1 16 3"
+    },
+    {
+        "ms":  5592,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 1977 4 1 16 3"
+    },
+    {
+        "ms":  5689,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2017 5 1 16 3"
+    },
+    {
+        "ms":  5689,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2060 5 1 16 3"
+    },
+    {
+        "ms":  5737,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2100 5 1 16 3"
+    },
+    {
+        "ms":  5796,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 3 16 3 48"
+    },
+    {
+        "ms":  5798,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 0 61 0 0"
+    },
+    {
+        "ms":  5799,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 1 255 255 0"
+    },
+    {
+        "ms":  5801,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 2 60 2 0"
+    },
+    {
+        "ms":  5802,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 3 255 255 0"
+    },
+    {
+        "ms":  5804,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 4 255 255 0"
+    },
+    {
+        "ms":  5805,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 5 255 255 0"
+    },
+    {
+        "ms":  5806,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 6 255 255 0"
+    },
+    {
+        "ms":  5808,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 7 62 1 0"
+    },
+    {
+        "ms":  5809,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 8 255 255 0"
+    },
+    {
+        "ms":  5810,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 9 255 255 0"
+    },
+    {
+        "ms":  5811,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 10 255 255 0"
+    },
+    {
+        "ms":  5813,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 11 255 255 0"
+    },
+    {
+        "ms":  5814,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 12 60 255 0"
+    },
+    {
+        "ms":  5815,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 13 255 255 0"
+    },
+    {
+        "ms":  5816,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 14 255 255 0"
+    },
+    {
+        "ms":  5817,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 15 60 255 0"
+    },
+    {
+        "ms":  5818,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 16 255 255 0"
+    },
+    {
+        "ms":  5819,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 17 255 255 0"
+    },
+    {
+        "ms":  5820,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 18 255 255 0"
+    },
+    {
+        "ms":  5821,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 19 254 255 0"
+    },
+    {
+        "ms":  5821,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 20 255 255 0"
+    },
+    {
+        "ms":  5822,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 21 255 255 0"
+    },
+    {
+        "ms":  5823,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 22 255 255 0"
+    },
+    {
+        "ms":  5824,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 23 255 255 0"
+    },
+    {
+        "ms":  5825,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 24 60 0 0"
+    },
+    {
+        "ms":  5826,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 25 62 1 0"
+    },
+    {
+        "ms":  5827,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 26 255 255 0"
+    },
+    {
+        "ms":  5828,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 27 255 255 0"
+    },
+    {
+        "ms":  5829,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 28 255 255 0"
+    },
+    {
+        "ms":  5829,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 29 255 255 0"
+    },
+    {
+        "ms":  5830,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 30 254 255 0"
+    },
+    {
+        "ms":  5831,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 31 255 255 0"
+    },
+    {
+        "ms":  5832,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 32 255 255 0"
+    },
+    {
+        "ms":  5833,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 33 255 255 0"
+    },
+    {
+        "ms":  5834,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 34 255 255 0"
+    },
+    {
+        "ms":  5835,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 35 255 255 0"
+    },
+    {
+        "ms":  5836,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 36 255 255 0"
+    },
+    {
+        "ms":  5837,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 37 62 255 0"
+    },
+    {
+        "ms":  5837,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 38 255 255 0"
+    },
+    {
+        "ms":  5838,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 39 255 255 0"
+    },
+    {
+        "ms":  5839,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 40 62 255 0"
+    },
+    {
+        "ms":  5840,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 41 255 255 0"
+    },
+    {
+        "ms":  5841,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 42 254 255 0"
+    },
+    {
+        "ms":  5842,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 43 254 255 0"
+    },
+    {
+        "ms":  5843,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 44 255 255 0"
+    },
+    {
+        "ms":  5843,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 45 255 255 0"
+    },
+    {
+        "ms":  5844,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 46 255 255 0"
+    },
+    {
+        "ms":  5845,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 3 47 255 255 0"
+    },
+    {
+        "ms":  5846,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 3 48 3518847229"
+    },
+    {
+        "ms":  5847,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2140 6 1 16 3"
+    },
+    {
+        "ms":  5847,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 3"
+    },
+    {
+        "ms":  5847,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2181 6 1 16 3"
+    },
+    {
+        "ms":  5847,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 3"
+    },
+    {
+        "ms":  5865,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 3"
+    },
+    {
+        "ms":  5865,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2204 6 1 16 3"
+    },
+    {
+        "ms":  5865,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 3"
+    },
+    {
+        "ms":  5865,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2209 7 1 16 3"
+    },
+    {
+        "ms":  5882,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2223 7 1 16 3"
+    },
+    {
+        "ms":  5930,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2264 7 1 16 3"
+    },
+    {
+        "ms":  5978,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2304 8 1 16 3"
+    },
+    {
+        "ms":  6023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2344 8 1 16 3"
+    },
+    {
+        "ms":  6024,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 125387 125386 2541 103879 0 1741496"
+    },
+    {
+        "ms":  6074,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2385 8 1 16 3"
+    },
+    {
+        "ms":  6138,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2427 9 1 16 3"
+    },
+    {
+        "ms":  6186,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2467 9 1 16 3"
+    },
+    {
+        "ms":  6233,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2508 10 1 16 3"
+    },
+    {
+        "ms":  6281,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2548 10 1 16 3"
+    },
+    {
+        "ms":  6330,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2591 10 1 16 3"
+    },
+    {
+        "ms":  6378,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2631 11 1 16 3"
+    },
+    {
+        "ms":  6426,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2671 11 1 16 3"
+    },
+    {
+        "ms":  6472,
+        "direction":  "TX",
+        "line":  "BTTEST1 PAUSE"
+    },
+    {
+        "ms":  6474,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6474,
+        "direction":  "RX",
+        "line":  "BTTEST1 PAUSED"
+    },
+    {
+        "ms":  6474,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6523,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6587,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6685,
+        "direction":  "TX",
+        "line":  "BTTEST1 CONTINUE"
+    },
+    {
+        "ms":  6700,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6701,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 2711 12 1 16 3"
+    },
+    {
+        "ms":  6701,
+        "direction":  "RX",
+        "line":  "BTTEST1 CONTINUED"
+    },
+    {
+        "ms":  6701,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2690 12 1 16 3"
+    },
+    {
+        "ms":  6781,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2716 12 1 16 3"
+    },
+    {
+        "ms":  6781,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2759 12 1 16 3"
+    },
+    {
+        "ms":  6829,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2799 13 1 16 3"
+    },
+    {
+        "ms":  6876,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2839 13 1 16 3"
+    },
+    {
+        "ms":  6892,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 4"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 3 0"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  6893,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2856 13 1 16 3"
+    },
+    {
+        "ms":  6924,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2879 13 1 16 3"
+    },
+    {
+        "ms":  6988,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2922 14 1 16 3"
+    },
+    {
+        "ms":  7023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 2962 14 1 16 3"
+    },
+    {
+        "ms":  7023,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 125732 125731 2541 103879 0 1741496"
+    },
+    {
+        "ms":  7075,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3003 15 1 16 3"
+    },
+    {
+        "ms":  7130,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 4 16 3 48"
+    },
+    {
+        "ms":  7131,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 0 60 0 0"
+    },
+    {
+        "ms":  7132,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 1 255 255 0"
+    },
+    {
+        "ms":  7134,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 2 60 2 0"
+    },
+    {
+        "ms":  7135,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 3 255 255 0"
+    },
+    {
+        "ms":  7136,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 4 255 255 0"
+    },
+    {
+        "ms":  7137,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 5 255 255 0"
+    },
+    {
+        "ms":  7138,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 6 255 255 0"
+    },
+    {
+        "ms":  7139,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 7 62 1 0"
+    },
+    {
+        "ms":  7140,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 8 255 255 0"
+    },
+    {
+        "ms":  7141,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 9 255 255 0"
+    },
+    {
+        "ms":  7141,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 10 255 255 0"
+    },
+    {
+        "ms":  7142,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 11 255 255 0"
+    },
+    {
+        "ms":  7143,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 12 60 255 0"
+    },
+    {
+        "ms":  7144,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 13 255 255 0"
+    },
+    {
+        "ms":  7144,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 14 255 255 0"
+    },
+    {
+        "ms":  7145,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 15 60 255 0"
+    },
+    {
+        "ms":  7146,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 16 255 255 0"
+    },
+    {
+        "ms":  7146,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 17 255 255 0"
+    },
+    {
+        "ms":  7147,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 18 255 255 0"
+    },
+    {
+        "ms":  7148,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 19 254 255 0"
+    },
+    {
+        "ms":  7148,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 20 255 255 0"
+    },
+    {
+        "ms":  7149,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 21 255 255 0"
+    },
+    {
+        "ms":  7150,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 22 255 255 0"
+    },
+    {
+        "ms":  7151,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 23 255 255 0"
+    },
+    {
+        "ms":  7151,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 24 60 0 0"
+    },
+    {
+        "ms":  7152,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 25 62 1 0"
+    },
+    {
+        "ms":  7153,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 26 255 255 0"
+    },
+    {
+        "ms":  7153,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 27 255 255 0"
+    },
+    {
+        "ms":  7154,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 28 255 255 0"
+    },
+    {
+        "ms":  7154,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 29 255 255 0"
+    },
+    {
+        "ms":  7155,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 30 254 255 0"
+    },
+    {
+        "ms":  7155,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 31 255 255 0"
+    },
+    {
+        "ms":  7155,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 32 255 255 0"
+    },
+    {
+        "ms":  7156,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 33 255 255 0"
+    },
+    {
+        "ms":  7156,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 34 255 255 0"
+    },
+    {
+        "ms":  7157,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 35 255 255 0"
+    },
+    {
+        "ms":  7157,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 36 255 255 0"
+    },
+    {
+        "ms":  7157,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 37 62 255 0"
+    },
+    {
+        "ms":  7158,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 38 255 255 0"
+    },
+    {
+        "ms":  7158,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 39 255 255 0"
+    },
+    {
+        "ms":  7158,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 40 62 255 0"
+    },
+    {
+        "ms":  7159,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 41 255 255 0"
+    },
+    {
+        "ms":  7159,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 42 254 255 0"
+    },
+    {
+        "ms":  7159,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 43 254 255 0"
+    },
+    {
+        "ms":  7160,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 44 255 255 0"
+    },
+    {
+        "ms":  7160,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 45 255 255 0"
+    },
+    {
+        "ms":  7160,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 46 255 255 0"
+    },
+    {
+        "ms":  7161,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 4 47 255 255 0"
+    },
+    {
+        "ms":  7161,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 4 48 2638594644"
+    },
+    {
+        "ms":  7162,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3043 15 1 16 3"
+    },
+    {
+        "ms":  7162,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 4"
+    },
+    {
+        "ms":  7162,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 4"
+    },
+    {
+        "ms":  7169,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 4"
+    },
+    {
+        "ms":  7169,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3078 0 2 16 3"
+    },
+    {
+        "ms":  7185,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3083 0 2 16 3"
+    },
+    {
+        "ms":  7331,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3126 0 2 16 3"
+    },
+    {
+        "ms":  7331,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3166 0 2 16 3"
+    },
+    {
+        "ms":  7331,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 4"
+    },
+    {
+        "ms":  7331,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3168 1 2 16 3"
+    },
+    {
+        "ms":  7331,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3206 1 2 16 3"
+    },
+    {
+        "ms":  7379,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3247 1 2 16 3"
+    },
+    {
+        "ms":  7427,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3289 2 2 16 3"
+    },
+    {
+        "ms":  7480,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3329 2 2 16 3"
+    },
+    {
+        "ms":  7625,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3370 3 2 16 3"
+    },
+    {
+        "ms":  7625,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3410 3 2 16 3"
+    },
+    {
+        "ms":  7625,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3453 3 2 16 3"
+    },
+    {
+        "ms":  7673,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3493 4 2 16 3"
+    },
+    {
+        "ms":  7737,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3533 4 2 16 3"
+    },
+    {
+        "ms":  7802,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3573 5 2 16 3"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 5"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 4 0"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  7803,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3597 5 2 16 3"
+    },
+    {
+        "ms":  7881,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3614 5 2 16 3"
+    },
+    {
+        "ms":  7881,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3656 6 2 16 3"
+    },
+    {
+        "ms":  7929,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3697 6 2 16 3"
+    },
+    {
+        "ms":  7977,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3737 6 2 16 3"
+    },
+    {
+        "ms":  8044,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 5 16 3 48"
+    },
+    {
+        "ms":  8046,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 0 61 0 0"
+    },
+    {
+        "ms":  8047,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 1 255 255 0"
+    },
+    {
+        "ms":  8049,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 2 60 2 0"
+    },
+    {
+        "ms":  8050,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 3 255 255 0"
+    },
+    {
+        "ms":  8051,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 4 255 255 0"
+    },
+    {
+        "ms":  8053,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 5 255 255 0"
+    },
+    {
+        "ms":  8054,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 6 255 255 0"
+    },
+    {
+        "ms":  8056,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 7 62 1 0"
+    },
+    {
+        "ms":  8057,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 8 255 255 0"
+    },
+    {
+        "ms":  8058,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 9 255 255 0"
+    },
+    {
+        "ms":  8060,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 10 255 255 0"
+    },
+    {
+        "ms":  8061,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 11 255 255 0"
+    },
+    {
+        "ms":  8062,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 12 60 255 0"
+    },
+    {
+        "ms":  8064,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 13 255 255 0"
+    },
+    {
+        "ms":  8065,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 14 255 255 0"
+    },
+    {
+        "ms":  8066,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 15 60 255 0"
+    },
+    {
+        "ms":  8067,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 16 255 255 0"
+    },
+    {
+        "ms":  8069,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 17 255 255 0"
+    },
+    {
+        "ms":  8070,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 18 255 255 0"
+    },
+    {
+        "ms":  8071,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 19 254 255 0"
+    },
+    {
+        "ms":  8073,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 20 255 255 0"
+    },
+    {
+        "ms":  8075,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 21 255 255 0"
+    },
+    {
+        "ms":  8076,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 22 255 255 0"
+    },
+    {
+        "ms":  8077,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 23 255 255 0"
+    },
+    {
+        "ms":  8079,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 24 60 0 0"
+    },
+    {
+        "ms":  8080,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 25 62 1 0"
+    },
+    {
+        "ms":  8081,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 26 255 255 0"
+    },
+    {
+        "ms":  8082,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 27 255 255 0"
+    },
+    {
+        "ms":  8084,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 28 255 255 0"
+    },
+    {
+        "ms":  8085,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 29 255 255 0"
+    },
+    {
+        "ms":  8086,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 30 254 255 0"
+    },
+    {
+        "ms":  8087,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 31 255 255 0"
+    },
+    {
+        "ms":  8087,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 32 255 255 0"
+    },
+    {
+        "ms":  8088,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 33 255 255 0"
+    },
+    {
+        "ms":  8088,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 34 255 255 0"
+    },
+    {
+        "ms":  8089,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 35 255 255 0"
+    },
+    {
+        "ms":  8090,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 36 255 255 0"
+    },
+    {
+        "ms":  8090,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 37 62 255 0"
+    },
+    {
+        "ms":  8091,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 38 255 255 0"
+    },
+    {
+        "ms":  8091,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 39 255 255 0"
+    },
+    {
+        "ms":  8092,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 40 62 255 0"
+    },
+    {
+        "ms":  8093,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 41 255 255 0"
+    },
+    {
+        "ms":  8093,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 42 254 255 0"
+    },
+    {
+        "ms":  8094,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 43 254 255 0"
+    },
+    {
+        "ms":  8094,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 44 255 255 0"
+    },
+    {
+        "ms":  8095,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 45 255 255 0"
+    },
+    {
+        "ms":  8095,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 46 255 255 0"
+    },
+    {
+        "ms":  8096,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 5 47 255 255 0"
+    },
+    {
+        "ms":  8097,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 5 48 3518847229"
+    },
+    {
+        "ms":  8097,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3777 7 2 16 3"
+    },
+    {
+        "ms":  8097,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 126076 126075 2541 103879 0 1741496"
+    },
+    {
+        "ms":  8098,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 5"
+    },
+    {
+        "ms":  8098,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3820 7 2 16 3"
+    },
+    {
+        "ms":  8098,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 5"
+    },
+    {
+        "ms":  8103,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 5"
+    },
+    {
+        "ms":  8103,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 5"
+    },
+    {
+        "ms":  8103,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3841 8 2 16 3"
+    },
+    {
+        "ms":  8134,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3860 8 2 16 3"
+    },
+    {
+        "ms":  8182,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3900 8 2 16 3"
+    },
+    {
+        "ms":  8231,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3941 9 2 16 3"
+    },
+    {
+        "ms":  8280,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 3981 9 2 16 3"
+    },
+    {
+        "ms":  8328,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4024 9 2 16 3"
+    },
+    {
+        "ms":  8376,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4064 10 2 16 3"
+    },
+    {
+        "ms":  8424,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4104 10 2 16 3"
+    },
+    {
+        "ms":  8488,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4144 11 2 16 3"
+    },
+    {
+        "ms":  8536,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4187 11 2 16 3"
+    },
+    {
+        "ms":  8584,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4227 12 2 16 3"
+    },
+    {
+        "ms":  8682,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4268 12 2 16 3"
+    },
+    {
+        "ms":  8682,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4308 12 2 16 3"
+    },
+    {
+        "ms":  8731,
+        "direction":  "TX",
+        "line":  "BTTEST1 PAUSE"
+    },
+    {
+        "ms":  8732,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4348 13 2 16 3"
+    },
+    {
+        "ms":  8777,
+        "direction":  "RX",
+        "line":  "BTTEST1 PAUSED"
+    },
+    {
+        "ms":  8777,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 4358 13 2 16 3"
+    },
+    {
+        "ms":  8777,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 4358 13 2 16 3"
+    },
+    {
+        "ms":  8874,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 4358 13 2 16 3"
+    },
+    {
+        "ms":  8874,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 4358 13 2 16 3"
+    },
+    {
+        "ms":  8923,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 2 1 4358 13 2 16 3"
+    },
+    {
+        "ms":  8939,
+        "direction":  "TX",
+        "line":  "BTTEST1 CONTINUE"
+    },
+    {
+        "ms":  8941,
+        "direction":  "RX",
+        "line":  "BTTEST1 CONTINUED"
+    },
+    {
+        "ms":  8942,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4322 13 2 16 3"
+    },
+    {
+        "ms":  8988,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4348 13 2 16 3"
+    },
+    {
+        "ms":  9074,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4388 13 2 16 3"
+    },
+    {
+        "ms":  9075,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 126421 126420 2541 133329 0 1741496"
+    },
+    {
+        "ms":  9075,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4428 14 2 16 3"
+    },
+    {
+        "ms":  9138,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4469 14 2 16 3"
+    },
+    {
+        "ms":  9154,
+        "direction":  "TX",
+        "line":  "BTTEST1 STATUS"
+    },
+    {
+        "ms":  9156,
+        "direction":  "RX",
+        "line":  "BTTEST1 STATE PLAYING"
+    },
+    {
+        "ms":  9157,
+        "direction":  "RX",
+        "line":  "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"
+    },
+    {
+        "ms":  9157,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 NEXT 1 6"
+    },
+    {
+        "ms":  9157,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 STATE 1 0 5 0"
+    },
+    {
+        "ms":  9157,
+        "direction":  "RX",
+        "line":  "BTPUBLISH1 NEXT 1 1"
+    },
+    {
+        "ms":  9157,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4497 14 2 16 3"
+    },
+    {
+        "ms":  9186,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4511 14 2 16 3"
+    },
+    {
+        "ms":  9235,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4552 15 2 16 3"
+    },
+    {
+        "ms":  9283,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4592 15 2 16 3"
+    },
+    {
+        "ms":  9332,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4632 0 3 16 3"
+    },
+    {
+        "ms":  9383,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 BEGIN 1 6 16 3 48"
+    },
+    {
+        "ms":  9384,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 0 60 0 0"
+    },
+    {
+        "ms":  9385,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 1 255 255 0"
+    },
+    {
+        "ms":  9385,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 2 60 2 0"
+    },
+    {
+        "ms":  9386,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 3 255 255 0"
+    },
+    {
+        "ms":  9390,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 4 255 255 0"
+    },
+    {
+        "ms":  9391,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 5 255 255 0"
+    },
+    {
+        "ms":  9391,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 6 255 255 0"
+    },
+    {
+        "ms":  9392,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 7 62 1 0"
+    },
+    {
+        "ms":  9393,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 8 255 255 0"
+    },
+    {
+        "ms":  9393,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 9 255 255 0"
+    },
+    {
+        "ms":  9394,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 10 255 255 0"
+    },
+    {
+        "ms":  9394,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 11 255 255 0"
+    },
+    {
+        "ms":  9395,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 12 60 255 0"
+    },
+    {
+        "ms":  9396,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 13 255 255 0"
+    },
+    {
+        "ms":  9396,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 14 255 255 0"
+    },
+    {
+        "ms":  9397,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 15 60 255 0"
+    },
+    {
+        "ms":  9397,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 16 255 255 0"
+    },
+    {
+        "ms":  9398,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 17 255 255 0"
+    },
+    {
+        "ms":  9398,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 18 255 255 0"
+    },
+    {
+        "ms":  9399,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 19 254 255 0"
+    },
+    {
+        "ms":  9400,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 20 255 255 0"
+    },
+    {
+        "ms":  9400,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 21 255 255 0"
+    },
+    {
+        "ms":  9401,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 22 255 255 0"
+    },
+    {
+        "ms":  9402,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 23 255 255 0"
+    },
+    {
+        "ms":  9402,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 24 60 0 0"
+    },
+    {
+        "ms":  9403,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 25 62 1 0"
+    },
+    {
+        "ms":  9403,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 26 255 255 0"
+    },
+    {
+        "ms":  9404,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 27 255 255 0"
+    },
+    {
+        "ms":  9404,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 28 255 255 0"
+    },
+    {
+        "ms":  9405,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 29 255 255 0"
+    },
+    {
+        "ms":  9405,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 30 254 255 0"
+    },
+    {
+        "ms":  9406,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 31 255 255 0"
+    },
+    {
+        "ms":  9407,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 32 255 255 0"
+    },
+    {
+        "ms":  9407,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 33 255 255 0"
+    },
+    {
+        "ms":  9408,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 34 255 255 0"
+    },
+    {
+        "ms":  9408,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 35 255 255 0"
+    },
+    {
+        "ms":  9409,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 36 255 255 0"
+    },
+    {
+        "ms":  9410,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 37 62 255 0"
+    },
+    {
+        "ms":  9410,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 38 255 255 0"
+    },
+    {
+        "ms":  9411,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 39 255 255 0"
+    },
+    {
+        "ms":  9411,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 40 62 255 0"
+    },
+    {
+        "ms":  9411,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 41 255 255 0"
+    },
+    {
+        "ms":  9412,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 42 254 255 0"
+    },
+    {
+        "ms":  9412,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 43 254 255 0"
+    },
+    {
+        "ms":  9412,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 44 255 255 0"
+    },
+    {
+        "ms":  9413,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 45 255 255 0"
+    },
+    {
+        "ms":  9413,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 46 255 255 0"
+    },
+    {
+        "ms":  9413,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 CELL 1 6 47 255 255 0"
+    },
+    {
+        "ms":  9414,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 COMMIT 1 6 48 2638594644"
+    },
+    {
+        "ms":  9414,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4672 0 3 16 3"
+    },
+    {
+        "ms":  9427,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 RECEIVING 1 6"
+    },
+    {
+        "ms":  9427,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 SUBMITTED 1 6"
+    },
+    {
+        "ms":  9427,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 ACCEPTED 1 6"
+    },
+    {
+        "ms":  9427,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4710 1 3 16 3"
+    },
+    {
+        "ms":  9479,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4715 1 3 16 3"
+    },
+    {
+        "ms":  9479,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4755 1 3 16 3"
+    },
+    {
+        "ms":  9527,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4796 1 3 16 3"
+    },
+    {
+        "ms":  9527,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 APPLIED 1 6"
+    },
+    {
+        "ms":  9527,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4800 2 3 16 3"
+    },
+    {
+        "ms":  9576,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4836 2 3 16 3"
+    },
+    {
+        "ms":  9624,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4879 2 3 16 3"
+    },
+    {
+        "ms":  9673,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4919 3 3 16 3"
+    },
+    {
+        "ms":  9737,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4959 3 3 16 3"
+    },
+    {
+        "ms":  9786,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 4999 4 3 16 3"
+    },
+    {
+        "ms":  9834,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 5040 4 3 16 3"
+    },
+    {
+        "ms":  9882,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 5082 4 3 16 3"
+    },
+    {
+        "ms":  9979,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 5123 5 3 16 3"
+    },
+    {
+        "ms":  9980,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 5163 5 3 16 3"
+    },
+    {
+        "ms":  10051,
+        "direction":  "TX",
+        "line":  "BTTEST1 STOP"
+    },
+    {
+        "ms":  10053,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 1 1 5203 6 3 16 3"
+    },
+    {
+        "ms":  10053,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 PERF 1 126765 126764 2541 133329 0 1741496"
+    },
+    {
+        "ms":  10056,
+        "direction":  "RX",
+        "line":  "BTTEST1 STOPPED"
+    },
+    {
+        "ms":  10056,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10136,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10137,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10185,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10282,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10314,
+        "direction":  "TX",
+        "line":  "BTPREVIEW1 GET 1 102 0"
+    },
+    {
+        "ms":  10315,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 READ 1 102 0 0 6"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 BEGIN 2 102 16 3 12753 48"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 0 60 0 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 1 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 2 60 2 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 3 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 4 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 5 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 6 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 7 62 1 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 8 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 9 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 10 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 11 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 12 60 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 13 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 14 255 255 0"
+    },
+    {
+        "ms":  10316,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 15 60 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 16 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 17 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 18 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 19 254 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 20 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 21 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 22 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 23 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 24 60 0 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 25 62 1 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 26 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 27 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 28 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 29 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 30 254 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 31 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 32 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 33 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 34 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 35 255 255 0"
+    },
+    {
+        "ms":  10317,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 36 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 37 62 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 38 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 39 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 40 62 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 41 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 42 254 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 43 254 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 44 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 45 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 46 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 CELL 2 102 47 255 255 0"
+    },
+    {
+        "ms":  10318,
+        "direction":  "RX",
+        "line":  "BTPREVIEW1 END 2 102 48 935035518"
+    },
+    {
+        "ms":  10427,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10427,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10427,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10475,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10588,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10588,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10637,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10684,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10732,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10828,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10829,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    },
+    {
+        "ms":  10877,
+        "direction":  "RX",
+        "line":  "BTPATTERN1 POS 2 0 0 0 0 0 16 3"
+    }
+]
