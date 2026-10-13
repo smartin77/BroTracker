@@ -870,3 +870,27 @@ stored pattern length, playback flow and visible row count are separate. Current
 * [ ] Decide live length changes, resizing/data retention and undo semantics.
 * [ ] Design paging/scrolling for 64-row patterns on the current 32-row display;
   preserve independent edit and playback positions and existing navigation decisions.
+
+### Handheld Input Design
+
+* [ ] Design handheld input normalization and action bindings, with ArkOS as the
+  primary handheld target and separate dArkOS compatibility validation. Vertical
+  versus horizontal layout is an ergonomic distinction, not a reliable identifier
+  for raw-button mappings. Separate hardware/SDL normalization from BroTracker
+  action bindings; consult the official
+  [SDL controller mapping documentation](https://wiki.libsdl.org/SDL2/SDL_GameControllerAddMapping)
+  for device GUIDs and button, hat and axis mappings.
+  Evaluate verified device profiles and optional calibration; require setup only
+  when a usable mapping cannot be established. Account for FN presence/absence,
+  face-button labels versus physical positions, shoulder arrangement, hats and
+  axis-based triggers. Check which controls/modifier combinations actually reach
+  BTX and which OS/emulator hotkeys intercept. Do not assume RetroArch or
+  EmulationStation bindings apply to standalone BTX; supplied community hotkey
+  examples remain unverified, device-specific examples rather than universal defaults.
+  Evaluate guided confirmation of navigation, confirm/back and modifier controls
+  before saving. Validate candidate mappings transactionally and provide cancellation
+  and recovery without relying solely on newly remapped controls. Removing application
+  config or using safe-config restores application defaults but cannot necessarily
+  repair system SDL mapping. First-run behavior, profile identification, reset
+  workflow and final ArkOS/keyboard bindings remain undecided. Coordinate with the
+  pending `config.ini` foundation without changing its scope or reserving controls.
