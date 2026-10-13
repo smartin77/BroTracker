@@ -16,3 +16,4 @@ __pycache__/
 *.map
 *.lst
 build_output.txt
+/diagnostics/

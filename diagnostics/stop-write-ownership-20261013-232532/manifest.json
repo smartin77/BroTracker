@@ -1,8 +1,0 @@
-{
-  "revision": "ceb91db06a90d9663a88c32b1ef5e95ef214113b",
-  "status": " D brotracker-terminal(2).log\n M deploy/windows/BroTrackerTerminal.exe\n?? diagnostics/stop-write-ownership-20261013-232532/\n",
-  "packaged_executable": "deploy/windows/BroTrackerTerminal.exe",
-  "packaged_sha256": "69bbb3e48d6e4763a320066327adb33c559b8aa085425b619038b252ad2cecaa",
-  "hardware_retest": "pending; no serial port access or firmware upload",
-  "validation": "7/7 configured CTest targets passed; async regression failed before fix and passed after"
-}

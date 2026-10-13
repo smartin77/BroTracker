@@ -1,7 +1,0 @@
-﻿{
-    "initial_state":  "BTTEST1 STATE IDLE",
-    "final_state":  "STOP requested; see STOPPED evidence",
-    "firmware_environment":  "existing flashed firmware, not rebuilt or uploaded",
-    "sample_audio_measured":  false,
-    "restored_original_working":  true
-}

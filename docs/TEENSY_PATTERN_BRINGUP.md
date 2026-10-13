@@ -1916,8 +1916,9 @@ restoration is expected: published and working patterns currently live only in R
 Powered-device BTX relaunch retention remains intentional, without automatic START
 or publication.
 
-Evidence is archived in `diagnostics/preview-validation-20261013-221030/` outside
-build exports: both supplied logs, the previous current log, pre-test executable,
+Evidence is archived locally in `diagnostics/preview-validation-20261013-221030/`
+outside build exports. This ignored local path is not a repository deliverable.
+The archive contains both supplied logs, the previous current log, pre-test executable,
 source revision/status, scripts, exact tested executable SHA256, readbacks and
 measurement captures. The expected environment is `teensy41_pattern_variable_rate`;
 the existing firmware was not rebuilt/uploaded and its binary identity cannot be
@@ -2016,7 +2017,8 @@ retained as historical observations, not proof this failure never existed.
 
 Original logs/config were copied unchanged to
 `diagnostics/stop-write-ownership-20261013-232532/` before testing. The manifest
-records revision/status. Source originals remain untouched.
+records revision/status. Source originals remain untouched. This ignored archive
+is a local evidence path, not a repository deliverable.
 
 A deterministic asynchronous worker fixture reproduces the cause: Write copies
 and owns a preview CELL but returns zero pending completion. The scheduler used
