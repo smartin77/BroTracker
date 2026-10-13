@@ -151,6 +151,7 @@ add_executable(BroTrackerTests
     tests/test_pcm16_mixer.cpp
     tests/test_pcm16_gain_mixer.cpp
     tests/test_native_rate_sample_commands.cpp
+    tests/test_variable_rate_sample_commands.cpp
     tests/test_native_rate_pattern_player.cpp
     tests/test_pattern_bringup_control.cpp
     tests/test_pattern_gains.cpp

@@ -1720,3 +1720,30 @@ Existing native-rate playback and fixture levels are unchanged.
 User confirmation on 2026-10-12: the C-3 empty-note fallback works on Windows BTX.
 Preceding-note lookup and OFF initialization remain unchanged; ArkOS validation
 is still pending.
+
+### Variable-rate sample command preparation (host-tested; not integrated)
+
+`VariableRateSampleCommandPreparer` copies metadata for up to 16 unique instrument
+bindings (initial implementation capacity), each with raw ID 0..254, explicit
+reference note 24..127 and immutable non-owning PCM view. Source/output rates must
+match. Pitched events resolve through `NoteToPlaybackStep(target, reference)` into
+explicit Q32.32 Trigger commands; reference pitch is never inferred from duration
+or BPM. No source-rate conversion, finetune, tempo matching, envelopes or defaults.
+
+The adapter reuses logical channel continuation: instrument-only events select
+without triggering, empty fields continue state, repeated notes retrigger and
+Arrival OFF emits Stop without lookup. EndOfPosition OFF updates logical state
+but emits no immediate command; deferred Stop scheduling remains player-owned.
+Offsets and equal-offset input order are preserved; decreasing offsets reject.
+Configure/Prepare validate transactionally, preserving all state and the complete
+output on failure. Reset retains bindings and configuration. Caller keeps PCM
+valid/immutable while configured and while any renderer retains views, coordinating
+renderer release separately from adapter reset/reconfiguration.
+
+Fixed storage and bounded table lookup, allocation-free/noexcept, without rendering,
+I/O or clock ownership. Host tests cover validation, note/reference extrema,
+unity/octaves, continuation, retriggering, Stop, ordering and rollback; composition
+with the variable-rate renderer and unity mixer verifies independently expected
+fractional PCM and partition independence. Native-rate playback remains unchanged.
+Variable-rate pattern-player, firmware/protocol/UI integration and hardware timing/
+performance validation remain pending.

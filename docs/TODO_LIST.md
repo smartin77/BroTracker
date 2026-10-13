@@ -196,6 +196,18 @@ design remains unchanged.
   partition independence, simultaneous commands, retrigger/replacement, Stop,
   boundaries, capacity and transactional rejection including fractional phase.
   No note/instrument/player/firmware/UI integration or hardware cost measurement.
+* [x] Add separate `VariableRateSampleCommandPreparer` in
+  `src/core/playback/variable_rate_sample_commands.h`: up to 16 unique raw-ID
+  bindings with explicit reference notes and immutable non-owning PCM views.
+  Matching rates only; NoteToPlaybackStep resolves pitched events to positive
+  Q32.32 Trigger steps. Channel continuation, selection-only updates, repeated
+  retriggers and Arrival OFF Stop preserve ordered channel/offset metadata.
+  EndOfPosition OFF updates logical state without scheduling a Stop; ownership
+  remains with the future player. Configure/Prepare are transactional; Reset
+  retains bindings. Bounded allocation-free/noexcept work. Tests cover validation,
+  reference/note bounds, exact unity/octaves, ordering, rollback and independently
+  expected fractional mixed PCM across block partitions. No native-rate changes;
+  variable-rate player/firmware/UI integration and hardware validation remain open.
 * [ ] Integrate note mapping, tuning metadata and variable-rate rendering/bindings/
   player, firmware/protocol/UI. Existing unsupported-pitch behavior is unchanged.
   Fractional-semitone correction remains a separate future layer. D0055 defines
