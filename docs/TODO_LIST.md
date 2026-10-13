@@ -802,7 +802,7 @@ design remains unchanged.
   Windows worker line capacity, stopping on backpressure and retaining transport
   priority. Regression tests cover a 32-cell transfer, newer edits during delayed
   readback, and device identity rollback versus powered-device reconnect.
-* [ ] Revalidate reported valid-edit delays of 3?4 loops and stale draft display
+* [ ] Revalidate reported valid-edit delays of 3–4 loops and stale draft display
   after USB/device reset on Windows + Teensy. Host regressions reproduce service
   cadence and reset-retention defects; no hardware fix confirmation yet.
   On 2026-10-13 the user confirmed beeper/PCM transposition, audible distinction

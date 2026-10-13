@@ -1875,7 +1875,7 @@ with no START or publication writes. Unpublished working playback retention is
 intentional; it is neither publication nor SD persistence. Archive validated logs
 separately before another launch overwrites the normal terminal log.
 
-The earlier review summary reports valid edits becoming audible after 3?4 loops
+The earlier review summary reports valid edits becoming audible after 3–4 loops
 and a D-3 display/C-3 boot-fixture mismatch after USB reset. Missing-instrument
 rejections are separate validation failures, not evidence explaining every delay.
 Neither log establishes precise local-edit-to-application latency.
