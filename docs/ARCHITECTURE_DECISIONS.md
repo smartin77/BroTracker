@@ -1707,7 +1707,7 @@ playback implementation or changes to the native-rate baseline.
 ## D0056 — Pattern Length and Playback Flow
 
 Each pattern has its own stored length: 16, 32 or 64 rows. The tune provides a
-default length for newly created patterns; changing that default does not resize
+default length of 32 rows for newly created patterns; changing that default does not resize
 existing patterns. Stored length is distinct from playback flow and from the
 number of rows visible in the UI. Row numbering remains a presentation choice
 per [D0016](#d0016---pattern-row-numbering), with zero-based internal indices.
@@ -1749,3 +1749,35 @@ decision does not adopt an external format's FX encoding or combination rules.
 The current 16-row realtime capacity and single-pattern looping remain unchanged.
 This decision records design only; it does not implement variable realtime pattern
 capacity, multiple-pattern sequencing or flow FX.
+
+## D0057 — Host Configuration and Safe Recovery
+
+BTX has optional host-only `config.ini` settings with versioned validation.
+Built-in defaults are always available: schema version 1 and new-pattern length
+32 rows per D0056. Supported lengths are 16, 32 and 64. This exposes a default for
+future creation; it does not resize existing patterns, change the 16-row device
+fixture/realtime capacity or implement project creation.
+
+Windows and ArkOS resolve `config.ini` through
+`SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`, independent of launch working
+directory. Windows normally uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`.
+ArkOS uses `$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, or
+`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
+is unset. The resolved path is logged. No file is created, rewritten or deleted
+automatically; SDL may create the preference directory.
+
+Schema 1 requires one `[btx]` section and exactly one each of `schema_version=1`
+and `new_pattern_length=16`, `32` or `64`. Keys/section names are case-sensitive.
+ASCII spaces/tabs/CR around fields and whole-line `;`/`#` comments are accepted;
+inline comments, unknown settings, duplicate settings/sections, malformed unsigned
+decimals and unsupported versions are rejected. File size is bounded to 4096 bytes;
+validation is transactional. Missing files normally use built-ins; unreadable,
+oversized or invalid files use built-ins with an actionable startup log diagnostic.
+Loading occurs only at host startup, outside realtime processing.
+
+Both hosts accept `--safe-config`, bypassing external configuration and using
+built-ins even when a future mapping is syntactically valid but unusable. This
+restores application defaults, not necessarily system SDL mappings. Configuration
+failure must not block startup, transport or existing input controls. Configurable
+input mappings, profile identification and final handheld/keyboard bindings remain
+future work; this foundation reserves no controls.

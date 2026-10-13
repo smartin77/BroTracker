@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include "input.h"
+#include "ui/host_config.h"
 #include "diagnostics.h"
 #include "audio_bridge.h"
 #include "bringup/diagnostic_channel_gains.h"
@@ -29,7 +30,7 @@ int ReportFailure(FILE* log, const std::string& detail, const std::string& log_p
     return 1;
 }
 }
-int main(int, char*[]) try {
+int main(int argc, char* argv[]) try {
     char* preference_path = SDL_GetPrefPath("BroTracker", "BroTracker Terminal");
     if (!preference_path) return ReportFailure(nullptr, std::string("No writable log location: ") + SDL_GetError(), "");
     const std::filesystem::path log_path = std::filesystem::u8path(preference_path) / "brotracker-terminal.log";
@@ -41,6 +42,11 @@ int main(int, char*[]) try {
     std::setvbuf(log.get(), nullptr, _IONBF, 0);
     WindowsDiagnostic(log.get(), "Terminal", "application entry (Windows GUI subsystem)");
     std::fprintf(log.get(), "BroTracker Terminal starting; log=%s\n", log_path.u8string().c_str());
+    const auto config_path = log_path.parent_path() / "config.ini";
+    const auto host_config = BroTracker::LoadHostConfig(config_path, BroTracker::UseSafeConfig(argc, argv));
+    std::fprintf(log.get(), "Configuration: %s; path=%s; new-pattern length=%u\n",
+        BroTracker::HostConfigDiagnostic(host_config.status), config_path.u8string().c_str(),
+        static_cast<unsigned>(host_config.config.new_pattern_length));
     auto failure = [&](const char* message) {
         return ReportFailure(log.get(), std::string(message) + ": " + SDL_GetError(), log_path.u8string());
     };

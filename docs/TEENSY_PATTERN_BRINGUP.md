@@ -1681,3 +1681,18 @@ next mapping foundation, not binding/player integration. Existing native-rate
 unsupported-pitch behavior, fixtures, firmware/protocol/UI are unchanged.
 Playback integration, tuning metadata and hardware validation/performance remain
 pending; linear interpolation aliasing and pitch/duration limitations still apply.
+
+### Optional host configuration and recovery
+
+Windows and ArkOS load an optional `config.ini` from SDL's per-user preference
+path, never the launch directory. See [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
+for exact paths and grammar. Copy `config/config.ini.example` manually if needed.
+Schema 1 exposes only `new_pattern_length` (16/32/64, default 32) for future
+creation; current device patterns/playback and input controls are unchanged.
+Missing config is normal. Invalid/unreadable/oversized config falls back to built-ins
+with a diagnostic in the startup log; user files are never rewritten/deleted.
+
+Run Windows `.\deploy\windows\BroTrackerTerminal.exe --safe-config` or the ArkOS `BroTrackerTerminal --safe-config` launcher command to
+bypass external configuration. Manual startup/path/recovery checks remain pending
+on both platforms. This recovery affects application settings, not system SDL
+mappings; configurable controls and project creation are not implemented.

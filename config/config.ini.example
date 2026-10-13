@@ -1,0 +1,4 @@
+; Optional host settings. Copy manually to the documented user config path.
+[btx]
+schema_version=1
+new_pattern_length=32

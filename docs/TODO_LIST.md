@@ -893,4 +893,17 @@ stored pattern length, playback flow and visible row count are separate. Current
   config or using safe-config restores application defaults but cannot necessarily
   repair system SDL mapping. First-run behavior, profile identification, reset
   workflow and final ArkOS/keyboard bindings remain undecided. Coordinate with the
-  pending `config.ini` foundation without changing its scope or reserving controls.
+  shared `config.ini` foundation without changing its scope or reserving controls.
+
+### Shared Host Configuration
+
+* [x] Implement optional bounded schema-1 `config.ini` parsing and Windows/ArkOS
+  startup loading with built-ins (new-pattern length 32), transactional validation,
+  predictable SDL per-user paths, diagnostics and `--safe-config` bypass. See
+  [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
+  and `config/config.ini.example`. Host tests cover lengths, malformed/duplicate
+  settings, size limits, rollback, missing/unreadable files and safe recovery.
+* [ ] Validate config paths and safe-config startup manually on Windows and ArkOS.
+* [ ] Integrate the resolved new-pattern default into future project/pattern creation;
+  existing patterns and current 16-row device capacity remain unchanged. Design
+  additional settings and input-mapping/profile recovery separately; no bindings reserved.

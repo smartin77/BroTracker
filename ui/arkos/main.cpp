@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "ui/bringup_serial.h"
+#include "ui/host_config.h"
 #include "ui/bringup_controls.h"
 
 #include "core/constants.h"
@@ -89,7 +90,7 @@ void WriteSdlFailure(
 }
 } // namespace
 
-int main(int, char*[])
+int main(int argc, char* argv[])
 {
     const char* append_log = std::getenv("BROTRACKER_APPEND_LOG");
     FILE* bring_up_log = std::fopen(kBringUpLogPath,
@@ -103,6 +104,17 @@ int main(int, char*[])
         "BroTracker Terminal (BTX): application entry");
 
     LogInfo("BroTracker Terminal (BTX) starting on ArkOS.");
+    char* config_directory = SDL_GetPrefPath("BroTracker", "BroTracker Terminal");
+    const auto config_path = config_directory ?
+        std::filesystem::u8path(config_directory) / "config.ini" : std::filesystem::path{};
+    SDL_free(config_directory);
+    const auto host_config = BroTracker::LoadHostConfig(config_path, BroTracker::UseSafeConfig(argc, argv));
+    if (bring_up_log) std::fprintf(bring_up_log,
+        "Configuration: %s; path=%s; new-pattern length=%u\n",
+        BroTracker::HostConfigDiagnostic(host_config.status), config_path.u8string().c_str(),
+        static_cast<unsigned>(host_config.config.new_pattern_length));
+    else LogWarning(BroTracker::HostConfigDiagnostic(host_config.status));
+
 
     WriteBringUpDiagnostic(
         bring_up_log,
