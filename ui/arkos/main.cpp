@@ -15,6 +15,8 @@
 
 #include "ui/bringup_serial.h"
 #include "ui/host_config.h"
+#include "ui/host_logging.h"
+#include "ui/sdl/host_diagnostics.h"
 #include "ui/bringup_controls.h"
 
 #include "core/constants.h"
@@ -57,9 +59,7 @@ void WriteBringUpDiagnostic(
     if (log == nullptr)
         return;
 
-    std::fputs(message, log);
-    std::fputc('\n', log);
-    std::fflush(log);
+    BroTracker::HostLog(log,BroTracker::ClassifyHostDiagnostic("ArkOS",message),"ArkOS",message);
 }
 
 void WriteBringUpDiagnostic(
@@ -70,8 +70,7 @@ void WriteBringUpDiagnostic(
     if (log == nullptr)
         return;
 
-    std::fprintf(log, "%s%d\n", message, value);
-    std::fflush(log);
+    BroTracker::HostLogf(log,BroTracker::HostLogLevel::Debug,"ArkOS","%s%d",message,value);
 }
 
 void WriteSdlFailure(
@@ -81,41 +80,24 @@ void WriteSdlFailure(
     if (log == nullptr)
         return;
 
-    std::fprintf(
-        log,
-        "%s: %s\n",
-        message,
-        SDL_GetError());
-    std::fflush(log);
+    BroTracker::HostLogf(log,BroTracker::HostLogLevel::Basic,"ArkOS error","%s: %s",message,SDL_GetError());
 }
 } // namespace
 
 int main(int argc, char* argv[])
 {
-    const char* append_log = std::getenv("BROTRACKER_APPEND_LOG");
-    FILE* bring_up_log = std::fopen(kBringUpLogPath,
-        append_log != nullptr && std::strcmp(append_log, "1") == 0 ? "a" : "w");
-
-    if (bring_up_log == nullptr)
-        LogError("Failed to open the ArkOS bring-up log.");
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "BroTracker Terminal (BTX): application entry");
-
-    LogInfo("BroTracker Terminal (BTX) starting on ArkOS.");
-    char* config_directory = SDL_GetPrefPath("BroTracker", "BroTracker Terminal");
-    const auto config_path = config_directory ?
-        std::filesystem::u8path(config_directory) / "config.ini" : std::filesystem::path{};
+    char* config_directory=SDL_GetPrefPath("BroTracker","BroTracker Terminal");
+    const auto config_path=config_directory ? std::filesystem::u8path(config_directory)/"config.ini" : std::filesystem::path{};
     SDL_free(config_directory);
-    const auto host_config = BroTracker::LoadHostConfig(config_path, BroTracker::UseSafeConfig(argc, argv));
-    if (bring_up_log) std::fprintf(bring_up_log,
-        "Configuration: %s; path=%s; new-pattern length=%u\n",
-        BroTracker::HostConfigDiagnostic(host_config.status), config_path.u8string().c_str(),
-        static_cast<unsigned>(host_config.config.new_pattern_length));
-    else LogWarning(BroTracker::HostConfigDiagnostic(host_config.status));
-
-
+    const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
+    BroTracker::ConfigureHostLogging(host_config.config.logging_mode);
+    const char* append=std::getenv("BROTRACKER_APPEND_LOG");
+    const auto plan=BroTracker::PrepareHostLog(kBringUpLogPath,host_config.config,append && std::strcmp(append,"1")==0);
+    FILE* bring_up_log=plan.use_stderr?nullptr:std::fopen(kBringUpLogPath,plan.append?"a":"w");
+    const bool owns_log=bring_up_log!=nullptr;
+    if(!bring_up_log) {bring_up_log=stderr; LogError("ArkOS log unavailable; using stderr. Check /tmp permissions; startup continues");}
+    BroTracker::LogHostStartup(bring_up_log,"ArkOS/Linux",host_config,config_path,plan);
+    BroTracker::LogHostSystem(bring_up_log);
     WriteBringUpDiagnostic(
         bring_up_log,
         "UI font load: start");
@@ -279,6 +261,7 @@ int main(int argc, char* argv[])
         ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller)) : -1;
     WriteBringUpDiagnostic(bring_up_log,
         "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
+    LogSdlHostDiagnostics(bring_up_log);
     BringUpSerial serial(bring_up_log);
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
@@ -345,8 +328,9 @@ int main(int argc, char* argv[])
     WriteBringUpDiagnostic(
         bring_up_log,
         "normal shutdown");
+    BroTracker::HostLog(bring_up_log,BroTracker::HostLogLevel::Basic,"Terminal","clean shutdown");
 
-    if (bring_up_log != nullptr)
+    if (owns_log)
         std::fclose(bring_up_log);
 
     return 0;

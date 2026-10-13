@@ -26,31 +26,34 @@ bool Decimal(std::string_view s, std::uint32_t& value) noexcept {
 HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noexcept {
     if (text.size() > kMaxHostConfigBytes) return HostConfigStatus::TooLarge;
     HostConfig candidate;
-    bool section = false, version = false, length = false;
+    unsigned section=0;
+    bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false;
     while (!text.empty()) {
-        const auto end = text.find('\n');
-        auto line = Trim(text.substr(0, end));
-        text = end == text.npos ? std::string_view{} : text.substr(end + 1);
-        if (line.empty() || line.front() == '#' || line.front() == ';') continue;
-        if (line == "[btx]") {
-            if (section) return HostConfigStatus::Invalid;
-            section = true; continue;
-        }
-        if (!section) return HostConfigStatus::Invalid;
-        const auto eq = line.find('=');
-        if (eq == line.npos) return HostConfigStatus::Invalid;
-        const auto key = Trim(line.substr(0, eq));
-        std::uint32_t value;
-        if (!Decimal(Trim(line.substr(eq + 1)), value)) return HostConfigStatus::Invalid;
-        if (key == "schema_version" && !version) {
-            if (value != 1) return HostConfigStatus::Invalid;
-            version = true; candidate.schema_version = value;
-        } else if (key == "new_pattern_length" && !length) {
-            if (value != 16 && value != 32 && value != 64) return HostConfigStatus::Invalid;
-            length = true; candidate.new_pattern_length = value;
+        const auto end=text.find('\n');
+        auto line=Trim(text.substr(0,end));
+        text=end==text.npos ? std::string_view{} : text.substr(end+1);
+        if(line.empty() || line.front()=='#' || line.front()==';') continue;
+        if(line=="[btx]") { if(btx) return HostConfigStatus::Invalid; btx=true; section=1; continue; }
+        if(line=="[logging]") { if(logging) return HostConfigStatus::Invalid; logging=true; section=2; continue; }
+        if(!section) return HostConfigStatus::Invalid;
+        const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
+        const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
+        std::uint32_t value=0;
+        if(section==2 && key=="mode" && !mode) {
+            if(raw!="basic" && raw!="debug") return HostConfigStatus::Invalid;
+            candidate.logging_mode=raw=="debug" ? HostLogMode::Debug : HostLogMode::Basic; mode=true;
+        } else if(section==2 && key=="preserve_last" && !preserve) {
+            if(!Decimal(raw,value) || value>20) return HostConfigStatus::Invalid;
+            candidate.preserve_last=value; preserve=true;
+        } else if(section==1 && key=="schema_version" && !version) {
+            if(!Decimal(raw,value) || value!=1) return HostConfigStatus::Invalid;
+            version=true; candidate.schema_version=value;
+        } else if(section==1 && key=="new_pattern_length" && !length) {
+            if(!Decimal(raw,value) || (value!=16 && value!=32 && value!=64)) return HostConfigStatus::Invalid;
+            length=true; candidate.new_pattern_length=value;
         } else return HostConfigStatus::Invalid;
     }
-    if (!section || !version || !length) return HostConfigStatus::Invalid;
+    if(!btx || !version || !length) return HostConfigStatus::Invalid;
     output = candidate; return HostConfigStatus::Loaded;
 }
 bool UseSafeConfig(int argc, char* const argv[]) noexcept {
@@ -87,7 +90,7 @@ const char* HostConfigDiagnostic(HostConfigStatus status) noexcept {
     case HostConfigStatus::Missing: return "config.ini absent; using built-in defaults";
     case HostConfigStatus::SafeDefaults: return "--safe-config: external config bypassed; using built-in defaults";
     case HostConfigStatus::TooLarge: return "config.ini exceeds 4096 bytes; using defaults. Reduce the file or use --safe-config";
-    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check [btx], schema_version=1 and new_pattern_length=16/32/64, or use --safe-config";
+    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20, or use --safe-config";
     default: return "Cannot read config.ini; using defaults. Check path/permissions or use --safe-config";
     }
 }

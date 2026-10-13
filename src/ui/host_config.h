@@ -7,14 +7,18 @@
 
 namespace BroTracker {
 // Host-only startup settings; unrelated to existing pattern/device dimensions.
+enum class HostLogMode { Basic, Debug };
 struct HostConfig {
     std::uint32_t schema_version = 1;
     std::uint32_t new_pattern_length = 32;
+    HostLogMode logging_mode = HostLogMode::Basic;
+    unsigned preserve_last = 0;
 };
 constexpr std::size_t kMaxHostConfigBytes = 4096;
 enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, Unreadable };
 // Strict INI subset: [btx], schema_version and new_pattern_length are required
-// exactly once. Whole-line #/; comments and ASCII whitespace are allowed.
+// exactly once. Optional [logging]: mode=basic/debug, preserve_last=0..20.
+// Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.
 HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noexcept;

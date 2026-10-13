@@ -1979,3 +1979,24 @@ Human validation still needed:
 4. Relaunch BTX with Teensy powered, then separately power-cycle Teensy. Verify
    authoritative working retention in the first case and boot restoration in the
    second. Archive each log before the next launch.
+
+
+### BTX host logging modes and startup retention
+
+See [BTX logging](LOGGING.md) and D0058. Optional schema-1 `[logging]` settings are
+`mode=basic|debug` and `preserve_last=0..20`; defaults and `--safe-config` are Basic/0.
+Existing `[btx]` requirements are unchanged. Debug records detailed protocol/edit
+and audio diagnostics; Basic keeps lifecycle, applied transport, errors/rejections
+and recovery, filtering CELL/POS/PERF and periodic statistics. UTC/local-offset and
+monotonic timestamps describe host observation only.
+
+Debug/N rotates exact logger archives once at startup; append mode skips rotation.
+Failure preserves current by appending with a diagnostic. Windows retains the SDL
+per-user log location, ArkOS `/tmp/brotracker-arkos.log`. Archive hardware evidence
+separately before overwrite-mode launches. Normal startup never rewrites config;
+the authorized Windows user file now selects Debug/5 and new-pattern length 32.
+
+This is host-only implementation, separate from manual Windows/ArkOS validation.
+No firmware timestamp, formatting, telemetry/PERF rate or audio-callback work changes.
+Existing hardware records and outstanding timing/backpressure checks are preserved;
+the postponed hardware scenario was not run. Final controls/playback remain unchanged.

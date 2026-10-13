@@ -1781,3 +1781,38 @@ restores application defaults, not necessarily system SDL mappings. Configuratio
 failure must not block startup, transport or existing input controls. Configurable
 input mappings, profile identification and final handheld/keyboard bindings remain
 future work; this foundation reserves no controls.
+
+
+## D0058 - BTX Logging Modes and Startup Log Retention
+
+Logging is exclusively BTX-owned. Schema 1 gains optional `[logging]` settings:
+`mode=basic|debug`, `preserve_last=0..20`; built-ins are Basic and zero archives.
+D0057's required `[btx]` fields remain unchanged. Validation is transactional;
+invalid configuration and `--safe-config` use all built-ins. Normal startup never
+creates/rewrites user configuration. The example explicitly opts into Debug/5.
+
+Basic records startup identity/configuration, session and applied transport changes,
+errors/rejections/recovery and clean shutdown. Routine CELL/POS/PERF, per-edit detail
+and periodic audio statistics are Debug-only. Bounded duplicate suppression retains
+meaningful waiting/error/state changes. Debug adds one-time host OS, architecture,
+CPU/memory and SDL backend information. Unavailable information is explicit; host
+resources cannot establish Teensy CPU/RAM/PSRAM or firmware build identity.
+
+Host events carry UTC, local time with timezone offset and steady-clock `mono_ms`.
+Shared serial diagnostics retain SDL `host_ms` with a separate clock origin. These
+are host observations, not exact device/audio times. No firmware logging, diagnostic
+formatting, telemetry frequency or realtime callback work changes.
+
+Debug with N>0 rotates once before opening current: `name(1).log` is newest, through
+`name(N).log`. Only this logger's exact archive names up to 20 are considered. Current
+is backed up before truncation; rotation failure falls back to appending current
+with a diagnostic. Archive copying is not a filesystem transaction: failure may
+leave archives partially shifted but must not authorize truncating current. Failed
+opening falls back to stderr (plus a Windows debugger notice) without blocking
+startup. `BROTRACKER_APPEND_LOG=1` skips rotation and reports that decision. No runtime
+rotation/compression or arbitrary cleanup occurs.
+
+Windows retains its SDL per-user terminal log directory; ArkOS retains the documented
+`/tmp/brotracker-arkos.log`, while configuration remains per-user per D0057. `/tmp`
+is not durable evidence storage. See [BTX logging](LOGGING.md) for exact paths and
+validation. Manual Windows/ArkOS validation remains pending.

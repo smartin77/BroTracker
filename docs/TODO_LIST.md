@@ -825,6 +825,18 @@ design remains unchanged.
   not establish whether its row-start event has been consumed. Power-cycle
   restoration is expected because baseline and working data remain RAM-only.
 
+* [x] Implement BTX-only Basic/Debug logging and optional startup retention
+  ([D0058](ARCHITECTURE_DECISIONS.md#d0058---btx-logging-modes-and-startup-log-retention),
+  [logging reference](LOGGING.md)). Schema-1 optional settings default to Basic/0;
+  transactional validation, UTC/local-offset/monotonic timestamps, bounded filtering
+  and duplicate suppression, Debug host/SDL summary, exact numbered archives,
+  append override and failure preservation have portable host coverage. Firmware
+  and realtime processing are unchanged.
+* [ ] Manually validate Windows/ArkOS Basic/Debug output, safe-config defaults,
+  rotation ordering/permissions and append behavior. ArkOS build/runtime validation
+  remains open. Windows per-user Debug/5 config was explicitly authorized; ordinary
+  startup never rewrites config. Hardware timing/performance checks remain open.
+
 ## Deferred Tasks
 
 * [ ] Add configurable PgUp/PgDn direction inversion, including held-key

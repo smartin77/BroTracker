@@ -1,4 +1,5 @@
 #include "bringup_serial.h"
+#include "host_logging.h"
 #include <cstring>
 
 BringUpSerial::BringUpSerial(FILE* log, const char* test_device)
@@ -14,8 +15,12 @@ BringUpSerial::~BringUpSerial() = default;
 void BringUpSerial::Log(const char* message, const char* detail)
 {
     if (!log_) return;
-    std::fprintf(log_, "[host_ms=%" PRIu32 "] USB bring-up: %s %s\n", diagnostic_now_, message, detail);
-    std::fflush(log_);
+    char text[2048];
+    const int n=std::snprintf(text,sizeof(text),"[host_ms=%" PRIu32 "] %s %s",diagnostic_now_,message,detail);
+    if(n<0 || static_cast<std::size_t>(n)>=sizeof(text)) return;
+    const auto level=BroTracker::ClassifyHostDiagnostic("USB bring-up",std::string_view(message));
+    const auto payload_level=BroTracker::ClassifyHostDiagnostic("USB bring-up",std::string_view(detail));
+    BroTracker::HostLog(log_, level==BroTracker::HostLogLevel::Basic || payload_level==BroTracker::HostLogLevel::Basic ? BroTracker::HostLogLevel::Basic : BroTracker::HostLogLevel::Debug,"USB bring-up",text);
 }
 
 void BringUpSerial::Disconnect(const char* reason)
@@ -99,6 +104,18 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     if(!publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
     editor.SetLocked(PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
+    if(std::strcmp(logged_preview_status_,preview_.Status())) {
+        std::snprintf(logged_preview_status_,sizeof(logged_preview_status_),"%s",preview_.Status());
+        Log("preview status:",logged_preview_status_);
+    }
+    if(std::strcmp(logged_publication_status_,publication_.Status())) {
+        std::snprintf(logged_publication_status_,sizeof(logged_publication_status_),"%s",publication_.Status());
+        Log("publication status:",logged_publication_status_);
+    }
+    if(std::strcmp(logged_gain_status_,gains_.Status())) {
+        std::snprintf(logged_gain_status_,sizeof(logged_gain_status_),"%s",gains_.Status());
+        Log("gain status:",logged_gain_status_);
+    }
     if(editor.Ready()) preview_.RetainLocal(editor.Dirty());
     editor_seen_=editor.Ready();
     if(editor_seen_) observed_editor_=*editor.Draft();

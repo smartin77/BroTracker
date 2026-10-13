@@ -1,6 +1,7 @@
 #include "bringup_controls.h"
+#include "host_logging.h"
 void BringUpControls::Log(const char* message) {
-    if (log_) { std::fprintf(log_, "Controls: %s\n", message); std::fflush(log_); }
+    BroTracker::HostLog(log_,BroTracker::ClassifyHostDiagnostic("Controls",message),"Controls",message);
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
@@ -17,7 +18,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
     const bool active = serial_.Connected() && (!serial_.Finished() || serial_.PublicationBusy());
     const bool exit = action == BringUpAction::Exit || (action == BringUpAction::StopExit && !active);
     const char* verb = exit ? "EXIT" : action == BringUpAction::Start ? (active ? "RESTART" : "START") : "STOP";
-    if (log_) { std::fprintf(log_, "Controls: %s requested by %s\n", verb, source); std::fflush(log_); }
+    BroTracker::HostLogf(log_,BroTracker::HostLogLevel::Debug,"Controls","%s requested by %s",verb,source);
     if (exit) exit_after_stop_ = true;
     if (stop_pending_ || (exit_after_stop_ && !exit)) { Log("action suppressed: shutdown/STOP pending"); return; }
     if (action == BringUpAction::Start) {

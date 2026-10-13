@@ -1,5 +1,6 @@
 #include "bringup/diagnostic_channel_gains.h"
 #include "test_framework.h"
+#include "ui/host_logging.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/pattern_preview.h"
 #include "bringup/pattern_control.h"
@@ -411,6 +412,7 @@ TEST_CASE(PreviewStopDuringTransferAndRecoveryPreservesDraftWithoutF5) {
 }
 
 TEST_CASE(PreviewDiagnosticsCorrelateLocalRevisionAndWireTimestamps) {
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Debug);
     FILE* log=std::tmpfile(); CHECK(log!=nullptr);
     {
         PreviewSession s(log); s.Pump();
@@ -423,4 +425,5 @@ TEST_CASE(PreviewDiagnosticsCorrelateLocalRevisionAndWireTimestamps) {
         CHECK(text.find("RX: BTPREVIEW1 APPLIED")!=std::string::npos);
     }
     std::fclose(log);
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Basic);
 }

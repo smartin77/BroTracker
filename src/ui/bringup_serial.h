@@ -83,6 +83,8 @@ private:
     bool opened_ = false;
     FILE* log_;
     std::uint32_t diagnostic_now_=0;
+    char logged_preview_status_[96]{};
+    char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
     bool connected_ = false;
     bool stopped_ = false;
