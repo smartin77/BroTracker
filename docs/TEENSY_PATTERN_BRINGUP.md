@@ -1696,3 +1696,27 @@ Run Windows `.\deploy\windows\BroTrackerTerminal.exe --safe-config` or the ArkOS
 bypass external configuration. Manual startup/path/recovery checks remain pending
 on both platforms. This recovery affects application settings, not system SDL
 mappings; configurable controls and project creation are not implemented.
+
+### Variable-rate block rendering foundation
+
+`VariableRateVoiceBlockRenderer` owns eight fixed `VariableRateSampleVoice`
+instances and accepts up to 16 prepared Trigger/Stop commands (initial implementation
+capacity). Triggers carry caller-owned immutable PCM views and explicit positive
+Q32.32 steps; source/output rates must match. Separate mono channel outputs use
+exact half-open offsets, preserve input order at equal offsets and continue voices
+across blocks. Valid Configure clears voices; Reset retains the rate. Whole-request
+preflight rejects invalid metadata/steps before touching any voice or output.
+Caller guarantees sample lifetimes/extents and non-overlap with outputs and request
+metadata. Work is bounded by eight channels, supplied frames and 16 commands;
+no allocation, I/O, exceptions or independent clock. Linear interpolation remains
+an initial non-band-limited choice, changing pitch and duration together.
+
+Host tests cover exact and fractional PCM, partition independence, simultaneous
+commands, retriggers, replacement, Stop, boundary ownership, capacity and rollback.
+NoteToPlaybackStep remains a separate mapping primitive; note/instrument preparation,
+pattern-player integration, firmware/UI and hardware performance remain pending.
+Existing native-rate playback and fixture levels are unchanged.
+
+User confirmation on 2026-10-12: the C-3 empty-note fallback works on Windows BTX.
+Preceding-note lookup and OFF initialization remain unchanged; ArkOS validation
+is still pending.

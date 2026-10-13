@@ -186,6 +186,16 @@ design remains unchanged.
   point/allocation/I/O. Tests cover all intervals against independent 512-bit exact
   arithmetic, monotonicity, invalid notes and octave voice PCM/partition composition.
   Reference pitch remains explicit; beeper anchors are not measured tuning.
+* [x] Add separate `VariableRateVoiceBlockRenderer` in
+  `src/core/audio/variable_rate_voice_block_renderer.h`: eight fixed variable-rate
+  voices, up to 16 prepared Trigger/Stop commands carrying non-owning PCM views
+  and positive Q32.32 steps. Exact half-open block offsets, stable equal-offset
+  order and voice continuation; whole-request preflight preserves all state/output
+  on rejection. Matching rates only, bounded allocation-free/noexcept processing.
+  `tests/test_variable_rate_voice_block_renderer.cpp` covers exact/fractional PCM,
+  partition independence, simultaneous commands, retrigger/replacement, Stop,
+  boundaries, capacity and transactional rejection including fractional phase.
+  No note/instrument/player/firmware/UI integration or hardware cost measurement.
 * [ ] Integrate note mapping, tuning metadata and variable-rate rendering/bindings/
   player, firmware/protocol/UI. Existing unsupported-pitch behavior is unchanged.
   Fractional-semitone correction remains a separate future layer. D0055 defines
@@ -627,7 +637,8 @@ design remains unchanged.
   retain cyclic/repeat behavior. No session memory; edits/deletions, snapshot load,
   Restore and confirmed readback are reflected immediately. Host tests cover both
   directions, channel isolation, skipped cells, fallback, Undo/Redo and held repetition.
-  The C-3 empty-note fallback is host-tested; its Windows manual validation remains pending.
+  User confirmed the C-3 empty-note fallback on Windows on 2026-10-12;
+  ArkOS validation remains pending.
 * [x] User confirmed on 2026-10-11 that, after clearing both channels, a published
   first-channel C-3 / instrument 01 pattern on rows 01 and 09 plays correctly.
   This does not confirm all paused-publication cases or measured hardware timing.
