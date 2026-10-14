@@ -71,16 +71,18 @@ TEST_CASE(HostLoggingRotationLimitsAppendAndSafeFailure) {
     auto plan=PrepareHostLog(p,config,true); CHECK(plan.append); CHECK_EQ(Read(one),"one"); CHECK_EQ(Read(p),"current");
     plan=PrepareHostLog(p,config,false); CHECK(!plan.append); CHECK_EQ(Read(one),"current"); CHECK_EQ(Read(two),"one");
     CHECK(!std::filesystem::exists(dir/"terminal(20).log")); CHECK_EQ(Read(dir/"unrelated.log"),"evidence");
-    CHECK_EQ(Read(p),"current"); // Rotation never truncates current before opening.
+    CHECK(!std::filesystem::exists(p)); // Current was moved, not copied.
+    Write(p,"new current");
     std::filesystem::remove(two); CHECK(std::filesystem::create_directory(two));
-    plan=PrepareHostLog(p,config,false); CHECK(plan.append); CHECK_EQ(Read(p),"current"); CHECK_EQ(Read(one),"current");
+    plan=PrepareHostLog(p,config,false); CHECK(plan.append); CHECK_EQ(Read(p),"new current"); CHECK_EQ(Read(one),"current");
     std::filesystem::remove(two); config.logging_mode=HostLogMode::Basic;
     plan=PrepareHostLog(p,config,false); CHECK(!plan.append); CHECK_EQ(Read(one),"current");
     config.logging_mode=HostLogMode::Debug; config.preserve_last=0;
     plan=PrepareHostLog(p,config,false); CHECK(!plan.append); CHECK_EQ(Read(one),"current");
     config.preserve_last=21; CHECK(PrepareHostLog(p,config,false).append);
     config.preserve_last=20; CHECK(!PrepareHostLog(p,config,false).append);
-    std::filesystem::remove(p); config.preserve_last=1;
+    CHECK_EQ(Read(one),"new current");
+    config.preserve_last=1;
     CHECK(!PrepareHostLog(p,config,false).append); CHECK(std::filesystem::exists(one));
     CHECK(!std::filesystem::exists(two));
     CHECK(std::filesystem::create_directory(p));
@@ -88,3 +90,61 @@ TEST_CASE(HostLoggingRotationLimitsAppendAndSafeFailure) {
     CHECK(std::filesystem::is_directory(p)); CHECK_EQ(Read(dir/"unrelated.log"),"evidence");
     std::filesystem::remove_all(dir);
 }
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+namespace {
+BY_HANDLE_FILE_INFORMATION FileIdentity(const std::filesystem::path& p) {
+    const HANDLE h=CreateFileW(p.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
+    CHECK(h!=INVALID_HANDLE_VALUE); BY_HANDLE_FILE_INFORMATION info{};
+    CHECK(GetFileInformationByHandle(h,&info)); CHECK(CloseHandle(h)); return info;
+}
+void SameWindowsFile(const BY_HANDLE_FILE_INFORMATION& a,const BY_HANDLE_FILE_INFORMATION& b) {
+    CHECK_EQ(a.dwVolumeSerialNumber,b.dwVolumeSerialNumber);
+    CHECK_EQ(a.nFileIndexHigh,b.nFileIndexHigh); CHECK_EQ(a.nFileIndexLow,b.nFileIndexLow);
+    CHECK_EQ(a.ftCreationTime.dwHighDateTime,b.ftCreationTime.dwHighDateTime);
+    CHECK_EQ(a.ftCreationTime.dwLowDateTime,b.ftCreationTime.dwLowDateTime);
+    CHECK_EQ(a.ftLastAccessTime.dwHighDateTime,b.ftLastAccessTime.dwHighDateTime);
+    CHECK_EQ(a.ftLastAccessTime.dwLowDateTime,b.ftLastAccessTime.dwLowDateTime);
+    CHECK_EQ(a.ftLastWriteTime.dwHighDateTime,b.ftLastWriteTime.dwHighDateTime);
+    CHECK_EQ(a.ftLastWriteTime.dwLowDateTime,b.ftLastWriteTime.dwLowDateTime);
+}
+}
+TEST_CASE(HostLoggingWindowsRenamePreservesActualTimestampsAndIdentity) {
+    const auto dir=std::filesystem::temp_directory_path()/"brotracker-log-rename-windows";
+    CHECK(std::filesystem::create_directory(dir));
+    const auto current=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
+    Write(current,"current"); Write(one,"previous"); Write(two,"oldest");
+    const auto original=FileIdentity(current),previous=FileIdentity(one);
+    HostConfig config; config.logging_mode=HostLogMode::Debug; config.preserve_last=2;
+    const auto plan=PrepareHostLog(current,config,false); CHECK(!plan.append);
+    CHECK(!std::filesystem::exists(current));
+    SameWindowsFile(original,FileIdentity(one)); SameWindowsFile(previous,FileIdentity(two));
+    Write(current,"new current"); CHECK_EQ(Read(one),"current"); CHECK_EQ(Read(two),"previous");
+    std::filesystem::remove_all(dir);
+}
+TEST_CASE(HostLoggingWindowsRenamePartialFailurePreservesUnarchivedCurrent) {
+    for(bool lock_current : {false,true}) {
+        const auto dir=std::filesystem::temp_directory_path()/"brotracker-log-rename-failure";
+        CHECK(std::filesystem::create_directory(dir));
+        const auto current=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
+        Write(current,"current"); Write(one,"previous"); Write(two,"oldest");
+        const auto original=FileIdentity(current);
+        const auto locked=lock_current?current:one;
+        const HANDLE h=CreateFileW(locked.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr);
+        CHECK(h!=INVALID_HANDLE_VALUE);
+        HostConfig config; config.logging_mode=HostLogMode::Debug; config.preserve_last=2;
+        const auto plan=PrepareHostLog(current,config,false); CHECK(plan.append); CHECK(!plan.use_stderr);
+        SameWindowsFile(original,FileIdentity(current)); CHECK_EQ(Read(current),"current");
+        if(lock_current) {CHECK(!std::filesystem::exists(one)); CHECK_EQ(Read(two),"previous");}
+        else {CHECK_EQ(Read(one),"previous"); CHECK(!std::filesystem::exists(two));}
+        CHECK(CloseHandle(h));
+        {std::ofstream out(current,std::ios::app); out<<" appended";}
+        CHECK_EQ(Read(current),"current appended");
+        std::filesystem::remove_all(dir);
+    }
+}
+#endif

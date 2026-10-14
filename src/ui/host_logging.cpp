@@ -122,15 +122,18 @@ HostLogOpenPlan PrepareHostLog(const std::filesystem::path& path,const HostConfi
             for(unsigned i=config.preserve_last+1;i<=20;++i) std::filesystem::remove(Archive(path,i));
             return {false,"No current log to rotate; existing archives retained within limit"};
         }
+        // Descending same-directory moves retain file identity and timestamps.
+        // All pruning occurs before moving current; a failure therefore leaves
+        // unarchived current available for the append fallback.
+        std::filesystem::remove(Archive(path,config.preserve_last));
+        for(unsigned i=config.preserve_last+1;i<=20;++i) std::filesystem::remove(Archive(path,i));
         for(unsigned i=config.preserve_last;i>1;--i) {
             const auto from=Archive(path,i-1);
-            if(std::filesystem::exists(from)) std::filesystem::copy_file(from,Archive(path,i),std::filesystem::copy_options::overwrite_existing);
-            else std::filesystem::remove(Archive(path,i));
+            if(std::filesystem::exists(from)) std::filesystem::rename(from,Archive(path,i));
         }
-        // Current log remains untouched until a successful backup. Even a copy
-        // failure therefore never requires truncating the previous current log.
-        if(std::filesystem::exists(path)) std::filesystem::copy_file(path,Archive(path,1),std::filesystem::copy_options::overwrite_existing);
-        for(unsigned i=config.preserve_last+1;i<=20;++i) std::filesystem::remove(Archive(path,i));
+        // Last potentially failing file operation. Open a new current only on
+        // successful return; no timestamp rewriting or copy fallback.
+        std::filesystem::rename(path,Archive(path,1));
         return {false,"Debug startup rotation completed"};
     } catch(...) {return failed;}
 }

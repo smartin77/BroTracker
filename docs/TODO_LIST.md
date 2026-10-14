@@ -877,6 +877,12 @@ design remains unchanged.
   already-consumed rows wait for their next occurrence. No instantaneous WYSIWYG
   promise; exhaustive backpressure/reconnect and ArkOS validation remain open.
 
+* [x] Correct host startup log rotation to descending same-directory renames,
+  preserving exact-name scope, retention and append bypass. Isolated Windows tests
+  verify actual creation/access/last-write timestamps and file identity, plus locked-file
+  partial failure preserving unarchived current. No real logs/config or diagnostic
+  archives were used; full manual platform rotation validation remains pending.
+
 ## Deferred Tasks
 
 * [ ] Further optimize local-edit-to-applied preview latency, especially near row

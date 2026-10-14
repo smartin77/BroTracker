@@ -61,10 +61,15 @@ or zero retention retains prior overwrite behavior. No current log means no shif
 of existing archives within the configured limit. `BROTRACKER_APPEND_LOG=1` appends, skips rotation and logs the
 decision in either mode. There is no runtime rotation or compression.
 
-Preflight rejects nonregular archive entries. Current is copied to archive 1 before
-it may be truncated. Rotation failure uses append fallback and an actionable
-diagnostic, preserving current. Older archive copies may already have shifted;
-rotation is not an atomic multi-file transaction. If opening also fails, startup
+Preflight rejects nonregular archive entries. Rotation removes the oldest retained
+archive, prunes exact-name archives beyond the limit, then renames descending:
+(N-1) to (N), through (1) to (2), and current to (1). All renames stay in the same
+directory; no copying or timestamp rewriting is used. Opening a new current log
+is allowed only after successful rotation. Windows fixture tests verify unchanged
+creation/access/last-write timestamps and file identity for moved current and archives.
+Rotation failure uses append fallback and an actionable diagnostic, preserving an
+unarchived current. Earlier archive moves/removals may already have completed;
+rotation is not an atomic multi-file transaction and does not roll them back. If opening also fails, startup
 continues with stderr and a Windows debugger notice. Archive validated evidence
 separately before Basic/zero runs; numbered retention is not permanent archival.
 

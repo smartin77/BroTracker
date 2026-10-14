@@ -1805,9 +1805,12 @@ formatting, telemetry frequency or realtime callback work changes.
 
 Debug with N>0 rotates once before opening current: `name(1).log` is newest, through
 `name(N).log`. Only this logger's exact archive names up to 20 are considered. Current
-is backed up before truncation; rotation failure falls back to appending current
-with a diagnostic. Archive copying is not a filesystem transaction: failure may
-leave archives partially shifted but must not authorize truncating current. Failed
+is renamed to archive 1 only after descending archive renames and retention pruning
+succeed. Same-directory renames preserve file timestamps/identity; no copy or
+artificial timestamp rewriting is used. A new current is opened only on success.
+Rotation failure falls back to appending unarchived current with a diagnostic.
+Earlier archive moves/removals are not rolled back; failure may leave archives
+partially shifted but must not authorize truncating unarchived current. Failed
 opening falls back to stderr (plus a Windows debugger notice) without blocking
 startup. `BROTRACKER_APPEND_LOG=1` skips rotation and reports that decision. No runtime
 rotation/compression or arbitrary cleanup occurs.
