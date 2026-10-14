@@ -897,9 +897,21 @@ design remains unchanged.
   Classic scrolling and a centered edit cursor remain undecided UI options.
   Do not infer zero latency or resolution of every timing case.
 
-* [x] Implement schema-1 `[editing] note_step_direction=normal|reversed` at the
-  shared Note-field input boundary (default/safe-config normal). Held direction
-  inverts once; logical actions, instruments, OFF timing and navigation do not.
+* [x] Extend value stepping to numeric Instrument fields (raw IDs 0..98 / displayed
+  01..99), cycling through empty 0xFF in both directions. Fresh empty entry selects
+  01 unchanged; interaction-only cycle state resets on navigation, explicit edits,
+  history/context replacement. Holds renew the 400 ms boundary pause. Higher device
+  IDs are preserved, not clamped; instrument edits preserve notes. The deprecated
+  `note_step_direction` config alias remains accepted, but both names together
+  reject transactionally. Host tests cover cycles, inversion, history and OFF timing.
+* [x] User confirmed 32-row editing and progression beyond row 16; this is not
+  confirmation of loop timing or realtime performance.
+* [ ] Manually validate numeric instrument cycles and unified normal/reversed input
+  on Windows; ArkOS input/runtime and unmeasured hardware timing/performance remain open.
+
+* [x] Implement schema-1 `[editing] value_step_direction=normal|reversed` at the
+  shared Note/numeric Instrument input boundary (default/safe-config normal). Held direction
+  inverts once; logical actions, OFF timing and navigation do not.
   Logical stepping cycles 127 -> OFF -> 24 / 24 -> OFF -> 127, preserving instruments
   and Arrival entry/exit metadata. Endpoint and OFF-entry holds pause 400 ms.
   Empty initialization remains preceding pitch/C-3; host tests cover config,
@@ -967,7 +979,7 @@ design remains unchanged.
 * [x] Implement one-based user-visible instrument numbering: raw IDs 0/1 display
   `01`/`02`, 0xFF stays `--`, and numbers 100..255 expand to three digits without
   truncation. Internal bindings/wire IDs remain unchanged; empty editing selects
-  `01`, bounds do not wrap, and OFF timing remains separate. Host tests cover
+  `01`; numeric editing cycles 01..99 through `--`, with OFF timing separate. Host tests cover
   formatting, editing/Restore and publication/snapshot raw-ID roundtrip.
 * [ ] Validate one-based instrument display/editing on Windows + Teensy and ArkOS;
   existing publication/hardware validation remains open.

@@ -29,7 +29,7 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
 }
 class WindowsEditorInput {
 public:
-    explicit WindowsEditorInput(BroTracker::NoteStepDirection direction=BroTracker::NoteStepDirection::Normal) noexcept : repeat_(direction) {}
+    explicit WindowsEditorInput(BroTracker::ValueStepDirection direction=BroTracker::ValueStepDirection::Normal) noexcept : repeat_(direction) {}
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
         if (!editor.Ready() || editor.Locked() || MapWindowsPublish(event)) repeat_.Cancel();
         if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {

@@ -38,8 +38,9 @@ TEST_CASE(LocalEditorNavigationAndRawFields) {
     CHECK(editor.Apply(EditorAction::Right));
     CHECK(!editor.Apply(EditorAction::NoteOff));
     CHECK(!editor.Apply(EditorAction::SetValue, 255));
-    CHECK(editor.Apply(EditorAction::SetValue, 254));
-    CHECK_EQ(editor.Draft()->cells[0][0].instrument, 254);
+    CHECK(!editor.Apply(EditorAction::SetValue, 254));
+    CHECK(editor.Apply(EditorAction::SetValue, 98));
+    CHECK_EQ(editor.Draft()->cells[0][0].instrument, 98);
     CHECK(editor.Apply(EditorAction::Clear));
     CHECK_EQ(editor.Draft()->cells[0][0].instrument, 255);
     CHECK(editor.Apply(EditorAction::SetValue, 7)); // instrument-only cell
@@ -138,8 +139,8 @@ TEST_CASE(LocalEditorNoteInitializationOctaveAndLimits) {
     CHECK(editor.Apply(EditorAction::NextChannel)); CHECK_EQ(editor.Cursor().channel, 0);
     CHECK(editor.Apply(EditorAction::Right)); CHECK(editor.Apply(EditorAction::Clear));
     CHECK(editor.Apply(EditorAction::Decrement)); CHECK_EQ(editor.Draft()->cells[0][0].instrument, 0);
-    CHECK(!editor.Apply(EditorAction::Decrement));
-    CHECK(editor.Apply(EditorAction::SetValue, 254)); CHECK(!editor.Apply(EditorAction::Increment));
+    CHECK(editor.Apply(EditorAction::Decrement)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,255);
+    CHECK(!editor.Apply(EditorAction::SetValue,254));
 }
 TEST_CASE(LocalEditorHorizontalEdgesAndTabAlwaysSelectsNote) {
     LocalPatternEditor editor; editor.Sync(ConnectedDraft());
@@ -434,10 +435,11 @@ TEST_CASE(OneBasedInstrumentDisplayAndRawEditorBounds) {
         LocalPatternEditor editor; editor.Sync(live); CHECK(editor.Apply(EditorAction::Right));
         CHECK(editor.Apply(action)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,0);
         CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"01");
-        CHECK(!editor.Apply(EditorAction::Decrement)); // No editable zero display, no wrapping.
+        CHECK(editor.Apply(EditorAction::Decrement)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,255);
+        CHECK(editor.Apply(EditorAction::Increment)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,0);
         CHECK(editor.Apply(EditorAction::Increment)); CHECK_EQ(editor.Draft()->cells[0][0].instrument,1);
         CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"02");
-        CHECK(editor.Apply(EditorAction::SetValue,254)); CHECK(!editor.Apply(EditorAction::Increment));
+        CHECK(!editor.Apply(EditorAction::SetValue,254));
         CHECK(editor.Apply(EditorAction::Restore)); CHECK(!editor.Dirty());
         CHECK_EQ(FormatInstrument(editor.Draft()->cells[0][0].instrument),"--");
     }
@@ -660,8 +662,8 @@ TEST_CASE(EditorOffCyclesPreserveInstrumentAndUndoTiming) {
     CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].note,127);
     CHECK_EQ(e.Draft()->cells[0][0].instrument,17);
 }
-TEST_CASE(SharedNoteStepDirectionAppliesOnceAndRepeatsThroughOff) {
-    for(auto direction : {BroTracker::NoteStepDirection::Normal,BroTracker::NoteStepDirection::Reversed}) {
+TEST_CASE(SharedValueStepDirectionAppliesOnceAndRepeatsThroughOff) {
+    for(auto direction : {BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
         for(auto request : {EditorAction::Increment,EditorAction::Decrement}) {
             LocalPatternEditor e; e.Sync(ConnectedDraft()); EditorStepInput input(direction);
             const auto logical=ResolveEditorStep(request,EditField::Note,direction);
@@ -678,10 +680,69 @@ TEST_CASE(SharedNoteStepDirectionAppliesOnceAndRepeatsThroughOff) {
             CHECK_EQ(e.Draft()->cells[1][0].instrument,255); input.Cancel();
             CHECK(e.Apply(EditorAction::Right)); CHECK(input.Begin(EditorAction::Increment,1300,e));
             CHECK_EQ(e.Draft()->cells[1][0].instrument,0); input.Cancel();
-            CHECK(input.Begin(EditorAction::Increment,1400,e)); CHECK_EQ(e.Draft()->cells[1][0].instrument,1); input.Cancel();
+            CHECK(input.Begin(EditorAction::Increment,1400,e)); CHECK_EQ(e.Draft()->cells[1][0].instrument,direction==BroTracker::ValueStepDirection::Normal ? 1 : 255); input.Cancel();
             CHECK(e.Apply(EditorAction::Left)); CHECK(e.Apply(EditorAction::NoteOff)); CHECK(e.Apply(EditorAction::Right));
             CHECK(input.Begin(request,1500,e)); CHECK(e.OffTiming(1,0)==LocalNoteOffTiming::EndOfPosition);
-            input.Cancel(); CHECK_EQ(e.Draft()->cells[1][0].instrument,1);
+            input.Cancel(); CHECK_EQ(e.Draft()->cells[1][0].instrument,direction==BroTracker::ValueStepDirection::Normal ? 1 : 255);
         }
     }
+}
+
+TEST_CASE(NumericInstrumentCycleEntryNavigationHistoryAndHighDeviceIds) {
+    for(const auto action:{EditorAction::Increment,EditorAction::Decrement}) {
+        LocalPatternEditor e; e.Sync(ConnectedDraft()); CHECK(e.Apply(EditorAction::Right));
+        CHECK(e.Apply(EditorAction::Clear)); CHECK(e.Apply(action)); CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
+        CHECK_EQ(e.Draft()->cells[0][0].note,60);
+        CHECK(e.Apply(EditorAction::SetValue,action==EditorAction::Increment ? 98 : 0));
+        CHECK(e.Apply(action)); CHECK_EQ(e.Draft()->cells[0][0].instrument,255);
+        CHECK(e.Apply(action)); CHECK_EQ(e.Draft()->cells[0][0].instrument,action==EditorAction::Increment ? 0 : 98);
+        CHECK(e.Undo()); CHECK_EQ(e.Draft()->cells[0][0].instrument,255); CHECK(e.Redo());
+        CHECK(e.Apply(EditorAction::SetValue,0)); CHECK(e.Apply(EditorAction::Decrement));
+        CHECK(e.Apply(EditorAction::Left)); CHECK(e.Apply(EditorAction::Right));
+        CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
+        CHECK(e.Apply(EditorAction::Clear)); CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
+        CHECK_EQ(e.Draft()->cells[0][0].note,60);
+    }
+    auto live=ConnectedDraft(); live->device_pattern->pattern.cells[0][0].instrument=254;
+    LocalPatternEditor high; high.Sync(live); CHECK(high.Apply(EditorAction::Right));
+    CHECK(!high.Apply(EditorAction::Increment)); CHECK(!high.Apply(EditorAction::Decrement));
+    CHECK(!high.Apply(EditorAction::SetValue,99)); CHECK(!high.Dirty());
+    CHECK_EQ(high.Draft()->cells[0][0].instrument,254); CHECK_EQ(FormatInstrument(254),"255");
+    CHECK(high.Apply(EditorAction::Clear)); CHECK(high.Undo()); CHECK_EQ(high.Draft()->cells[0][0].instrument,254);
+    CHECK(high.Apply(EditorAction::Restore)); CHECK_EQ(high.Draft()->cells[0][0].instrument,254);
+}
+TEST_CASE(NumericInstrumentDirectionHoldsBoundaryPauseAndOffTiming) {
+    for(const auto direction:{BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed})
+    for(const auto request:{EditorAction::Increment,EditorAction::Decrement}) {
+        LocalPatternEditor e; e.Sync(ConnectedDraft()); CHECK(e.Apply(EditorAction::Right));
+        const auto logical=ResolveEditorStep(request,EditField::Instrument,direction);
+        const bool increase=logical==EditorAction::Increment;
+        CHECK(e.Apply(EditorAction::SetValue,increase ? 97 : 1));
+        EditorStepInput input(direction); CHECK(input.Begin(request,0,e));
+        CHECK_EQ(e.Draft()->cells[0][0].instrument,increase ? 98 : 0);
+        CHECK(!input.Tick(399,true,e)); CHECK(input.Tick(400,true,e)); CHECK_EQ(e.Draft()->cells[0][0].instrument,255);
+        CHECK(!input.Tick(799,true,e)); CHECK(input.Tick(800,true,e)); CHECK_EQ(e.Draft()->cells[0][0].instrument,increase ? 0 : 98);
+        CHECK(!input.Tick(899,true,e)); CHECK(input.Tick(900,true,e)); CHECK_EQ(e.Draft()->cells[0][0].instrument,increase ? 1 : 97);
+        input.Cancel(); CHECK(e.Apply(EditorAction::Left)); CHECK(e.Apply(EditorAction::NoteOff)); CHECK(e.Apply(EditorAction::Right));
+        const auto instrument=e.Draft()->cells[0][0].instrument;
+        CHECK(input.Begin(request,1000,e)); CHECK(e.OffTiming(0,0)==LocalNoteOffTiming::EndOfPosition);
+        CHECK(input.Tick(1400,true,e)); CHECK(e.OffTiming(0,0)==LocalNoteOffTiming::Arrival);
+        CHECK_EQ(e.Draft()->cells[0][0].instrument,instrument);
+    }
+}
+
+TEST_CASE(InstrumentCycleMatchingReadbackPreservesInteractionButReplacementResets) {
+    LocalPatternEditor e; e.Sync(ConnectedDraft()); CHECK(e.Apply(EditorAction::Right));
+    CHECK(e.Apply(EditorAction::SetValue,0)); CHECK(e.Apply(EditorAction::Decrement));
+    const auto empty=*e.Draft(); CHECK(e.RecoverDraft(empty));
+    CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].instrument,98);
+    CHECK(e.RecoverDraft(empty)); CHECK(e.Apply(EditorAction::Decrement));
+    CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
+    CHECK(e.Apply(EditorAction::Decrement)); CHECK(e.Apply(EditorAction::Increment));
+    CHECK_EQ(e.Draft()->cells[0][0].instrument,0); // Opposite direction leaves cycled empty correctly.
+    CHECK(e.Apply(EditorAction::Decrement)); CHECK(!e.Apply(EditorAction::SetValue,99));
+    CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].instrument,98);
+    e.Sync(std::nullopt); e.Sync(ConnectedDraft()); CHECK(e.Apply(EditorAction::Right));
+    CHECK(e.Apply(EditorAction::Clear)); CHECK(e.Apply(EditorAction::Decrement));
+    CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
 }

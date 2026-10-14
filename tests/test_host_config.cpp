@@ -62,18 +62,33 @@ TEST_CASE(HostConfigFileLoadingAndSafeRecovery) {
 }
 
 TEST_CASE(HostConfigNoteDirectionDefaultsValidationAndSafeBypass) {
-    using Direction=NoteStepDirection; const std::string btx="[btx]\nschema_version=1\nnew_pattern_length=32\n";
-    HostConfig c; CHECK(c.note_step_direction==Direction::Normal);
-    CHECK(ParseHostConfig(btx,c)==HostConfigStatus::Loaded); CHECK(c.note_step_direction==Direction::Normal);
+    using Direction=ValueStepDirection; const std::string btx="[btx]\nschema_version=1\nnew_pattern_length=32\n";
+    HostConfig c; CHECK(c.value_step_direction==Direction::Normal);
+    CHECK(ParseHostConfig(btx,c)==HostConfigStatus::Loaded); CHECK(c.value_step_direction==Direction::Normal);
     CHECK(ParseHostConfig(btx+"[editing]\nnote_step_direction=reversed",c)==HostConfigStatus::Loaded);
-    CHECK(c.note_step_direction==Direction::Reversed);
+    CHECK(c.value_step_direction==Direction::Reversed);
     for(auto invalid : {"note_step_direction=other","note_step_direction=Reversed","note_step_direction=",
         "note_step_direction=reversed\nnote_step_direction=normal","unknown=normal","[editing]"}) {
         CHECK(ParseHostConfig(btx+"[editing]\n"+invalid,c)==HostConfigStatus::Invalid);
-        CHECK(c.note_step_direction==Direction::Reversed); CHECK_EQ(c.new_pattern_length,32u);
+        CHECK(c.value_step_direction==Direction::Reversed); CHECK_EQ(c.new_pattern_length,32u);
     }
     CHECK(ParseHostConfig("[editing]\nnote_step_direction=normal\n"+btx,c)==HostConfigStatus::Loaded);
-    CHECK(c.note_step_direction==Direction::Normal);
+    CHECK(c.value_step_direction==Direction::Normal);
     const auto safe=LoadHostConfig(std::filesystem::path{},true);
-    CHECK(safe.status==HostConfigStatus::SafeDefaults); CHECK(safe.config.note_step_direction==Direction::Normal);
+    CHECK(safe.status==HostConfigStatus::SafeDefaults); CHECK(safe.config.value_step_direction==Direction::Normal);
+}
+
+TEST_CASE(ValueStepDirectionCanonicalAliasAndConflictRollback) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=32\n[editing]\n";
+    HostConfig c;
+    CHECK(ParseHostConfig(base+"value_step_direction=reversed",c)==HostConfigStatus::Loaded);
+    CHECK(c.value_step_direction==ValueStepDirection::Reversed);
+    CHECK(ParseHostConfig(base+"note_step_direction=normal",c)==HostConfigStatus::Loaded);
+    CHECK(c.value_step_direction==ValueStepDirection::Normal);
+    for(const auto invalid:{"value_step_direction=reversed\nnote_step_direction=normal",
+        "note_step_direction=normal\nvalue_step_direction=normal", "value_step_direction=other",
+        "value_step_direction=normal\nvalue_step_direction=normal"}) {
+        CHECK(ParseHostConfig(base+invalid,c)==HostConfigStatus::Invalid);
+        CHECK(c.value_step_direction==ValueStepDirection::Normal); CHECK_EQ(c.new_pattern_length,32u);
+    }
 }

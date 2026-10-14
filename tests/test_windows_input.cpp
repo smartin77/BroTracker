@@ -127,32 +127,32 @@ int main() {
             CHECK(editor.Ready());
         }
     }
-    for(auto direction : {BroTracker::NoteStepDirection::Normal,BroTracker::NoteStepDirection::Reversed}) {
+    for(auto direction : {BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
         LocalPatternEditor notes; notes.Sync(live); WindowsEditorInput configured(direction);
         auto press=[&](SDL_Keycode code,unsigned now,unsigned type=SDL_KEYDOWN) {
             SDL_Event event{}; event.type=type; event.key.keysym.sym=code;
             return configured.Handle(event,now,notes);
         };
         CHECK(notes.Apply(EditorAction::SetValue,60)); CHECK(press(SDLK_PAGEUP,0));
-        const auto increased=direction==BroTracker::NoteStepDirection::Normal?61:59;
+        const auto increased=direction==BroTracker::ValueStepDirection::Normal?61:59;
         CHECK(notes.Draft()->cells[0][0].note==increased);
         configured.Tick(400,KMOD_NONE,notes);
-        CHECK(notes.Draft()->cells[0][0].note==(direction==BroTracker::NoteStepDirection::Normal?62:58));
+        CHECK(notes.Draft()->cells[0][0].note==(direction==BroTracker::ValueStepDirection::Normal?62:58));
         press(SDLK_PAGEUP,401,SDL_KEYUP); const auto held=*notes.Draft();
         configured.Tick(1000,KMOD_NONE,notes); CHECK(BroTracker::SamePattern(held,*notes.Draft()));
         CHECK(press(SDLK_PAGEDOWN,1100)); CHECK(notes.Draft()->cells[0][0].note==increased);
         press(SDLK_PAGEDOWN,1101,SDL_KEYUP);
         CHECK(notes.Apply(EditorAction::SetValue,60)); CHECK(notes.Apply(EditorAction::Right));
         CHECK(notes.Apply(EditorAction::SetValue,0)); CHECK(press(SDLK_PAGEUP,1200));
-        CHECK(notes.Draft()->cells[0][0].instrument==1); press(SDLK_PAGEUP,1201,SDL_KEYUP);
+        CHECK(notes.Draft()->cells[0][0].instrument==(direction==BroTracker::ValueStepDirection::Normal?1:255)); press(SDLK_PAGEUP,1201,SDL_KEYUP);
         CHECK(notes.Apply(EditorAction::Left)); CHECK(notes.Apply(EditorAction::NoteOff)); CHECK(notes.Apply(EditorAction::Right));
         CHECK(press(SDLK_PAGEDOWN,1300)); CHECK(notes.OffTiming(0,0)==LocalNoteOffTiming::EndOfPosition);
-        press(SDLK_PAGEDOWN,1301,SDL_KEYUP); CHECK(notes.Draft()->cells[0][0].instrument==1);
+        press(SDLK_PAGEDOWN,1301,SDL_KEYUP); CHECK(notes.Draft()->cells[0][0].instrument==(direction==BroTracker::ValueStepDirection::Normal?1:255));
         CHECK(notes.Apply(EditorAction::Left)); CHECK(notes.Apply(EditorAction::SetValue,60));
         CHECK(press(SDLK_PAGEUP,2000)); CHECK(press(SDLK_PAGEDOWN,2010));
         press(SDLK_PAGEUP,2011,SDL_KEYUP); // Old release must not cancel opposite hold.
         configured.Tick(2410,KMOD_NONE,notes);
-        CHECK(notes.Draft()->cells[0][0].note==(direction==BroTracker::NoteStepDirection::Normal?59:61));
+        CHECK(notes.Draft()->cells[0][0].note==(direction==BroTracker::ValueStepDirection::Normal?59:61));
         press(SDLK_PAGEDOWN,2411,SDL_KEYUP); const auto released=*notes.Draft();
         configured.Tick(3000,KMOD_NONE,notes); CHECK(BroTracker::SamePattern(released,*notes.Draft()));
     }

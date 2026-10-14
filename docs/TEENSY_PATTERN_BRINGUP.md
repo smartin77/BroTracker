@@ -107,7 +107,7 @@ authoritative.
   or C-3 (raw 60) if none exists.
   Logical stepping cycles G-8 -> OFF -> C-0 on increase and
   C-0 -> OFF -> G-8 on decrease; other pitches step by one semitone.
-  Empty instrument fields initialize to raw ID 0 (displayed 01); instrument bounds do not wrap.
+  Empty instrument fields initialize to raw ID 0 (displayed 01); numeric instruments cycle 99 -> -- -> 01 and 01 -> -- -> 99.
 - O enters NOTE_OFF in the Note field, defaulting to arrival-time `¯`. For OFF,
   the second field selects timing: `¯` stops at the current position's beginning,
   `_` stops at its end, whose duration follows musical timing/BPM. Both PgUp and
@@ -481,7 +481,8 @@ no numbering-mode switch is implemented.
 Instrument numbers are one-based decimal: raw ID 0 displays as `01`, raw ID 1
 as `02`; `00` is never an editable/displayed instrument number. Empty remains
 `--` (raw 0xFF). PgUp/PgDn from an empty instrument selects `01`; editing is
-bounded, without wrapping. The minimum two-digit format expands to three digits
+limited to 01..99 with cyclic stepping through --. Received higher IDs are preserved;
+numeric stepping rejects them instead of clamping. The minimum two-digit format expands to three digits
 for 100..255 within the existing field width; there is no 100-instrument limit.
 Internal IDs, bindings and snapshot/publication wire values remain raw and unchanged.
 OFF timing glyphs remain separate. This display change is host-tested; Windows
@@ -2167,12 +2168,12 @@ Optional schema-1 config (normal is the built-in and safe-config default):
 
 ```ini
 [editing]
-note_step_direction=reversed
+value_step_direction=reversed
 ```
 
-Normal maps PgUp to increase and PgDn to decrease; reversed swaps Note-field
+Normal maps PgUp to increase and PgDn to decrease; reversed swaps Note and numeric Instrument
 requests once at the shared input interpretation boundary, including held repeat.
-Instrument stepping, OFF timing toggling, navigation, explicit note assignment and
+OFF timing toggling, navigation, explicit note assignment and
 future letter-note entry are unaffected. Held editing keeps the existing endpoint
 acceleration reset and renews a 400 ms pause on entering OFF; the next action
 leaves OFF in the selected logical direction. Opposite keys replace the hold and
@@ -2245,3 +2246,28 @@ check preview, stopped/paused F5 and authoritative readback. Check both player
 environments, transport/gains, memory usage and PERF. No firmware or BTX application
 build/package was performed for this step. Historical validation records above
 refer to their then-current fixtures and remain unchanged.
+
+
+### Numeric instrument stepping and unified direction (hardware validation pending)
+
+Schema-1 `[editing] value_step_direction=normal|reversed` applies once to Note and
+numeric Instrument input, including holds. Built-in and safe-config use normal.
+The deprecated `note_step_direction` alias accepts the same values and now applies
+to both fields; configurations containing both names reject transactionally.
+Effective startup logging reports `value_step_direction`. No user config is rewritten.
+
+Numeric editing covers displayed 01..99 (internal 0..98). Increase cycles
+99 -> -- -> 01; decrease cycles 01 -> -- -> 99. Fresh empty entry inserts 01
+unchanged for either direction. A small interaction flag outside pattern/history
+preserves cycling through empty across individual presses and held repeats.
+Navigation, explicit field edits, Restore, Undo/Redo and context replacement reset
+it. Holds renew the 400 ms pause at the directional endpoint and on entering --.
+OFF's second field still toggles timing in either direction, without inversion.
+Instrument edits preserve the note; higher device IDs are preserved and displayed
+using the existing formatter, but unsupported numeric stepping/assignment rejects.
+
+User confirmed 32-row editing and playback progression beyond row 16. This does
+not confirm row-32 loop timing, physical sample timing or performance. Numeric
+instrument cycling/direction still needs Windows manual validation; ArkOS remains
+open. Test fresh entry, both cycles with taps/holds, reversed mode, OFF timing,
+Restore/history and preservation of notes and received higher IDs.

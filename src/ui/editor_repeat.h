@@ -38,7 +38,12 @@ public:
 private:
     bool AtEndpoint(const LocalPatternEditor& editor) const noexcept {
         const auto& cursor = editor.Cursor();
-        if (cursor.field != EditField::Note) return false;
+        if (cursor.field == EditField::Instrument) {
+            const auto cell=editor.Draft()->cells[cursor.row][cursor.channel];
+            return cell.note!=NOTE_OFF && (cell.instrument==BroTracker::kNoInstrumentUpdate ||
+                (action_==EditorAction::Increment && cell.instrument==kEditableInstrumentMaximum) ||
+                (action_==EditorAction::Decrement && cell.instrument==0));
+        }
         const auto note = editor.Draft()->cells[cursor.row][cursor.channel].note;
         return note == NOTE_OFF || (action_ == EditorAction::Increment && note == kPatternNoteMaximum) ||
             (action_ == EditorAction::Decrement && note == kPatternNoteMinimum);

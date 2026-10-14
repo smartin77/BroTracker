@@ -265,12 +265,23 @@ metadata. Held editing renews a 400 ms acceleration pause at the pitched endpoin
 and again on entering OFF. A new physical press takes its action immediately;
 the next action from OFF follows the selected logical direction.
 
-Optional schema-1 `[editing] note_step_direction=normal|reversed` controls only
-Note-field input interpretation. Built-in/`--safe-config` default is normal:
-PgUp increases, PgDn decreases; reversed swaps those note requests once at the
-shared input boundary, including holds. Logical actions, explicit note assignment
-and future letter-note entry retain their meanings. Instrument values/navigation
-and OFF timing-field toggling do not invert. Instrument bounds do not wrap.
+Optional schema-1 `[editing] value_step_direction=normal|reversed` controls Note
+and numeric Instrument input interpretation. The deprecated `note_step_direction`
+alias remains accepted; specifying both names rejects the complete configuration.
+Built-in/`--safe-config` default is normal: PgUp increases, PgDn decreases;
+reversed swaps these value requests once at the shared input boundary, including
+holds. Logical actions, explicit assignment, future letter-note entry, navigation
+and OFF timing-field toggling retain their meanings.
+
+Editable instrument numbers are 01..99 (raw IDs 0..98), with empty `--` (0xFF).
+Increase cycles 99 -> -- -> 01; decrease cycles 01 -> -- -> 99. A fresh empty
+field inserts 01 unchanged in either direction. Interaction state distinguishes
+fresh entry from cycling through empty; navigation, explicit edits, history
+restoration and context replacement reset it. Holds renew the endpoint 400 ms
+pause at the directional endpoint and empty cycle boundary. Higher IDs received
+from the device remain unchanged and readable; numeric stepping rejects them
+rather than clamping or renumbering. Instrument edits never change the note;
+OFF timing remains separate.
 
 
 Values below 24 must not be silently clamped, transposed or relabeled.
