@@ -15,6 +15,12 @@ dArkOS compatibility validation remains deferred. These
 steps refine the broader roadmap; planned playback behavior still requires
 implementation and validation.
 
+Primary development firmware: `teensy41_dev` (the PlatformIO default), inheriting
+the complete `teensy41_pattern_variable_rate` configuration without duplicate flags.
+From the repository root, `pio run -t upload` builds and uploads the default.
+Existing explicit names remain usable with `pio run -e <environment> -t upload`
+for regression/diagnostic testing; their firmware behavior is unchanged.
+
 ### Musical Scheduler Timing
 
 * [x] Implement the sample-timeline foundation: initialization, reset and counting

@@ -63,10 +63,13 @@ and snapshot timeout/recovery checks, legacy regression, ArkOS, MQS and realtime
 performance. Logical telemetry consistency and visible restart at row 0 / loop 0 do not measure exact physical
 sample/phase timing. The checklist below retains these outstanding checks.
 
-From the repository root in PowerShell, build and upload explicitly:
+The primary development firmware environment is `teensy41_dev`, the default
+in `platformio.ini`. It inherits the complete `teensy41_pattern_variable_rate`
+configuration, including SD sample playback and PERF diagnostics, without changing
+firmware behavior. From the repository root in PowerShell, build and upload it:
 
 ```powershell
-pio run -e teensy41_pattern -t upload
+pio run -t upload
 ```
 
 Launch the existing Windows client:
@@ -75,7 +78,10 @@ Launch the existing Windows client:
 .\deploy\windows\BroTrackerTerminal.exe
 ```
 
-The default `teensy41` environment and `teensy41_usb_trace` are unchanged.
+Upload includes building. For an explicit environment, use
+`pio run -e <environment> -t upload`; all existing names remain usable for
+regression/diagnostic testing. The ordinary legacy `teensy41` and diagnostic
+`teensy41_usb_trace` configurations are unchanged.
 `teensy41_pattern` inherits the ordinary USB audio preparation script, including
 the guarded zero-fill and unused-RX ownership corrections. It does not enable
 USB trace instrumentation. The installed framework is not modified.
