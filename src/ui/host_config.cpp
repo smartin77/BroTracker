@@ -27,7 +27,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     if (text.size() > kMaxHostConfigBytes) return HostConfigStatus::TooLarge;
     HostConfig candidate;
     unsigned section=0;
-    bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false;
+    bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
         auto line=Trim(text.substr(0,end));
@@ -35,11 +35,16 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         if(line.empty() || line.front()=='#' || line.front()==';') continue;
         if(line=="[btx]") { if(btx) return HostConfigStatus::Invalid; btx=true; section=1; continue; }
         if(line=="[logging]") { if(logging) return HostConfigStatus::Invalid; logging=true; section=2; continue; }
+        if(line=="[editing]") {if(editing) return HostConfigStatus::Invalid; editing=true; section=3; continue;}
         if(!section) return HostConfigStatus::Invalid;
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==2 && key=="mode" && !mode) {
+        if(section==3 && key=="note_step_direction" && !direction) {
+            if(raw!="normal" && raw!="reversed") return HostConfigStatus::Invalid;
+            candidate.note_step_direction=raw=="reversed" ? NoteStepDirection::Reversed : NoteStepDirection::Normal;
+            direction=true;
+        } else if(section==2 && key=="mode" && !mode) {
             if(raw!="basic" && raw!="debug") return HostConfigStatus::Invalid;
             candidate.logging_mode=raw=="debug" ? HostLogMode::Debug : HostLogMode::Basic; mode=true;
         } else if(section==2 && key=="preserve_last" && !preserve) {
@@ -90,7 +95,7 @@ const char* HostConfigDiagnostic(HostConfigStatus status) noexcept {
     case HostConfigStatus::Missing: return "config.ini absent; using built-in defaults";
     case HostConfigStatus::SafeDefaults: return "--safe-config: external config bypassed; using built-in defaults";
     case HostConfigStatus::TooLarge: return "config.ini exceeds 4096 bytes; using defaults. Reduce the file or use --safe-config";
-    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20, or use --safe-config";
+    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20 and [editing] note_step_direction=normal/reversed, or use --safe-config";
     default: return "Cannot read config.ini; using defaults. Check path/permissions or use --safe-config";
     }
 }

@@ -891,8 +891,16 @@ design remains unchanged.
   Classic scrolling and a centered edit cursor remain undecided UI options.
   Do not infer zero latency or resolution of every timing case.
 
-* [ ] Add configurable PgUp/PgDn direction inversion, including held-key
-  acceleration; OFF mode toggling remains unchanged. No input inversion yet.
+* [x] Implement schema-1 `[editing] note_step_direction=normal|reversed` at the
+  shared Note-field input boundary (default/safe-config normal). Held direction
+  inverts once; logical actions, instruments, OFF timing and navigation do not.
+  Logical stepping cycles 127 -> OFF -> 24 / 24 -> OFF -> 127, preserving instruments
+  and Arrival entry/exit metadata. Endpoint and OFF-entry holds pause 400 ms.
+  Empty initialization remains preceding pitch/C-3; host tests cover config,
+  cycles, holds, metadata and Undo/Redo. No user config rewrite or ArkOS binding.
+* [ ] Manually validate normal/reversed Note stepping through OFF and held pauses
+  on Windows; ArkOS bindings/runtime remain pending. Existing hardware validation
+  records do not confirm this new behavior.
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
   add host/UI gain control and validate the device protocol without implying mute.

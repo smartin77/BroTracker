@@ -140,7 +140,7 @@ HostLogOpenPlan PrepareHostLog(const std::filesystem::path& path,const HostConfi
 void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& config,
     const std::filesystem::path& path,const HostLogOpenPlan& plan) noexcept {
     HostLogf(file,HostLogLevel::Basic,"Terminal","BTX application start; platform=%s; build=%s %s; device firmware build identity unavailable",platform,__DATE__,__TIME__);
-    HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u",HostConfigDiagnostic(config.status),path.u8string().c_str(),config.config.new_pattern_length);
+    HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u note_step_direction=%s",HostConfigDiagnostic(config.status),path.u8string().c_str(),config.config.new_pattern_length,config.config.note_step_direction==NoteStepDirection::Reversed?"reversed":"normal");
     HostLogf(file,HostLogLevel::Basic,"Logging","mode=%s preserve_last=%u; %s; timestamps describe host observation, not physical audio timing",
         HostDebugLogging()?"debug":"basic",config.config.preserve_last,plan.diagnostic);
 }

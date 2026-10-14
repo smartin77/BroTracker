@@ -2,7 +2,7 @@
 #include <SDL.h>
 #include "ui/bringup_controls.h"
 #include "ui/local_pattern_editor.h"
-#include "ui/editor_repeat.h"
+#include "ui/editor_step_input.h"
 inline bool MapWindowsPublish(const SDL_Event& event) {
     return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
         !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT));
@@ -29,6 +29,7 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
 }
 class WindowsEditorInput {
 public:
+    explicit WindowsEditorInput(BroTracker::NoteStepDirection direction=BroTracker::NoteStepDirection::Normal) noexcept : repeat_(direction) {}
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
         if (!editor.Ready() || editor.Locked() || MapWindowsPublish(event)) repeat_.Cancel();
         if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
@@ -54,7 +55,7 @@ public:
         repeat_.Tick(now, !editor.Locked() && focused_ && !(modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT)), editor);
     }
 private:
-    EditorRepeat repeat_;
+    EditorStepInput repeat_;
     bool focused_ = true;
 };
 inline BringUpAction MapWindowsAction(const SDL_Event& event) {

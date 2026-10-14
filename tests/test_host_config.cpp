@@ -60,3 +60,20 @@ TEST_CASE(HostConfigFileLoadingAndSafeRecovery) {
     CHECK(!UseSafeConfig(2,args)); CHECK(UseSafeConfig(3,args));
     CHECK(!UseSafeConfig(0,nullptr));
 }
+
+TEST_CASE(HostConfigNoteDirectionDefaultsValidationAndSafeBypass) {
+    using Direction=NoteStepDirection; const std::string btx="[btx]\nschema_version=1\nnew_pattern_length=32\n";
+    HostConfig c; CHECK(c.note_step_direction==Direction::Normal);
+    CHECK(ParseHostConfig(btx,c)==HostConfigStatus::Loaded); CHECK(c.note_step_direction==Direction::Normal);
+    CHECK(ParseHostConfig(btx+"[editing]\nnote_step_direction=reversed",c)==HostConfigStatus::Loaded);
+    CHECK(c.note_step_direction==Direction::Reversed);
+    for(auto invalid : {"note_step_direction=other","note_step_direction=Reversed","note_step_direction=",
+        "note_step_direction=reversed\nnote_step_direction=normal","unknown=normal","[editing]"}) {
+        CHECK(ParseHostConfig(btx+"[editing]\n"+invalid,c)==HostConfigStatus::Invalid);
+        CHECK(c.note_step_direction==Direction::Reversed); CHECK_EQ(c.new_pattern_length,32u);
+    }
+    CHECK(ParseHostConfig("[editing]\nnote_step_direction=normal\n"+btx,c)==HostConfigStatus::Loaded);
+    CHECK(c.note_step_direction==Direction::Normal);
+    const auto safe=LoadHostConfig(std::filesystem::path{},true);
+    CHECK(safe.status==HostConfigStatus::SafeDefaults); CHECK(safe.config.note_step_direction==Direction::Normal);
+}

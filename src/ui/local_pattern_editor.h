@@ -147,7 +147,7 @@ private:
             else if (action == EditorAction::Increment || action == EditorAction::Decrement)
             {
                 if (note && old == NOTE_EMPTY) {
-                    replacement = 60; // Yamaha C-3 fallback; OFF initialization remains separate.
+                    replacement = 60; // Yamaha C-3 fallback for empty-note entry.
                     // Bounded preceding-row lookup in this draft channel only.
                     for (unsigned row=next.row; row>0; ) {
                         const auto candidate=draft_.cells[--row][next.channel].note;
@@ -156,14 +156,16 @@ private:
                         }
                     }
                 }
+                else if (note && old == NOTE_OFF)
+                    replacement = action == EditorAction::Increment ? minimum : maximum;
                 else if (old > maximum) replacement = minimum;
                 else if (action == EditorAction::Increment) {
                     if (old == maximum && !note) return false;
-                    replacement = old == maximum ? minimum : old + 1;
+                    replacement = old == maximum ? NOTE_OFF : old + 1;
                 }
                 else {
                     if (old == minimum && !note) return false;
-                    replacement = old == minimum ? maximum : old - 1;
+                    replacement = old == minimum ? NOTE_OFF : old - 1;
                 }
             }
             else if (replacement < minimum || replacement > maximum) return false;

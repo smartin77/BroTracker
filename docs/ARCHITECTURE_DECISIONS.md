@@ -258,12 +258,20 @@ Sharp notes use the accidental in that position, for example C#0.
 
 Incrementing or decrementing an empty Note field inserts the nearest preceding
 pitched note in the current draft channel unchanged, or C-3 (internal 60) if none
-exists. NOTE_OFF initialization remains C-0. Subsequent pitched-note editing
-cycles through C-0..G-8: incrementing
-G-8 wraps to C-0 and decrementing C-0 wraps to G-8. Held editing renews a 400 ms
-pause upon reaching the endpoint before wrapping, resetting acceleration.
-A separate keydown at an endpoint wraps immediately, then waits 400 ms before
-repeating. Instrument-value bounds remain separate and do not wrap.
+exists. Logical stepping cycles through C-0..G-8 plus NOTE_OFF: increase moves
+G-8 -> OFF -> C-0; decrease moves C-0 -> OFF -> G-8. Other pitched notes change
+by one semitone. Instruments are preserved; entering/leaving OFF uses Arrival
+metadata. Held editing renews a 400 ms acceleration pause at the pitched endpoint
+and again on entering OFF. A new physical press takes its action immediately;
+the next action from OFF follows the selected logical direction.
+
+Optional schema-1 `[editing] note_step_direction=normal|reversed` controls only
+Note-field input interpretation. Built-in/`--safe-config` default is normal:
+PgUp increases, PgDn decreases; reversed swaps those note requests once at the
+shared input boundary, including holds. Logical actions, explicit note assignment
+and future letter-note entry retain their meanings. Instrument values/navigation
+and OFF timing-field toggling do not invert. Instrument bounds do not wrap.
+
 
 Values below 24 must not be silently clamped, transposed or relabeled.
 Consumers must handle them explicitly as unsupported pattern notes.

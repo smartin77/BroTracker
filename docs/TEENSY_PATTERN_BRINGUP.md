@@ -99,8 +99,8 @@ authoritative.
 - Page Up/Down increment/decrement the selected numeric value. An empty Note field
   inserts the nearest preceding pitched note from this draft channel unchanged,
   or C-3 (raw 60) if none exists.
-  OFF initializes to C-0; pitched values cycle through C-0..G-8
-  (24..127): incrementing G-8 wraps to C-0, decrementing C-0 wraps to G-8.
+  Logical stepping cycles G-8 -> OFF -> C-0 on increase and
+  C-0 -> OFF -> G-8 on decrease; other pitches step by one semitone.
   Empty instrument fields initialize to raw ID 0 (displayed 01); instrument bounds do not wrap.
 - O enters NOTE_OFF in the Note field, defaulting to arrival-time `¯`. For OFF,
   the second field selects timing: `¯` stops at the current position's beginning,
@@ -124,8 +124,9 @@ authoritative.
   to 50 ms after 1000 ms held and 25 ms after 2000 ms. Each action changes one value
   or timing mode; stalled frames perform at most one repeat, without catch-up.
   Reaching a pitched-note endpoint in the held direction resets acceleration:
-  wait a fresh 400 ms before wrapping, then resume normal repeat/acceleration.
-  A new physical press at an endpoint wraps immediately on keydown; if that press
+  wait a fresh 400 ms before entering OFF; entering OFF renews that pause before
+  proceeding to the opposite pitched endpoint.
+  A new physical press at an endpoint enters OFF immediately on keydown; if that press
   becomes a hold, its first repeat waits 400 ms. Keydown cannot distinguish a tap
   from a future hold, so this immediate-press rule also applies when beginning a
   hold at an endpoint.
@@ -810,7 +811,7 @@ unchanged, skipping empty, instrument-only and NOTE_OFF cells. With no preceding
 pitch, initialize C-3 (raw 60). Never search another channel or wrap across the pattern
 boundary. No instrument is inserted. Subsequent actions use normal direction,
 cyclic bounds and held-key acceleration; existing pitched notes change immediately,
-and OFF still initializes C-0. Lookup reflects draft edits/deletions and works
+and OFF proceeds to C-0 on increase or G-8 on decrease. Lookup reflects draft edits/deletions and works
 immediately after snapshot initialization, Restore and confirmed publication.
 There is no session-local remembered pitch or extra publication metadata.
 
@@ -1902,7 +1903,8 @@ Rebuild Windows BTX for these host corrections; firmware is unchanged. Hardware
 revalidation remains open: rapid valid edits, supersession/readback delays, USB
 reset reconciliation and powered-device reconnect. Physical timing, exhaustive
 backpressure/recovery and ArkOS validation remain open. Configurable PgUp/PgDn
-inversion (including held acceleration) is deferred; OFF toggling stays unchanged.
+inversion (including held acceleration) was deferred at this stage; the later
+Note-field direction implementation is documented below. OFF toggling stays unchanged.
 
 
 ### Working-preview latency and STOP regression review (2026-10-13)
@@ -2144,3 +2146,36 @@ Stopped-only editing is a possible future interaction policy, not an adopted
 restriction; current live editing remains supported. This confirmation supplies
 no new Enter, log-rotation or ArkOS validation. Existing regression coverage,
 backpressure/reconnect, physical timing/performance and other pending checks remain.
+
+
+### Note-field OFF cycle and configurable input direction
+
+Logical increase follows G-8 (127) -> OFF -> C-0 (24); decrease follows
+C-0 -> OFF -> G-8. Other pitched values step by one semitone. Instruments are
+preserved; entering or leaving OFF sets Arrival timing. O remains direct OFF
+entry, and both PgUp/PgDn in the OFF second field still toggle Arrival/EndOfPosition.
+Empty Note entry still inserts the nearest preceding pitched note in this draft
+channel, or C-3 (60) if none, unchanged on its first action and without an instrument.
+
+Optional schema-1 config (normal is the built-in and safe-config default):
+
+```ini
+[editing]
+note_step_direction=reversed
+```
+
+Normal maps PgUp to increase and PgDn to decrease; reversed swaps Note-field
+requests once at the shared input interpretation boundary, including held repeat.
+Instrument stepping, OFF timing toggling, navigation, explicit note assignment and
+future letter-note entry are unaffected. Held editing keeps the existing endpoint
+acceleration reset and renews a 400 ms pause on entering OFF; the next action
+leaves OFF in the selected logical direction. Opposite keys replace the hold and
+key release/cancellation retain their existing behavior. Delete, Restore, dirty
+comparison, Undo/Redo, preview/publication and live editing are unchanged.
+
+Implementation and host tests cover cycles, reversal, metadata/instruments,
+initialization, held timing, Windows key release and transactional config validation.
+Windows packaging is updated; manual normal/reversed Windows validation remains
+pending. The shared model is reusable for handheld input, but no ArkOS bindings
+are added and ArkOS runtime validation remains open. No user config rewrite,
+firmware change/upload or hardware test is performed for this step.

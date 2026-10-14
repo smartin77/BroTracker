@@ -87,3 +87,13 @@ runtime validation remain pending. No postponed hardware scenario is run here.
    current with a diagnostic.
 3. Verify append skips rotation and `--safe-config` selects Basic/0 without rewriting
    config. Archive evidence before testing overwrite behavior.
+
+
+## Editing setting compatibility
+
+Schema 1 also accepts optional `[editing] note_step_direction=normal|reversed`.
+The built-in/`--safe-config` default is normal. This changes only Note-field input
+stepping (including held repeats), not logging, logical actions, instruments or
+OFF timing toggles. It is validated transactionally with `[btx]` and `[logging]`;
+invalid editing settings reject the complete file. See D0018 and the bring-up
+controls. Normal startup never rewrites configuration.

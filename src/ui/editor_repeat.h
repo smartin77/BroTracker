@@ -40,7 +40,7 @@ private:
         const auto& cursor = editor.Cursor();
         if (cursor.field != EditField::Note) return false;
         const auto note = editor.Draft()->cells[cursor.row][cursor.channel].note;
-        return (action_ == EditorAction::Increment && note == kPatternNoteMaximum) ||
+        return note == NOTE_OFF || (action_ == EditorAction::Increment && note == kPatternNoteMaximum) ||
             (action_ == EditorAction::Decrement && note == kPatternNoteMinimum);
     }
     EditorAction action_ = EditorAction::None;

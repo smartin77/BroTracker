@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) try {
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
     LocalPatternEditor editor;
-    WindowsEditorInput editor_input;
+    WindowsEditorInput editor_input(host_config.config.note_step_direction);
     BringUpControls controls(serial, log_file);
     BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F4 Restore; F5 stopped/paused Publish; capability-gated automatic preview\n");
     bool display_failed = false;
