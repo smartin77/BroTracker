@@ -15,7 +15,8 @@ void HostLogf(FILE* file, HostLogLevel level, const char* source, const char* fo
 bool FormatHostTimestamp(std::int64_t epoch_ms, int offset_minutes, std::uint64_t mono_ms,
     char* output, std::size_t capacity) noexcept;
 struct HostLogOpenPlan { bool append=false; const char* diagnostic="Current log replaced; rotation disabled"; bool use_stderr=false; };
-// Debug-only descending same-directory rename rotation. No copy/time rewriting.
+// Debug-only descending same-directory rename rotation. No copying.
+// Windows restores captured source times to counter filename tunneling.
 // On failure, append to unarchived current; prior archive moves may have completed.
 // Only exact name(1)..name(20) archives are inspected; symlinks/directories reject.
 HostLogOpenPlan PrepareHostLog(const std::filesystem::path& path, const HostConfig& config, bool append) noexcept;

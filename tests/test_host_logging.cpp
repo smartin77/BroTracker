@@ -97,6 +97,10 @@ TEST_CASE(HostLoggingRotationLimitsAppendAndSafeFailure) {
 #endif
 #include <windows.h>
 namespace {
+struct WindowsFixtureCleanup {
+    std::filesystem::path path;
+    ~WindowsFixtureCleanup() {std::error_code error; std::filesystem::remove_all(path,error);}
+};
 BY_HANDLE_FILE_INFORMATION FileIdentity(const std::filesystem::path& p) {
     const HANDLE h=CreateFileW(p.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
     CHECK(h!=INVALID_HANDLE_VALUE); BY_HANDLE_FILE_INFORMATION info{};
@@ -114,10 +118,11 @@ void SameWindowsFile(const BY_HANDLE_FILE_INFORMATION& a,const BY_HANDLE_FILE_IN
 }
 }
 TEST_CASE(HostLoggingWindowsRenamePreservesActualTimestampsAndIdentity) {
-    const auto dir=std::filesystem::temp_directory_path()/"brotracker-log-rename-windows";
+    const auto dir=std::filesystem::temp_directory_path()/("brotracker-log-rename-windows-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
     CHECK(std::filesystem::create_directory(dir));
+    WindowsFixtureCleanup cleanup{dir};
     const auto current=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
-    Write(current,"current"); Write(one,"previous"); Write(two,"oldest");
+    Write(current,"current"); Sleep(40); Write(one,"previous"); Sleep(40); Write(two,"oldest");
     const auto original=FileIdentity(current),previous=FileIdentity(one);
     HostConfig config; config.logging_mode=HostLogMode::Debug; config.preserve_last=2;
     const auto plan=PrepareHostLog(current,config,false); CHECK(!plan.append);
@@ -128,10 +133,11 @@ TEST_CASE(HostLoggingWindowsRenamePreservesActualTimestampsAndIdentity) {
 }
 TEST_CASE(HostLoggingWindowsRenamePartialFailurePreservesUnarchivedCurrent) {
     for(bool lock_current : {false,true}) {
-        const auto dir=std::filesystem::temp_directory_path()/"brotracker-log-rename-failure";
+        const auto dir=std::filesystem::temp_directory_path()/("brotracker-log-rename-failure-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
         CHECK(std::filesystem::create_directory(dir));
-        const auto current=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
-        Write(current,"current"); Write(one,"previous"); Write(two,"oldest");
+        WindowsFixtureCleanup cleanup{dir};
+    const auto current=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
+        Write(current,"current"); Sleep(40); Write(one,"previous"); Sleep(40); Write(two,"oldest");
         const auto original=FileIdentity(current);
         const auto locked=lock_current?current:one;
         const HANDLE h=CreateFileW(locked.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr);

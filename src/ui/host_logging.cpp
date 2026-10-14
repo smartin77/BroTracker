@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 #include <mutex>
+#include <system_error>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -26,6 +27,22 @@ unsigned replacement=0;
 bool Contains(std::string_view s,std::string_view needle) { return s.find(needle)!=s.npos; }
 std::filesystem::path Archive(const std::filesystem::path& p,unsigned i) {
     return p.parent_path()/(p.stem().wstring()+L"("+std::to_wstring(i)+L")"+p.extension().wstring());
+}
+void RenamePreservingTimes(const std::filesystem::path& from,const std::filesystem::path& to) {
+#ifdef _WIN32
+    // NTFS filename tunneling can replace creation time with a deleted
+    // destination's metadata. Keep the source handle/identity and real times.
+    struct Handle {HANDLE value; ~Handle(){if(value!=INVALID_HANDLE_VALUE) CloseHandle(value);}};
+    Handle handle{CreateFileW(from.c_str(),FILE_READ_ATTRIBUTES|FILE_WRITE_ATTRIBUTES,
+        FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr)};
+    if(handle.value==INVALID_HANDLE_VALUE) throw std::system_error(GetLastError(),std::system_category(),"Open log attributes");
+    FILETIME creation{},access{},write{};
+    if(!GetFileTime(handle.value,&creation,&access,&write)) throw std::system_error(GetLastError(),std::system_category(),"Read log timestamps");
+    std::filesystem::rename(from,to);
+    if(!SetFileTime(handle.value,&creation,&access,&write)) throw std::system_error(GetLastError(),std::system_category(),"Restore renamed log timestamps");
+#else
+    std::filesystem::rename(from,to);
+#endif
 }
 bool Utc(std::time_t time,std::tm& out) {
 #ifdef _WIN32
@@ -129,13 +146,18 @@ HostLogOpenPlan PrepareHostLog(const std::filesystem::path& path,const HostConfi
         for(unsigned i=config.preserve_last+1;i<=20;++i) std::filesystem::remove(Archive(path,i));
         for(unsigned i=config.preserve_last;i>1;--i) {
             const auto from=Archive(path,i-1);
-            if(std::filesystem::exists(from)) std::filesystem::rename(from,Archive(path,i));
+            if(std::filesystem::exists(from)) RenamePreservingTimes(from,Archive(path,i));
         }
         // Last potentially failing file operation. Open a new current only on
-        // successful return; no timestamp rewriting or copy fallback.
-        std::filesystem::rename(path,Archive(path,1));
+        // successful return; only original source timestamps are restored on Windows.
+        RenamePreservingTimes(path,Archive(path,1));
         return {false,"Debug startup rotation completed"};
-    } catch(...) {return failed;}
+    } catch(...) {
+        std::error_code error;
+        if(!std::filesystem::exists(path,error) && !error)
+            return {true,"Rotation failed after current was moved; preserved archive retained, using stderr",true};
+        return failed;
+    }
 }
 void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& config,
     const std::filesystem::path& path,const HostLogOpenPlan& plan) noexcept {

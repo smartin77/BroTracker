@@ -64,12 +64,17 @@ decision in either mode. There is no runtime rotation or compression.
 Preflight rejects nonregular archive entries. Rotation removes the oldest retained
 archive, prunes exact-name archives beyond the limit, then renames descending:
 (N-1) to (N), through (1) to (2), and current to (1). All renames stay in the same
-directory; no copying or timestamp rewriting is used. Opening a new current log
+directory; no copying is used. Windows filename tunneling can inherit the deleted
+destination creation time even during a rename. Capture source timestamps on an
+open handle before each move and restore those exact original values afterward;
+this counters tunneling, not copying or artificial timestamp generation. Opening a new current log
 is allowed only after successful rotation. Windows fixture tests verify unchanged
 creation/access/last-write timestamps and file identity for moved current and archives.
 Rotation failure uses append fallback and an actionable diagnostic, preserving an
 unarchived current. Earlier archive moves/removals may already have completed;
-rotation is not an atomic multi-file transaction and does not roll them back. If opening also fails, startup
+rotation is not an atomic multi-file transaction and does not roll them back.
+If restoring metadata fails after current has already moved, retain that archive
+and use stderr instead of opening a new current on a failed rotation. If opening also fails, startup
 continues with stderr and a Windows debugger notice. Archive validated evidence
 separately before Basic/zero runs; numbered retention is not permanent archival.
 
