@@ -18,6 +18,7 @@
 #include "ui/host_logging.h"
 #include "ui/sdl/host_diagnostics.h"
 #include "ui/bringup_controls.h"
+#include "ui/arkos/input.h"
 
 #include "core/constants.h"
 #include "core/logger.h"
@@ -29,26 +30,6 @@
 
 namespace
 {
-BringUpAction MapBringUpAction(const SDL_Event& event, SDL_JoystickID controller_id)
-{
-    // Use mapped buttons from the opened controller only. Raw joystick events
-    // have no reliable portable mapping and also duplicate controller events.
-    if (controller_id < 0 || event.type != SDL_CONTROLLERBUTTONDOWN ||
-        event.cbutton.which != controller_id)
-        return BringUpAction::None;
-    switch (event.cbutton.button)
-    {
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-    case SDL_CONTROLLER_BUTTON_B:
-        return BringUpAction::Start;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-    case SDL_CONTROLLER_BUTTON_X:
-        return BringUpAction::StopExit;
-    default:
-        return BringUpAction::None;
-    }
-}
-
 constexpr const char* kBringUpLogPath =
     "/tmp/brotracker-arkos.log";
 
@@ -257,10 +238,22 @@ int main(int argc, char* argv[])
             "controller/joystick open result: unavailable");
     }
 
-    const SDL_JoystickID controller_id = game_controller != nullptr
-        ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller)) : -1;
-    WriteBringUpDiagnostic(bring_up_log,
-        "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
+    ArkOSEditorInput editor_input(host_config.config.value_step_direction);
+    auto select_controller = [&]() {
+        if (!game_controller) return;
+        const auto stream = SDL_GameControllerEventState(SDL_ENABLE)==SDL_ENABLE ?
+            ArkOSInputStream::Controller : ArkOSInputStream::VerifiedRaw;
+        SDL_JoystickEventState(SDL_ENABLE);
+        editor_input.SelectController(game_controller,stream);
+        char guid[64];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(game_controller)),guid,sizeof(guid));
+        BroTracker::HostLogf(bring_up_log,BroTracker::HostLogLevel::Debug,"ArkOS input",
+            "controller=%s guid=%s instance=%d stream=%s; raw fallback uses SDL button/hat bindings only",
+            SDL_GameControllerName(game_controller),guid,editor_input.Device(),
+            stream==ArkOSInputStream::Controller ? "controller" : "verified raw");
+    };
+    select_controller();
+    WriteBringUpDiagnostic(bring_up_log,kArkOSEditorHints);
     LogSdlHostDiagnostics(bring_up_log);
     BringUpSerial serial(bring_up_log);
     LocalPatternEditor editor;
@@ -284,24 +277,28 @@ int main(int argc, char* argv[])
                 controls.Request(BringUpAction::Exit, "SDL_QUIT/display error", SDL_GetTicks());
                 break;
             }
-            const BringUpAction action = MapBringUpAction(event, controller_id);
-            if (action != BringUpAction::None)
-            {
-                const char* button = SDL_GameControllerGetStringForButton(
-                    static_cast<SDL_GameControllerButton>(event.cbutton.button));
-                char source[96];
-                std::snprintf(source, sizeof(source), "mapped button %s", button);
-                controls.Request(action, source, SDL_GetTicks());
+            const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
+            if (game_controller && editor_input.Device()<0) {
+                SDL_GameControllerClose(game_controller); game_controller=nullptr;
+                WriteBringUpDiagnostic(bring_up_log,"selected controller removed; held edits cancelled");
             }
+            if (!game_controller && event.type==SDL_CONTROLLERDEVICEADDED && SDL_IsGameController(event.cdevice.which)) {
+                game_controller=SDL_GameControllerOpen(event.cdevice.which); select_controller();
+            }
+            if(result.publish && !controls.Exiting() && !controls.StopPending())
+                (void)serial.Publish(editor,SDL_GetTicks());
+            if(result.transport!=BringUpAction::None)
+                controls.Request(result.transport,"ArkOS mapped input",SDL_GetTicks());
         }
-
+        editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
+        serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
+        controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
+        serial.SyncEditor(editor,SDL_GetTicks());
         const HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            controller_id < 0 ? "Mapped SDL GameController required" :
-            !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
-            serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
-            !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
-            "L1 / B: START | R1 / X: EXIT", serial.PublicationStatus()};
+            editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
+            serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
+            serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if (!controls.Quit() && !display.Present(framebuffer))

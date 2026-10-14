@@ -235,7 +235,8 @@ Only after this exact connection-scoped capability may shared BTX send the new
 requests. Ordinary firmware is unchanged and receives no PAUSE/CONTINUE requests.
 Windows Space sends START from Stopped, PAUSE from Playing, CONTINUE from Paused.
 Without capability, it retains diagnostic START/RESTART. ArkOS handheld transport
-bindings remain L1/B START/RESTART and R1/X STOP/exit; no handheld remapping is included.
+now uses the temporary bindings documented below: Start invokes this same
+capability-gated toggle, B requests Stop/reset, and L1+Start uses clean STOP/exit.
 
 Exact LF-terminated command/response lines:
 
@@ -1293,8 +1294,8 @@ Windows hardware checklist (all pending for this new scope):
    remains prompt and lines are not interleaved. Disconnect around COMMIT, reconnect
    to running/paused playback and verify recovery without START or blind resend.
 5. Verify panel labels, independent edit/playback cursors, unchanged BPM and legacy
-   firmware fallback. ArkOS handheld publication/editor bindings remain outside
-   this step; shared code is reusable, ArkOS hardware validation remains open.
+   firmware fallback. Temporary ArkOS handheld publication/editor bindings now reuse
+   the shared code; ArkOS hardware validation remains open.
 
 Host tests include a partial-write simulated device using real parser/hash,
 audio-owner control and core PCM rendering: edits alter PCM, F4 restores playback,
@@ -2267,7 +2268,77 @@ Instrument edits preserve the note; higher device IDs are preserved and displaye
 using the existing formatter, but unsupported numeric stepping/assignment rejects.
 
 User confirmed 32-row editing and playback progression beyond row 16. This does
-not confirm row-32 loop timing, physical sample timing or performance. Numeric
-instrument cycling/direction still needs Windows manual validation; ArkOS remains
-open. Test fresh entry, both cycles with taps/holds, reversed mode, OFF timing,
+not confirm row-32 loop timing, physical sample timing or performance. Windows unified directions, boundary pauses and OFF timing are user-confirmed
+below; remaining numeric edit edge cases and ArkOS validation remain open.
+Test fresh entry, both cycles with taps/holds, reversed mode, OFF timing,
 Restore/history and preservation of notes and received higher IDs.
+
+
+### Temporary ArkOS handheld pattern-editor bindings (hardware validation pending)
+
+User confirmed Windows unified value directions, endpoint pauses and OFF timing.
+This does not validate handheld input. The following ArkOS implementation is
+replaceable by future input profiles; no dArkOS validation is claimed.
+
+| SDL semantic control | Temporary action |
+| --- | --- |
+| D-pad Up / Down | Previous / next edit row |
+| D-pad Left / Right | Previous / next field across channels, bounded |
+| L1 + Up / Down | Shared logical Increment / Decrement, then apply `value_step_direction` once |
+| L1 + Left / Right | Previous / next active channel, wrapping and selecting Note |
+| Start | Capability-gated Start / Pause / current-row Continue; legacy Start/Restart |
+| B | Stop/reset, staying in BTX; each new press can request another STOP |
+| X | NOTE_OFF in Note field |
+| Y | Clear using shared semantics (Note Delete clears note/instrument/timing) |
+| L1 + Y | Restore published baseline; capability-gated automatic working preview |
+| A | Existing publication workflow, only Stopped/Paused with required capabilities |
+| L1 + Start | Existing STOP-then-exit workflow |
+| L1 alone / Select | No action |
+
+Chords consume component actions. No legacy L1/B Start or R1/X Stop/exit mapping
+remains. Value holds reuse shared repeat/acceleration/cyclic boundary pauses;
+OFF timing toggles do not invert. Direction/modifier release, focus loss,
+controller removal, disconnect and editor locking cancel repeats. Changing L1
+while a direction is held never turns that hold into another action: release
+and press that direction again. Opposing directions cancel and require release;
+there is at most one value repeat stream. Navigation remains independent from
+playback, and remains available during publication locking. Publication freezes
+mutations, while B and clean exit retain shared STOP priority/recovery semantics.
+
+Edits are observed by BringUpSerial before processing further recovery replies,
+using existing automatic preview/coalescing. Restore does not publish; A uses
+exact readback before rebase, never auto-Stops/Continues. Dirty comparison and
+history remain shared. Controls/status use ArkOS labels in the existing wrapped,
+clipped, eight-pixel-padded right panel; no bottom overlay or pattern-cell labels.
+
+Mapping mechanism: discovery opens an SDL GameController and filters by its
+joystick instance ID. Mapped events use SDL semantic buttons, not raw indices
+inferred from horizontal/vertical layouts. Unmapped raw devices remain ignored.
+If controller event delivery cannot be enabled, the supported raw fallback copies
+button/hat bindings from that opened controller via
+`SDL_GameControllerGetBindForButton`; it ignores controller duplicates and raw
+axes. Hat changes release old directions before pressing new ones. Normal mode
+ignores all raw joystick/hat duplicates. Removal releases the selected handle;
+a subsequently added mapped controller can be selected without transport actions.
+
+Physical A/B/X/Y labels, L1 placement, mapping correctness and OS/emulator hotkey
+interception still require actual-device verification. Axis-only raw fallback
+controls are unsupported; standard mapped controller axes remain SDL's mapping
+responsibility. RetroArch/EmulationStation bindings are not assumed to apply.
+See [SDL controller binding documentation](https://wiki.libsdl.org/SDL2/SDL_GameControllerGetBindForButton).
+
+Validation: synthetic SDL input/coordinator tests cover navigation, chords,
+release ordering/opposition, normal/reversed holds and OFF timing, removal,
+instance filtering, verified raw button/hat normalization, publication gates and
+STOP/clean exit. Shared rendering tests check handheld labels stay inside the
+panel. Available Windows GCC/SDL C++17 syntax checks cover ArkOS main/input;
+these are not ARM/Linux linking or deployment checks. No application binary was
+built/packaged, no device accessed and no firmware changed.
+
+Pending ArkOS checklist: verify semantic labels and D-pad/L1 delivery; navigate
+upper rows/channels; test tap/hold cycles and modifier release; compare normal /
+reversed config; test OFF and combined Delete; check automatic preview, Restore,
+stopped/paused publication and blocked Playing publication; verify B and L1+Start
+during partial transfers, unplug/reconnect and controller removal. Confirm no
+held edit resumes after recovery and the panel remains readable. Final profiles,
+calibration, Undo/Redo bindings and dArkOS checks remain separate future work.

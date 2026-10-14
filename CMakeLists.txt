@@ -149,6 +149,14 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
     add_test(NAME BroTrackerWindowsInputTests COMMAND BroTrackerWindowsInputTests)
 endif()
 
+if(BROTRACKER_SDL2_TARGET)
+    add_executable(BroTrackerArkOSInputTests tests/test_main.cpp tests/test_arkos_input.cpp)
+    target_include_directories(BroTrackerArkOSInputTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} tests)
+    target_link_libraries(BroTrackerArkOSInputTests PRIVATE BroTrackerBringUp ${BROTRACKER_SDL2_TARGET})
+    target_compile_definitions(BroTrackerArkOSInputTests PRIVATE SDL_MAIN_HANDLED)
+    add_test(NAME BroTrackerArkOSInputTests COMMAND BroTrackerArkOSInputTests)
+endif()
+
 add_executable(BroTrackerTests
     tests/test_main.cpp
     tests/test_note_formatter.cpp

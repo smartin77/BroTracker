@@ -627,16 +627,26 @@ design remains unchanged.
   validation on 2026-10-10 confirms the final editor behavior works as agreed.
   Legacy edits remain local until explicit F5 publication; capability-gated volatile
   preview now has separate automatic transfer. Publication
-  hardware validation, ArkOS sending bindings and live edits remain open.
+  hardware validation and broader editing integration remain open; temporary
+  ArkOS sending bindings are implemented below.
 
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
   rendering. Evidence: `src/core/{pattern,channel,event,tune}.h`, the tune loader,
   `src/ui/pattern_screen.cpp` and `tests/test_tune_loader.cpp`. The preview uses a
   fixed position and does not provide interactive editing or realtime publication.
-* [ ] Implement ArkOS row/channel/field navigation and note/instrument entry with
-  an edit cursor distinct from the live playback row. Host input and diagnostic
-  controls and the shared local editor exist; ArkOS handheld editor bindings and
-  hardware validation remain unimplemented.
+* [x] Implement temporary ArkOS handheld bindings in `ui/arkos/input.h` and main:
+  D-pad row/field navigation; L1+Up/Down shared value stepping, L1+Left/Right channel;
+  Start capability-gated transport, B Stop/reset, X OFF, Y Clear, L1+Y Restore,
+  A stopped/paused publication, L1+Start clean STOP/exit; Select unassigned.
+  Shared preview/publication/editor coordinators preserve baseline/history and
+  uncertainty recovery. Fixed held-state handling consumes chords, cancels on
+  releases/focus/removal/disconnect/locking, and requires release after modifier
+  changes. SDL controller instance filtering and verified button/hat fallback
+  prevent duplicate raw/controller events. Labels use the existing padded panel.
+  Synthetic SDL tests and available host syntax checks are not handheld validation.
+* [ ] Validate temporary bindings, SDL mapping/physical labels, OS hotkey delivery,
+  repeat, preview/Restore/publication and STOP/exit on ArkOS hardware. Profiles and
+  final bindings remain undecided; no dArkOS validation is claimed.
 * [ ] Send validated edit commands to Teensy: validate pattern, row, channel,
   note and instrument values, bound command buffering and handling, and report
   acceptance or rejection to BTX. The current diagnostic exchange has no edits.
@@ -801,8 +811,8 @@ design remains unchanged.
   remain visible without automatic retry. Tests cover partial writes, held edits,
   dirty state, recovery, races and end-to-end PCM/Restore/publication.
 * [ ] Complete exhaustive validation of F4/F5 coordination, rejection, uncertainty/reconnect,
-  backpressure and pause latency on Windows + Teensy, then ArkOS. Handheld bindings
-  remain deferred. No SD persistence; physical timing/performance remain unmeasured.
+  backpressure and pause latency on Windows + Teensy, then ArkOS. Temporary handheld
+  bindings exist; final profile/input design remains deferred. No SD persistence; physical timing/performance remain unmeasured.
 
 * [x] Correct host preview service cadence: bounded ready-line bursts and complete
   Windows worker line capacity, stopping on backpressure and retaining transport
@@ -904,10 +914,12 @@ design remains unchanged.
   IDs are preserved, not clamped; instrument edits preserve notes. The deprecated
   `note_step_direction` config alias remains accepted, but both names together
   reject transactionally. Host tests cover cycles, inversion, history and OFF timing.
+* [x] User confirmed Windows unified value directions, renewed boundary pauses and
+  OFF timing toggling; this is not ArkOS or dArkOS validation.
 * [x] User confirmed 32-row editing and progression beyond row 16; this is not
   confirmation of loop timing or realtime performance.
-* [ ] Manually validate numeric instrument cycles and unified normal/reversed input
-  on Windows; ArkOS input/runtime and unmeasured hardware timing/performance remain open.
+* [ ] Complete remaining numeric instrument edit edge-case validation; ArkOS
+  input/runtime and unmeasured hardware timing/performance remain open.
 
 * [x] Implement schema-1 `[editing] value_step_direction=normal|reversed` at the
   shared Note/numeric Instrument input boundary (default/safe-config normal). Held direction
@@ -915,7 +927,7 @@ design remains unchanged.
   Logical stepping cycles 127 -> OFF -> 24 / 24 -> OFF -> 127, preserving instruments
   and Arrival entry/exit metadata. Endpoint and OFF-entry holds pause 400 ms.
   Empty initialization remains preceding pitch/C-3; host tests cover config,
-  cycles, holds, metadata and Undo/Redo. No user config rewrite or ArkOS binding.
+  cycles, holds, metadata and Undo/Redo. No user config rewrite; temporary ArkOS bindings now reuse this preference.
 * [x] User confirmed cyclic OFF stepping and `note_step_direction=reversed` on
   Windows. This confirmation does not establish ArkOS validation.
 * [ ] Validate ArkOS bindings/runtime and remaining held-repeat edge cases.

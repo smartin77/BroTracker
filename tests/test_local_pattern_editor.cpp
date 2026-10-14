@@ -5,6 +5,7 @@
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
 #include "ui/instrument_formatter.h"
+#include "ui/handheld_control_hints.h"
 #include <cstring>
 
 namespace {
@@ -328,7 +329,7 @@ TEST_CASE(HostConnectionControlsAndPendingMessagesStayInPanel) {
             "Connected - PAUSED", "ERROR: transport rejected"}) {
             for (const auto* hints : {"Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT",
                 "STOP pending; please wait", "STOP pending, then EXIT",
-                "L1 / B: RESTART | R1 / X: STOP (stay)"}) {
+                kArkOSEditorHints, kArkOSLegacyEditorHints}) {
                 RenderMainScreen(fb, tune, preview, live, nullptr, HostPanelInformation{status, hints});
                 unsigned changed = 0;
                 for (unsigned y = 0; y < 480; ++y) for (unsigned x = 0; x < 640; ++x) {
