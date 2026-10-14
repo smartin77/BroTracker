@@ -2126,3 +2126,21 @@ Retest:
    from highlight position and correlate authoritative tick/row/loop.
 3. Press Return/keypad Enter during transfer and held editing; verify STOPPED,
    draft retention and no automatic restart. Test powered reconnect separately.
+
+
+### User acceptance of preview latency (2026-10-14)
+
+The user confirmed substantially improved preview responsiveness. Edits sufficiently
+ahead of playback were reflected reliably in the user's test. Near the playback
+position, initial/default-note playback can precede application of the subsequently
+edited pitch. The user accepts this behavior for the current development stage and
+considers the latency correction closed. These are user validation/listening
+observations, not new sample-accurate hardware measurements or proof that every
+timing case is resolved. No zero-latency claim is made.
+
+Further local-edit-to-applied optimization, especially near row boundaries, remains
+deferred. Classic scrolling and a centered edit cursor are undecided UI options.
+Stopped-only editing is a possible future interaction policy, not an adopted
+restriction; current live editing remains supported. This confirmation supplies
+no new Enter, log-rotation or ArkOS validation. Existing regression coverage,
+backpressure/reconnect, physical timing/performance and other pending checks remain.

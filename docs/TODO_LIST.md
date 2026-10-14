@@ -802,7 +802,8 @@ design remains unchanged.
   Windows worker line capacity, stopping on backpressure and retaining transport
   priority. Regression tests cover a 32-cell transfer, newer edits during delayed
   readback, and device identity rollback versus powered-device reconnect.
-* [ ] Revalidate reported valid-edit delays of 3–4 loops and stale draft display
+* [ ] Revalidate stale draft display after device reset (the historical valid-edit
+  latency complaint is accepted/closed for this stage on 2026-10-14); preserve checks
   after USB/device reset on Windows + Teensy. Host regressions reproduce service
   cadence and reset-retention defects; no hardware fix confirmation yet.
   On 2026-10-13 the user confirmed beeper/PCM transposition, audible distinction
@@ -812,7 +813,8 @@ design remains unchanged.
 * [x] Add bounded host-millisecond diagnostics for local draft checksums and
   serial TX/RX, plus Enter/keypad mapping and STOP regressions during clean/dirty
   preview transfer/recovery and held editing. No debounce or scheduling change.
-* [ ] Complete working-preview latency and Enter hardware regression validation.
+* [ ] Complete Enter hardware regression and broader working-preview validation;
+  ordinary preview latency is accepted/closed for this stage below.
   The user reports improved preview responsiveness and that the alleged Enter
   STOP failure did not recur; no log reproduces an Enter defect and no speculative
   fix was made. Automated 2026-10-13 serial tests applied six previews: BEGIN to
@@ -862,7 +864,13 @@ design remains unchanged.
   draft-to-APPLIED was 401/295 ms versus 1266/1146 ms. Scenarios differ; these are
   host observations, not controlled audible-latency measurements. Working data
   was restored exactly, no publication/upload, and final transport is Stopped.
-* [ ] Complete physical keyboard/listening and stressed preview latency revalidation.
+* [x] Record 2026-10-14 user validation: preview responsiveness improved substantially;
+  edits sufficiently ahead of playback were reflected reliably in the user's test.
+  Near playback, initial/default-note playback can precede the subsequently edited
+  pitch's application. The user accepts this behavior for the current development
+  stage and considers the latency correction closed. No zero-latency or
+  sample-accurate hardware claim; no new Enter, rotation or ArkOS validation.
+* [ ] Complete broader physical-keyboard and stressed preview validation.
   The latest supplied logs contain 11 Enter requests, all followed by STOPPED,
   with no STOP-unconfirmed; retain asynchronous STOP regression coverage. Upcoming
   rows can still consume an earlier frozen revision before a newer edit arrives;
@@ -870,6 +878,12 @@ design remains unchanged.
   promise; exhaustive backpressure/reconnect and ArkOS validation remain open.
 
 ## Deferred Tasks
+
+* [ ] Further optimize local-edit-to-applied preview latency, especially near row
+  boundaries. Current accepted behavior preserves live editing; stopped-only
+  editing is a possible future interaction policy, not an adopted restriction.
+  Classic scrolling and a centered edit cursor remain undecided UI options.
+  Do not infer zero latency or resolution of every timing case.
 
 * [ ] Add configurable PgUp/PgDn direction inversion, including held-key
   acceleration; OFF mode toggling remains unchanged. No input inversion yet.
