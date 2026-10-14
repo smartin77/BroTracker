@@ -162,8 +162,8 @@ behavior remain unchanged. Scrolling and empty-cell brightness are deferred.
    opt-in firmware, then launch BTX. Check an IDLE handshake and silence before
    pressing Space, including a cold boot with the board attached.
 2. Press Space: check STARTED/playing and two distinct quiet diagnostic bursts.
-   The immutable 16-row, two-channel pattern loops at 127.53 BPM, approximately
-   every 1.88 seconds. It includes separate triggers, adjacent-row retriggers,
+   The default immutable 32-row, two-channel pattern loops at 127.53 BPM, approximately
+   every 3.76 seconds. It includes separate triggers, adjacent-row retriggers,
    simultaneous triggers at row 8 and row-start NOTE_OFF commands. In particular,
    channel B's row-14 NOTE_OFF cuts its row-13 burst short. Rows here are zero-based.
 3. With the new transport capability, press Space while playing: expect PAUSED,
@@ -280,7 +280,7 @@ no signs, tabs, extra fields or trailing spaces are accepted. The literal `2`
 is the revised message version. `state` is 0=Stopped, 1=Playing, 2=Paused;
 `valid` is 0 or 1. The shared parser also retains the earlier version-1 grammar
 with a 0/1 `running` flag (no paused state). `tick`, `row` and `loop`
-support the full uint64 range. Active dimensions must be 1..16 rows and 1..8
+support the full uint64 range. Active dimensions must be 1..64 rows and 1..8
 channels, the current implementation capacities. A valid position requires
 Playing or Paused, `row = (tick / 96) % rows` and `loop = (tick / 96) / rows`.
 When invalid, tick/row/loop are all zero; Playing/Paused can be reported before the first
@@ -350,7 +350,7 @@ wrapping. A busy sender rejects a second GET without replacing the active transf
 Malformed GETs produce SNAPERR with ID 0 when no valid identity can be extracted;
 this is diagnostic rejection, not a BTTEST1 transport error.
 
-Initial capacities are 16 rows, eight channels, 128 active cells and one transfer.
+Current capacities are 64 rows, eight channels, 512 active cells and one transfer.
 Rows/channels are positive within those bounds; tempo is nonzero uint32 in integer
 hundredths of BPM. `count = rows * channels`. Each CELL is one chunk, in strict
 row-major order, index 0 through count-1: row = index / channels, channel = index
@@ -578,8 +578,8 @@ After UINT32_MAX is consumed, NEXT explicitly reports 0 (exhausted, never a usab
 ID), without wrapping. No further transaction can begin until an explicit reboot;
 never automatically reboot or retry. HELLO reserves six bounded TX lines for the
 state, existing capabilities and discovery. ERROR uses ID 0 when malformed input cannot
-be attributed safely. BEGIN dimensions are 1..16 rows and 1..8 channels; count is
-exactly rows*channels (maximum 128). Cells are ordered, zero-based row-major,
+be attributed safely. BEGIN dimensions are 1..64 rows and 1..8 channels; count is
+exactly rows*channels (maximum 512). Cells are ordered, zero-based row-major,
 exactly once; note is 24..127, 254=OFF or 255=empty, instrument is raw 0..255,
 timing is 0=Arrival / 1=EndOfPosition. Timing is separate from instruments and
 meaningful only for OFF. Inactive storage defaults empty/Arrival.
@@ -1046,14 +1046,14 @@ therefore describe the actual configuration. No audio-time SD/loading/logging.
 Future optional PSRAM-backed caller storage needs no parser/playback API changes.
 Stopped/paused publication remains available; Playing publication remains blocked.
 
-The observed test2.wav duration is 68284/44100 = 1.548390 seconds. The unchanged
-16-row loop at 127.53 BPM spans four quarter notes, approximately 1.881910 seconds
-(82992 samples for the first loop). The WAV completes before its next loop trigger;
+The observed test2.wav duration is 68284/44100 = 1.548390 seconds. The current
+32-row loop at 127.53 BPM spans eight quarter notes, approximately 3.763820 seconds
+(165984 samples for the first loop). The WAV completes before its next loop trigger;
 this does not establish intended meter or sample pitch. Unity-gain mono summation
 may saturate when the PCM overlaps beepers; final volume policy remains undecided.
 WAVPREP and PERF remain enabled; prior beeper measurements do not validate WAV cost.
 
-Manual checklist: verify successful WAVPREP and 16-row/three-channel readback;
+Manual checklist: verify successful WAVPREP and 32-row/three-channel readback;
 start, hear sample completion and loop retrigger; Stop, Pause/current-row Continue;
 try stopped and paused publication (Playing must reject); test preparation failure
 fallback; inspect PERF, RAM headroom and cache behavior. These remaining hardware
@@ -1147,7 +1147,7 @@ BTPREVIEW1 COMMIT 1 <id> <cell_count> <checksum>
 ```
 
 Dimensions must match the working pattern at audio-owner validation. Capacity is
-16 rows x 8 channels; cells are strictly ordered row-major indices 0..count-1.
+64 rows x 8 channels; cells are strictly ordered row-major indices 0..count-1.
 Notes preserve 24..127/254 OFF/255 empty; instruments preserve raw 0..254/255
 no-update. Timing is 0 Arrival or 1 EndOfPosition, separate from instrument IDs.
 Checksum is FNV-1a32: rows byte, channels byte, then note/instrument/timing bytes
@@ -1308,12 +1308,12 @@ coordinates and complete before/after note, instrument and OFF timing. Combined
 Note Delete and F4 Restore are atomic; Restore captures all changed active cells
 and the baseline at invocation, unaffected by subsequent publication.
 
-The latest 64 transactions use fixed storage, each capable of 128 changed cells.
-Each change is 8 bytes; transaction storage plus ring counters is 65,804 bytes on
+The latest 64 transactions use fixed storage, each capable of 512 changed cells.
+Each change is 8 bytes; transaction storage plus ring counters is 262,412 bytes on
 this host ABI, plus the editor's existing pattern/snapshot storage and one bounded
 pattern copy during edit recording. Single-cell transactions use one change;
 unused slots remain reserved so full-pattern Restore never allocates. Work is
-bounded by 128 cells per edit/Undo/Redo. No navigation/no-op history entries;
+bounded by 512 cells per edit/Undo/Redo. No navigation/no-op history entries;
 new edits after Undo discard redo, and capacity evicts the oldest transaction.
 
 Undo/Redo preserve cursor and published baseline. Dirty comparison uses the
@@ -2179,3 +2179,63 @@ Windows packaging is updated; manual normal/reversed Windows validation remains
 pending. The shared model is reusable for handheld input, but no ArkOS bindings
 are added and ArkOS runtime validation remains open. No user config rewrite,
 firmware change/upload or hardware test is performed for this step.
+
+
+### 32-row bring-up fixture (implementation; hardware validation pending)
+
+User confirmation: cyclic Note stepping through OFF and
+`note_step_direction=reversed` work on Windows. ArkOS validation remains open.
+
+The firmware fixture now explicitly defaults to 32 active rows through
+`BROTRACKER_PATTERN_FIXTURE_ROWS` (override choices 16, 32 or 64), exposed as
+`kPatternBringUpFixtureRows`. All existing beeper and optional SD channel events
+in rows 01..16 are preserved; rows 17..32 have NOTE_EMPTY, instrument 0xFF and
+Arrival timing. Tempo remains 12753 hundredths BPM; bindings/gains are unchanged.
+The 32-row loop lasts eight quarter-note beats, approximately 3.763820 seconds.
+The prepared test2.wav remains 68284 frames / 1.548390 seconds at native rate;
+its duration is independent of this longer loop. There is no tempo matching.
+
+Core storage is 64 rows by eight channels, independent of active length and the
+32-row display. The legacy implicit RealtimePattern constructor length stays 16
+for API compatibility; firmware selects its length explicitly. Existing generic
+core validation still accepts positive lengths within capacity. D0056's named
+fixture choices are 16/32/64. No sequencing/flow FX, 64-row UI paging, new-pattern
+creation or persistence is implemented. Host config `new_pattern_length` does
+not resize the device. The standalone mockup is unchanged.
+
+Snapshot v1/v2, preview and publication keep their wire grammar/checksums; bounded
+staging now holds up to 512 ordered cells. Both players, editor and history use
+that capacity. Host tests cover rows 16->17 and 32->1, 64-row looping, independently
+expected PCM and partition independence, complete upper-row transfers (including
+index 511), upper-row editing/Undo/Redo/Restore and rejected replacement rollback.
+Rendering limits remain 128 frames, 16 commands and 512 ticks plus completion pull.
+
+Storage audit (Windows x64 host ABI, not Teensy linker measurements):
+
+| Object | Previous 16-row storage, bytes | Current 64-row storage, bytes |
+| --- | ---: | ---: |
+| RealtimePattern | 386 | 1538 |
+| NativeRatePatternPlayer | 4208 | 6512 |
+| VariableRatePatternPlayer | 4272 | 6576 |
+| PatternBringUpControl (native selection) | 4960 | 7264 |
+| PatternSnapshotAssembler | 828 | 3132 |
+| PatternPublication staging | 416 | 1568 |
+| PatternEditHistory | 65804 | 262412 |
+| LocalPatternEditor | 66608 | 265520 |
+
+Each full pattern copy adds 1152 bytes. Transactional player copies add 2304
+bytes per player; they retain fixed audio scratch and now reserve two larger
+pattern stores. Additional firmware snapshot/preview/publication copies also grow.
+History reserves 64 transactions with room for 512 changes each: +196608 bytes,
+with single-cell edits still recording only one change. Host edit operations have
+a bounded full-pattern stack copy; player configuration/replacement/rendering use
+existing bounded tentative copies. The RAM2 PCM reservation remains 256 KiB.
+Actual Teensy RAM1/stack/linker headroom and callback cost must be measured after
+building the selected firmware; old PERF results are not evidence for this change.
+
+Hardware checklist (pending): verify boot snapshot dimensions, empty rows 17..32,
+playback crossing row 16 into 17 and looping after 32; edit an upper-row cell and
+check preview, stopped/paused F5 and authoritative readback. Check both player
+environments, transport/gains, memory usage and PERF. No firmware or BTX application
+build/package was performed for this step. Historical validation records above
+refer to their then-current fixtures and remain unchanged.

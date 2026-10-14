@@ -45,7 +45,7 @@ namespace BroTracker
     // Call Freeze BEFORE publishing the pointer under the platform critical section.
     // Neither HELLO, timeout nor disconnect may release submitted storage. Finish
     // only after the audio-owner acknowledgement and snapshot-source synchronization.
-    // No locks, allocation, I/O or player access here. <=128 cells, constant work
+    // No locks, allocation, I/O or player access here. <=512 cells, constant work
     // per input line; no indefinite scan. IDs increase across sessions for this boot,
     // preventing replay after lost ACK/HELLO. Exhaustion requires explicit reboot.
     class PatternPublication

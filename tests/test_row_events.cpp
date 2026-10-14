@@ -77,7 +77,7 @@ TEST_CASE(RowEvents_ValidationLeavesWholeBatchUnchanged)
         CHECK_EQ(batch.count, original.count);
         for (std::uint8_t i = 0; i < 8; ++i) CheckEvent(batch.events[i], original.events[i]);
     };
-    for (const auto invalid : {0, 17, 255})
+    for (const auto invalid : {0, 65, 255})
     {
         pattern.active_rows = static_cast<std::uint8_t>(invalid);
         CHECK_EQ(GenerateRowEvents({1, 0, 0}, pattern, batch), RowEventStatus::InvalidDimensions);

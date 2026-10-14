@@ -251,7 +251,7 @@ TEST_CASE(PatternPlayer_TransactionalConfigurationAndMetadataCopies)
     reject(0,44100,pattern,bindings,PatternPlayerStatus::InvalidTempo);
     reject(12753,0,pattern,bindings,PatternPlayerStatus::InvalidSampleRate);
     auto invalid=pattern;
-    for (const auto rows:{0,17,255}) { invalid.active_rows=static_cast<std::uint8_t>(rows);
+    for (const auto rows:{0,65,255}) { invalid.active_rows=static_cast<std::uint8_t>(rows);
         reject(12753,44100,invalid,bindings,PatternPlayerStatus::InvalidDimensions); }
     invalid=pattern;
     for (const auto channels:{0,9,255}) { invalid.active_channels=static_cast<std::uint8_t>(channels);
@@ -841,7 +841,7 @@ TEST_CASE(SdPlaybackFixtureSelectionAndNativeRendering) {
         CHECK_EQ(fallback.pattern.active_channels,2); CHECK_EQ(fallback.bindings.count,2);
     }
     const auto selected=SelectPatternBringUpFixture(beepers,view,true);
-    CHECK_EQ(selected.pattern.active_rows,16); CHECK_EQ(selected.pattern.active_channels,3);
+    CHECK_EQ(selected.pattern.active_rows,kPatternBringUpFixtureRows); CHECK_EQ(selected.pattern.active_channels,3);
     CHECK_EQ(selected.bindings.count,3); CHECK(selected.bindings.bindings[2].sample.data==wav);
     CHECK_EQ(selected.pattern.cells[0][2].note,60); CHECK_EQ(selected.pattern.cells[0][2].instrument,2);
     for (unsigned row=0;row<16;++row) for(unsigned ch=0;ch<2;++ch) {
@@ -862,7 +862,7 @@ TEST_CASE(SdPlaybackFixtureSelectionAndNativeRendering) {
     CHECK_EQ(player.Render(out,8),PatternPlayerStatus::Success);
     for(unsigned i=0;i<8;++i) CHECK_EQ(out[i],expected[i]);
     std::uint64_t loop_sample=0;
-    CHECK_EQ(TickToSamplePosition(16*kTicksPerRow,12753,44100,loop_sample),TickToSampleStatus::Success);
+    CHECK_EQ(TickToSamplePosition(kPatternBringUpFixtureRows*kTicksPerRow,12753,44100,loop_sample),TickToSampleStatus::Success);
     while(player.GetNextSamplePosition()<loop_sample) {
         const auto count=std::min<std::uint64_t>(128,loop_sample-player.GetNextSamplePosition());
         CHECK_EQ(player.Render(out,count),PatternPlayerStatus::Success);

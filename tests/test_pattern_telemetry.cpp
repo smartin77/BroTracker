@@ -74,7 +74,7 @@ TEST_CASE(PatternTelemetry_StrictFieldsOverflowAndUnchangedRejection)
         "BTPATTERN1 POS 1 1 1 1536 1 1 16 2", // Tick/row mismatch.
         "BTPATTERN1 POS 1 1 1 1536 0 2 16 2", // Tick/loop mismatch.
         "BTPATTERN1 POS 1 1 1 0 0 0 0 2",
-        "BTPATTERN1 POS 1 1 1 0 0 0 17 2",
+        "BTPATTERN1 POS 1 1 1 0 0 0 65 2",
         "BTPATTERN1 POS 1 1 1 0 0 0 16 0",
         "BTPATTERN1 POS 1 1 1 0 0 0 16 9",
         "BTPATTERN1 POS 1 1 1 18446744073709551616 0 0 16 2",

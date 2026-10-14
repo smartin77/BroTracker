@@ -255,7 +255,7 @@ TEST_CASE(VariableRate_PatternPlayer_TransactionalConfigurationAndMetadataCopies
     reject(0,44100,pattern,bindings,VariableRatePatternPlayerStatus::InvalidTempo);
     reject(12753,0,pattern,bindings,VariableRatePatternPlayerStatus::InvalidSampleRate);
     auto invalid=pattern;
-    for (const auto rows:{0,17,255}) { invalid.active_rows=static_cast<std::uint8_t>(rows);
+    for (const auto rows:{0,65,255}) { invalid.active_rows=static_cast<std::uint8_t>(rows);
         reject(12753,44100,invalid,bindings,VariableRatePatternPlayerStatus::InvalidDimensions); }
     invalid=pattern;
     for (const auto channels:{0,9,255}) { invalid.active_channels=static_cast<std::uint8_t>(channels);

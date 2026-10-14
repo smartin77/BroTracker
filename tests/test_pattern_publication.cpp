@@ -113,7 +113,7 @@ TEST_CASE(PublicationRejectsMalformedOrderCountChecksumAndTimeout) {
         CHECK(!p.Busy()); CHECK(!p.Frozen());
     }
     PatternPublication p;
-    CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 1 17 1 17"),PublicationStatus::Dimensions);
+    CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 1 65 1 65"),PublicationStatus::Dimensions);
     CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 1 2 1 3"),PublicationStatus::Dimensions);
     Feed(p,good[0]); CHECK(!p.Tick(4999)); CHECK(p.Tick(5000)); CHECK(!p.Freeze());
     CHECK_EQ(Feed(p,good.back()),PublicationStatus::Identity);
@@ -235,7 +235,7 @@ TEST_CASE(PublicationNextIdentityDiscoverySurvivesSessionsAndExhaustion) {
     Feed(p,Transfer(active,3)[0]); CHECK(p.Tick(5000)); discover(4);
     Feed(p,Transfer(active,4)[0]); CHECK_EQ(Feed(p,"BTPUBLISH1 CELL 1 4 0 60 7 9"),PublicationStatus::Cell); discover(5);
     Stage(p,active,5); CHECK(p.Complete(5,false,active)); discover(6); // Rejected after staging.
-    CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 99 17 1 17"),PublicationStatus::Dimensions); discover(6);
+    CHECK_EQ(Feed(p,"BTPUBLISH1 BEGIN 1 99 65 1 65"),PublicationStatus::Dimensions); discover(6);
     const auto before=control.Snapshot();
     for(unsigned i=0;i<3;++i) { p.NewSession(); discover(6); }
     CHECK_EQ(control.Snapshot().transport,before.transport); CHECK_EQ(control.Snapshot().next_sample,before.next_sample);

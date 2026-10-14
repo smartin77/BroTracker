@@ -251,7 +251,7 @@ TEST_CASE(VariableBringUp_SelectedSdFixtureAndFailureFallbackPreserveReferencePl
     for(const auto prepared : {Pcm16MonoView{},Pcm16MonoView{wav,3,48000},Pcm16MonoView{wav,3,44100}}) {
         const auto fixture=SelectPatternBringUpFixture(beepers,prepared,true);
         const bool valid=prepared.sample_rate_hz==44100;
-        CHECK_EQ(fixture.pattern.active_rows,16); CHECK_EQ(fixture.pattern.active_channels,valid ? 3 : 2);
+        CHECK_EQ(fixture.pattern.active_rows,kPatternBringUpFixtureRows); CHECK_EQ(fixture.pattern.active_channels,valid ? 3 : 2);
         CHECK_EQ(fixture.bindings.count,valid ? 3 : 2);
         const auto original=MakeBeeperPattern();
         for(unsigned row=0;row<16;++row) for(unsigned c=0;c<2;++c) {

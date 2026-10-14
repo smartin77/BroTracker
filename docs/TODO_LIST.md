@@ -411,7 +411,7 @@ design remains unchanged.
   `platform.cpp`, but the current SD-streamed WAV test sequence is not pattern
   playback and does not use the RAM loader for this purpose. The opt-in pattern
   path uses static diagnostic PCM fixtures; production sample loading remains open.
-* [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
+* [ ] Complete Teensy playback of one looping pattern (currently 32-row fixture). Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
   dispatch to core RAM voices and render at exact offsets, with core mono mixing
@@ -898,9 +898,9 @@ design remains unchanged.
   and Arrival entry/exit metadata. Endpoint and OFF-entry holds pause 400 ms.
   Empty initialization remains preceding pitch/C-3; host tests cover config,
   cycles, holds, metadata and Undo/Redo. No user config rewrite or ArkOS binding.
-* [ ] Manually validate normal/reversed Note stepping through OFF and held pauses
-  on Windows; ArkOS bindings/runtime remain pending. Existing hardware validation
-  records do not confirm this new behavior.
+* [x] User confirmed cyclic OFF stepping and `note_step_direction=reversed` on
+  Windows. This confirmation does not establish ArkOS validation.
+* [ ] Validate ArkOS bindings/runtime and remaining held-repeat edge cases.
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
   add host/UI gain control and validate the device protocol without implying mute.
@@ -940,7 +940,7 @@ design remains unchanged.
   deterministically. Cursor and published baseline remain independent; matching
   F5 readback/rebase preserves history. Undo/Redo feed automatic preview, never
   publication. Publication locks mutation but permits navigation. Storage is
-  65,804 bytes on the current host ABI (8-byte changes, 128 per transaction).
+  262,412 bytes on the current Windows host ABI (8-byte changes, 512 per transaction).
   Disconnect retains disabled bounded history until recovery, but the protocol
   cannot prove editing-context identity: reconnect conservatively clears it.
   Same-session unchanged readback preserves history; changed recovery clears it.
@@ -1008,14 +1008,32 @@ design remains unchanged.
 
 ### Pattern Length and Playback Flow
 
+* [x] Extend bounded core pattern storage to 64 rows and the actual Teensy bring-up
+  fixture to 32 active rows, using `BROTRACKER_PATTERN_FIXTURE_ROWS` /
+  `kPatternBringUpFixtureRows` (supported fixture choices 16/32/64). Existing first
+  16 rows, tempo, bindings, gains and transport remain unchanged; the tail is
+  genuinely empty, including instrument 0xFF and Arrival OFF metadata. Both players,
+  snapshot/readback, preview/publication, editor and full-pattern history use the
+  shared capacity without truncation. The display remains 32 rows, independently.
+  Host tests cover upper rows, looping, partition independence, transfer of all
+  512 cells, editing/history and transactional rejection. Host new-pattern length
+  remains a creation default, never an automatic device resize.
+* [ ] Validate the new 32-row fixture on Teensy: rows 16->17, loop 32->1, upper-row
+  edits/preview/publication, native-rate and variable-rate paths; inspect linker
+  RAM/stack headroom and remeasure callback cost. Prior 16-row hardware records do
+  not validate this change. Add paging/scrolling before exposing all 64 rows in UI.
+
+
 Follow [D0056](ARCHITECTURE_DECISIONS.md#d0056--pattern-length-and-playback-flow):
-stored pattern length, playback flow and visible row count are separate. Current
-16-row realtime capacity and single-pattern looping remain unchanged.
+stored pattern length, playback flow and visible row count are separate.
+Bounded realtime storage now supports up to 64 rows; the firmware fixture defaults
+to 32 active rows. Single-pattern looping remains unchanged.
 
 * [ ] Implement per-pattern stored lengths of 16, 32 or 64 rows and a tune default
   used only for newly created patterns; changing the default must not resize
-  existing patterns. Extend bounded core capacities, validation and transfer
-  contracts deliberately; preserve four rows per quarter note without LPB changes.
+  existing patterns. Bounded core capacity/transfer support is complete above;
+  project/tune creation remains pending. Preserve four rows per quarter note
+  without LPB changes.
 * [ ] Define flow FX names/codes/parameters, same-row conflicts, invalid targets,
   combination rules, end-of-sequence and standalone loop behavior before implementing
   order-list sequencing, Pattern Break and Position Jump. Complete the current row
@@ -1061,5 +1079,5 @@ stored pattern length, playback flow and visible row count are separate. Current
   settings, size limits, rollback, missing/unreadable files and safe recovery.
 * [ ] Validate config paths and safe-config startup manually on Windows and ArkOS.
 * [ ] Integrate the resolved new-pattern default into future project/pattern creation;
-  existing patterns and current 16-row device capacity remain unchanged. Design
+  existing patterns must not be resized by host configuration. Design
   additional settings and input-mapping/profile recovery separately; no bindings reserved.

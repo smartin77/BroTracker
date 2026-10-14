@@ -1,12 +1,18 @@
 #pragma once
 #include "core/playback/native_rate_sample_commands.h"
 
+#ifndef BROTRACKER_PATTERN_FIXTURE_ROWS
+#define BROTRACKER_PATTERN_FIXTURE_ROWS 32
+#endif
 namespace BroTracker {
+constexpr std::uint8_t kPatternBringUpFixtureRows = BROTRACKER_PATTERN_FIXTURE_ROWS;
+static_assert(BROTRACKER_PATTERN_FIXTURE_ROWS == 16 || BROTRACKER_PATTERN_FIXTURE_ROWS == 32 ||
+    BROTRACKER_PATTERN_FIXTURE_ROWS == 64, "Fixture rows must be 16, 32 or 64");
 // Boot-time fixed metadata selection. PCM remains immutable and caller-owned.
 // No loading, clock ownership or dependency on RAM placement.
-inline RealtimePattern MakeBeeperPattern() noexcept {
+inline RealtimePattern MakeBeeperPattern(std::uint8_t rows = kPatternBringUpFixtureRows) noexcept {
     RealtimePattern pattern;
-    pattern.active_rows = 16; pattern.active_channels = 2;
+    pattern.active_rows = rows; pattern.active_channels = 2;
     pattern.cells[0][0] = {60,0};
     pattern.cells[2][1] = {62,1};
     pattern.cells[4][0] = {60,kNoInstrumentUpdate};
