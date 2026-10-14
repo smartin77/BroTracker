@@ -74,7 +74,8 @@ struct PreviewPort : SerialTransport {
     PatternPreviewReadback metadata; DevicePatternSnapshot baseline=PreviewBaseline();
     std::int16_t pcm[64]{}; bool online=true, capability=true; unsigned limit=3;
     std::string input, output, partial; std::vector<std::int16_t> audio; unsigned writes=0;
-    bool asynchronous=false,ownership_violation=false;
+    bool asynchronous=false,ownership_violation=false,hold_snapshot=false;
+    std::string delayed_snapshot;
     std::string owned_write; unsigned completed_write=0;
     void CompleteWrite(unsigned count=96) {
         CHECK(!owned_write.empty()); CHECK(!completed_write);
@@ -126,7 +127,7 @@ struct PreviewPort : SerialTransport {
     }
     void Snapshot(const RealtimePattern& pattern,unsigned id,bool working) {
         PatternSnapshotSender sender(pattern,12753); CHECK(sender.SetWorkingNamespace(working)); CHECK(sender.Begin(id,0,2));
-        while(sender.HasData()) { std::size_t n=0; const auto* data=sender.Data(n); input.append(data,n); sender.Consume(n); }
+        while(sender.HasData()) { std::size_t n=0; const auto* data=sender.Data(n); if(hold_snapshot) delayed_snapshot.append(data,n); else input.append(data,n); sender.Consume(n); }
     }
     void Handle(const std::string& line) {
         if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") { if(line=="BTTEST1 HELLO") {preview.NewSession(); publication.NewSession();} State(); return; }
@@ -188,8 +189,8 @@ struct PreviewSession {
     PreviewPort* port=new PreviewPort;
     BringUpSerial serial;
     explicit PreviewSession(FILE* log=nullptr):serial(log,std::unique_ptr<SerialTransport>(port)) {}
-    LocalPatternEditor editor; unsigned now=0;
-    void Tick() { serial.Tick(now); serial.SyncEditor(editor,now); now+=10; }
+    LocalPatternEditor editor; unsigned now=0,step_ms=10;
+    void Tick() { serial.Tick(now); serial.SyncEditor(editor,now); now+=step_ms; }
     void Pump(unsigned steps=250) { for(unsigned i=0;i<steps;++i) Tick(); }
     void Note(unsigned value) { CHECK(editor.Apply(EditorAction::SetValue,value)); Tick(); }
 };
@@ -488,4 +489,71 @@ TEST_CASE(PreviewAsyncStopDisconnectRecoveryRetainsDraftWithoutReplay) {
     CHECK(recovery.find("BTTEST1 STOP\n")==std::string::npos);
     CHECK(recovery.find("BTPUBLISH1 BEGIN")==std::string::npos);
     CHECK(s.serial.Stop()); s.Pump(100); CHECK(s.serial.Stopped());
+}
+
+TEST_CASE(PreviewLatestAppliedRevisionNeedNotReadBackObsoleteCandidate) {
+    HostPatternPreview p; const auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    auto first=baseline.pattern; first.cells[1][0]={60,7}; p.Observe(first,100);
+    CHECK(p.TryBegin(baseline,175)); Sent(p,1);
+    auto latest=first; latest.cells[0][0]={NOTE_EMPTY,7}; p.Observe(latest,200);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 1",210)); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 1",220));
+    Discover(p,2,1);
+    CHECK(p.TryBegin(baseline,275)); // No obsolete-candidate GET round trip.
+    Sent(p,2); CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 2")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 2"));
+    Discover(p,3,2); Read(p,latest,2,0,2); CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+}
+
+TEST_CASE(PreviewAsyncRepeatedEditsConvergeAndDoNotReplaceFrozenLines) {
+    for(unsigned slice : {16u,2u}) {
+        PreviewSession s; s.port->limit=96;
+        s.port->baseline.pattern.active_rows=16; s.port->baseline.pattern.active_channels=3;
+        NativeRateSampleBindings bindings{}; bindings.count=1; bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+        CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+        s.port->metadata.working=s.port->baseline.pattern; s.Pump();
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+        s.port->asynchronous=true; s.step_ms=slice; s.now+=100;
+        unsigned cells=0; bool latest=false;
+        for(unsigned i=0;i<2000;++i) {
+            if(!s.port->owned_write.empty()) {
+                if(s.port->owned_write.find("BTPREVIEW1 CELL")==0) {
+                    ++cells;
+                    if(cells==5) {CHECK(s.editor.Apply(EditorAction::NoteOff)); s.serial.SyncEditor(s.editor,s.now);}
+                    if(cells==8) {CHECK(s.editor.Apply(EditorAction::SetValue,60)); s.serial.SyncEditor(s.editor,s.now);}
+                    if(cells==10) {CHECK(s.editor.Apply(EditorAction::Clear)); s.serial.SyncEditor(s.editor,s.now); latest=true;}
+                }
+                s.port->CompleteWrite();
+            }
+            s.Tick();
+            if(latest && SamePattern(s.port->metadata.working,*s.editor.Draft()) &&
+                std::strstr(s.serial.PublicationStatus(),"synchronized")) break;
+        }
+        CHECK(latest); CHECK(!s.port->ownership_violation); CHECK(s.serial.Connected());
+        CHECK(SamePattern(s.port->metadata.working,*s.editor.Draft()));
+        CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,NOTE_OFF);
+        CHECK(s.editor.Dirty()); CHECK(s.port->output.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewAsyncEditsDuringStartedReadbackDrainThenConverge) {
+    PreviewSession s; s.Pump(); CHECK(s.editor.Apply(EditorAction::Down));
+    s.port->asynchronous=true; s.port->limit=96; s.port->hold_snapshot=true;
+    s.Note(60); s.now+=100;
+    for(unsigned i=0;i<500 && s.port->delayed_snapshot.empty();++i) {
+        if(!s.port->owned_write.empty()) {s.port->CompleteWrite();}
+        s.Tick();
+    }
+    CHECK(!s.port->delayed_snapshot.empty());
+    CHECK(s.editor.Apply(EditorAction::Clear)); s.serial.SyncEditor(s.editor,s.now);
+    const auto latest=*s.editor.Draft(); const auto mark=s.port->output.size();
+    for(unsigned i=0;i<10;++i) s.Tick();
+    CHECK(s.port->output.find("BTPREVIEW1 BEGIN",mark)==std::string::npos);
+    s.port->input+=s.port->delayed_snapshot; s.port->delayed_snapshot.clear(); s.port->hold_snapshot=false;
+    for(unsigned i=0;i<1000;++i) {
+        if(!s.port->owned_write.empty()) {s.port->CompleteWrite(3);}
+        s.Tick();
+        if(SamePattern(s.port->metadata.working,latest) && std::strstr(s.serial.PublicationStatus(),"synchronized")) break;
+    }
+    CHECK(!s.port->ownership_violation); CHECK(s.serial.Connected());
+    CHECK(SamePattern(latest,*s.editor.Draft())); CHECK(SamePattern(latest,s.port->metadata.working));
+    CHECK(s.editor.Dirty()); CHECK_EQ(s.editor.Baseline()->pattern.cells[1][0].note,NOTE_OFF);
 }

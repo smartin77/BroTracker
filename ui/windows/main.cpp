@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include "input.h"
+#include "serial_service_limits.h"
 #include "ui/host_config.h"
 #include "diagnostics.h"
 #include "ui/sdl/host_diagnostics.h"
@@ -122,7 +123,13 @@ int main(int argc, char* argv[]) try {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;
             controls.Request(BringUpAction::Exit, "display error", SDL_GetTicks());
         }
-        SDL_Delay(16);
+        for(unsigned pass=0;pass<kWindowsSerialIdleServicePasses && !controls.Quit();++pass) {
+            SDL_Delay(kWindowsSerialServiceSliceMs);
+            // Capture already accepted edits before processing recovery replies.
+            serial.SyncEditor(editor,SDL_GetTicks());
+            controls.Tick(SDL_GetTicks());
+            serial.SyncEditor(editor,SDL_GetTicks());
+        }
     }
     if (audio) audio->Stop(); // Join before the shared log closes; CDC STOP has completed.
     BroTracker::HostLog(log_file,BroTracker::HostLogLevel::Basic,"Terminal","BroTracker Terminal clean shutdown");

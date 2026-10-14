@@ -2049,3 +2049,80 @@ Retest:
    finishes, STOP TX completes and STOPPED follows; retain draft and connection.
 3. Release held keys; confirm stopped/reset position and no automatic restart/F5.
    Repeat under slow/backpressured transfer and retain timestamped logs separately.
+
+
+### Latest-draft preview delivery (2026-10-14)
+
+The latest supplied logs confirm 11 Enter inputs followed by STOPPED and no
+STOP-unconfirmed. Preserve the asynchronous ownership/framing regressions; this
+change does not replace or weaken the STOP fix. In the 2026-10-13 log, draft changes
+start at local 23:46:13.406. Frozen preview 103 sends cell 36 as note 60 at
+23:46:14.310, commits at 23:46:14.566 and is APPLIED at 23:46:14.672. Preview 104
+sends that cell as note 51 at 23:46:15.435 and is APPLIED at 23:46:15.715. These
+are successive valid frozen revisions; they do not demonstrate incorrect pitch
+mapping. The user hearing the older pitch is a listening observation separate
+from these protocol timestamps.
+
+Avoidable host latency came from UI-paced per-line completion polling, the
+worker's unconditional 5 ms idle sleep, and recovery/readback gating before
+sending newer work after an obsolete revision was APPLIED. A pre-fix deterministic
+regression reproduces that readback gate. Frozen bytes themselves must never be
+mutated to accelerate delivery.
+
+Windows now services serial in eight fixed 2 ms slices during its existing 16 ms
+UI idle span; no extra input-repeat ticks or rendering are performed. Worker
+submission wakes its condition-variable wait; receive polling still has a bounded
+5 ms idle wait. STOP retains complete-line priority and every attempted/partial
+write keeps immutable ownership. A matching SUBMITTED/ACCEPTED/APPLIED chain may
+release an obsolete intermediate readback gate when a newer draft is already
+ready. This never labels the draft synchronized: final exact readback is retained.
+A readback already started must drain before newer transfer, because the device
+serializes snapshots and transfers. Uncertain COMMITs/timeouts/disconnects still
+require authoritative recovery, never blind resend. Current/latest storage remains
+bounded; no per-key revision queue, debounce/repeat, musical scheduling or protocol
+change is introduced. ArkOS retains its normal loop; shared coalescing applies.
+
+Observed comparison, using `mono_ms` and matching draft/COMMIT checksums:
+
+| Capture/revision | Draft -> BEGIN | BEGIN -> COMMIT | COMMIT -> APPLIED | Draft -> APPLIED |
+| --- | ---: | ---: | ---: | ---: |
+| Supplied 103 | 98 ms | 1062 ms | 106 ms | 1266 ms |
+| Supplied 104 | 71 ms | 1041 ms | 34 ms | 1146 ms |
+| Updated BTX 1 | 77 ms | 240 ms | 84 ms | 401 ms |
+| Updated BTX 2 | 37 ms | 251 ms | 7 ms | 295 ms |
+
+The after run uses the actual packaged BTX editor, shared coordinator, Windows
+worker and connected Teensy through targeted synthetic Windows messages to BTX's
+own SDL window. Four PageDown edits produced two frozen transfers; final working
+readback synchronized. Both injected Enter requests received STOPPED. This is not
+a direct-serial timing substitute, but also not physical keyboard or listening
+validation. Scenarios, row positions and device session differ from the supplied
+log; this is an observed comparison, not a controlled benchmark or audible-onset
+measurement. Local observation and USB buffering contribute to timestamps.
+
+Original logs/config, pre-test executable, manifest, targeted-input script,
+working-before/restored readbacks and timing summary are preserved locally in
+`diagnostics/latest-preview-20261014-172848/`. This ignored local archive is not a
+repository deliverable. Authoritative working data was saved before testing and
+restored exactly afterward; published baseline was not changed. One serial owner
+was used at a time, BTX exited cleanly, and final transport is Stopped. No firmware
+build/upload occurred. The expected variable-rate environment has no independently
+readable firmware binary identity; reference-note mapping is unchanged.
+
+All seven host CTest targets pass. Async coverage includes repeated edits during
+transfer, partial completion, delayed readback, latest convergence, STOP priority
+and disconnect recovery. The header/service constants preserve fixed work bounds.
+Only Windows BTX requires rebuilding/packaging for this correction. Hardware
+physical-key/listening checks, exhaustive stress/backpressure/reconnect, ArkOS and
+physical timing/performance remain open. Even faster delivery cannot update a row
+already consumed: an upcoming row can use the older applied revision, and that
+row's new event then waits for its next occurrence. No instantaneous WYSIWYG claim.
+
+Retest:
+
+1. START, enter/change a note several rows ahead with an explicit instrument, and
+   repeat rapidly; archive draft checksums, BEGIN/COMMIT, APPLIED and readback.
+2. Repeat just before and just after the target row. Note audible changes separately
+   from highlight position and correlate authoritative tick/row/loop.
+3. Press Return/keypad Enter during transfer and held editing; verify STOPPED,
+   draft retention and no automatic restart. Test powered reconnect separately.

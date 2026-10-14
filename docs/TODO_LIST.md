@@ -849,6 +849,26 @@ design remains unchanged.
   historical evidence; the newly captured failure supersedes the earlier absence
   of a reproducing log. Host tests establish the cause; hardware success is pending.
 
+* [x] Improve latest-draft host preview delivery (2026-10-14): Windows serial
+  service runs in eight bounded 2 ms slices within the existing 16 ms UI idle span,
+  and the worker wakes for new writes. Immutable asynchronous ownership and STOP
+  line-boundary priority remain intact. A strictly acknowledged obsolete APPLIED
+  revision need not be read back before sending newer coalesced work; final exact
+  readback and all uncertain-outcome recovery remain mandatory. Debounce/repeat,
+  musical row boundaries and the wire protocol are unchanged.
+  Async tests cover repeated edits, delayed started readback, final convergence,
+  framing, STOP and disconnect recovery. Actual BTX synthetic Windows-message
+  tests observed 240/251 ms 48-cell transfers versus 1062/1041 ms in supplied logs;
+  draft-to-APPLIED was 401/295 ms versus 1266/1146 ms. Scenarios differ; these are
+  host observations, not controlled audible-latency measurements. Working data
+  was restored exactly, no publication/upload, and final transport is Stopped.
+* [ ] Complete physical keyboard/listening and stressed preview latency revalidation.
+  The latest supplied logs contain 11 Enter requests, all followed by STOPPED,
+  with no STOP-unconfirmed; retain asynchronous STOP regression coverage. Upcoming
+  rows can still consume an earlier frozen revision before a newer edit arrives;
+  already-consumed rows wait for their next occurrence. No instantaneous WYSIWYG
+  promise; exhaustive backpressure/reconnect and ArkOS validation remain open.
+
 ## Deferred Tasks
 
 * [ ] Add configurable PgUp/PgDn direction inversion, including held-key

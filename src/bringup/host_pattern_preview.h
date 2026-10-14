@@ -131,7 +131,18 @@ public:
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 APPLIED 1 ",f,1)) {
             if(!accepted_ || f[0]!=accepted_) return false;
+            const bool newer_ready=!TransferBusy() && accepted_==current_ && attempted_valid_ &&
+                latest_valid_ && !SamePattern(latest_,attempted_);
             working_id_=accepted_; accepted_=0; pending_id_=0;
+            if(newer_ready) {
+                // A matched SUBMITTED/ACCEPTED/APPLIED chain establishes receipt
+                // of the frozen candidate. Do not read obsolete cells before
+                // sending the newer desired revision. Final convergence still
+                // requires exact readback; uncertainty always uses recovery.
+                phase_=HostPreviewPhase::Ready; next_fresh_=false;
+                Set("Newer draft pending; intermediate preview applied");
+                return true;
+            }
             if(!TransferBusy()) { Recover(); Set("Preview verifying working readback"); }
             return true;
         }
