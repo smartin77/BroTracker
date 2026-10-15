@@ -1,3 +1,4 @@
+#include "core/audio/pcm16_mixer.h"
 #include "test_framework.h"
 #include "bringup/pattern_fixture.h"
 #include "bringup/host_pattern_publication.h"
@@ -145,20 +146,23 @@ TEST_CASE(PatternLengthsUpperRowEditorHistoryRestoreAndRollback) {
     CHECK(history.Redo(after)); CHECK_EQ(after.cells[63][7].note,60);
 }
 
-TEST_CASE(DevelopmentPatternEightChannelsEveryRowAndEmptyUnusedCells) {
+TEST_CASE(DevelopmentSparsePhraseExactNotesLengthsAndEmptyCells) {
+    const int first[32]={60,-1,-1,-1,64,-1,-1,67,-1,-1,64,-1,-1,-1,-1,-1,
+        65,-1,-1,-1,69,-1,-1,72,-1,-1,-1,-1,67,-1,-1,-1};
+    const int second[32]={48,-1,-1,-1,-1,-1,-1,-1,55,-1,-1,-1,59,-1,-1,-1,
+        53,-1,-1,-1,-1,-1,-1,-1,60,-1,-1,-1,55,-1,-1,-1};
     for(const auto rows:{16,32,64}) {
         const auto p=MakeDevelopmentPattern(static_cast<std::uint8_t>(rows));
         CHECK_EQ(p.active_rows,rows); CHECK_EQ(p.active_channels,8);
         for(unsigned row=0;row<64;++row) for(unsigned channel=0;channel<8;++channel) {
-            const auto cell=p.cells[row][channel];
+            const int expected=channel==0?first[row%32]:channel==1?second[row%32]:-1;
+            const bool event=row<unsigned(rows) && expected>=0;
+            CHECK_EQ(p.cells[row][channel].note,event?expected:NOTE_EMPTY);
+            CHECK_EQ(p.cells[row][channel].instrument,event?channel:kNoInstrumentUpdate);
             CHECK_EQ(p.note_off_timing[row][channel],NoteOffTiming::Arrival);
-            if(row<unsigned(rows) && channel<2) {
-                CHECK(cell.note>=60 && cell.note<=74); CHECK(cell.note!=NOTE_OFF);
-                CHECK_EQ(cell.instrument,channel);
-            } else { CHECK_EQ(cell.note,NOTE_EMPTY); CHECK_EQ(cell.instrument,kNoInstrumentUpdate); }
+            CHECK(p.cells[row][channel].note!=NOTE_OFF);
         }
-        CHECK_EQ(p.cells[0][0].note,60); CHECK_EQ(p.cells[0][1].note,62);
-        CHECK_EQ(p.cells[1][0].note,64); CHECK_EQ(p.cells[1][1].note,65);
+        CHECK_EQ(p.cells[12][1].note,59); // International B natural / German H, not Bb.
     }
 }
 
@@ -170,13 +174,13 @@ TEST_CASE(DevelopmentBindingsUseCellInstrumentIdsAndNeverSubstituteMissingSample
         auto fixture=SelectDevelopmentFixture(bindings,view);
         const bool valid=view.sample_rate_hz==44100;
         CHECK_EQ(fixture.pattern.active_channels,8); CHECK_EQ(fixture.bindings.count,valid?3:2);
-        if(valid) { CHECK_EQ(fixture.bindings.bindings[2].instrument,3); CHECK_EQ(fixture.bindings.bindings[2].reference_note,60); }
+        if(valid) { CHECK_EQ(fixture.bindings.bindings[2].instrument,2); CHECK_EQ(fixture.bindings.bindings[2].reference_note,60); }
         VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
         CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[2];
-        CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],40); CHECK_EQ(pcm[1],60);
-        // Explicit ID 3 can play on any channel; CH3 is not instrument-routed.
+        CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],40); CHECK_EQ(pcm[1],54);
+        // Explicit ID 2 can play on any channel; CH3 is not instrument-routed.
         if(valid) {
-            player.Stop(); fixture.pattern.cells[0][0]={60,3}; fixture.pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
+            player.Stop(); fixture.pattern.cells[0][0]={60,2}; fixture.pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
             CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
             CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],100); CHECK_EQ(pcm[1],200);
         }
@@ -197,14 +201,56 @@ TEST_CASE(DevelopmentTest2AndTest3BindingsIndependentAndChannelsEmpty) {
             CHECK_EQ(f.pattern.note_off_timing[row][ch],NoteOffTiming::Arrival);
         }
         for(unsigned i=2;i<f.bindings.count;++i) {
-            const auto& binding=f.bindings.bindings[i]; CHECK(binding.instrument==3 || binding.instrument==4);
-            CHECK_EQ(binding.reference_note,60); CHECK_EQ(binding.sample.data,binding.instrument==3?sample2:sample3);
+            const auto& binding=f.bindings.bindings[i]; CHECK(binding.instrument==2 || binding.instrument==3);
+            CHECK_EQ(binding.reference_note,60); CHECK_EQ(binding.sample.data,binding.instrument==2?sample2:sample3);
             auto pattern=f.pattern; pattern.cells[0][0]={60,binding.instrument}; pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
             VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,pattern,f.bindings),VariableRatePatternPlayerStatus::Success);
             CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[4];
             CHECK_EQ(player.Render(pcm,4),VariableRatePatternPlayerStatus::Success);
-            CHECK_EQ(pcm[0],binding.instrument==3?100:300); CHECK_EQ(pcm[1],binding.instrument==3?200:400);
+            CHECK_EQ(pcm[0],binding.instrument==2?100:300); CHECK_EQ(pcm[1],binding.instrument==2?200:400);
             CHECK_EQ(pcm[2],0); CHECK_EQ(pcm[3],0);
         }
+    }
+}
+
+TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) {
+    const std::int16_t beeper[]={1},sample2[]={1000,2000,3000,4000},sample3[]={-100,-200,-300,-400};
+    VariableRateSampleBindings beepers; beepers.count=2;
+    beepers.bindings[0]={0,60,{beeper,1,44100}}; beepers.bindings[1]={1,62,{beeper,1,44100}};
+    const auto fixture=SelectDevelopmentFixture(beepers,{sample2,4,44100},{sample3,4,44100});
+    const unsigned times[]={0,2,4,6,6},channels[]={0,0,0,0,1},instruments[]={2,3,3,2,3};
+    const std::int16_t expected[]={1000,2000,-100,-200,-100,-200,900,1800,2700,3600,0,0};
+    for(const auto partitions:{std::vector<unsigned>{4},std::vector<unsigned>{1,3,2,1,5}}) {
+        VariableRateSampleCommandPreparer prepare; VariableRateVoiceBlockRenderer render;
+        CHECK_EQ(prepare.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);
+        CHECK_EQ(render.Configure(44100),VariableRateBlockStatus::Success);
+        unsigned position=0,next=0,part=0; std::vector<std::int16_t> all;
+        while(position<12) {
+            const auto frames=std::min(12-position,partitions[part++%partitions.size()]);
+            RowEventBatch rows;
+            while(next<5 && times[next]<position+frames) {
+                CHECK(rows.count<kRealtimePatternChannelCapacity);
+                rows.events[rows.count++]={static_cast<std::uint8_t>(channels[next]),0,0,0,0,times[next]-position,
+                    60,static_cast<std::uint8_t>(instruments[next])}; ++next;
+            }
+            VariableRateVoiceCommandBatch commands;
+            CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
+            for(unsigned i=0;i<commands.count;++i) {
+                CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==2?sample2:sample3);
+                CHECK_EQ(commands.commands[i].step_q32_32,kSourceFrameStepUnity);
+            }
+            std::int16_t pcm[8][12]{},mixed[12]{}; VariableRateVoiceOutputs outputs; Pcm16MixInputs inputs;
+            for(unsigned c=0;c<8;++c) { outputs.channels[c]=pcm[c]; inputs.channels[c]=pcm[c]; }
+            CHECK_EQ(render.Render(outputs,frames,commands),VariableRateBlockStatus::Success);
+            CHECK_EQ(MixPcm16Mono(inputs,mixed,frames),Pcm16MixStatus::Success);
+            all.insert(all.end(),mixed,mixed+frames); position+=frames;
+        }
+        CHECK_EQ(next,5); CHECK_EQ(all.size(),12);
+        for(unsigned i=0;i<12;++i) CHECK_EQ(all[i],expected[i]);
+        RowEventBatch bad; bad.count=1; bad.events[0]={0,0,0,0,0,0,60,4};
+        VariableRateVoiceCommandBatch unchanged; unchanged.count=7;
+        CHECK_EQ(prepare.Prepare(bad,unchanged),VariableSampleCommandStatus::UnknownInstrument);
+        CHECK_EQ(unchanged.count,7); LogicalChannelState state;
+        CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,2);
     }
 }

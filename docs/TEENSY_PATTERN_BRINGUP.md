@@ -2524,11 +2524,11 @@ CBpk. This is ARM64 emulated build/test validation, not handheld deployment or
 visual/listening confirmation. No dependencies were installed and no Windows
 application was packaged.
 
-### Two manual-test WAV bindings (implementation; hardware validation pending)
+### Two manual-test WAV bindings (current contiguous mapping; hardware validation pending)
 
 The variable-rate development environment now prepares only Samples/test2.wav and
 Samples/test3.wav for playback, independently, before audio activation. test2.wav
-is display 04/raw 3; test3.wav is display 05/raw 4. Both use reference 60 (C-3
+is display 03/raw 2; test3.wav is display 04/raw 3. Both use reference 60 (C-3
 playback anchor). Samples/test.wav remains unbound/deferred; no extra samples,
 substitution, tempo matching, normalization or resampling are added. Inspection
 of all three established paths remains unchanged. CH1/CH2 beeper events are
@@ -2553,8 +2553,9 @@ static for the boot lifetime and never rewritten after audio activation. Caller
 storage keeps future PSRAM options independent of WAV parsing/playback; none is
 assumed or allocated here.
 
-Existing WAVPREP v1 remains the test2.wav result, now with capacity 68284 in the
-development environment. A separate bounded retained report identifies test3.wav:
+Both development files now use path-qualified WAVPREP v2 reports, followed by
+WAVHASH records. Historical native-rate environments retain WAVPREP v1. Capacity
+remains 68284 frames per development sample:
 
 ```text
 BTPATTERN1 WAVPREP 2 Samples/test3.wav <attempted> <sd_ready> <sd_status> <load_status> <frames> <rate> <capacity> <address>
@@ -2567,7 +2568,80 @@ Host tests cover independent success/failure/capacity, exact paths, no retry,
 reference bindings, empty spare channels and exact sample rendering from either
 instrument on CH1. Fake SD tests are not new real-file or hardware evidence.
 Firmware compilation/linking passed; this revision was not uploaded. Manual
-loading of both views, instrument 05 preview/publication, audio output and new
+loading of both views, instrument 03/04 preview/publication, audio output and new
 performance/memory behavior remain pending user validation. Unity summation can
 saturate when full-level PCM overlaps beepers; final gain/headroom policy is still
 separate work.
+
+### Current sparse phrase and PCM content diagnostics
+
+This revision supersedes the earlier dense/every-row development fixture and its
+reserved instrument gap. Historical validation records above describe the firmware
+that was actually tested; they do not validate this new phrase or checksum reporting.
+
+| Display / raw ID | Source | Reference note |
+| --- | --- | --- |
+| 01 / 0 | Existing beeper 1 | 60 (C-3) |
+| 02 / 1 | Existing beeper 2 | 62 (D-3) |
+| 03 / 2 | Samples/test2.wav | 60 (C-3) |
+| 04 / 3 | Samples/test3.wav | 60 (C-3) |
+
+There is no reserved playback ID for test.wav; playback of it remains deferred,
+while metadata inspection still opens all three established paths. Independent
+loading, buffer addresses/lifetimes, failure isolation and native sample rates are
+unchanged. Missing files leave their own IDs unbound; the other WAV is never
+renumbered or substituted.
+
+The eight-channel, default-32-row pattern uses this one-based phrase, with an
+explicit beeper instrument on each listed cell:
+
+- CH1 / 01: 01 C-3, 05 E-3, 08 G-3, 11 E-3, 17 F-3, 21 A-3, 24 C-4, 29 G-3.
+- CH2 / 02: 01 C-2, 09 G-2, 13 B-2, 17 F-2, 25 C-3, 29 G-2.
+
+B natural is raw 59 (German H-2), not B-flat/raw 58. Current international
+formatter tables spell it B-2; no global note naming behavior changes here.
+All other cells are NOTE_EMPTY/instrument 0xFF/Arrival, including CH3..CH8;
+there are no OFF events. Length 16 uses the first half; length 64 repeats the
+32-row phrase. Tempo, gains and transport semantics are unchanged.
+
+The reported audible similarity is not established as a software routing defect.
+The inspected route is exact SD path -> separate decoded PCM buffer -> explicit
+binding ID -> selected view in prepared Trigger -> per-channel voice. Distinct
+positive/negative fake PCM fixtures prove independently expected samples through
+that whole path, including same-channel replacement, same-sample retrigger and
+simultaneous mixing. Regular/irregular partition outputs match. Preview tests
+verify UnknownInstrument rejection for failed/unbound samples, unchanged working
+pattern/audio, retained raw draft data, and explicit host rejection without false
+APPLIED or automatic retry. The former ID gap is corrected; these tests do not
+establish that the gap caused the user's audible observation.
+
+Successful boot loading now computes FNV-1a32 once over every decoded PCM16 frame,
+low byte then high byte (two's-complement unsigned representation), starting at
+2166136261 and multiplying by 16777619 after each byte. It excludes WAV headers,
+metadata and unused buffer capacity. Work is bounded by the caller frame capacity
+and runs before audio activation; there is no added audio-callback work or SD read.
+The main loop retains and sends this line after each path-qualified WAVPREP:
+
+```text
+BTPATTERN1 WAVHASH 1 <path> <valid> <frames> <fnv1a32>
+```
+
+Path is Samples/test2.wav or Samples/test3.wav; numbers are unsigned decimal.
+Only valid=1 means a successful load/checksum; a failed load reports valid=0,
+frames=0, hash=0. Zero hashes alone must never be compared as content evidence.
+FNV is a diagnostic fingerprint, not cryptographic proof. The bounded sender ends
+Data spans at each newline, allowing ACK/telemetry priority between status/hash
+lines while finishing any partially written line intact.
+
+No actual new WAVHASH records were captured: this revision was compiled but not
+uploaded, and no hardware or SD writes were performed. User validation should
+capture both successful WAVPREP/WAVHASH pairs, compare valid PCM checksums rather
+than lengths, test displayed instruments 03 and 04 explicitly at C-3 on the same
+channel, and check the sparse phrase on 16/32/64 rows. Matching checksums would be
+content-fingerprint evidence; differing checksums would establish different PCM
+fingerprints, not explain audibility by themselves. Preserve the SD files as-is.
+
+Firmware compilation/linking passed: RAM1 variables 70656, ITCM code 108936,
+padding 22136, locals/stack free 322560; RAM2 variables 293920, malloc/new free
+230368. The two 136568-byte aligned PCM reservations are unchanged. New hardware
+checks, subjective listening and measured timing/performance remain pending.

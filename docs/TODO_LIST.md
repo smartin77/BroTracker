@@ -1188,7 +1188,7 @@ to 32 active rows. Single-pattern looping remains unchanged.
   visual and listening checks remain pending.
 
 * [x] Prepare two independently validated manual-test WAVs in variable-rate
-  development firmware: test2.wav display 04/raw 3 and test3.wav display 05/raw 4,
+  development firmware: test2.wav display 03/raw 2 and test3.wav display 04/raw 3,
   both reference C-3, with no automatic pattern events. Replace the old reservation
   with two 68284-frame aligned static RAM2 buffers (273136 PCM bytes total).
   Publish only successful views and report failures independently. Tests cover
@@ -1196,5 +1196,20 @@ to 32 active rows. Single-pattern looping remains unchanged.
   All-three-file metadata inspection and empty CH3..CH8 remain intact; test.wav
   playback is deferred. Firmware linker check passed (RAM2 free 230368 bytes).
 * [ ] Validate the two-buffer firmware on hardware after user upload, including
-  instrument 05 playback/preview/publication, per-file failure diagnostics, overlap
+  instruments 03/04 playback/preview/publication, per-file failure diagnostics, overlap
   headroom, runtime memory/cache use and PERF. No upload or hardware tests in this step.
+
+* [x] Correct current development WAV IDs to contiguous 03/raw 2 (test2.wav) and
+  04/raw 3 (test3.wav), with no reserved test.wav gap. Preserve separate loading,
+  buffers and reference notes. Replace dense beepers with the agreed sparse
+  32-row phrase, truncating to its first half for 16 rows and repeating for 64;
+  all other cells/CH3..CH8 remain empty, no OFF. Raw 59 encodes B natural/German H.
+* [x] Trace/test exact fake SD paths through different decoded PCM, bindings,
+  prepared commands and voices. Independently expected replacement/retrigger and
+  simultaneous mixed PCM, partition independence and explicit unknown-instrument
+  preview rejection pass. Add boot-only decoded-PCM FNV-1a32 WAVHASH reporting,
+  with failed-load validity and complete-line priority boundaries.
+* [ ] Hardware-validate the new sparse fixture, contiguous IDs and both WAVHASH
+  records after user upload. The user's identical-sound report remains unresolved;
+  equal lengths are not content evidence and no actual new PCM checksums have
+  been captured. Do not alter/substitute SD files or claim a reproduced audio cause.

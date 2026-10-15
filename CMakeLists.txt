@@ -251,5 +251,5 @@ endif()
 add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
     libraries/sd_access/src/sd_access.cpp)
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
-    libraries/sd_access/src ${CMAKE_CURRENT_SOURCE_DIR})
+    libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)

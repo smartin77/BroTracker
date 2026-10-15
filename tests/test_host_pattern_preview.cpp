@@ -557,3 +557,16 @@ TEST_CASE(PreviewAsyncEditsDuringStartedReadbackDrainThenConverge) {
     CHECK(SamePattern(latest,*s.editor.Draft())); CHECK(SamePattern(latest,s.port->metadata.working));
     CHECK(s.editor.Dirty()); CHECK_EQ(s.editor.Baseline()->pattern.cells[1][0].note,NOTE_OFF);
 }
+
+TEST_CASE(HostPreviewUnknownInstrumentStaysExplicitAndDoesNotBecomeApplied) {
+    HostPatternPreview p; const auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    p.RecoveredInstalled(); auto draft=baseline.pattern; draft.cells[0][0]={60,99};
+    p.Observe(draft,10); CHECK(p.TryBegin(baseline,85)); Sent(p,1);
+    CHECK(Reply(p,"BTPREVIEW1 REJECTED 1 1 unknown-instrument"));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Rejected); CHECK(std::strstr(p.Status(),"unknown-instrument"));
+    CHECK(std::strstr(p.Status(),"draft not playing"));
+    CHECK(!Reply(p,"BTPREVIEW1 APPLIED 1 1"));
+    Discover(p,2); CHECK(!p.TryBegin(baseline,1000));
+    CHECK_EQ(draft.cells[0][0].instrument,99); CHECK_EQ(draft.cells[0][0].note,60);
+    CHECK_EQ(baseline.pattern.cells[0][0].instrument,7);
+}

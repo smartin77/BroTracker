@@ -413,7 +413,11 @@ namespace
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                 if(!std::strcmp(line,"BTTEST1 HELLO")) {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                    (void)g_preparation_report.Offer(g_preparation,kDevelopmentWavPaths[1]);
+#else
                     (void)g_preparation_report.Offer(g_preparation);
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                     (void)g_preparation_report3.Offer(g_preparation3,kDevelopmentWavPaths[2]);
 #endif
@@ -568,7 +572,7 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         // Eight-channel development fixture; pitched sequences need variable-rate mapping.
-        // The existing prepared file is test2.wav (raw ID 3, displayed 04).
+        // Contiguous WAV IDs: test2.wav 2/display 03, test3.wav 3/display 04.
         const auto development=SelectDevelopmentFixture(kBindings,g_preparation.view,g_preparation3.view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif

@@ -1,3 +1,6 @@
+#include "bringup/pattern_fixture.h"
+#include "core/playback/variable_rate_sample_commands.h"
+#include "core/audio/pcm16_mixer.h"
 #include "firmware/teensy/BroTracker/sd_wav_inspection.h"
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_wav_buffer_loader.h"
@@ -173,10 +176,80 @@ TEST_CASE(TwoDevelopmentWavsPrepareIndependentlyAndKeepExactPaths) {
         std::size_t length=0; const char* line=report.Data(length);
         CHECK(std::string(line,length).find("BTPATTERN1 WAVPREP 2 Samples/test3.wav ")==0);
         report.Consume(1); CHECK(report.Partial()); CHECK(!report.Offer(test2));
-        report.Consume(length-1); CHECK(!report.HasData());
+        report.Consume(length-1); CHECK(report.HasData()); CHECK(!report.Partial());
+        line=report.Data(length); CHECK(std::string(line,length).find("BTPATTERN1 WAVHASH 1 Samples/test3.wav ")==0);
+        report.Consume(length); CHECK(!report.HasData());
     }
     SdWavPreparation maximum; maximum.capacity=UINT64_MAX; maximum.address=UINTPTR_MAX;
     maximum.view.frame_count=SIZE_MAX; maximum.view.sample_rate_hz=UINT32_MAX;
     SdPreparationReport report; CHECK(report.Offer(maximum,kDevelopmentWavPaths[2]));
     std::size_t length=0; report.Data(length); CHECK(length<160);
+}
+
+namespace {
+void DistinctPcmPerPath(const char* path) {
+    // Same format/length, deliberately different signed PCM values for the two paths.
+    const bool second=std::string(path)=="Samples/test2.wav";
+    FakeSd::bytes[44]=second?0xe8:0x9c; FakeSd::bytes[45]=second?3:0xff;
+    FakeSd::bytes[46]=second?0xd0:0x38; FakeSd::bytes[47]=second?7:0xff;
+}
+}
+TEST_CASE(DevelopmentWavDecodedBuffersChecksumsAndFailureValidity) {
+    Fixture(); FakeSd::on_open=DistinctPcmPerPath;
+    std::int16_t pcm2[2]{},pcm3[2]{}; SdWavPreparation first,second;
+    PrepareDevelopmentWavs(true,first,pcm2,2,second,pcm3,2);
+    CHECK_EQ(pcm2[0],1000); CHECK_EQ(pcm2[1],2000);
+    CHECK_EQ(pcm3[0],-100); CHECK_EQ(pcm3[1],-200);
+    CHECK_EQ(first.view.data,pcm2); CHECK_EQ(second.view.data,pcm3);
+    CHECK(first.checksum_valid && second.checksum_valid);
+    CHECK_EQ(first.pcm_checksum,316024505u); CHECK_EQ(second.pcm_checksum,3536971641u);
+    CHECK(first.pcm_checksum!=second.pcm_checksum);
+    SdPreparationReport good_report; CHECK(good_report.Offer(first,"Samples/test2.wav"));
+    std::size_t remaining=0; good_report.Data(remaining); good_report.Consume(remaining);
+    CHECK(!good_report.Partial());
+    const char* hash_line=good_report.Data(remaining);
+    CHECK_EQ(std::string(hash_line,remaining),"BTPATTERN1 WAVHASH 1 Samples/test2.wav 1 2 "+std::to_string(first.pcm_checksum)+"\n");
+    good_report.Consume(remaining+1); CHECK(good_report.HasData()); // Never cross a complete-line span.
+    good_report.Consume(remaining); CHECK(!good_report.HasData());
+    Fixture(); FakeSd::fail_open=true; SdWavPreparation failed;
+    failed.Prepare(true,"Samples/test3.wav",pcm3,2);
+    CHECK(!failed.checksum_valid); CHECK_EQ(failed.pcm_checksum,0); CHECK_EQ(failed.view.data,nullptr);
+    SdPreparationReport failure_report; CHECK(failure_report.Offer(failed,"Samples/test3.wav"));
+    failure_report.Data(remaining); failure_report.Consume(remaining);
+    hash_line=failure_report.Data(remaining);
+    CHECK_EQ(std::string(hash_line,remaining),"BTPATTERN1 WAVHASH 1 Samples/test3.wav 0 0 0\n");
+}
+
+namespace {
+void FullRoutingPcmPerPath(const char* path) {
+    FakeSd::bytes.resize(52); FakeSd::bytes[4]=44; FakeSd::bytes[40]=8;
+    const bool first=std::string(path)=="Samples/test2.wav";
+    for(unsigned i=0;i<4;++i) {
+        const auto word=static_cast<std::uint16_t>(first?1000*int(i+1):-100*int(i+1));
+        FakeSd::bytes[44+i*2]=word&255; FakeSd::bytes[45+i*2]=word>>8;
+    }
+}
+}
+TEST_CASE(ExactSdPathsDecodedBuffersBindingsCommandsAndVoiceRouting) {
+    Fixture(); FakeSd::on_open=FullRoutingPcmPerPath;
+    std::int16_t pcm2[4]{},pcm3[4]{}; SdWavPreparation test2,test3;
+    PrepareDevelopmentWavs(true,test2,pcm2,4,test3,pcm3,4);
+    CHECK_EQ(FakeSd::paths[0],"Samples/test2.wav"); CHECK_EQ(FakeSd::paths[1],"Samples/test3.wav");
+    const std::int16_t beeper[]={1}; VariableRateSampleBindings beepers; beepers.count=2;
+    beepers.bindings[0]={0,60,{beeper,1,44100}}; beepers.bindings[1]={1,62,{beeper,1,44100}};
+    const auto fixture=SelectDevelopmentFixture(beepers,test2.view,test3.view);
+    VariableRateSampleCommandPreparer prepare; CHECK_EQ(prepare.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);
+    RowEventBatch rows; rows.count=5;
+    rows.events[0]={0,0,0,0,0,0,60,2}; rows.events[1]={0,0,0,0,0,2,60,3};
+    rows.events[2]={0,0,0,0,0,4,60,3}; rows.events[3]={0,0,0,0,0,6,60,2}; rows.events[4]={1,0,0,0,0,6,60,3};
+    VariableRateVoiceCommandBatch commands; CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
+    CHECK_EQ(commands.count,5);
+    for(unsigned i=0;i<5;++i) CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==2?pcm2:pcm3);
+    std::int16_t channels[8][12]{},mixed[12]{}; VariableRateVoiceOutputs outputs; Pcm16MixInputs inputs;
+    for(unsigned c=0;c<8;++c) { outputs.channels[c]=channels[c]; inputs.channels[c]=channels[c]; }
+    VariableRateVoiceBlockRenderer render; CHECK_EQ(render.Configure(44100),VariableRateBlockStatus::Success);
+    CHECK_EQ(render.Render(outputs,12,commands),VariableRateBlockStatus::Success);
+    CHECK_EQ(MixPcm16Mono(inputs,mixed,12),Pcm16MixStatus::Success);
+    const std::int16_t expected[]={1000,2000,-100,-200,-100,-200,900,1800,2700,3600,0,0};
+    for(unsigned i=0;i<12;++i) CHECK_EQ(mixed[i],expected[i]);
 }
