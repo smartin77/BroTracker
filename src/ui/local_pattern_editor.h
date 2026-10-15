@@ -20,7 +20,7 @@ class LocalPatternEditor
 public:
     void Sync(const std::optional<LivePlaybackView>& live) noexcept
     {
-        if (!live) { instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; cursor_={}; return; }
+        if (!live) { ClearCaptured(); instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; cursor_={}; return; }
         if (ready_) return;
         const auto display = ResolvePatternDisplay(live);
         if (!display.device_pattern) return;
@@ -31,6 +31,7 @@ public:
                 const auto note = display.device_pattern->pattern.cells[r][c].note;
                 if (!IsPatternNote(note) || !BroTracker::ValidNoteOffTiming(display.device_pattern->pattern.note_off_timing[r][c])) return;
             }
+        ClearCaptured();
         history_.Clear(); // No protocol-backed context continuity across reconnect.
         instrument_cycle_empty_=false;
         baseline_ = *display.device_pattern;
@@ -53,7 +54,7 @@ public:
         for(unsigned r=0;r<pattern.active_rows;++r) for(unsigned c=0;c<pattern.active_channels;++c)
             if(!IsPatternNote(pattern.cells[r][c].note) || !BroTracker::ValidNoteOffTiming(pattern.note_off_timing[r][c])) return false;
         if(!BroTracker::SamePattern(draft_,pattern)) { history_.Clear(); instrument_cycle_empty_=false; }
-        draft_=pattern; return true;
+        draft_=pattern; ClearCaptured(); return true;
     }
     bool Ready() const noexcept { return ready_; }
     const EditCursor& Cursor() const noexcept { return cursor_; }
@@ -75,12 +76,13 @@ public:
     }
     // Explicit project/new-pattern/session termination boundary; no file identity assumed.
     void ResetContext() noexcept {
+        ClearCaptured();
         instrument_cycle_empty_=false; ready_=locked_=false; baseline_={}; draft_={}; cursor_={}; history_.Clear();
     }
     bool CanUndo() const noexcept { return ready_ && !locked_ && history_.CanUndo(); }
     bool CanRedo() const noexcept { return ready_ && !locked_ && history_.CanRedo(); }
-    bool Undo() noexcept { if(!CanUndo() || !history_.Undo(draft_)) return false; instrument_cycle_empty_=false; return true; }
-    bool Redo() noexcept { if(!CanRedo() || !history_.Redo(draft_)) return false; instrument_cycle_empty_=false; return true; }
+    bool Undo() noexcept { if(!CanUndo()) return false; const auto before=draft_; if(!history_.Undo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
+    bool Redo() noexcept { if(!CanRedo()) return false; const auto before=draft_; if(!history_.Redo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
     // Record resulting data only; navigation/no-ops do not enter history.
     bool Apply(EditorAction action, unsigned value = 0) noexcept {
         if(action==EditorAction::Undo) return Undo();
@@ -89,6 +91,7 @@ public:
         const auto before=draft_;
         const bool success=ApplyImpl(action,value);
         if(success) {
+            Capture(before);
             history_.Record(before,draft_);
             if((action!=EditorAction::Increment && action!=EditorAction::Decrement) ||
                 cursor_.field!=EditField::Instrument || draft_.cells[cursor_.row][cursor_.channel].note==NOTE_OFF)
@@ -96,6 +99,23 @@ public:
         }
         return success;
     }
+    bool TakeCapturedCell(unsigned index,BroTracker::SparsePreviewCell& output) noexcept {
+        if(index>=BroTracker::kSparsePreviewCellCapacity || !captured_valid_[index]) return false;
+        output=captured_[index];captured_valid_[index]=false;return true;
+    }
+private:
+    void ClearCaptured() noexcept {for(auto& valid:captured_valid_) valid=false;}
+    void Capture(const BroTracker::RealtimePattern& before) noexcept {
+        for(unsigned r=0;r<draft_.active_rows;++r) for(unsigned c=0;c<draft_.active_channels;++c)
+            if(before.cells[r][c].note!=draft_.cells[r][c].note || before.cells[r][c].instrument!=draft_.cells[r][c].instrument ||
+                before.note_off_timing[r][c]!=draft_.note_off_timing[r][c]) {
+                const auto i=r*BroTracker::kRealtimePatternChannelCapacity+c;
+                captured_[i]={static_cast<std::uint8_t>(r),static_cast<std::uint8_t>(c),draft_.cells[r][c].note,
+                    draft_.cells[r][c].instrument,draft_.note_off_timing[r][c]};captured_valid_[i]=true;
+            }
+    }
+    BroTracker::SparsePreviewCell captured_[BroTracker::kSparsePreviewCellCapacity]{};
+    bool captured_valid_[BroTracker::kSparsePreviewCellCapacity]{};
 private:
     // Bounds/unsupported actions reject without changing draft or cursor.
     bool ApplyImpl(EditorAction action, unsigned value) noexcept

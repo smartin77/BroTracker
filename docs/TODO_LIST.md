@@ -921,6 +921,38 @@ design remains unchanged.
 
 ## Deferred Tasks
 
+* [x] Add negotiated transactional sparse working preview (D0059): capture complete
+  cell results/coordinates, coalesce same-cell changes, preserve cross-channel edits
+  and full 512-cell Restore. A normal edit sends one DCELL, not a full pattern.
+  Validate explicit base revision, identities/order/metadata/checksum and the complete
+  reconstructed candidate; reuse frozen audio-owner ownership, next-row application,
+  ACCEPTED/APPLIED, supersession and transport priority. Matched sparse application
+  avoids per-edit full readback; initial/recovery snapshots and legacy full-preview
+  fallback remain. Publication/F5, tempo and input acceleration are unchanged.
+  Deterministic parser/coordinator/player and asynchronous tests cover exact PCM,
+  constant one-cell size across 16/32/64 rows, coalescing, Restore, invalid/stale
+  transactions, STOP, timeout and reconnect. Host/editor staging remains bounded.
+  Windows CTest 8/8, Windows application build, Eoan ARM64 CTest 10/10 and both
+  ABI/dependency checks pass; ArkOS package refreshed. Development firmware
+  compilation/linking passes; no upload or hardware validation in this step.
+* [x] Second-pass sparse-preview review (2026-10-16): reproduce/fix pre-staging
+  NEXT recovery deadlock with a separate attempted-ID floor; invalidate verified
+  caches on STATE mismatch in every phase and discard stale uninstalled readbacks.
+  Settle Restore/Undo already matching applied/pending content without another
+  transfer, including older application after a newer rejection. Guard absolute
+  metadata/cell bounds and clear captured edits at explicit context reset.
+  Adversarial tests include missed ACKs with actual owner application and exact
+  recovered PCM, owned partial-write STOP/reconnect, late capability/legacy fallback,
+  paused F5/readback/Restore, upper cells and UINT32_MAX. No scheduling/debounce
+  change or new hardware validation; published-baseline semantics remain separate.
+  Final checks: 292 shared/core cases, Windows CTest 8/8 and application compile,
+  Eoan ARM64 CTest 10/10 plus both ABI checks and refreshed ArkOS package;
+  development-firmware compile/link passes. No Windows package/upload/hardware.
+* [ ] Hardware-validate sparse preview on Windows and ArkOS: rapid cross-channel
+  edits, supersession, Restore, STOP/backpressure and reconnect/uncertain recovery.
+  Separate local edit/TX/ACCEPTED/APPLIED observations from audible row occurrence;
+  no new hardware latency, physical timing or performance result is claimed.
+
 * [ ] Further optimize local-edit-to-applied preview latency, especially near row
   boundaries. Current accepted behavior preserves live editing; stopped-only
   editing is a possible future interaction policy, not an adopted restriction.

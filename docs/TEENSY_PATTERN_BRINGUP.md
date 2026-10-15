@@ -2676,3 +2676,145 @@ legacy PCM and within bounds. Linker headroom remains 322560 bytes for RAM1
 locals/stack and 230368 bytes for RAM2 malloc/new; runtime margin is not measured.
 ArkOS application sources are unchanged, so its validated package is retained;
 new audible balance remains for user validation.
+
+### Transactional sparse working preview
+
+New opt-in firmware advertises `BTPREVIEW1 DELTACAP 1` alongside the existing
+`BTPREVIEW1 CAP 1`, NEXT and STATE. BTX sends the following only after discovery;
+older firmware continues to receive the existing full-preview exchange. All fields
+are unsigned decimal, spaces are single, and each bounded line ends with LF:
+
+```text
+BTPREVIEW1 DBEGIN 1 <id> <base_revision> <changed_count>
+BTPREVIEW1 DCELL 1 <id> <index> <row> <channel> <note> <instrument> <timing>
+BTPREVIEW1 DCOMMIT 1 <id> <changed_count> <checksum>
+```
+
+The namespace/version is BTPREVIEW1/version 1 with separately negotiated delta
+support. IDs share the existing preview NEXT high-water mark: nonzero uint32,
+consumed once staging begins, never reset by HELLO/disconnect; NEXT 0 is exhausted.
+`base_revision` is the authoritative accepted pending ID if present, otherwise
+applied working ID (boot revision 0 is valid). The base must still match during
+CELL/COMMIT; application of that same pending identity does not invalidate it.
+An unrelated revision change returns existing ERROR syntax with code 12
+(stale base), requiring STATE/readback recovery. Duplicate/reused transactions
+reject, including conflicting contents; a submitted duplicate cannot reapply.
+
+`changed_count` is 1..512 and cannot exceed the active coordinate space in a valid
+transfer. Index starts at zero and increments exactly once. Coordinates are
+zero-based within unchanged active dimensions; cells must be strictly ordered by
+row then channel, with no duplicates. Notes retain 24..127, EMPTY and OFF semantics;
+instrument values remain raw 0..254/255 no-update. Timing is 0 Arrival or 1
+EndOfPosition, independently validated even when not meaningful for a non-OFF cell.
+Checksum is FNV-1a32, starting at 2166136261, over id, base_revision and count as
+three little-endian uint32 values, then five bytes per ordered cell: row, channel,
+note, instrument, timing. DCOMMIT count and checksum must both match.
+
+Staging uses the existing fixed pattern storage, not an additional audio buffer.
+Every malformed/order/count/checksum/stale-base failure preserves working playback
+and the published baseline. Unsubmitted staging times out after 5000 ms and is
+cancelled by HELLO/disconnect. Submitted storage stays frozen until the audio-owner
+acknowledgement; timeouts cannot prove cancellation. The existing host 6000 ms
+timeout enters authoritative recovery rather than resending COMMIT. Audio validates the complete
+reconstructed pattern through ReplaceWorkingPattern before acceptance. Existing
+RECEIVING, SUBMITTED, ACCEPTED, APPLIED, SUPERSEDED, REJECTED and ERROR replies retain
+their meanings and strict identities. Unsupported/missing instruments remain
+explicit rejections with the draft visible; no automatic retry of that revision.
+
+BTX captures complete cell results when edits/Undo/Redo/Restore occur, independent
+of cursor movement. Fixed slots retain the latest value for every coordinate;
+repeated unsent edits coalesce, while cross-channel edits are retained. One frozen
+transfer plus one latest candidate bounds work/storage. Restore can send all 512
+changed cells (514 lines); a normal single-cell edit sends only three lines.
+Host capture slots/flags and delta indices add approximately 4 KiB of fixed storage;
+firmware reuses existing pattern staging and adds only small revision metadata.
+Existing 75 ms debounce/250 ms maximum delay and repeat timing are unchanged.
+Backpressure delays/coalesces work without dropping cells or blocking navigation.
+Attempted asynchronous lines remain immutable, and transport commands take priority
+at complete-line boundaries. Discovery reserves 13 of the existing 16 TX slots.
+
+Matched sparse SUBMITTED/ACCEPTED/APPLIED acknowledgements establish the submitted
+revision without a whole-pattern GET after every tiny edit. Newer candidates may
+supersede pending ones using the accepted candidate as their base. Initial sync,
+reconnect, uncertain COMMIT and revision mismatch still use full authoritative
+working/pending readback. Published GET/F5 baseline confirmation is unchanged.
+No automatic publication, Start, persistence or timing-policy change is introduced.
+
+Deterministic host tests use the real serial coordinator, strict parsers and player.
+With injected 2 ms service/completion, a one-cell update is 97 bytes/three lines
+for 16, 32 and 64 rows with eight channels: edit to first TX 78 ms, COMMIT completion
+84 ms, ACCEPTED observation 86 ms and APPLIED observation 88 ms. The test advances
+simulated audio explicitly; these are model timings, not hardware/audible latency.
+An independent PCM fixture checks exact next-row application. The user's prior
+approximately 1.14-second 256-cell transfer is historical hardware evidence, not a
+controlled before/after comparison. New hardware behavior remains pending.
+
+After user builds/uploads the updated firmware and runs updated BTX, check one-cell
+and rapid cross-channel edits, Restore, STOP during transfer, stale/invalid drafts
+and powered-device reconnect. Confirm ACCEPTED versus APPLIED ordering and capture
+host timing separately from listening. An already-consumed row can still wait for
+its next occurrence; instantaneous WYSIWYG is not promised.
+
+Implementation validation: Windows host CTest 8/8 and Windows application build
+passed; incremental Eoan ARM64 CTest 10/10 and terminal/ALSA-bridge ABI/dependency
+checks passed, with the fresh package staged in deploy/arkos. teensy41_dev compiled
+and linked: RAM1 linker space for locals 322560 bytes; RAM2 remaining for heap
+230368 bytes. These linker figures do not measure worst-case runtime stack/heap
+headroom. No upload, hardware access or new audible/performance result in this step.
+
+### Sparse preview second-pass review (2026-10-16)
+
+Adversarial regressions reproduced two high-priority recovery defects. A BEGIN
+rejected before staging can leave NEXT unchanged; the host previously rejected
+that legitimate discovery and could poll STATUS indefinitely. BTX now accepts the
+authoritative value while retaining a separate attempted-ID floor across disconnect.
+Later explicit revisions skip attempted identities; confirmed consumed IDs never
+regress within the connection, and exhaustion becomes unavailable rather than
+wrapping. Existing counter rollback on reconnect clears the local floor only when
+it establishes a reset. There is no automatic retry of the uncertain candidate.
+
+STATE could also relabel cached cell data with a different identity while Ready,
+Rejected or Sending. All verified applied/pending copies now invalidate on such a
+mismatch, forcing authoritative recovery before another sparse base is selected.
+A completed but uninstalled recovery result is invalidated too. A real parser/owner
+fixture applies an unobserved remote revision, recovers it, reconstructs the selected
+latest draft, removes an unexpected remote cell and checks exact mixed PCM.
+
+Restore/Undo to already verified applied content now reports synchronized without
+consuming an identity or sending cells. Matching pending content remains explicitly
+waiting for application; a later APPLIED for that older revision can settle it even
+after a newer rejected attempt. Legacy full transfers still require their existing
+exact readback, including when sparse capability arrives late. Absolute dimensions
+and captured-cell bounds are guarded before fixed-array access. Explicit editor
+context reset clears captured edits as well as history and draft data.
+
+The Windows and ArkOS callers retain the shared coordinator and their existing
+capture-before-recovery ordering. Review found no additional firmware frozen-storage
+or attempted/partial-line ownership defect. Asynchronous tests hold owned writes,
+change revision state, request STOP, complete partial lines and reconnect without
+blind COMMIT replay or automatic Start/publication. Paused F5, exact published
+readback, subsequent preview and Restore keep the baseline separate.
+
+Fixed host storage remains bounded: 512 five-byte captured cells plus validity flags
+use 3072 bytes; 512 delta indices use 1024 bytes. A Windows layout probe measures
+LocalPatternEditor at 268596 bytes, primarily its existing 64-transaction history;
+Undo/Redo capture adds one 1538-byte pattern backup on the host stack. The review
+adds one uint32 attempted-ID counter, with platform-dependent padding. No player or
+audio-callback storage/work is added by these corrections. Sparse transfer still
+performs complete candidate validation through the owner; worst-case callback
+cost/stack usage is not established by these host tests or linker headroom.
+
+The injected 2 ms timing fixture remains 78/84/86/88 ms for first TX, COMMIT,
+ACCEPTED and APPLIED observation, respectively, after an edit. No new hardware
+latency result or scheduling optimization is claimed. The no-op Restore case sends
+zero protocol cells/transactions when authoritative content already matches.
+Hardware checks remain open: stressed STOP/backpressure, uncertain recovery,
+rapid cross-channel edits and Restore after rejection, paused publication, actual
+row-boundary audibility and maximum-capacity realtime cost on both target hosts.
+
+Final review validation passes: 292 shared/core cases, all eight Windows CTest
+targets, Windows application compilation, all ten incremental Eoan ARM64 CTest
+targets and both ABI/dependency checks. deploy/arkos is refreshed only after those
+checks. teensy41_dev compilation/linking passes with unchanged firmware headroom.
+No Windows package, upload or hardware access was performed; new hardware behavior
+remains pending.

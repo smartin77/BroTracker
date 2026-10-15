@@ -188,7 +188,8 @@ namespace
             (void)QueueLine("BTPUBLISH1 CAP 1\n");
             (void)QueueLine("BTPUBLISH1 PAUSEDCAP 1\n");
         }
-        if (advertise_snapshot) (void)QueueLine("BTPREVIEW1 CAP 1\n");
+        if (advertise_snapshot) { (void)QueueLine("BTPREVIEW1 CAP 1\n");
+            (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
         QueueGains(status);
         char preview_discovery[96];
@@ -437,6 +438,25 @@ namespace
                         !parsed ? "malformed" : !g_protocol_connected ? "not-connected" :
                         accepted==PatternRequestStatus::Full ? "queue-full" : accepted==PatternRequestStatus::Identity ? "identity" : "invalid-gain");
                     (void)QueueLine(reply);
+                }
+            }
+            else if (!std::strncmp(line,"BTPREVIEW1 D",12)) {
+                SparsePreviewMessage message{};
+                if(!ParseSparsePreview(line,used,message)) { g_preview.Cancel(); PublicationError(0,PublicationStatus::Malformed,true); }
+                else if(!g_protocol_connected) PublicationError(message.fields[0],PublicationStatus::NotConnected,true);
+                else {
+                    const auto base_id=g_working.pending_id?g_working.pending_id:g_working.working_id;
+                    const auto& base=g_working.pending_id?g_working.pending:g_working.working;
+                    const auto result=g_preview.AcceptSparse(message,now,base,base_id,
+                        g_pattern_transfer.HasData() || g_publication.Busy());
+                    if(result==PublicationStatus::Ready) {
+                        (void)g_preview.Freeze(); PatternRequestStatus accepted;
+                        { InterruptGuard guard; accepted=g_control.SubmitPreview(*g_preview.Frozen(),g_preview.Identity()); }
+                        if(accepted!=PatternRequestStatus::Accepted) {g_preview.Finish();PublicationError(message.fields[0],PublicationStatus::QueueFull,true);}
+                        else {char response[64];std::snprintf(response,sizeof(response),"BTPREVIEW1 SUBMITTED 1 %" PRIu32 "\n",message.fields[0]);(void)QueueLine(response);}
+                    } else if(result!=PublicationStatus::Receiving) PublicationError(message.fields[0],result,true);
+                    else if(message.kind==PublicationKind::Begin) {char response[64];
+                        std::snprintf(response,sizeof(response),"BTPREVIEW1 RECEIVING 1 %" PRIu32 "\n",message.fields[0]);(void)QueueLine(response);}
                 }
             }
             else if (!std::strncmp(line,"BTPREVIEW1 GET 1 ",17)) {

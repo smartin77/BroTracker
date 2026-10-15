@@ -1839,3 +1839,43 @@ Windows retains its SDL per-user terminal log directory; ArkOS retains the docum
 `/tmp/brotracker-arkos.log`, while configuration remains per-user per D0057. `/tmp`
 is not durable evidence storage. See [BTX logging](LOGGING.md) for exact paths and
 validation. Manual Windows/ArkOS validation remains pending.
+
+## D0059 ? Transactional Sparse Working-Pattern Preview
+
+Ordinary live edits transfer changed cells rather than a complete pattern when
+`BTPREVIEW1 DELTACAP 1` is negotiated. Capture coordinates and complete
+note/instrument/OFF-timing values at mutation time; navigation never retargets
+queued edits. Fixed latest-value slots coalesce unsent changes to the same cell
+and preserve changes across cells. One immutable in-flight revision and one latest
+candidate bound storage; Restore may change all 512 cells without truncation.
+
+Each transaction names its nonzero preview identity and authoritative base working
+revision: the accepted pending revision when present, otherwise the applied one.
+The device reconstructs a same-dimension candidate in existing fixed staging,
+checks strict unique row/channel order and checksum, then uses the existing frozen
+audio-owner handoff and complete playback validation. Stale bases and conflicting
+reused identities reject without changing playback. ACCEPTED means validated and
+staged; APPLIED means actual application, including next-row application while
+Playing. Publication, musical timing and input acceleration are unchanged.
+
+A matched SUBMITTED/ACCEPTED/APPLIED chain for the immutable sparse candidate
+establishes the working revision without a full per-edit readback. Identity/state
+mismatch, uncertain completion and reconnect require authoritative STATE and full
+readback. Never blindly repeat COMMIT or automatically Start/publish. Initial
+synchronization still reads complete snapshots. Older firmware retains full-preview
+fallback. Published baseline, dirty comparison and F5 exact published readback
+remain separate; volatile preview provides no SD persistence.
+
+See [bring-up protocol](TEENSY_PATTERN_BRINGUP.md#transactional-sparse-working-preview)
+for grammar, limits and recovery. Hardware latency/interaction validation remains
+pending; protocol timings do not measure audible or physical sample timing.
+
+Verified cell copies remain bound to their published/applied/pending identities in
+all host phases. Unexpected STATE changes invalidate those copies before another
+sparse base can be selected. Recovery also invalidates uninstalled readback results.
+A pre-staging BEGIN rejection may leave device NEXT unchanged: accept that discovery,
+but keep a separate host attempted-ID floor across disconnect and skip attempted
+identities for later explicit revisions. Only established device-counter rollback
+clears that floor; exhaustion never wraps. No uncertain transaction is blindly retried.
+Undo/Restore reaching a verified applied or pending revision requires no new transfer;
+report synchronized or waiting-for-application respectively, preserving the baseline.

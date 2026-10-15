@@ -247,10 +247,10 @@ TEST_CASE(PublicationNextIdentityDiscoverySurvivesSessionsAndExhaustion) {
 }
 
 TEST_CASE(PausedPublicationSynchronizesReadbackWithoutRestartAndDiscoveryFits) {
-    CHECK_EQ(kPatternDiscoveryReplyCount,12);
+    CHECK_EQ(kPatternDiscoveryReplyCount,13);
     const char* discovery[]={"BTTEST1 STATE PAUSED","BTPATTERN1 SNAPCAP 2","BTPATTERN1 SNAPCAP 1",
         "BTPATTERN1 TRANSPORTCAP 1",kPatternPublicationCapability,kPausedPatternPublicationCapability,"BTPUBLISH1 NEXT 1 1",
-        "BTPREVIEW1 CAP 1","BTPREVIEW1 NEXT 1 1","BTPREVIEW1 STATE 1 0 0 0","BTGAIN1 CAP 1",
+        "BTPREVIEW1 CAP 1",kSparsePreviewCapability,"BTPREVIEW1 NEXT 1 1","BTPREVIEW1 STATE 1 0 0 0","BTGAIN1 CAP 1",
         "BTGAIN1 STATE 1 0 1 65536 65536 65536 65536 65536 65536 65536 65536"};
     CHECK_EQ(sizeof(discovery)/sizeof(discovery[0]),kPatternDiscoveryReplyCount);
     for(const auto* line:discovery) CHECK(std::strlen(line)<kPatternSnapshotLineCapacity);

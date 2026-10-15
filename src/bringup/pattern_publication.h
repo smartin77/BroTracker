@@ -9,14 +9,14 @@ namespace BroTracker
         "Publication parser/line storage must fit uint32 fields plus LF/NUL");
     constexpr char kPatternPublicationCapability[] = "BTPUBLISH1 CAP 1";
     constexpr char kPausedPatternPublicationCapability[] = "BTPUBLISH1 PAUSEDCAP 1";
-    constexpr unsigned kPatternDiscoveryReplyCount = 12; // Existing discovery + gain CAP/STATE.
+    constexpr unsigned kPatternDiscoveryReplyCount = 13; // Existing discovery + gain CAP/STATE.
     enum class PublicationKind { Begin, Cell, Commit };
     struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; };
     enum class PublicationStatus : unsigned
     {
         Receiving = 0, Ready = 1, Malformed = 2, Busy = 3, Identity = 4,
         Dimensions = 5, Cell = 6, Completion = 7, Timeout = 8,
-        SnapshotBusy = 9, QueueFull = 10, NotConnected = 11
+        SnapshotBusy = 9, QueueFull = 10, NotConnected = 11, StaleBase = 12
     };
     inline bool ParsePublication(const char* line, std::size_t length,
         PublicationMessage& output, bool preview = false) noexcept
@@ -41,6 +41,32 @@ namespace BroTracker
             static_cast<std::uint8_t>(rows)), static_cast<std::uint8_t>(channels));
     }
 
+    constexpr char kSparsePreviewCapability[]="BTPREVIEW1 DELTACAP 1";
+    constexpr unsigned kSparsePreviewCellCapacity=kRealtimePatternRowCapacity*kRealtimePatternChannelCapacity;
+    struct SparsePreviewCell { std::uint8_t row=0,channel=0; Note note=NOTE_EMPTY;
+        std::uint8_t instrument=kNoInstrumentUpdate; NoteOffTiming timing=NoteOffTiming::Arrival; };
+    struct SparsePreviewMessage { PublicationKind kind; std::uint32_t fields[7]{}; };
+    inline bool ParseSparsePreview(const char* line,std::size_t length,SparsePreviewMessage& output) noexcept {
+        struct Definition { const char* prefix; PublicationKind kind; unsigned count; };
+        const Definition definitions[]={{"BTPREVIEW1 DBEGIN 1 ",PublicationKind::Begin,3},
+            {"BTPREVIEW1 DCELL 1 ",PublicationKind::Cell,7},{"BTPREVIEW1 DCOMMIT 1 ",PublicationKind::Commit,3}};
+        for(const auto& d:definitions) {
+            SparsePreviewMessage value{d.kind,{}};
+            if(SnapshotFields(line,length,d.prefix,value.fields,d.count)) {output=value;return true;}
+        }
+        return false;
+    }
+    inline std::uint32_t SparsePreviewHeaderHash(std::uint32_t id,std::uint32_t base,std::uint32_t count) noexcept {
+        std::uint32_t hash=2166136261u;
+        for(const auto value:{id,base,count}) for(unsigned i=0;i<4;++i)
+            hash=SnapshotHashByte(hash,static_cast<std::uint8_t>(value>>(8*i)));
+        return hash;
+    }
+    inline std::uint32_t SparsePreviewHashCell(std::uint32_t hash,const SparsePreviewCell& cell) noexcept {
+        for(const auto value:{cell.row,cell.channel,cell.note,cell.instrument,static_cast<std::uint8_t>(cell.timing)})
+            hash=SnapshotHashByte(hash,value);
+        return hash;
+    }
     // Main-loop-only transaction storage. Audio receives only a frozen const view.
     // Call Freeze BEFORE publishing the pointer under the platform critical section.
     // Neither HELLO, timeout nor disconnect may release submitted storage. Finish
@@ -92,13 +118,14 @@ namespace BroTracker
             if (snapshot_busy) return PublicationStatus::SnapshotBusy;
             if (Tick(now)) return PublicationStatus::Timeout;
             const auto* f = message.fields;
+            if(delta_ && message.kind!=PublicationKind::Begin) { Cancel(); return PublicationStatus::Malformed; }
             if (message.kind == PublicationKind::Begin) {
                 if (Busy()) return PublicationStatus::Busy;
                 if (!f[0] || f[0] <= last_id_) return PublicationStatus::Identity;
                 if (!f[1] || f[1] > kRealtimePatternRowCapacity || !f[2] ||
                     f[2] > kRealtimePatternChannelCapacity || f[3] != f[1] * f[2])
                     return PublicationStatus::Dimensions;
-                staging_ = {}; staging_.active_rows = static_cast<std::uint8_t>(f[1]);
+                delta_=false; staging_ = {}; staging_.active_rows = static_cast<std::uint8_t>(f[1]);
                 staging_.active_channels = static_cast<std::uint8_t>(f[2]);
                 id_ = last_id_ = f[0]; count_ = f[3]; next_ = 0; started_ = now;
                 hash_ = PublicationHeaderHash(f[1],f[2]); receiving_ = true;
@@ -121,7 +148,46 @@ namespace BroTracker
             }
             receiving_ = false; ready_ = true; return PublicationStatus::Ready;
         }
+        PublicationStatus AcceptSparse(const SparsePreviewMessage& message,std::uint32_t now,
+            const RealtimePattern& base,std::uint32_t base_revision,bool blocked=false) noexcept {
+            if(submitted_) return PublicationStatus::Busy;
+            if(blocked) return PublicationStatus::SnapshotBusy;
+            if(Tick(now)) return PublicationStatus::Timeout;
+            const auto* f=message.fields;
+            if(message.kind==PublicationKind::Begin) {
+                if(Busy()) return PublicationStatus::Busy;
+                if(!f[0] || f[0]<=last_id_) return PublicationStatus::Identity;
+                if(f[1]!=base_revision) return PublicationStatus::StaleBase;
+                if(!f[2] || f[2]>kSparsePreviewCellCapacity || !base.active_rows ||
+                    base.active_rows>kRealtimePatternRowCapacity || !base.active_channels ||
+                    base.active_channels>kRealtimePatternChannelCapacity) return PublicationStatus::Dimensions;
+                staging_=base; id_=last_id_=f[0]; base_id_=base_revision;
+                count_=f[2]; next_=0; started_=now; delta_=receiving_=true;
+                hash_=SparsePreviewHeaderHash(id_,base_id_,count_); return PublicationStatus::Receiving;
+            }
+            if(!delta_ || !receiving_ || f[0]!=id_) { Cancel(); return PublicationStatus::Identity; }
+            if(base_revision!=base_id_) { Cancel(); return PublicationStatus::StaleBase; }
+            if(message.kind==PublicationKind::Cell) {
+                const auto coordinate=f[2]*kRealtimePatternChannelCapacity+f[3];
+                if(next_>=count_ || f[1]!=next_ || f[2]>=staging_.active_rows || f[3]>=staging_.active_channels ||
+                    !ValidSnapshotNote(f[4]) || f[5]>255 || f[6]>1 || (next_ && coordinate<=last_coordinate_)) {
+                    Cancel(); return PublicationStatus::Cell;
+                }
+                const SparsePreviewCell cell{static_cast<std::uint8_t>(f[2]),static_cast<std::uint8_t>(f[3]),
+                    static_cast<Note>(f[4]),static_cast<std::uint8_t>(f[5]),static_cast<NoteOffTiming>(f[6])};
+                staging_.cells[cell.row][cell.channel]={cell.note,cell.instrument};
+                staging_.note_off_timing[cell.row][cell.channel]=cell.timing;
+                hash_=SparsePreviewHashCell(hash_,cell); last_coordinate_=coordinate; ++next_;
+                return PublicationStatus::Receiving;
+            }
+            if(message.kind!=PublicationKind::Commit || next_!=count_ || f[1]!=count_ || f[2]!=hash_) {
+                Cancel(); return PublicationStatus::Completion;
+            }
+            receiving_=false; ready_=true; return PublicationStatus::Ready;
+        }
     private:
+        bool delta_=false;
+        std::uint32_t base_id_=0,last_coordinate_=0;
         RealtimePattern staging_;
         bool receiving_ = false, ready_ = false, submitted_ = false;
         std::uint32_t id_ = 0, last_id_ = 0, started_ = 0, count_ = 0, next_ = 0, hash_ = 0;

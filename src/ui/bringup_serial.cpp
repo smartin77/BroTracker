@@ -64,6 +64,11 @@ void BringUpSerial::Disconnect(const char* reason)
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
     diagnostic_now_=now;
+    if(editor.Ready()) for(unsigned i=0;i<BroTracker::kSparsePreviewCellCapacity;++i) {
+        BroTracker::SparsePreviewCell cell;
+        if(editor.TakeCapturedCell(i,cell) && preview_session_ && !publish_queued_ && !publication_.Blocking())
+            preview_.ObserveCell(cell,now);
+    }
     if(editor_seen_ && editor.Ready() && !BroTracker::SamePattern(observed_editor_,*editor.Draft())) {
         const auto& draft=*editor.Draft();
         auto hash=BroTracker::PublicationHeaderHash(draft.active_rows,draft.active_channels);

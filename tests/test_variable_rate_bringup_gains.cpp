@@ -25,7 +25,7 @@ TEST_CASE(VariableBringUp_PatternGainsStrictParsingAndFormatting) {
     CHECK(std::strlen(line)<96); CHECK(std::strstr(line,"4294967295 4294967295"));
     CHECK(!FormatPatternGainState(unity,UINT32_MAX,0,line,10));
     CHECK(!FormatPatternGainState(unity,0,1,nullptr,0));
-    CHECK_EQ(kPatternDiscoveryReplyCount,12u); CHECK(kPatternDiscoveryReplyCount<=16);
+    CHECK_EQ(kPatternDiscoveryReplyCount,13u); CHECK(kPatternDiscoveryReplyCount<=16);
 }
 TEST_CASE(VariableBringUp_PatternGainsCopiedAtomicOwnerApplicationAndLifecycle) {
     const std::int16_t pcm[]={100,100,100,100,100,100,100,100};
