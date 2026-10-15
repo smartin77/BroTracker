@@ -2274,26 +2274,13 @@ Test fresh entry, both cycles with taps/holds, reversed mode, OFF timing,
 Restore/history and preservation of notes and received higher IDs.
 
 
-### Temporary ArkOS handheld pattern-editor bindings (hardware validation pending)
+### Temporary ArkOS handheld pattern-editor bindings
 
-User confirmed Windows unified value directions, endpoint pauses and OFF timing.
-This does not validate handheld input. The following ArkOS implementation is
-replaceable by future input profiles; no dArkOS validation is claimed.
-
-| SDL semantic control | Temporary action |
-| --- | --- |
-| D-pad Up / Down | Previous / next edit row |
-| D-pad Left / Right | Previous / next field across channels, bounded |
-| L1 + Up / Down | Shared logical Increment / Decrement, then apply `value_step_direction` once |
-| L1 + Left / Right | Previous / next active channel, wrapping and selecting Note |
-| Start | Capability-gated Start / Pause / current-row Continue; legacy Start/Restart |
-| B | Stop/reset, staying in BTX; each new press can request another STOP |
-| X | NOTE_OFF in Note field |
-| Y | Clear using shared semantics (Note Delete clears note/instrument/timing) |
-| L1 + Y | Restore published baseline; capability-gated automatic working preview |
-| A | Existing publication workflow, only Stopped/Paused with required capabilities |
-| L1 + Start | Existing STOP-then-exit workflow |
-| L1 alone / Select | No action |
+See [ArkOS controls](ARKOS_CONTROLS.md) for the authoritative user reference and
+complete table, value direction, repeat, OFF timing and preview/publication semantics.
+On **2026-10-15**, the user confirmed the current controls and workflows work on
+ArkOS. This confirmation does not cover dArkOS, measured timing or performance.
+Final configurable profiles remain future work.
 
 Chords consume component actions. No legacy L1/B Start or R1/X Stop/exit mapping
 remains. Value holds reuse shared repeat/acceleration/cyclic boundary pauses;
@@ -2335,10 +2322,7 @@ panel. Available Windows GCC/SDL C++17 syntax checks cover ArkOS main/input;
 these are not ARM/Linux linking or deployment checks. No application binary was
 built/packaged, no device accessed and no firmware changed.
 
-Pending ArkOS checklist: verify semantic labels and D-pad/L1 delivery; navigate
-upper rows/channels; test tap/hold cycles and modifier release; compare normal /
-reversed config; test OFF and combined Delete; check automatic preview, Restore,
-stopped/paused publication and blocked Playing publication; verify B and L1+Start
-during partial transfers, unplug/reconnect and controller removal. Confirm no
-held edit resumes after recovery and the panel remains readable. Final profiles,
-calibration, Undo/Redo bindings and dArkOS checks remain separate future work.
+The current ArkOS controls/workflows are user-confirmed above. Broader device
+mapping and OS-hotkey coverage, exhaustive partial-transfer/reconnect/removal
+checks, physical timing and performance remain open. Final profiles, calibration,
+Undo/Redo bindings and dArkOS checks remain separate future work.

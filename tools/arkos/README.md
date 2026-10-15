@@ -9,6 +9,14 @@ glibc 2.30, libstdc++6 9.2.1-9ubuntu2, and system SDL2 2.0.10.
 Build inside a minimal Eoan ARM64 root under QEMU user emulation in WSL2.
 No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
 
+## Current handheld controls
+
+Use the standalone [temporary ArkOS controls reference](../../docs/ARKOS_CONTROLS.md).
+The user confirmed the current controls and workflows on **2026-10-15** on ArkOS;
+this is not dArkOS validation or a timing/performance measurement. The reference
+supersedes the legacy L1/B and R1/X bindings in historical observations below.
+Final configurable input profiles remain future work.
+
 ## One-time serial access setup on ArkOS/dArkOS
 
 For the user running Ports (usually `ark`), if the CDC port is owned by
@@ -214,8 +222,9 @@ addresses come from current enumeration and post-open identity checks remain
 mandatory. After USB reconnect, the supervisor rediscovers audio automatically
 while BTX stays open; CDC reconnect remains independent and never replays START.
 
-On hardware, verify L1/B START/restart, R1/X STOP-and-stay then EXIT, audio,
-controller mapping and EmulationStation audio handoff. Local checks:
+For current input use the [controls reference](../../docs/ARKOS_CONTROLS.md).
+Audio, broader controller mapping and EmulationStation handoff checks remain
+separate from the confirmed controls/workflows. Local checks:
 
 ```sh
 bash tools/arkos/check-install-port.sh
@@ -286,13 +295,13 @@ bash "/roms/ports/BroTracker Terminal.sh"
 1. Reboot ArkOS with Teensy attached; collect the read-only snapshot before
    any unplug. Launch BTX and check initial CDC/audio discovery. If absent,
    unplug/replug and collect a second snapshot to locate the failed layer.
-2. With audio configured, START using L1/B. Unplug Teensy while BTX stays open.
+2. With audio configured, START using Start. Unplug Teensy while BTX stays open.
    Confirm responsive controls, CDC disconnect and logged runtime audio recovery.
 3. Leave it absent for several minutes: attempts must continue at the capped
    interval, with one supervisor and at most one bridge. Reconnect; confirm
    fresh PCM names, handshake and audio configuration without automatic START.
-   Press L1/B explicitly and verify live audio returns without restarting BTX.
-4. Repeat unplug/replug, then exit during a recovery backoff using R1/X or
+   Press Start explicitly and verify live audio returns without restarting BTX.
+4. Repeat unplug/replug, then exit during a recovery backoff using L1+Start or
    window close. Confirm cleanup messages, `pm_finish`, and no remaining bridge
    or supervisor (`ps -ef | grep -E 'BroTracker|audio_supervisor'`).
 
@@ -368,7 +377,7 @@ For **each** run:
    wiring, boot time, UI waiting/ready state, and whether it connects unaided.
    The initial kernel snapshot collects retained boot evidence even though the
    diagnostic entry starts later.
-2. If ready, press **L1/B** once, listen through a full sequence, and record
+2. If ready, press **Start** once, listen through a full sequence, and record
    clean/distorted/silent audio and whether both samples stay synchronized.
    Note the approximate elapsed time and visible UI state. If still waiting,
    record that instead; do not substitute a reboot before the recovery test.
@@ -376,11 +385,10 @@ For **each** run:
    (one run should use several minutes), then reconnect it to the same port.
    Wait at least 20 seconds for CDC and fresh audio discovery. Connecting must
    not automatically START. Record time to ready and any USB/audio differences.
-4. Press **L1/B** explicitly after ready, listen again and record whether audio
-   recovered and whether distortion changed. Optionally press L1/B while playing
-   to check restart. Press **R1/X** while playing to STOP and stay; after STOP
-   acknowledgement press R1/X again to EXIT. If ready/finished/waiting, R1/X
-   exits directly. Do not power off until Ports returns.
+4. Press **Start** explicitly after ready, listen again and record whether audio
+   recovered and whether distortion changed. Start while playing requests Pause;
+   another Start requests current-row Continue. B requests STOP/reset and stays
+   in BTX; L1+Start requests clean exit. Do not power off until Ports returns.
 5. Record the observed result on paper/phone, with layout/run order and elapsed
    times, to match the unique run directory later. Diagnostic files cannot
    determine subjective distortion. If testing recovery-exit cleanup separately,
@@ -426,11 +434,11 @@ failure; SIGKILL/power loss cannot guarantee a finalized WAV.
 Short hardware collection procedure after separate review/transfer:
 
 1. Cold-boot with Teensy directly attached through OTG; launch **BroTracker
-   Diagnostics** promptly. Wait ready, press L1/B and play the complete sequence.
-2. Press R1/X to STOP and stay. Unplug/replug Teensy without closing BTX.
-3. Wait for CDC and audio bridge recovery, then explicitly L1/B and play again.
+   Diagnostics** promptly. Wait ready, press Start and play the complete sequence.
+2. Press B to STOP/reset and stay. Unplug/replug Teensy without closing BTX.
+3. Wait for CDC and audio bridge recovery, then explicitly Start and play again.
    This uses a fresh bridge instance and WAV; recovery never sends START.
-4. STOP with R1/X and EXIT with the next R1/X. Wait for Ports to return, then
+4. STOP/reset with B and EXIT with L1+Start. Wait for Ports to return, then
    upload the **complete diagnostic run directory**, including all WAVs and
    `events.tsv`. Note which listening interval sounded distorted or clean.
 

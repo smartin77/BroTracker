@@ -644,9 +644,12 @@ design remains unchanged.
   changes. SDL controller instance filtering and verified button/hat fallback
   prevent duplicate raw/controller events. Labels use the existing padded panel.
   Synthetic SDL tests and available host syntax checks are not handheld validation.
-* [ ] Validate temporary bindings, SDL mapping/physical labels, OS hotkey delivery,
-  repeat, preview/Restore/publication and STOP/exit on ArkOS hardware. Profiles and
-  final bindings remain undecided; no dArkOS validation is claimed.
+* [x] User confirmed on 2026-10-15 that the current temporary controls and workflows
+  work on ArkOS. See [ArkOS controls](ARKOS_CONTROLS.md). This does not establish
+  dArkOS validation or measured physical timing/performance.
+* [ ] Extend device/profile and OS-hotkey coverage and exhaustive reconnect,
+  backpressure/removal checks. Final configurable profiles and bindings remain
+  undecided; dArkOS requires separate validation.
 * [ ] Send validated edit commands to Teensy: validate pattern, row, channel,
   note and instrument values, bound command buffering and handling, and report
   acceptance or rejection to BTX. The current diagnostic exchange has no edits.
@@ -1072,8 +1075,13 @@ to 32 active rows. Single-pattern looping remains unchanged.
 * [ ] Define and test sounding audio/MIDI note, instrument-continuation and deferred
   EndOfPosition OFF behavior at transitions, including paused-row replay interaction.
 * [ ] Decide live length changes, resizing/data retention and undo semantics.
-* [ ] Design paging/scrolling for 64-row patterns on the current 32-row display;
-  preserve independent edit and playback positions and existing navigation decisions.
+* [ ] Evaluate a proposed 64-row view as two 32-row pages. The editor cursor would
+  control the visible page; playback would not automatically flip it. Show the
+  authoritative off-page playback position. Page controls and this view policy
+  remain proposals, not implemented or finalized controls.
+* [ ] Design a future temporary playback/loop range independently of stored pattern
+  length and the visible page. Range semantics/controls remain undecided and
+  unimplemented; this does not resize patterns or change current live editing.
 
 ### Handheld Input Design
 
