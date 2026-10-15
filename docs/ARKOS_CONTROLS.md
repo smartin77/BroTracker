@@ -62,6 +62,25 @@ Clear/Restore/OFF, focus loss, controller removal, disconnect or editor locking
 cancel holds. Changing L1 while a direction is held requires releasing that
 direction before rearming it. Opposing directions cancel; there is no catch-up burst.
 
+Held navigation is a newer change, **hardware-validation pending** and not covered
+by the 2026-10-15 confirmation above. Plain D-pad row/field navigation and
+L1+Left/Right channel navigation act immediately, repeat first after 350 ms,
+then use 100 ms intervals before one second held, 60 ms from one second and
+40 ms from two seconds. Timing is measured from the initial press. Bounds and
+channel wrapping are unchanged; navigation does not edit data or create history.
+
+The platform-independent navigation timer is shared with Windows arrows and
+Tab/Shift+Tab. Both platform integrations await manual validation of the new
+shared implementation; previous controls confirmations remain unchanged.
+
+Navigation and value editing share one active repeat stream. Each service emits
+at most one action, dropping catch-up work after a stall. Releases, modifier
+changes, opposition, focus loss, controller removal, device disconnect and exit
+cancel navigation holds; release before rearming after modifier changes.
+Publication locking permits navigation repeat while blocking/cancelling value
+mutation. The 400/100/50/25 ms value-edit schedule and its endpoint pauses above
+remain unchanged. No paging or playback-range controls are implemented here.
+
 ## Clear, Restore and Publish
 
 **Y / Clear:** Note clears note, instrument and OFF timing together. A numeric

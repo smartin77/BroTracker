@@ -1,6 +1,7 @@
 #pragma once
 #include <SDL.h>
 #include "ui/editor_step_input.h"
+#include "ui/navigation_repeat.h"
 #include "ui/bringup_controls.h"
 #include "ui/handheld_control_hints.h"
 
@@ -33,17 +34,23 @@ public:
         Select(SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)),stream,bindings);
     }
     void Cancel() noexcept {
-        repeat_.Cancel(); repeat_direction_=-1;
+        repeat_.Cancel(); navigation_.Cancel(); repeat_direction_=-1;
         for(unsigned b=SDL_CONTROLLER_BUTTON_DPAD_UP;b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;++b)
             if(pressed_[b]) blocked_|=1u<<b;
     }
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected || !focused_ || !editor.Ready() || editor.Locked()) { Cancel(); return; }
-        repeat_.Tick(now,repeat_direction_>=0 && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER],editor);
+        if(!connected || !focused_ || !editor.Ready()) { Cancel(); return; }
+        if(repeat_direction_<0) return;
+        if(navigation_.Active()) {
+            navigation_.Tick(now,editor);
+        } else {
+            if(editor.Locked()) { Cancel(); return; }
+            repeat_.Tick(now,pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER],editor);
+        }
     }
     ArkOSInputResult Handle(const SDL_Event& event, std::uint32_t now,
                            bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected || !editor.Ready() || editor.Locked()) Cancel();
+        if(!connected || !editor.Ready() || (editor.Locked() && !navigation_.Active())) Cancel();
         if(event.type==SDL_QUIT) { Cancel(); return {BringUpAction::Exit,false}; }
         if(event.type==SDL_WINDOWEVENT) {
             if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; Cancel(); }
@@ -108,7 +115,8 @@ private:
                     b==SDL_CONTROLLER_BUTTON_DPAD_DOWN ? EditorAction::Down :
                     b==SDL_CONTROLLER_BUTTON_DPAD_LEFT ? (modifier ? EditorAction::PreviousChannel : EditorAction::Left) :
                     (modifier ? EditorAction::NextChannel : EditorAction::Right);
-                editor.Apply(action);
+                blocked_ &= ~(1u<<b); repeat_direction_=static_cast<int>(b);
+                navigation_.Begin(action,now,editor);
             }
             return {};
         }
@@ -120,6 +128,7 @@ private:
         return {};
     }
     EditorStepInput repeat_;
+    NavigationRepeat navigation_;
     SDL_JoystickID id_=-1;
     ArkOSInputStream stream_=ArkOSInputStream::Controller;
     SDL_GameControllerButtonBind bindings_[SDL_CONTROLLER_BUTTON_MAX]{};

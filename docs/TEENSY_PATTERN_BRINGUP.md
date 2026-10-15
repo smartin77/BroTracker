@@ -125,6 +125,15 @@ authoritative.
   capability it also sends a volatile working preview; it does not publish.
 - Space uses the capability-gated transport described below; Return and numeric Enter STOP/reset,
   Ctrl+X and window close remain independent of editing. OS repeats are ignored.
+  Arrows and Tab/Shift+Tab use shared application-controlled navigation repeat:
+  immediate action, first repeat after 350 ms, then 100 ms intervals before
+  1000 ms held, 60 ms from 1000 ms and 40 ms from 2000 ms. At most one action
+  occurs per service call, without catch-up. Modifier changes and opposing arrow
+  directions cancel until release; releasing an older key preserves a newer hold.
+  Navigation and PgUp/PgDn share one stream. Navigation remains available during
+  publication locking; value mutation remains blocked. Focus loss, disconnect
+  and exit cancel holds without automatic recovery/rearming. Windows and ArkOS
+  shared navigation-repeat manual validation is pending.
   PgUp/PgDn alone repeat under application
   control: immediate action, first repeat at 400 ms, then every 100 ms, accelerating
   to 50 ms after 1000 ms held and 25 ms after 2000 ms. Each action changes one value

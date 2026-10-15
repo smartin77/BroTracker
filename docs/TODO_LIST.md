@@ -644,6 +644,23 @@ design remains unchanged.
   changes. SDL controller instance filtering and verified button/hat fallback
   prevent duplicate raw/controller events. Labels use the existing padded panel.
   Synthetic SDL tests and available host syntax checks are not handheld validation.
+* [x] Add bounded held navigation to temporary ArkOS input: plain D-pad row/field
+  and L1+Left/Right channel repeat. Named timing is immediate, then 350 ms first
+  repeat, 100 ms intervals before 1000 ms held, 60 ms from 1000 ms and 40 ms from
+  2000 ms. One navigation/value stream emits at most one action per service;
+  bounds, channel wrapping, cancellation and release-before-rearm are preserved.
+  Navigation remains available under publication lock; value repeats retain their
+  own timing and mutation lock. Deterministic input tests cover timing, stalls,
+  opposition, releases/modifiers, lock behavior and timestamp wrap.
+* [x] Share platform-independent navigation timing in `src/ui/navigation_repeat.h`
+  between ArkOS and Windows. Windows arrows and Tab/Shift+Tab ignore OS repeat,
+  preserve older-key release ownership, and require release after modifier changes
+  or opposing arrows. Navigation/value streams are exclusive; publication locking
+  retains navigation. Deterministic Windows/shared and retained ArkOS tests cover
+  timing, stalls, timestamp wrap, cancellation and history-free navigation.
+* [ ] Manually validate shared held navigation on Windows and ArkOS.
+* [ ] Validate the new held navigation on ArkOS hardware. The 2026-10-15 controls
+  confirmation predates this addition; paging and playback ranges remain proposals.
 * [x] User confirmed on 2026-10-15 that the current temporary controls and workflows
   work on ArkOS. See [ArkOS controls](ARKOS_CONTROLS.md). This does not establish
   dArkOS validation or measured physical timing/performance.

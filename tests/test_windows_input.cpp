@@ -4,7 +4,72 @@
 #include <cstdio>
 #include <utility>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%s\n", #x); return 1; } } while (0)
+static int NavigationRegression() {
+    LocalPatternEditor editor;
+    std::optional<LivePlaybackView> live=LivePlaybackView{};
+    BroTracker::DevicePatternSnapshot snapshot; snapshot.transfer_id=1; snapshot.tempo_hundredths=12753;
+    snapshot.pattern.active_rows=32; snapshot.pattern.active_channels=3;
+    live->telemetry_available=true; live->position.rows=32; live->position.channels=3;
+    live->device_pattern=snapshot; editor.Sync(live);
+    WindowsEditorInput input;
+    const auto key=[&](SDL_Keycode code,std::uint32_t now,unsigned type=SDL_KEYDOWN,SDL_Keymod mod=KMOD_NONE,unsigned repeat=0) {
+        SDL_Event e{}; e.type=type; e.key.keysym.sym=code; e.key.keysym.mod=mod; e.key.repeat=static_cast<Uint8>(repeat);
+        return input.Handle(e,now,editor);
+    };
+    key(SDLK_DOWN,0); CHECK(editor.Cursor().row==1);
+    key(SDLK_DOWN,100,SDL_KEYDOWN,KMOD_NONE,1); CHECK(editor.Cursor().row==1);
+    for(auto time : {349u,350u,449u,450u,939u,999u,1000u,1059u,1060u,1959u,1999u,2000u,2039u,2040u,6000u,6000u}) {
+        input.Tick(time,KMOD_NONE,editor);
+        const unsigned expected=time==349 ? 1 : time==350 || time==449 ? 2 : time==450 ? 3 :
+            time==939 || time==999 ? 4 : time==1000 || time==1059 ? 5 : time==1060 ? 6 :
+            time==1959 || time==1999 ? 7 : time==2000 || time==2039 ? 8 : time==2040 ? 9 : 10;
+        CHECK(editor.Cursor().row==expected);
+    }
+    key(SDLK_DOWN,6001,SDL_KEYUP);
+    CHECK(!editor.Dirty() && !editor.CanUndo());
+    // The timer is platform-independent, including unsigned timestamp wrap.
+    NavigationRepeat timer;
+    timer.Begin(EditorAction::Down,UINT32_MAX-100,editor);
+    timer.Tick(248,editor); CHECK(editor.Cursor().row==11);
+    timer.Tick(249,editor); CHECK(editor.Cursor().row==12);
+    timer.Cancel(); timer.Tick(9999,editor); CHECK(editor.Cursor().row==12);
+    editor.SetLocked(true);
+    key(SDLK_RIGHT,7000); input.Tick(7350,KMOD_NONE,editor);
+    CHECK(editor.Cursor().channel==1 && editor.Cursor().field==EditField::Note);
+    key(SDLK_TAB,7400); key(SDLK_RIGHT,7401,SDL_KEYUP); // Older release cannot cancel Tab.
+    input.Tick(7750,KMOD_NONE,editor); CHECK(editor.Cursor().channel==0);
+    key(SDLK_TAB,7751,SDL_KEYUP);
+    key(SDLK_TAB,7800,SDL_KEYDOWN,KMOD_SHIFT); CHECK(editor.Cursor().channel==2);
+    input.Tick(8150,KMOD_SHIFT,editor); CHECK(editor.Cursor().channel==1);
+    input.Tick(8151,KMOD_NONE,editor); input.Tick(9000,KMOD_NONE,editor);
+    CHECK(editor.Cursor().channel==1); // Modifier changes require release.
+    key(SDLK_TAB,9001); input.Tick(9400,KMOD_NONE,editor); CHECK(editor.Cursor().channel==1);
+    key(SDLK_TAB,9401,SDL_KEYUP);
+    key(SDLK_PAGEUP,9500); input.Tick(10000,KMOD_NONE,editor); CHECK(!editor.Dirty());
+    key(SDLK_PAGEUP,10001,SDL_KEYUP); editor.SetLocked(false);
+    key(SDLK_DOWN,11000); key(SDLK_UP,11001); const auto row=editor.Cursor().row;
+    input.Tick(12000,KMOD_NONE,editor); CHECK(editor.Cursor().row==row);
+    key(SDLK_DOWN,12001,SDL_KEYUP); input.Tick(13000,KMOD_NONE,editor); CHECK(editor.Cursor().row==row);
+    key(SDLK_UP,13001,SDL_KEYUP);
+    key(SDLK_DOWN,14000); key(SDLK_PAGEUP,14001); input.Tick(14351,KMOD_NONE,editor);
+    CHECK(editor.Draft()->cells[row+1][1].note==60); // Value stream replaces navigation, still waits 400 ms.
+    input.Tick(14401,KMOD_NONE,editor); CHECK(editor.Draft()->cells[row+1][1].note==61);
+    key(SDLK_RIGHT,14500); key(SDLK_PAGEUP,14501,SDL_KEYUP);
+    input.Tick(14850,KMOD_NONE,editor); CHECK(editor.Cursor().channel==2);
+    SDL_Event focus{}; focus.type=SDL_WINDOWEVENT; focus.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    input.Handle(focus,15000,editor); focus.window.event=SDL_WINDOWEVENT_FOCUS_GAINED; input.Handle(focus,15001,editor);
+    const auto cursor=editor.Cursor(); input.Tick(16000,KMOD_NONE,editor); CHECK(editor.Cursor().channel==cursor.channel);
+    key(SDLK_RIGHT,16001,SDL_KEYUP); key(SDLK_DOWN,16002,SDL_KEYUP);
+    key(SDLK_TAB,17000); editor.Sync(std::nullopt); input.Tick(17001,KMOD_NONE,editor);
+    editor.Sync(live); input.Tick(18000,KMOD_NONE,editor); CHECK(editor.Cursor().channel==0);
+    key(SDLK_TAB,18001); input.Tick(19000,KMOD_NONE,editor); CHECK(editor.Cursor().channel==0);
+    key(SDLK_TAB,19001,SDL_KEYUP); key(SDLK_DOWN,20000);
+    SDL_Event quit{}; quit.type=SDL_QUIT; input.Handle(quit,20001,editor);
+    input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==1);
+    return 0;
+}
 int main() {
+    CHECK(NavigationRegression()==0);
     for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
         SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
         CHECK(MapWindowsPublish(publish)==(mod==KMOD_NONE));
@@ -47,6 +112,7 @@ int main() {
         input.Tick(3000, KMOD_NONE, editor);
         CHECK(editor.Draft()->cells[cursor.row][cursor.channel].note == draft.cells[cursor.row][cursor.channel].note);
         CHECK(editor.Draft()->cells[cursor.row][cursor.channel].instrument == draft.cells[cursor.row][cursor.channel].instrument);
+        key(cancel, 3001, SDL_KEYUP); key(SDLK_PAGEUP, 3001, SDL_KEYUP);
     }
     key(SDLK_F4, 3100); key(SDLK_PAGEUP, 3200);
     SDL_Event focus{}; focus.type = SDL_WINDOWEVENT; focus.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
@@ -62,14 +128,17 @@ int main() {
     key(SDLK_PAGEUP, 6100); editor.Sync(std::nullopt); input.Tick(6500, KMOD_NONE, editor);
     editor.Sync(live); input.Tick(7000, KMOD_NONE, editor);
     CHECK(editor.Draft()->cells[0][0].note == 60);
+    key(SDLK_PAGEUP, 7049, SDL_KEYUP);
     CHECK(key(SDLK_RIGHT, 7050)); CHECK(editor.Cursor().field == EditField::Instrument);
     key(SDLK_PAGEUP, 7051);
     CHECK(key(SDLK_TAB, 7052, SDL_KEYDOWN, KMOD_SHIFT));
     CHECK(editor.Cursor().channel == 1 && editor.Cursor().field == EditField::Note);
     input.Tick(7500, KMOD_NONE, editor);
     CHECK(editor.Draft()->cells[0][1].note == NOTE_EMPTY); // Navigation cancelled held edit.
+    key(SDLK_TAB, 7500, SDL_KEYUP, KMOD_SHIFT);
     CHECK(key(SDLK_TAB, 7501)); CHECK(editor.Cursor().channel == 0);
     CHECK(editor.Cursor().field == EditField::Note);
+    key(SDLK_PAGEUP, 7999, SDL_KEYUP); key(SDLK_RIGHT, 7999, SDL_KEYUP); key(SDLK_TAB, 7999, SDL_KEYUP);
     key(SDLK_PAGEUP, 8000); key(SDLK_PAGEDOWN, 8100);
     key(SDLK_PAGEUP, 8101, SDL_KEYUP); // Release the replaced key.
     input.Tick(8499, KMOD_NONE, editor); CHECK(editor.Draft()->cells[0][0].note == 60);

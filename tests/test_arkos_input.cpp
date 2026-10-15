@@ -208,3 +208,101 @@ TEST_CASE(ArkOSRawHatMixedBindingTypesAndIndices) {
     f.input.Handle(event,5,true,f.editor); // Button binding still works through its own event branch.
     CHECK_EQ(f.editor.Cursor().channel,0); CHECK(f.editor.Cursor().field==EditField::Note);
 }
+
+TEST_CASE(ArkOSNavigationRepeatThresholdsAndStalls) {
+    InputFixture f; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN); CHECK_EQ(f.editor.Cursor().row,1);
+    f.input.Tick(349,true,f.editor); CHECK_EQ(f.editor.Cursor().row,1);
+    f.input.Tick(350,true,f.editor); CHECK_EQ(f.editor.Cursor().row,2);
+    f.input.Tick(449,true,f.editor); CHECK_EQ(f.editor.Cursor().row,2);
+    f.input.Tick(450,true,f.editor); CHECK_EQ(f.editor.Cursor().row,3);
+    f.input.Tick(939,true,f.editor); CHECK_EQ(f.editor.Cursor().row,4); // One action after a stall.
+    f.input.Tick(999,true,f.editor); CHECK_EQ(f.editor.Cursor().row,4); // Still 100 ms interval.
+    f.input.Tick(1000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,5); // Now 60 ms.
+    f.input.Tick(1059,true,f.editor); CHECK_EQ(f.editor.Cursor().row,5);
+    f.input.Tick(1060,true,f.editor); CHECK_EQ(f.editor.Cursor().row,6);
+    f.input.Tick(1959,true,f.editor); CHECK_EQ(f.editor.Cursor().row,7);
+    f.input.Tick(1999,true,f.editor); CHECK_EQ(f.editor.Cursor().row,7);
+    f.input.Tick(2000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,8); // Now 40 ms.
+    f.input.Tick(2039,true,f.editor); CHECK_EQ(f.editor.Cursor().row,8);
+    f.input.Tick(2040,true,f.editor); CHECK_EQ(f.editor.Cursor().row,9);
+    f.input.Tick(6000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,10);
+    f.input.Tick(6000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,10);
+    f.input.Tick(6039,true,f.editor); CHECK_EQ(f.editor.Cursor().row,10);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false); f.input.Tick(9000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,10);
+    CHECK(!f.editor.Dirty()); CHECK(!f.editor.CanUndo());
+}
+TEST_CASE(ArkOSNavigationRepeatBoundsFieldsAndChannelWrapping) {
+    InputFixture f; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+    CHECK(f.editor.Cursor().field==EditField::Instrument);
+    f.input.Tick(350,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,1); CHECK(f.editor.Cursor().field==EditField::Note);
+    f.input.Tick(450,true,f.editor); CHECK(f.editor.Cursor().field==EditField::Instrument);
+    f.input.Tick(550,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,1); CHECK(f.editor.Cursor().field==EditField::Instrument);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);
+    f.now=600; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+    f.input.Tick(950,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,0); CHECK(f.editor.Cursor().field==EditField::Instrument);
+    f.input.Tick(1050,true,f.editor); CHECK(f.editor.Cursor().field==EditField::Note);
+    f.input.Tick(1150,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,0); CHECK(f.editor.Cursor().field==EditField::Note);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT,false); f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.now=1200; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT); CHECK_EQ(f.editor.Cursor().channel,1);
+    f.input.Tick(1550,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,0); CHECK(f.editor.Cursor().field==EditField::Note);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT,false); f.now=1600; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+    CHECK_EQ(f.editor.Cursor().channel,1); f.input.Tick(1950,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,0);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false); f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+    for(unsigned row=0;row<31;++row) f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    f.now=2000; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN); f.input.Tick(2350,true,f.editor); CHECK_EQ(f.editor.Cursor().row,31);
+    CHECK(!f.editor.Dirty());
+}
+TEST_CASE(ArkOSNavigationRepeatLockModifierOppositionAndSingleStream) {
+    InputFixture f; f.editor.SetLocked(true); f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    f.input.Tick(350,true,f.editor); CHECK_EQ(f.editor.Cursor().row,2);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false); f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.now=500; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); f.input.Tick(850,true,f.editor);
+    CHECK_EQ(f.editor.Cursor().channel,0); CHECK(f.editor.Cursor().field==EditField::Note);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false); f.now=900; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP);
+    f.input.Tick(1300,true,f.editor); CHECK_EQ(f.editor.Cursor().row,2); CHECK_EQ(f.editor.Draft()->cells[2][0].note,NOTE_EMPTY);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP,false); f.editor.SetLocked(false);
+    f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false); f.now=1400; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    CHECK_EQ(f.editor.Cursor().row,3); f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.input.Tick(2000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,3); CHECK_EQ(f.editor.Draft()->cells[3][0].note,NOTE_EMPTY);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false); f.now=2100; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    CHECK_EQ(f.editor.Draft()->cells[3][0].note,60);
+    f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false); f.input.Tick(2600,true,f.editor);
+    CHECK_EQ(f.editor.Cursor().row,3); CHECK_EQ(f.editor.Draft()->cells[3][0].note,60);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false); f.now=2700; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    CHECK_EQ(f.editor.Cursor().row,4); f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP);
+    f.input.Tick(3100,true,f.editor); CHECK_EQ(f.editor.Cursor().row,4);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP,false); f.input.Tick(3500,true,f.editor); CHECK_EQ(f.editor.Cursor().row,4);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false); f.now=3600; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    CHECK_EQ(f.editor.Cursor().row,5); f.editor.SetLocked(true); f.input.Tick(3950,true,f.editor); CHECK_EQ(f.editor.Cursor().row,6);
+}
+TEST_CASE(ArkOSNavigationRepeatCancellationAndTimestampWrap) {
+    for(unsigned scenario=0;scenario<5;++scenario) {
+        InputFixture f; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        SDL_Event event{};
+        if(scenario==0) {event.type=SDL_WINDOWEVENT;event.window.event=SDL_WINDOWEVENT_FOCUS_LOST;f.input.Handle(event,100,true,f.editor);
+            event.window.event=SDL_WINDOWEVENT_FOCUS_GAINED;f.input.Handle(event,200,true,f.editor);}
+        if(scenario==1) {event.type=SDL_CONTROLLERDEVICEREMOVED;event.cdevice.which=7;f.input.Handle(event,100,true,f.editor);}
+        if(scenario==2) f.input.Tick(100,false,f.editor);
+        if(scenario==3) {f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::Exit);}
+        if(scenario==4) {event.type=SDL_QUIT;CHECK(f.input.Handle(event,100,true,f.editor).transport==BringUpAction::Exit);}
+        f.input.Tick(1000,true,f.editor); CHECK_EQ(f.editor.Cursor().row,1);
+    }
+    InputFixture f; f.now=UINT32_MAX-100; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    f.input.Tick(248,true,f.editor); CHECK_EQ(f.editor.Cursor().row,1);
+    f.input.Tick(249,true,f.editor); CHECK_EQ(f.editor.Cursor().row,2);
+}
+
+TEST_CASE(ArkOSNavigationAndValueStreamReplacementPreservesValueSchedule) {
+    InputFixture f; f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP); CHECK_EQ(f.editor.Draft()->cells[0][0].note,61);
+    f.now=10; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); CHECK_EQ(f.editor.Cursor().channel,1);
+    f.input.Tick(359,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,1);
+    f.input.Tick(360,true,f.editor); CHECK_EQ(f.editor.Cursor().channel,0);
+    f.input.Tick(400,true,f.editor); CHECK_EQ(f.editor.Draft()->cells[0][0].note,61);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false); f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP,false);
+    f.now=500; f.Edge(SDL_CONTROLLER_BUTTON_DPAD_UP); CHECK_EQ(f.editor.Draft()->cells[0][0].note,62);
+    f.input.Tick(850,true,f.editor); CHECK_EQ(f.editor.Draft()->cells[0][0].note,62);
+    f.input.Tick(899,true,f.editor); CHECK_EQ(f.editor.Draft()->cells[0][0].note,62);
+    f.input.Tick(900,true,f.editor); CHECK_EQ(f.editor.Draft()->cells[0][0].note,63);
+    CHECK_EQ(f.editor.Cursor().channel,0);
+}
