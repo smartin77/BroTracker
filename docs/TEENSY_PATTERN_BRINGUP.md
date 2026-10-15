@@ -2645,3 +2645,34 @@ Firmware compilation/linking passed: RAM1 variables 70656, ITCM code 108936,
 padding 22136, locals/stack free 322560; RAM2 variables 293920, malloc/new free
 230368. The two 136568-byte aligned PCM reservations are unchanged. New hardware
 checks, subjective listening and measured timing/performance remain pending.
+
+### Development-only beeper level adjustment
+
+User confirmation on 2026-10-15 covers Windows BTX functionality of the sparse
+fixture and displayed WAV instruments 03/04. It predates the new level adjustment;
+ArkOS confirmation of this fixture/instrument workflow and the new level balance
+remain pending. This does not supply actual WAVHASH comparison evidence or resolve
+the earlier identical-sound report by itself.
+
+Only teensy41_dev now enables the named development amplitude multiplier 4,
+approximately +12.04 dB. Historical teensy41_pattern, perf, SD prepare/playback and
+explicit teensy41_pattern_variable_rate environments retain their original beeper
+PCM. The generator multiplies the original quantized PCM exactly, preserving both
+waveforms, 8192-frame duration, linear decay and zero tail. References stay 60/62;
+the sparse pattern, WAV PCM/buffers/IDs, channel gains and mixer policy are unchanged.
+There is no fixed-channel attenuation; these are instrument sample levels.
+
+Every generated frame is checked before PCM16 narrowing at compile time and
+against the original waveform formula in host tests. Development square extrema
+are -2384/+2400 (absolute peak 2400); triangle extrema are -2048/+2036 (absolute
+peak 2048). The pre-division int32 product is bounded by 4914600; post-scale
+magnitude is at most 2400. Larger intermediate values and sample overflows are
+excluded by these bounds. Overlapping voices can still saturate unity-gain
+summation; no clipping-free balance or hardware performance is claimed.
+
+Firmware build/link and focused host checks passed without upload or hardware
+access. All 8192 frames of each actual ELF array were also verified as exact 4x
+legacy PCM and within bounds. Linker headroom remains 322560 bytes for RAM1
+locals/stack and 230368 bytes for RAM2 malloc/new; runtime margin is not measured.
+ArkOS application sources are unchanged, so its validated package is retained;
+new audible balance remains for user validation.

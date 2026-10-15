@@ -1,3 +1,4 @@
+#include "../firmware/teensy/BroTracker/pattern_beeper_samples.h"
 #include "core/audio/pcm16_mixer.h"
 #include "test_framework.h"
 #include "bringup/pattern_fixture.h"
@@ -252,5 +253,24 @@ TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) 
         CHECK_EQ(prepare.Prepare(bad,unchanged),VariableSampleCommandStatus::UnknownInstrument);
         CHECK_EQ(unchanged.count,7); LogicalChannelState state;
         CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,2);
+    }
+}
+
+TEST_CASE(DevelopmentBeeperFourfoldLevelsPreserveLegacyWaveformsAndBounds) {
+    CHECK_EQ(kDevelopmentBeeperAmplitudeMultiplier,4); CHECK_EQ(kPatternBeeperFrames,8192);
+    for(const bool triangle:{false,true}) {
+        const auto legacy=MakePatternBeeperSample(triangle,false);
+        const auto development=MakePatternBeeperSample(triangle,true);
+        int minimum=32767,maximum=-32768;
+        for(unsigned i=0;i<8192;++i) {
+            const int phase=i%(triangle?64:100);
+            const int wave=triangle?(phase<32?phase*32-512:1536-phase*32):(phase<50?600:-600);
+            const int expected=wave*int(8191-i)/8191;
+            CHECK_EQ(legacy[i],expected); CHECK_EQ(development[i],expected*4);
+            CHECK(expected*4>=-32768 && expected*4<=32767);
+            minimum=std::min(minimum,int(development[i])); maximum=std::max(maximum,int(development[i]));
+        }
+        CHECK_EQ(minimum,triangle?-2048:-2384); CHECK_EQ(maximum,triangle?2036:2400);
+        CHECK_EQ(development.back(),0); CHECK_EQ(legacy.back(),0);
     }
 }

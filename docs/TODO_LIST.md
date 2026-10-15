@@ -1213,3 +1213,15 @@ to 32 active rows. Single-pattern looping remains unchanged.
   records after user upload. The user's identical-sound report remains unresolved;
   equal lengths are not content evidence and no actual new PCM checksums have
   been captured. Do not alter/substitute SD files or claim a reproduced audio cause.
+
+* [x] User confirms Windows BTX sparse-fixture and instruments 03/04 functionality
+  (2026-10-15), separately from the new beeper levels. ArkOS confirmation and actual
+  WAVHASH comparison evidence remain open.
+* [x] Raise only teensy41_dev beeper PCM by a named exact 4x multiplier (+12.04 dB),
+  preserving historical diagnostic levels, waveforms/decay/duration, reference
+  notes, sparse events, WAV data, gains and mixer policy. Exhaustive original/4x
+  checks and pre-narrowing compile-time bounds cover all 8192 frames per waveform.
+  Square absolute peak is 2400; triangle absolute peak is 2048.
+* [ ] Validate the new level balance on Windows and ArkOS, including overlapping
+  beepers/PCM and unity-mixer saturation. No clipping-free or realtime claim from
+  sample bounds; no upload/hardware tests in this change.

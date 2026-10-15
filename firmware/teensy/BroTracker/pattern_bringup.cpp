@@ -1,5 +1,6 @@
 #ifdef BROTRACKER_PATTERN_BRINGUP
 #include "pattern_bringup.h"
+#include "pattern_beeper_samples.h"
 #include <Arduino.h>
 #include <Audio.h>
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
@@ -26,18 +27,13 @@ namespace
         "Pattern bring-up requires the current 128-frame Teensy audio blocks");
     // Short, low-amplitude, immutable diagnostic PCM fixtures, not a synth engine.
     // Integer compile-time square/triangle bursts taper to zero; no audio-time synthesis.
-    constexpr std::array<std::int16_t, 8192> MakeSample(bool triangle)
+    constexpr auto MakeSample(bool triangle)
     {
-        std::array<std::int16_t, 8192> pcm{};
-        for (std::size_t i = 0; i < pcm.size(); ++i)
-        {
-            const int phase = static_cast<int>(i % (triangle ? 64 : 100));
-            const int wave = triangle ? (phase < 32 ? phase * 32 - 512 : 1536 - phase * 32) :
-                (phase < 50 ? 600 : -600);
-            pcm[i] = static_cast<std::int16_t>(wave * static_cast<int>(pcm.size() - 1 - i) /
-                static_cast<int>(pcm.size() - 1));
-        }
-        return pcm;
+#ifdef BROTRACKER_DEVELOPMENT_BEEPER_LEVELS
+        return MakePatternBeeperSample(triangle,true);
+#else
+        return MakePatternBeeperSample(triangle,false);
+#endif
     }
     constexpr auto kSampleA = MakeSample(false);
     constexpr auto kSampleB = MakeSample(true);
