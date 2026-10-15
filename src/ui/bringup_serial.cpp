@@ -256,6 +256,7 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 {
     if (!connected_) return std::nullopt;
     auto view = live_;
+    if(now-performance_at_>=kCallbackPerformanceStaleMs) view.callback_performance.reset();
     if (const auto* snapshot = pattern_assembler_.Snapshot()) view.device_pattern = *snapshot;
     view.preview_supported=preview_.Supported();
     view.gains_supported=gains_.Supported();
@@ -276,7 +277,13 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strncmp(line_,"BTGAIN1",7)) {
+    if (!std::strncmp(line_,"BTPATTERN1 PERF ",sizeof("BTPATTERN1 PERF ")-1)) {
+        BroTracker::PatternPerformance report;
+        if(connected_ && BroTracker::ParsePatternPerformance(line_,used_,report)) {
+            live_.callback_performance=report; performance_at_=now;
+        }
+    }
+    else if (!std::strncmp(line_,"BTGAIN1",7)) {
         if(connected_) (void)gains_.Response(line_,used_,now);
     }
     else if (!std::strncmp(line_,"BTPREVIEW1",10)) {

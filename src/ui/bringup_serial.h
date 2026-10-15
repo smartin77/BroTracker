@@ -79,6 +79,7 @@ private:
     LivePlaybackView live_;
     bool position_received_ = false;
     std::uint32_t position_at_ = 0;
+    std::uint32_t performance_at_ = 0;
     std::unique_ptr<SerialTransport> transport_;
     bool opened_ = false;
     FILE* log_;

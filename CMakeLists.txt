@@ -11,6 +11,7 @@ option(
 )
 
 option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
+option(BROTRACKER_WINDOWS_EMPTY_TITLE "Use an empty Windows Terminal window title" OFF)
 if(BROTRACKER_BUILD_ARKOS_UI AND BROTRACKER_BUILD_WINDOWS_TERMINAL)
     message(FATAL_ERROR "Select one platform build for BroTrackerTerminal")
 endif()
@@ -112,6 +113,8 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
         ui/sdl/sdl_display_backend.cpp
         src/ui/font.cpp src/ui/text_renderer.cpp src/ui/pattern_screen.cpp
         src/renderer/framebuffer.cpp)
+    target_compile_definitions(BroTrackerTerminal PRIVATE
+        BROTRACKER_WINDOWS_EMPTY_TITLE=$<BOOL:${BROTRACKER_WINDOWS_EMPTY_TITLE}>)
     target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp
         ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}

@@ -144,3 +144,67 @@ TEST_CASE(PatternLengthsUpperRowEditorHistoryRestoreAndRollback) {
     history.Record(before,after); CHECK(history.Undo(after)); CHECK(SamePattern(after,before));
     CHECK(history.Redo(after)); CHECK_EQ(after.cells[63][7].note,60);
 }
+
+TEST_CASE(DevelopmentPatternEightChannelsEveryRowAndEmptyUnusedCells) {
+    for(const auto rows:{16,32,64}) {
+        const auto p=MakeDevelopmentPattern(static_cast<std::uint8_t>(rows));
+        CHECK_EQ(p.active_rows,rows); CHECK_EQ(p.active_channels,8);
+        for(unsigned row=0;row<64;++row) for(unsigned channel=0;channel<8;++channel) {
+            const auto cell=p.cells[row][channel];
+            CHECK_EQ(p.note_off_timing[row][channel],NoteOffTiming::Arrival);
+            if(row<unsigned(rows) && channel<2) {
+                CHECK(cell.note>=60 && cell.note<=74); CHECK(cell.note!=NOTE_OFF);
+                CHECK_EQ(cell.instrument,channel);
+            } else { CHECK_EQ(cell.note,NOTE_EMPTY); CHECK_EQ(cell.instrument,kNoInstrumentUpdate); }
+        }
+        CHECK_EQ(p.cells[0][0].note,60); CHECK_EQ(p.cells[0][1].note,62);
+        CHECK_EQ(p.cells[1][0].note,64); CHECK_EQ(p.cells[1][1].note,65);
+    }
+}
+
+TEST_CASE(DevelopmentBindingsUseCellInstrumentIdsAndNeverSubstituteMissingSamples) {
+    const std::int16_t a[]={10,20},b[]={30,40},wav[]={100,200};
+    VariableRateSampleBindings bindings; bindings.count=2;
+    bindings.bindings[0]={0,60,{a,2,44100}}; bindings.bindings[1]={1,62,{b,2,44100}};
+    for(const auto view:{Pcm16MonoView{},Pcm16MonoView{wav,2,48000},Pcm16MonoView{wav,2,44100}}) {
+        auto fixture=SelectDevelopmentFixture(bindings,view);
+        const bool valid=view.sample_rate_hz==44100;
+        CHECK_EQ(fixture.pattern.active_channels,8); CHECK_EQ(fixture.bindings.count,valid?3:2);
+        if(valid) { CHECK_EQ(fixture.bindings.bindings[2].instrument,3); CHECK_EQ(fixture.bindings.bindings[2].reference_note,60); }
+        VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[2];
+        CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],40); CHECK_EQ(pcm[1],60);
+        // Explicit ID 3 can play on any channel; CH3 is not instrument-routed.
+        if(valid) {
+            player.Stop(); fixture.pattern.cells[0][0]={60,3}; fixture.pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
+            CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
+            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],100); CHECK_EQ(pcm[1],200);
+        }
+    }
+}
+
+TEST_CASE(DevelopmentTest2AndTest3BindingsIndependentAndChannelsEmpty) {
+    const std::int16_t a[]={10,20},b[]={30,40},sample2[]={100,200},sample3[]={300,400};
+    VariableRateSampleBindings beepers; beepers.count=2;
+    beepers.bindings[0]={0,60,{a,2,44100}}; beepers.bindings[1]={1,62,{b,2,44100}};
+    for(unsigned mask=0;mask<4;++mask) {
+        auto f=SelectDevelopmentFixture(beepers,mask&1?Pcm16MonoView{sample2,2,44100}:Pcm16MonoView{},
+            mask&2?Pcm16MonoView{sample3,2,44100}:Pcm16MonoView{});
+        CHECK_EQ(f.bindings.count,2+unsigned(bool(mask&1))+unsigned(bool(mask&2)));
+        CHECK_EQ(f.bindings.bindings[0].reference_note,60); CHECK_EQ(f.bindings.bindings[1].reference_note,62);
+        for(unsigned row=0;row<f.pattern.active_rows;++row) for(unsigned ch=2;ch<8;++ch) {
+            CHECK_EQ(f.pattern.cells[row][ch].note,NOTE_EMPTY); CHECK_EQ(f.pattern.cells[row][ch].instrument,kNoInstrumentUpdate);
+            CHECK_EQ(f.pattern.note_off_timing[row][ch],NoteOffTiming::Arrival);
+        }
+        for(unsigned i=2;i<f.bindings.count;++i) {
+            const auto& binding=f.bindings.bindings[i]; CHECK(binding.instrument==3 || binding.instrument==4);
+            CHECK_EQ(binding.reference_note,60); CHECK_EQ(binding.sample.data,binding.instrument==3?sample2:sample3);
+            auto pattern=f.pattern; pattern.cells[0][0]={60,binding.instrument}; pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
+            VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,pattern,f.bindings),VariableRatePatternPlayerStatus::Success);
+            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[4];
+            CHECK_EQ(player.Render(pcm,4),VariableRatePatternPlayerStatus::Success);
+            CHECK_EQ(pcm[0],binding.instrument==3?100:300); CHECK_EQ(pcm[1],binding.instrument==3?200:400);
+            CHECK_EQ(pcm[2],0); CHECK_EQ(pcm[3],0);
+        }
+    }
+}

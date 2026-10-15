@@ -35,6 +35,16 @@ struct Test {
 int main() {
     try {
         { Test t; t.Ready("BTTEST1 STATE IDLE\n");
+          CHECK(!t.serial.PlaybackView(t.now)->callback_performance);
+          t.Reply("BTPATTERN1 PERF 1 100 99 2249 55901 0 1741496\n");
+          auto view=t.serial.PlaybackView(t.now); CHECK(view->callback_performance);
+          CHECK(view->callback_performance->maximum_cycles==55901);
+          t.Reply("BTPATTERN1 PERF 1 100 99 2249 999 0 0\n");
+          CHECK(t.serial.PlaybackView(t.now)->callback_performance->maximum_cycles==55901);
+          CHECK(!t.serial.PlaybackView(t.now+3000)->callback_performance);
+          t.port->online=false; t.Tick(); CHECK(!t.serial.PlaybackView(t.now)); }
+
+        { Test t; t.Ready("BTTEST1 STATE IDLE\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n");
           t.Action(BringUpAction::ResetStop); t.Send("BTTEST1 STOP\n");
           t.Action(BringUpAction::ResetStop); t.Reply("BTTEST1 STOPPED\n");

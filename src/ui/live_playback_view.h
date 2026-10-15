@@ -1,6 +1,7 @@
 #pragma once
 #include "bringup/pattern_telemetry.h"
 #include "bringup/pattern_snapshot.h"
+#include "bringup/pattern_performance.h"
 #include <optional>
 #include "bringup/host_channel_gains.h"
 #include <string>
@@ -20,8 +21,10 @@ struct LivePlaybackView
     std::optional<BroTracker::HostGainState> channel_gains;
     std::optional<BroTracker::Pcm16ChannelGains> desired_gains;
     std::string gain_status;
+    std::optional<BroTracker::PatternPerformance> callback_performance;
 };
 constexpr std::uint32_t kLivePositionStaleMs = 500;
+constexpr std::uint32_t kCallbackPerformanceStaleMs = 3000;
 
 struct PatternDisplayState
 {

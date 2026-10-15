@@ -215,3 +215,16 @@ TEST_CASE(PatternPerformanceWrapBudgetSaturationAndFormatting) {
     PatternBringUpControl control; control.RecordPerformance(0,5,false,4);
     CHECK_EQ(control.Snapshot().performance.over_budget,1);
 }
+
+TEST_CASE(PatternPerformanceStrictParsingAndInitializationSeparation) {
+    PatternPerformance value{9,8,7,6,5,4};
+    for(const char* bad : {"BTPATTERN1 PERF 2 100 99 2249 55901 0 1741496",
+        "BTPATTERN1 PERF 1 100 101 2249 55901 0 1741496", "BTPATTERN1 PERF 1 100 99 2249 55901 100 1741496",
+        "BTPATTERN1 PERF 1 100 99 2249 55901 0 0", "BTPATTERN1 PERF 1 4294967296 99 2249 55901 0 1741496",
+        "BTPATTERN1 PERF 1 100 99 2249 55901 0 1741496 extra"}) {
+        CHECK(!ParsePatternPerformance(bad,std::strlen(bad),value)); CHECK_EQ(value.maximum_cycles,6);
+    }
+    const char* good="BTPATTERN1 PERF 1 1 0 2249 0 0 1741496";
+    CHECK(ParsePatternPerformance(good,std::strlen(good),value));
+    CHECK_EQ(value.steady_callbacks,0); CHECK_EQ(value.initialization_cycles,2249); CHECK_EQ(value.maximum_cycles,0);
+}

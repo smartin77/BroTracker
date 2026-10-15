@@ -12,6 +12,7 @@
 #include "bringup/pattern_gains.h"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
+#include "sd_wav_inspection.h"
 #endif
 #include <array>
 #include <cstdio>
@@ -50,10 +51,19 @@ namespace
     }();
     SelectedPatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+    constexpr std::size_t kPreparedFrameCapacity=kDevelopmentManualWavFrameCapacity;
+    DMAMEM alignas(32) static std::int16_t g_prepared_pcm3[kPreparedFrameCapacity];
+    SdWavPreparation g_preparation3;
+    SdPreparationReport g_preparation_report3;
+#else
     constexpr std::size_t kPreparedFrameCapacity=131072;
+#endif
     DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
     SdWavPreparation g_preparation; // Main-owned immutable after setup; optionally retained by voices.
     SdPreparationReport g_preparation_report;
+    DevelopmentWavInspection g_wav_inspection;
+    WavInspectionReport g_wav_inspection_report;
 #endif
     RealtimePattern g_active_pattern = kPattern; // Main readback source; updated after audio acknowledgement.
     SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
@@ -215,14 +225,37 @@ namespace
         const int available = Serial.availableForWrite();
         if (available <= 0) return;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+        if(g_wav_inspection_report.Partial() || (g_wav_inspection_report.HasData() && !g_tx_count &&
+            !g_telemetry.HasData() && !g_pattern_transfer.HasData() && !g_preparation_report.HasData()
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            && !g_preparation_report3.HasData()
+#endif
+            )) {
+            std::size_t remaining=0; const char* data=g_wav_inspection_report.Data(remaining);
+            const auto count=std::min<std::size_t>(remaining,std::min(available,64));
+            g_wav_inspection_report.Consume(Serial.write(reinterpret_cast<const std::uint8_t*>(data),count));
+            return;
+        }
         // Finish a partial diagnostic, otherwise ACKs and existing partial lines win.
         if(g_preparation_report.Partial() || (g_preparation_report.HasData() && !g_tx_count &&
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            !g_preparation_report3.Partial() &&
+#endif
             !g_telemetry.Partial() && !g_pattern_transfer.Partial())) {
             std::size_t remaining=0; const char* data=g_preparation_report.Data(remaining);
             const auto count=std::min<std::size_t>(remaining,std::min(available,64));
             g_preparation_report.Consume(Serial.write(reinterpret_cast<const std::uint8_t*>(data),count));
             return;
         }
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        if(g_preparation_report3.Partial() || (g_preparation_report3.HasData() && !g_tx_count &&
+            !g_telemetry.HasData() && !g_pattern_transfer.HasData())) {
+            std::size_t remaining=0; const char* data=g_preparation_report3.Data(remaining);
+            const auto count=std::min<std::size_t>(remaining,std::min(available,64));
+            g_preparation_report3.Consume(Serial.write(reinterpret_cast<const std::uint8_t*>(data),count));
+            return;
+        }
+#endif
 #endif
         const auto lane = g_output_mux.Select(g_tx_count != 0,
             g_tx_count != 0 && g_tx[g_tx_head].offset != 0);
@@ -259,6 +292,10 @@ namespace
             g_tx_head = g_tx_count = 0;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             g_preparation_report.Reset();
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            g_preparation_report3.Reset();
+#endif
+            g_wav_inspection_report.Reset();
 #endif
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
@@ -375,7 +412,13 @@ namespace
                 if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                if(!std::strcmp(line,"BTTEST1 HELLO")) (void)g_preparation_report.Offer(g_preparation);
+                if(!std::strcmp(line,"BTTEST1 HELLO")) {
+                    (void)g_preparation_report.Offer(g_preparation);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                    (void)g_preparation_report3.Offer(g_preparation3,kDevelopmentWavPaths[2]);
+#endif
+                    g_wav_inspection_report.Offer(g_wav_inspection);
+                }
 #endif
             }
             else if (!std::strncmp(line,"BTGAIN1",7)) {
@@ -480,7 +523,10 @@ namespace
             last_performance_ms=now; // Skip this interval, never enqueue/backlog.
             if(!g_tx_count && !g_telemetry.Partial() && !g_pattern_transfer.HasData() && Serial.available()==0
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                && !g_preparation_report.Partial()
+                && !g_preparation_report.Partial() && !g_wav_inspection_report.Partial()
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                && !g_preparation_report3.Partial()
+#endif
 #endif
                 ) {
                 char line[kPatternPerformanceLineCapacity]; std::size_t length=0;
@@ -505,13 +551,26 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         // Early callbacks return while g_audio_ready is false. No retries after activation.
-        g_preparation.Prepare(SD.begin(BUILTIN_SDCARD),"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
+        const bool sd_ready=SD.begin(BUILTIN_SDCARD);
+        g_wav_inspection.InspectOnce(sd_ready);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        PrepareDevelopmentWavs(sd_ready,g_preparation,g_prepared_pcm,kPreparedFrameCapacity,
+            g_preparation3,g_prepared_pcm3,kPreparedFrameCapacity);
+#else
+        g_preparation.Prepare(sd_ready,"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
+#endif
 #endif
 #ifdef BROTRACKER_PATTERN_SD_PLAYBACK
         // Preparation failure leaves an invalid view and the working beeper fixture.
         const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view,true);
         g_active_pattern = selected.pattern;
         g_selected_bindings = selected.bindings;
+#endif
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        // Eight-channel development fixture; pitched sequences need variable-rate mapping.
+        // The existing prepared file is test2.wav (raw ID 3, displayed 04).
+        const auto development=SelectDevelopmentFixture(kBindings,g_preparation.view,g_preparation3.view);
+        g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif
         g_working.working=g_active_pattern;
         AudioMemory(8);

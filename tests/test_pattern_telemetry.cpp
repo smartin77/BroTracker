@@ -318,3 +318,21 @@ TEST_CASE(MainApplicationMissingConnectionNeverUsesMockup) {
     RenderMainScreen(fb,tune,pattern); // Disconnect after preview/device presentation always restores unavailable layout.
     CHECK(std::memcmp(disconnected.data(),fb.PixelData(),disconnected.size()*sizeof(Color))==0);
 }
+
+TEST_CASE(CallbackPeakDisplayUsesMeasuredSteadyBudgetNotFakeCpu) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Tune tune; Pattern pattern; Framebuffer unavailable(640,480), measured(640,480);
+    std::optional<LivePlaybackView> live=LivePlaybackView{};
+    RenderMainScreen(unavailable,tune,pattern,live);
+    live->callback_performance=BroTracker::PatternPerformance{100,99,999999,55901,0,1741496};
+    RenderMainScreen(measured,tune,pattern,live);
+    CHECK(std::memcmp(unavailable.PixelData(),measured.PixelData(),640*26*sizeof(Color))!=0);
+    // Initialization never contributes to the steady callback percentage.
+    const std::vector<Color> steady(measured.PixelData(),measured.PixelData()+640*480);
+    live->callback_performance->initialization_cycles=1;
+    RenderMainScreen(measured,tune,pattern,live);
+    CHECK(std::memcmp(steady.data(),measured.PixelData(),steady.size()*sizeof(Color))==0);
+    live->callback_performance->steady_callbacks=0;
+    RenderMainScreen(measured,tune,pattern,live);
+    CHECK(std::memcmp(unavailable.PixelData(),measured.PixelData(),640*480*sizeof(Color))==0);
+}

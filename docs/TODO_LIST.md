@@ -658,9 +658,9 @@ design remains unchanged.
   or opposing arrows. Navigation/value streams are exclusive; publication locking
   retains navigation. Deterministic Windows/shared and retained ArkOS tests cover
   timing, stalls, timestamp wrap, cancellation and history-free navigation.
-* [ ] Manually validate shared held navigation on Windows and ArkOS.
-* [ ] Validate the new held navigation on ArkOS hardware. The 2026-10-15 controls
-  confirmation predates this addition; paging and playback ranges remain proposals.
+* [x] User confirmed shared held navigation on Windows and ArkOS (2026-10-15).
+* [x] User confirmed the added held navigation on ArkOS (2026-10-15); paging
+  and playback ranges remain proposals.
 * [x] User confirmed on 2026-10-15 that the current temporary controls and workflows
   work on ArkOS. See [ArkOS controls](ARKOS_CONTROLS.md). This does not establish
   dArkOS validation or measured physical timing/performance.
@@ -1136,3 +1136,65 @@ to 32 active rows. Single-pattern looping remains unchanged.
 * [ ] Integrate the resolved new-pattern default into future project/pattern creation;
   existing patterns must not be resized by host configuration. Design
   additional settings and input-mapping/profile recovery separately; no bindings reserved.
+
+### Development fixture and callback peak follow-up (2026-10-15)
+
+* [x] User confirms accelerated held navigation on Windows and ArkOS. This does
+  not validate the new diagnostic fixture, callback display or hardware performance.
+* [x] Variable-rate development fixture: eight active channels, configurable
+  16/32/64 rows (default 32), explicit deterministic pitched beeper events on every
+  CH1/CH2 row, no OFF, and genuinely empty CH3..CH8. Historical native-rate fixtures
+  remain unchanged; sample selection is by cell instrument ID.
+* [x] Correct existing development test2.wav binding to display 04/raw 3, reference
+  C-3, without a boot trigger. Preserve beeper reference anchors and native tempo.
+* [x] Shared Windows/ArkOS measured CBpk display from existing strict PERF parsing:
+  steady cumulative callback maximum/budget, initialization separate, 3000 ms
+  freshness, unavailable on missing/stale/disconnected data. Not total CPU load.
+* [ ] Validate new fixture and callback display on hardware; rebuild host applications
+  for the shared presentation. Prior navigation confirmation does not cover this.
+* [ ] Choose a safe complete three-sample storage strategy after measured real SD
+  metadata: display 03/raw 2 (test.wav) remains deferred; test2/test3 are now
+  implemented separately below.
+  The 2026-10-15 inspection establishes 887076 PCM bytes; current internal RAM
+  is insufficient. Do not assume PSRAM, truncate or substitute samples.
+
+* [x] Add boot-only read-only metadata inspection for the established exact SD paths
+  Samples/test.wav, Samples/test2.wav and Samples/test3.wav. Reuse checked WAV
+  validation and shared SdReader ownership; no PCM reads/reservations or SD writes.
+  Retain fixed results and bounded main-loop WAVMETA/WAVTOTAL reporting after HELLO.
+  Fake-reader tests cover paths, per-file failures, unsupported/truncated/malformed
+  data, chunk limits, cleanup and partial diagnostic writes; not actual SD evidence.
+* [x] Capture the three real WAVMETA records and valid combined WAVTOTAL after the
+  authorized user-requested upload (2026-10-15). Exact root metadata is established
+  below; no new PCM reservation or PSRAM assumption. Broader hardware validation
+  remains open.
+
+* [x] Automated real-board SD inspection on 2026-10-15 after authorized teensy41_dev
+  upload: all three established paths validated PCM16 mono/44100 Hz. Required bytes
+  are 613940 + 136568 + 136568 = 887076; WAVPREP retained successful test2 loading.
+  Metadata measurement is complete; selecting a safe three-sample storage design
+  remains open. Current internal RAM is insufficient even without stack/heap margin.
+* [x] Automated Windows-side protocol validation: complete 32x8 fixture/readback,
+  every beeper row, empty CH3..CH8, rows 0..31 and loop transition, Start/Pause/
+  current-row Continue/Stop, unchanged post-upload patterns and gains, stopped
+  finish and port release. Actual PERF parsing/freshness checks passed. These are
+  protocol/test results, not ArkOS execution, audible/visual or physical timing tests.
+* [ ] Manually validate the new fixture and CBpk presentation on Windows/ArkOS;
+  retain broader memory/cache, audio timing/performance and stress checks.
+
+* [x] Build/package the current navigation + CBpk ArkOS BTX in the preserved Eoan
+  ARM64 environment (2026-10-15): 10/10 CTest, both executable ABI/dependency checks,
+  verified six-file deploy/arkos package. No handheld deployment; new fixture/CBpk
+  visual and listening checks remain pending.
+
+* [x] Prepare two independently validated manual-test WAVs in variable-rate
+  development firmware: test2.wav display 04/raw 3 and test3.wav display 05/raw 4,
+  both reference C-3, with no automatic pattern events. Replace the old reservation
+  with two 68284-frame aligned static RAM2 buffers (273136 PCM bytes total).
+  Publish only successful views and report failures independently. Tests cover
+  paths, capacity/unsupported/missing failures, binding independence and rendering.
+  All-three-file metadata inspection and empty CH3..CH8 remain intact; test.wav
+  playback is deferred. Firmware linker check passed (RAM2 free 230368 bytes).
+* [ ] Validate the two-buffer firmware on hardware after user upload, including
+  instrument 05 playback/preview/publication, per-file failure diagnostics, overlap
+  headroom, runtime memory/cache use and PERF. No upload or hardware tests in this step.

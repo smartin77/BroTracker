@@ -67,7 +67,11 @@ int main(int argc, char* argv[]) try {
     Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
     if (tune.patterns.empty()) return failure("Tune load failed");
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
+#if BROTRACKER_WINDOWS_EMPTY_TITLE
+    SdlDisplayBackend display("", false);
+#else
     SdlDisplayBackend display("BroTracker Terminal", false);
+#endif
     if (!display.Initialize(640, 480)) return failure("SDL initialization failed");
     LogSdlHostDiagnostics(log_file);
     std::unique_ptr<WindowsAudioBridge> audio;

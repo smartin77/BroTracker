@@ -1,5 +1,6 @@
 #pragma once
 #include "sd_wav_buffer_loader.h"
+#include "sd_wav_inspection.h"
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
@@ -21,14 +22,27 @@ struct SdWavPreparation {
         if(result.status==SdWavBufferStatus::Success) view=candidate;
     }
 };
+// Exact measured capacities; storage ownership/placement remains with the caller.
+constexpr std::size_t kDevelopmentManualWavFrameCapacity=68284;
+static_assert(kDevelopmentManualWavFrameCapacity*sizeof(std::int16_t)==136568,"Measured PCM16 bytes");
+inline void PrepareDevelopmentWavs(bool initialized,
+    SdWavPreparation& test2,std::int16_t* pcm2,std::uint64_t frames2,
+    SdWavPreparation& test3,std::int16_t* pcm3,std::uint64_t frames3) noexcept {
+    test2.Prepare(initialized,kDevelopmentWavPaths[1],pcm2,frames2);
+    test3.Prepare(initialized,kDevelopmentWavPaths[2],pcm3,frames3);
+}
 // One retained report per connection; fixed partial-line state, no diagnostic FIFO.
 // Formatting is main-loop only. Reset cancels connection TX, not preparation evidence.
 class SdPreparationReport {
 public:
     void Reset() noexcept { length_=offset_=0; }
-    bool Offer(const SdWavPreparation& s) noexcept {
+    bool Offer(const SdWavPreparation& s,const char* path=nullptr) noexcept {
         if(HasData()) return false;
-        const int n=std::snprintf(line_,sizeof(line_),"BTPATTERN1 WAVPREP 1 %u %u %u %u %zu %" PRIu32 " %" PRIu64 " %" PRIuPTR "\n",
+        const int n=path ?
+            std::snprintf(line_,sizeof(line_),"BTPATTERN1 WAVPREP 2 %s %u %u %u %u %zu %" PRIu32 " %" PRIu64 " %" PRIuPTR "\n",
+                path,unsigned(s.attempted),unsigned(s.sd_ready),unsigned(s.result.status),unsigned(s.result.load_status),
+                s.view.frame_count,s.view.sample_rate_hz,s.capacity,s.address) :
+            std::snprintf(line_,sizeof(line_),"BTPATTERN1 WAVPREP 1 %u %u %u %u %zu %" PRIu32 " %" PRIu64 " %" PRIuPTR "\n",
             unsigned(s.attempted),unsigned(s.sd_ready),unsigned(s.result.status),unsigned(s.result.load_status),
             s.view.frame_count,s.view.sample_rate_hz,s.capacity,s.address);
         if(n<0 || static_cast<std::size_t>(n)>=sizeof(line_)) return false;

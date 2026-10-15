@@ -26,6 +26,18 @@ inline RealtimePattern MakeBeeperPattern(std::uint8_t rows = kPatternBringUpFixt
     pattern.cells[14][1] = {NOTE_OFF,kNoInstrumentUpdate};
     return pattern;
 }
+// Development sequence: explicit cell instruments, never channel-based routing.
+inline RealtimePattern MakeDevelopmentPattern(std::uint8_t rows=kPatternBringUpFixtureRows) noexcept {
+    RealtimePattern pattern; pattern.active_rows=rows; pattern.active_channels=8;
+    constexpr std::uint8_t first[]={60,64,67,72,67,64,62,65};
+    constexpr std::uint8_t second[]={62,65,69,74,69,65,64,67};
+    for(unsigned row=0;row<rows && row<kRealtimePatternRowCapacity;++row) {
+        pattern.cells[row][0]={first[row%8],0};
+        pattern.cells[row][1]={second[row%8],1};
+    }
+    return pattern;
+}
+
 template<class Bindings>
 struct BasicPatternBringUpFixture {
     RealtimePattern pattern;
@@ -48,4 +60,19 @@ inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
     }
     return fixture;
 }
+// Independent optional test2/test3 views. ID 2/test.wav remains unbound.
+template<class Bindings>
+inline BasicPatternBringUpFixture<Bindings> SelectDevelopmentFixture(
+    const Bindings& beepers,Pcm16MonoView test2,Pcm16MonoView test3={}) noexcept {
+    BasicPatternBringUpFixture<Bindings> result{MakeDevelopmentPattern(),beepers};
+    RamSampleVoice validator; (void)validator.Configure(44100);
+    if(validator.Trigger(test2)==RamVoiceStatus::Success) {
+        result.bindings.count=3; result.bindings.bindings[2]={3,60,test2};
+    }
+    if(validator.Trigger(test3)==RamVoiceStatus::Success) {
+        result.bindings.bindings[result.bindings.count++]={4,60,test3};
+    }
+    return result;
+}
+
 }

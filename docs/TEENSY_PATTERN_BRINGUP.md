@@ -132,8 +132,8 @@ authoritative.
   directions cancel until release; releasing an older key preserves a newer hold.
   Navigation and PgUp/PgDn share one stream. Navigation remains available during
   publication locking; value mutation remains blocked. Focus loss, disconnect
-  and exit cancel holds without automatic recovery/rearming. Windows and ArkOS
-  shared navigation-repeat manual validation is pending.
+  and exit cancel holds without automatic recovery/rearming. The user confirmed shared navigation repeat on Windows and ArkOS on
+  2026-10-15; this does not validate the later fixture/load-display changes.
   PgUp/PgDn alone repeat under application
   control: immediate action, first repeat at 400 ms, then every 100 ms, accelerating
   to 50 ms after 1000 ms held and 25 ms after 2000 ms. Each action changes one value
@@ -2335,3 +2335,239 @@ The current ArkOS controls/workflows are user-confirmed above. Broader device
 mapping and OS-hotkey coverage, exhaustive partial-transfer/reconnect/removal
 checks, physical timing and performance remain open. Final profiles, calibration,
 Undo/Redo bindings and dArkOS checks remain separate future work.
+
+### Development fixture and measured callback display (2026-10-15)
+
+The user confirms accelerated navigation on Windows and ArkOS separately from
+this new fixture/load display, whose hardware validation remains pending.
+The variable-rate development environment now selects eight active channels at
+the configured 16/32/64-row length (default 32). CH1 cycles raw notes
+60,64,67,72,67,64,62,65 with explicit instrument 0; CH2 cycles
+62,65,69,74,69,65,64,67 with explicit instrument 1. Every active row has both
+beeper events; there are no OFF events. CH3..CH8 are genuinely empty, including
+instrument 0xFF and Arrival timing. Historical native-rate environments retain
+their existing fixture. Instrument selection follows cells, not channel numbers.
+
+Requested WAV identities are display 03/raw 2 = Samples/test.wav,
+04/raw 3 = Samples/test2.wav, and 05/raw 4 = Samples/test3.wav, all reference 60
+(C-3 anchor, not measured pitch). The current prepared test2.wav binding is now
+raw 3 in the development environment and has no boot trigger. IDs 2 and 4 remain
+unbound: three-file preparation is **blocked on exact metadata and safe storage**.
+No sample substitution, truncation, lower quality, PSRAM assumption or dynamic
+PCM allocation was introduced. Existing WAVPREP still describes test2.wav only;
+it does not establish opening or existence of the other two exact paths.
+
+The samples are on the Teensy's SD, not in the checkout. Previous hardware evidence
+measures test2.wav at 68284 frames / 136568 PCM bytes / 44100 Hz. Historical notes
+mention a larger test.wav but do not establish current file/chunk metadata;
+test.wav and test3.wav must be measured before computing a complete reservation.
+The installed pattern protocol cannot inspect arbitrary SD files. No upload or
+SD writes were performed. Fake SD failure tests do not establish real file existence.
+
+The development firmware compilation/linker check reports RAM1 variables 69280,
+ITCM code 105480, padding 25592, leaving 323936 bytes for locals/stack; RAM2
+variables 282912, leaving 241376 bytes for malloc/new. RAM2 includes the existing
+262144-byte PCM reservation. These linker figures do not measure runtime stack,
+heap or SD/cache headroom. Additional complete-sample RAM requirements remain
+unknown; no new reservation is made. Storage-independent caller-owned views keep
+future optional PSRAM possible without changing parsing/playback APIs.
+
+BTX now strictly parses existing PERF v1 reports without changing firmware message
+frequency or callback instrumentation. The live header uses CBpk (rounded percent)
+and the panel identifies Callback peak/budget (steady, cumulative), using
+maximum_cycles / budget_cycles, never initialization_cycles. This is player/audio
+owner callback cost including its control work, **not total CPU or whole-audio-graph
+load**; neither whole-graph nor whole-CPU measurement is available here. Missing,
+initialization-only, disconnected or reports at least 3000 host ms old display
+unavailable. Malformed reports preserve the accepted measurement without refreshing
+its age. Host observation time does not establish physical audio timing.
+
+Windows and ArkOS applications need rebuilding to include the shared display;
+no application binaries were built or packaged in this step. Pending hardware
+checks include eight-channel/every-row fixture, corrected 04 selection, measured
+load freshness, complete three-file metadata/storage, and real per-file loading.
+
+### Read-only boot WAV metadata inspection (implementation; hardware capture pending)
+
+Historical source `firmware/teensy/BroTracker/platform.cpp` establishes the exact
+paths Samples/test.wav, Samples/test2.wav and Samples/test3.wav; its streaming
+call sites open all three. The earlier SD diagnosis record confirms they were
+copied into Samples, and the user confirms those card contents are unchanged.
+They are established existing samples, not guessed or presumed absent.
+The September benchmark files in `_backyard/benchmarks/` measure library paths:
+AmenVN_4barOrig.wav has 613984 file bytes / 613940 PCM bytes (mono PCM16 44100 Hz),
+and bbeat-01 variants have 136612 file bytes / 136568 PCM bytes. Historical discussion
+attributes the larger recording to test.wav, but the benchmark paths alone do not
+identify all three root aliases. The 2026-10-11 test2.wav WAVPREP evidence directly
+measures 68284 frames / 136568 PCM bytes. Exact root-file metadata for the complete
+three-file total is still needed; neither expected bar counts nor BPM establish it.
+
+SD-preparation environments now inspect all three exact paths once after SD.begin,
+before existing test2.wav loading and before g_audio_ready. Each file uses SdReader
+and holds its shared read lock through validation, then closes on every exit.
+No PCM data is read by inspection, no SD writes are made, and no new PCM buffers
+are reserved. The existing fixture, bindings, CBpk presentation and loaded sample
+lifetime are preserved. The portable loader and inspector share checked RIFF/fmt/
+data validation; the inspector limits traversal to 1024 chunks per file and reads
+at most 18 fmt bytes plus fixed headers per chunk. Unknown payloads and padding
+are skipped, not scanned. The loader retains its previous full-RIFF traversal.
+Missing files, directories, I/O, malformed/truncated/duplicate/missing chunks,
+unsupported formats and chunk-budget exhaustion have explicit statuses.
+
+Main-loop diagnostics retain immutable boot results and emit these four lines
+once after HELLO, including reconnect, through bounded 64-byte partial writes:
+
+```text
+BTPATTERN1 WAVMETA 1 <path> <sd_ready> <open_status> <validation_status> <flags> <file_bytes> <format> <channels> <rate> <bits> <data_bytes> <frames> <duration_us> <required_pcm_bytes>
+BTPATTERN1 WAVTOTAL 1 <valid> <required_pcm_bytes>
+```
+
+Three WAVMETA lines use the exact paths in the order listed above. Fields are
+unsigned decimal except the fixed path. Flags: 1=file size known, 2=fmt fields
+read, 4=data extent read, 8=frame count/duration derived from a consistent PCM
+layout. On rejection, known fields are diagnostic evidence, not a validated view;
+zero with a missing flag means unavailable. Format is the raw WAVE encoding
+(1=PCM). Duration is floor(frames*1000000/rate), in microseconds; it is not BPM
+or reference pitch. Required bytes are available only for validated PCM16 mono
+44100 Hz, equal to data bytes, and are otherwise zero/unavailable.
+
+Open statuses: 0=success, 1=invalid path, 2=open failed, 3=directory (4=loader
+failure is unused here). Validation statuses retain WavBufferStatus numbering:
+0=success, 1=I/O, 2=invalid destination, 3=invalid capacity, 4=invalid container,
+5=truncated, 6=invalid chunk, 7=duplicate, 8=missing, 9=invalid fmt,
+10=unsupported, 11=invalid data, 12=insufficient capacity, 13=chunk limit.
+Destination/capacity statuses are unused for inspection. If SD is unavailable,
+sd_ready=0/open-failed/I/O identifies that no file inspection occurred.
+WAVTOTAL valid=1 requires all three successful supported inspections; its checked
+sum gives the combined complete PCM requirement. valid=0/bytes=0 is unknown,
+not a zero-size allocation. No decision about three-file storage/PSRAM follows
+until that valid result and memory headroom are reviewed.
+
+The report holds one 256-byte line, never queues unbounded data, and performs
+formatting/serial writes only in the main loop. ACKs and existing position/snapshot
+traffic take priority at line boundaries; partial lines finish without interleaving.
+No request for arbitrary filesystem access is added. Fake-reader tests verify exact
+paths, header-only reads, supported/unsupported/missing/truncated cases, lock/file
+release, isolated file failures, chunk limits and bounded reporting; they do not
+establish new actual SD metadata or hardware behavior.
+
+Compilation/linking of teensy41_dev passed: RAM1 variables 70304 bytes, ITCM 107784,
+padding 23288, locals/stack free 322912; RAM2 variables 282912/free 241376. Compared
+with the preceding fixture build, RAM1 variables increase by 1024 and RAM2 is
+unchanged. Runtime stack/heap/cache headroom is not measured by these figures.
+
+After the user uploads the compiled firmware, connect with BTX Debug logging,
+without requiring START, and capture all three WAVMETA lines plus WAVTOTAL,
+existing WAVPREP, and any errors. Archive the log separately before another launch
+overwrites/rotates it. Confirm filenames and statuses, then use the valid total
+for the RAM sizing decision. Reconnect should report the retained boot inspection
+without new reads. No upload, hardware-session interruption or application
+packaging was performed during implementation; real-card validation remains open.
+
+### Automated device validation and SD sizing (2026-10-15)
+
+Task-specific authorization covered building/uploading teensy41_dev and isolated
+Windows-side protocol testing. The board was identified as Teensy 4.1 on COM3
+(16c0:048a, Serial+MIDI+Audio); no BTX session was interrupted. Original terminal
+logs and pre-upload published/working/gain readbacks were archived first. The old
+unedited 32x3 boot fixture was replaced by the requested new 32x8 firmware fixture
+at upload; the protocol test did not send preview/publication/gain mutations.
+
+All three exact SD paths opened and validated successfully as encoding 1, PCM16
+mono, 44100 Hz, flags 15. Actual read-only inspection returned:
+
+| Path | File bytes | PCM/storage bytes | Frames | Duration (reported seconds) |
+| --- | ---: | ---: | ---: | ---: |
+| Samples/test.wav | 613984 | 613940 | 306970 | 6.960770 |
+| Samples/test2.wav | 136612 | 136568 | 68284 | 1.548390 |
+| Samples/test3.wav | 136612 | 136568 | 68284 | 1.548390 |
+
+WAVTOTAL valid=1 confirms **887076 PCM bytes**. WAVPREP independently reports
+successful existing test2.wav loading: 68284 frames, 44100 Hz, capacity 131072,
+address 538970144 (0x20200820). No three-file PCM reservation was added.
+The complete total exceeds current internal-memory capacity: even reclaiming the
+262144-byte PCM reservation and combining reported RAM1 locals/stack free 322912
+with RAM2 malloc/new free 241376 gives only 826432 bytes, a 60644-byte shortfall
+before retaining any stack/heap margin. Those regions are not one contiguous
+allocation; test.wav alone exceeds either 512 KiB bank. This is a measured blocker
+for the present contiguous complete-sample internal-RAM approach, not permission
+to truncate, substitute, assume PSRAM or change the playback/storage design.
+
+The device snapshot checksum and all 256 ordered cells were validated: 32 rows,
+eight channels, tempo 12753, explicit beeper sequences on every CH1/CH2 row,
+no OFF, genuinely empty CH3..CH8 and Arrival metadata. Reported playback covered
+all zero-based rows 0..31 and the row31/loop0 -> row0/loop1 transition. START,
+Pause/current-row Continue and STOP/reset were acknowledged; the post-test
+published/working snapshots and all gains exactly matched the post-upload initial
+values. Final STOP was confirmed and COM3 released. No SD writes occurred.
+
+Three PERF reports were valid: cumulative maximum 60272 cycles / budget 1741496
+(3.46093%), initialization 5599 cycles, zero reported overruns. These are cumulative
+callback measurements since boot, not total CPU, whole-audio-graph cost or stress
+validation. An isolated Windows test fed those actual lines through production
+BringUpSerial/PlaybackView, checking parsing, freshness available at 2999 ms,
+unavailable at 3000 ms and disconnected unavailability. This Windows test is not
+execution of the ARM64 ArkOS application. CBpk visual layout/readability, physical
+audio timing and listening remain manual checks.
+
+Raw logs, source/executable snapshots and manifests are local untracked evidence
+under diagnostics/dev-wavmeta-20261015-fa7f9b2f03/, not repository deliverables.
+The captured terminal log originals remained byte-identical. The authorization was
+one-time; future application builds/firmware uploads still require authorization.
+
+The existing Eoan ARM64 environment was reused incrementally (GCC 9.2.1, glibc
+2.30, SDL 2.0.10). All 10 CTest targets and the established architecture,
+interpreter, symbol-version, RPATH, dependency and relocation checks passed for
+BroTrackerTerminal and BroTrackerAlsaBridge. All six package files were copied
+and compared to the validated package in deploy/arkos, including navigation and
+CBpk. This is ARM64 emulated build/test validation, not handheld deployment or
+visual/listening confirmation. No dependencies were installed and no Windows
+application was packaged.
+
+### Two manual-test WAV bindings (implementation; hardware validation pending)
+
+The variable-rate development environment now prepares only Samples/test2.wav and
+Samples/test3.wav for playback, independently, before audio activation. test2.wav
+is display 04/raw 3; test3.wav is display 05/raw 4. Both use reference 60 (C-3
+playback anchor). Samples/test.wav remains unbound/deferred; no extra samples,
+substitution, tempo matching, normalization or resampling are added. Inspection
+of all three established paths remains unchanged. CH1/CH2 beeper events are
+unchanged, and CH3..CH8 remain genuinely empty. Select either WAV instrument in
+any channel through the existing editor/preview workflow; there is no automatic
+boot trigger or channel-to-instrument routing.
+
+The development build replaces the old 131072-frame reservation with two separate
+32-byte-aligned DMAMEM arrays of 68284 frames each: 136568 bytes per sample,
+273136 PCM bytes total. No unnecessary old buffer remains in this build. The ELF
+confirms addresses 0x20200820 and 0x20221DA0 and sizes 0x21578 each. Current linker
+usage: RAM1 variables 70464, ITCM code 109832, padding 21240, locals/stack free
+322752; RAM2 variables 293920, malloc/new free 230368. The RAM2 increase of 11008
+bytes over the previous build includes alignment. These are linker figures, not
+runtime stack/heap/cache headroom measurements. Historical native-rate preparation
+and playback environments retain their previous single-buffer behavior.
+
+Each load retains its own result and publishes a non-owning immutable view only
+on success. Missing/unsupported/oversized/I/O-failed files remain unbound without
+preventing the other sample or beepers from working. Buffers are caller-owned,
+static for the boot lifetime and never rewritten after audio activation. Caller
+storage keeps future PSRAM options independent of WAV parsing/playback; none is
+assumed or allocated here.
+
+Existing WAVPREP v1 remains the test2.wav result, now with capacity 68284 in the
+development environment. A separate bounded retained report identifies test3.wav:
+
+```text
+BTPATTERN1 WAVPREP 2 Samples/test3.wav <attempted> <sd_ready> <sd_status> <load_status> <frames> <rate> <capacity> <address>
+```
+
+Statuses retain existing SdWavBufferStatus/WavBufferStatus values. Reports are
+main-loop only, finish partial lines intact, and defer to command acknowledgements
+at line boundaries. PERF and metadata inspection remain outside audio processing.
+Host tests cover independent success/failure/capacity, exact paths, no retry,
+reference bindings, empty spare channels and exact sample rendering from either
+instrument on CH1. Fake SD tests are not new real-file or hardware evidence.
+Firmware compilation/linking passed; this revision was not uploaded. Manual
+loading of both views, instrument 05 preview/publication, audio output and new
+performance/memory behavior remain pending user validation. Unity summation can
+saturate when full-level PCM overlaps beepers; final gain/headroom policy is still
+separate work.
