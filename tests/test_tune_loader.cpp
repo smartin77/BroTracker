@@ -8,6 +8,7 @@
  */
 
 #include "test_framework.h"
+#include "temporary_directory.h"
 
 #include <exception>
 #include <fstream>
@@ -59,12 +60,12 @@ TEST_CASE(LoadTuneFromJson_ThrowsOnMissingFile)
 }
 TEST_CASE(LoadTuneFromJson_RejectsUnsupportedPatternTextWithoutRelabeling)
 {
-    const auto path = std::filesystem::path("build/local-pattern-note-validation-test.json");
-    CHECK(!std::filesystem::exists(path));
-    if (std::filesystem::exists(path)) return;
+    TemporaryTestDirectory directory;
+    const auto path = directory.Path() / "pattern.json";
     const auto load = [&](const char* note) {
         {
             std::ofstream file(path);
+            if(!file) throw std::runtime_error("Unable to create temporary tune fixture");
             file << "{\"tune\":{\"pattern\":[{\"channel\":[{\"row\":[{\"note\":\""
                 << note << "\"}]}]}]}}";
         }
@@ -80,4 +81,15 @@ TEST_CASE(LoadTuneFromJson_RejectsUnsupportedPatternTextWithoutRelabeling)
         CHECK(rejected);
     }
     std::filesystem::remove(path);
+}
+
+TEST_CASE(TemporaryFixturesAreDistinctAndCleanedDuringException) {
+    std::filesystem::path removed;
+    try {
+        TemporaryTestDirectory first,second;
+        CHECK(first.Path()!=second.Path()); removed=first.Path();
+        std::ofstream file(first.Path()/"partial.json"); file<<"partial"; file.close();
+        throw std::runtime_error("fixture cleanup probe");
+    } catch(const std::runtime_error&) {}
+    CHECK(!removed.empty()); CHECK(!std::filesystem::exists(removed));
 }

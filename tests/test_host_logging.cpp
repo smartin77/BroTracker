@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include "temporary_directory.h"
 #include "ui/host_logging.h"
 #include <fstream>
 #include <string>
@@ -24,7 +25,8 @@ TEST_CASE(HostLoggingConfigCompatibilityAndRollback) {
     }
     CHECK(ParseHostConfig("[logging]\nmode=basic\n"+btx,c)==HostConfigStatus::Loaded);
     CHECK(c.logging_mode==HostLogMode::Basic); CHECK_EQ(c.preserve_last,0u);
-    const auto dir=std::filesystem::temp_directory_path()/"brotracker-logging-config-test";
+    TemporaryTestDirectory fixture;
+    const auto dir=fixture.Path()/"logging-config";
     CHECK(std::filesystem::create_directory(dir)); const auto path=dir/"config.ini";
     Write(path,(btx+"[logging]\nmode=debug\npreserve_last=5").c_str());
     CHECK(LoadHostConfig(path,false).config.logging_mode==HostLogMode::Debug);
@@ -63,7 +65,8 @@ TEST_CASE(HostLoggingFilteringTimestampsAndChangedRecovery) {
     CHECK(text.find("visible CELL")!=text.npos); std::fclose(f); ConfigureHostLogging(HostLogMode::Basic);
 }
 TEST_CASE(HostLoggingRotationLimitsAppendAndSafeFailure) {
-    const auto dir=std::filesystem::temp_directory_path()/"brotracker-logging-test";
+    TemporaryTestDirectory fixture;
+    const auto dir=fixture.Path()/"logging";
     CHECK(std::filesystem::create_directory(dir));
     const auto p=dir/"terminal.log",one=dir/"terminal(1).log",two=dir/"terminal(2).log";
     Write(p,"current"); Write(one,"one"); Write(two,"two"); Write(dir/"terminal(20).log","twenty"); Write(dir/"unrelated.log","evidence");

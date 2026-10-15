@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include "temporary_directory.h"
 #include "ui/host_config.h"
 #include <fstream>
 #include <string>
@@ -35,7 +36,8 @@ TEST_CASE(HostConfigTransactionalValidationAndBounds) {
     CHECK_EQ(config.new_pattern_length,16);
 }
 TEST_CASE(HostConfigFileLoadingAndSafeRecovery) {
-    const auto directory = std::filesystem::temp_directory_path() / "brotracker-host-config-test";
+    TemporaryTestDirectory fixture;
+    const auto directory = fixture.Path() / "config";
     CHECK(std::filesystem::create_directory(directory));
     const auto path = directory / "config.ini";
     CHECK(LoadHostConfig(path,false).status == HostConfigStatus::Missing);
