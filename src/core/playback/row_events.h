@@ -7,7 +7,7 @@
 namespace BroTracker
 {
     // Initial realtime storage capacities, not permanent pattern-format limits.
-    constexpr std::uint8_t kRealtimePatternRowCapacity = 16;
+    constexpr std::uint8_t kRealtimePatternRowCapacity = 64;
     constexpr std::uint8_t kRealtimePatternChannelCapacity = 8;
     constexpr std::uint8_t kNoInstrumentUpdate = 0xFF;
 
@@ -19,7 +19,8 @@ namespace BroTracker
 
     struct RealtimePattern
     {
-        std::uint8_t active_rows = kRealtimePatternRowCapacity;
+        // Preserve the legacy implicit length; firmware selects its fixture length explicitly.
+        std::uint8_t active_rows = 16;
         std::uint8_t active_channels = kRealtimePatternChannelCapacity;
         // Row-major cells reuse Event's NOTE_EMPTY / 0xFF defaults.
         Event cells[kRealtimePatternRowCapacity][kRealtimePatternChannelCapacity]{};

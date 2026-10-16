@@ -1,4 +1,5 @@
 #include "ui/serial_transport.h"
+#include "ui/host_logging.h"
 #include <cerrno>
 #include <cstring>
 #include <cstdlib>
@@ -66,7 +67,7 @@ class LinuxSerialTransport final : public SerialTransport {
     char last_error_device_[PATH_MAX]{};
     const char* error_ = "USB hangup";
     static void Log(FILE* log, const char* message, const char* detail) {
-        if (log) { std::fprintf(log, "USB bring-up: %s %s\n", message, detail); std::fflush(log); }
+        BroTracker::HostLogf(log,BroTracker::ClassifyHostDiagnostic("ArkOS CDC",message),"ArkOS CDC","%s %s",message,detail);
     }
 public:
     ~LinuxSerialTransport() override { Close(); }
@@ -85,10 +86,10 @@ public:
             access_denied_ = error == EACCES || error == EPERM;
             if (error != last_open_error_ || std::strcmp(device, last_error_device_) != 0) {
                 if (log) {
-                    std::fprintf(log, "USB bring-up: open failed: %s: %s (errno=%d)\n",
+                    BroTracker::HostLogf(log,BroTracker::HostLogLevel::Basic,"ArkOS CDC", "USB bring-up: open failed: %s: %s (errno=%d)\n",
                                  device, std::strerror(error), error);
                     if (access_denied_)
-                        std::fprintf(log, "USB bring-up: serial access denied; check port ownership and runtime user's groups. If dialout owns the port: sudo usermod -aG dialout <runtime-user>; restart sessions or reboot. Do not run BTX as root.\n");
+                        BroTracker::HostLogf(log,BroTracker::HostLogLevel::Basic,"ArkOS CDC", "USB bring-up: serial access denied; check port ownership and runtime user's groups. If dialout owns the port: sudo usermod -aG dialout <runtime-user>; restart sessions or reboot. Do not run BTX as root.\n");
                     std::fflush(log);
                 }
                 last_open_error_ = error;
@@ -113,6 +114,7 @@ public:
         if (ioctl(fd_, TIOCMBIS, &bits) < 0 && !(test_device && errno == ENOTTY))
         { Log(log, "configuration failed:", std::strerror(errno)); Close(); return false; }
         Log(log, "opened:", device);
+        BroTracker::HostLogf(log,BroTracker::HostLogLevel::Debug,"ArkOS CDC","matched VID=16c0 PID=048a; selected device=%s",device);
         return true;
     }
     bool AccessDenied() const override { return access_denied_; }

@@ -26,7 +26,7 @@ namespace
         PatternSnapshotSender sender(pattern, tempo_hundredths);
         CHECK(sender.Begin(id, 0, version));
         std::vector<std::string> result;
-        for (unsigned budget = 0; sender.HasData() && budget < 130; ++budget)
+        for (unsigned budget = 0; sender.HasData() && budget < kRealtimePatternRowCapacity * kRealtimePatternChannelCapacity + 2; ++budget)
         {
             std::size_t count; const auto* data = sender.Data(count);
             CHECK(count > 0); result.emplace_back(data, count - 1); sender.Consume(count);
@@ -100,9 +100,9 @@ TEST_CASE(PatternSnapshot_RoundTripAllRawCellsAndAtomicPublication)
     CHECK_EQ(Feed(assembly, "BTPATTERN1 CELL 1 2 0 128 0", 12), SnapshotAssemblyStatus::Rejected);
     Same(*assembly.Snapshot(), pattern);
     // Full capacity and maximum ID/tempo fit bounded formatting/parsing.
-    RealtimePattern maximum;
+    RealtimePattern maximum; maximum.active_rows = kRealtimePatternRowCapacity;
     const auto full = Lines(maximum, UINT32_MAX, UINT32_MAX);
-    CHECK_EQ(full.size(), 130); CHECK(assembly.Request(UINT32_MAX, 20));
+    CHECK_EQ(full.size(), kRealtimePatternRowCapacity * kRealtimePatternChannelCapacity + 2); CHECK(assembly.Request(UINT32_MAX, 20));
     for (const auto& line : full) (void)Feed(assembly, line, 21);
     CHECK_EQ(assembly.Snapshot()->tempo_hundredths, UINT32_MAX);
     CHECK_EQ(assembly.Snapshot()->pattern.active_channels, 8);
@@ -113,7 +113,7 @@ TEST_CASE(PatternSnapshot_RejectionOrderingIdentityCompletionTimeoutAndCancellat
     const auto pattern = Fixture(); const auto lines = Lines(pattern);
     const std::vector<std::string> bad_headers = {
         "BTPATTERN1 BEGIN 2 1 3 2 12753 6", "BTPATTERN1 BEGIN 1 2 3 2 12753 6",
-        "BTPATTERN1 BEGIN 1 1 0 2 12753 0", "BTPATTERN1 BEGIN 1 1 17 2 12753 34",
+        "BTPATTERN1 BEGIN 1 1 0 2 12753 0", "BTPATTERN1 BEGIN 1 1 65 2 12753 130",
         "BTPATTERN1 BEGIN 1 1 3 0 12753 0", "BTPATTERN1 BEGIN 1 1 3 9 12753 27",
         "BTPATTERN1 BEGIN 1 1 3 2 0 6", "BTPATTERN1 BEGIN 1 1 3 2 12753 5",
         "BTPATTERN1 BEGIN 1 1 3 2 4294967296 6", "BTPATTERN1 BEGIN 1 1 3 2 -1 6",

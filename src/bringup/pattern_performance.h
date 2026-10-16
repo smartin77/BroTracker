@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cinttypes>
 #include <limits>
+#include "pattern_snapshot.h"
 
 namespace BroTracker {
 struct PatternPerformance {
@@ -28,6 +29,13 @@ inline void RecordPatternCycles(PatternPerformance& stats, std::uint32_t begin,
     increment(stats.steady_callbacks);
     if(elapsed>stats.maximum_cycles) stats.maximum_cycles=elapsed;
     if(elapsed>budget) increment(stats.over_budget);
+}
+// Host/main-loop parser. Strict fields; failure preserves the previous report.
+inline bool ParsePatternPerformance(const char* line, std::size_t length, PatternPerformance& output) noexcept {
+    std::uint32_t fields[7]{};
+    if(!SnapshotFields(line,length,"BTPATTERN1 PERF ",fields,7) || fields[0]!=1 ||
+        fields[2]>fields[1] || fields[5]>fields[2] || !fields[6]) return false;
+    output={fields[1],fields[2],fields[3],fields[4],fields[5],fields[6]}; return true;
 }
 constexpr std::size_t kPatternPerformanceLineCapacity=96;
 inline bool FormatPatternPerformance(const PatternPerformance& s, char* out,

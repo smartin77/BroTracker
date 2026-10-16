@@ -1,12 +1,18 @@
 #pragma once
 #include "core/playback/native_rate_sample_commands.h"
 
+#ifndef BROTRACKER_PATTERN_FIXTURE_ROWS
+#define BROTRACKER_PATTERN_FIXTURE_ROWS 32
+#endif
 namespace BroTracker {
+constexpr std::uint8_t kPatternBringUpFixtureRows = BROTRACKER_PATTERN_FIXTURE_ROWS;
+static_assert(BROTRACKER_PATTERN_FIXTURE_ROWS == 16 || BROTRACKER_PATTERN_FIXTURE_ROWS == 32 ||
+    BROTRACKER_PATTERN_FIXTURE_ROWS == 64, "Fixture rows must be 16, 32 or 64");
 // Boot-time fixed metadata selection. PCM remains immutable and caller-owned.
 // No loading, clock ownership or dependency on RAM placement.
-inline RealtimePattern MakeBeeperPattern() noexcept {
+inline RealtimePattern MakeBeeperPattern(std::uint8_t rows = kPatternBringUpFixtureRows) noexcept {
     RealtimePattern pattern;
-    pattern.active_rows = 16; pattern.active_channels = 2;
+    pattern.active_rows = rows; pattern.active_channels = 2;
     pattern.cells[0][0] = {60,0};
     pattern.cells[2][1] = {62,1};
     pattern.cells[4][0] = {60,kNoInstrumentUpdate};
@@ -20,15 +26,34 @@ inline RealtimePattern MakeBeeperPattern() noexcept {
     pattern.cells[14][1] = {NOTE_OFF,kNoInstrumentUpdate};
     return pattern;
 }
-struct PatternBringUpFixture {
+// Development sequence: explicit cell instruments, never channel-based routing.
+inline RealtimePattern MakeDevelopmentPattern(std::uint8_t rows=kPatternBringUpFixtureRows) noexcept {
+    RealtimePattern pattern; pattern.active_rows=rows; pattern.active_channels=8;
+    struct Entry { std::uint8_t row,note; };
+    constexpr Entry first[]={{0,60},{4,64},{7,67},{10,64},{16,65},{20,69},{23,72},{28,67}};
+    // B natural (German H) is raw 59, not B-flat/raw 58.
+    constexpr Entry second[]={{0,48},{8,55},{12,59},{16,53},{24,60},{28,55}};
+    for(unsigned base=0;base<rows && base<kRealtimePatternRowCapacity;base+=32) {
+        for(const auto entry:first) if(base+entry.row<rows && base+entry.row<kRealtimePatternRowCapacity)
+            pattern.cells[base+entry.row][0]={entry.note,0};
+        for(const auto entry:second) if(base+entry.row<rows && base+entry.row<kRealtimePatternRowCapacity)
+            pattern.cells[base+entry.row][1]={entry.note,1};
+    }
+    return pattern;
+}
+
+template<class Bindings>
+struct BasicPatternBringUpFixture {
     RealtimePattern pattern;
-    NativeRateSampleBindings bindings;
+    Bindings bindings;
 };
+using PatternBringUpFixture = BasicPatternBringUpFixture<NativeRateSampleBindings>;
 // Input is the boot fixture's two validated beeper bindings (IDs 0/1).
 // Invalid/unavailable prepared views retain the original two-channel fixture.
-inline PatternBringUpFixture SelectPatternBringUpFixture(
-    const NativeRateSampleBindings& beepers, Pcm16MonoView prepared, bool enable_sd) noexcept {
-    PatternBringUpFixture fixture{MakeBeeperPattern(), beepers};
+template<class Bindings>
+inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
+    const Bindings& beepers, Pcm16MonoView prepared, bool enable_sd) noexcept {
+    BasicPatternBringUpFixture<Bindings> fixture{MakeBeeperPattern(), beepers};
     RamSampleVoice validator;
     (void)validator.Configure(44100);
     if (enable_sd && validator.Trigger(prepared) == RamVoiceStatus::Success) {
@@ -39,4 +64,19 @@ inline PatternBringUpFixture SelectPatternBringUpFixture(
     }
     return fixture;
 }
+// Contiguous IDs: beepers 0/1, test2.wav 2, test3.wav 3. test.wav stays deferred.
+template<class Bindings>
+inline BasicPatternBringUpFixture<Bindings> SelectDevelopmentFixture(
+    const Bindings& beepers,Pcm16MonoView test2,Pcm16MonoView test3={}) noexcept {
+    BasicPatternBringUpFixture<Bindings> result{MakeDevelopmentPattern(),beepers};
+    RamSampleVoice validator; (void)validator.Configure(44100);
+    if(validator.Trigger(test2)==RamVoiceStatus::Success) {
+        result.bindings.count=3; result.bindings.bindings[2]={2,60,test2};
+    }
+    if(validator.Trigger(test3)==RamVoiceStatus::Success) {
+        result.bindings.bindings[result.bindings.count++]={3,60,test3};
+    }
+    return result;
+}
+
 }

@@ -1,5 +1,6 @@
 #include "bringup/diagnostic_channel_gains.h"
 #include "test_framework.h"
+#include "ui/host_logging.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/pattern_preview.h"
 #include "bringup/pattern_control.h"
@@ -72,7 +73,17 @@ struct PreviewPort : SerialTransport {
     PatternBringUpControl control; PatternPublication preview,publication;
     PatternPreviewReadback metadata; DevicePatternSnapshot baseline=PreviewBaseline();
     std::int16_t pcm[64]{}; bool online=true, capability=true; unsigned limit=3;
-    std::string input, output, partial; std::vector<std::int16_t> audio;
+    std::string input, output, partial; std::vector<std::int16_t> audio; unsigned writes=0;
+    bool asynchronous=false,ownership_violation=false,hold_snapshot=false;
+    std::string delayed_snapshot;
+    std::string owned_write; unsigned completed_write=0;
+    void CompleteWrite(unsigned count=96) {
+        CHECK(!owned_write.empty()); CHECK(!completed_write);
+        completed_write=std::min<unsigned>(count,static_cast<unsigned>(owned_write.size()));
+        output.append(owned_write.data(),completed_write); partial.append(owned_write.data(),completed_write);
+        const auto end=partial.find('\n');
+        if(end!=std::string::npos) {const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line);}
+    }
     PreviewPort() {
         std::fill(std::begin(pcm),std::end(pcm),11); NativeRateSampleBindings b{}; b.count=1;
         b.bindings[0]={7,60,{pcm,64,100}};
@@ -80,18 +91,25 @@ struct PreviewPort : SerialTransport {
     }
     bool Open(FILE*,const char*) override { return online; }
     bool Healthy() override { return online; }
-    void Close() override { input.clear(); partial.clear(); }
+    void Close() override { input.clear(); partial.clear(); owned_write.clear(); completed_write=0; }
     const char* Error() const override { return "fixture disconnect"; }
     int Read(char* data,unsigned count) override {
         const auto n=std::min<std::size_t>(count,input.size()); std::memcpy(data,input.data(),n); input.erase(0,n); return static_cast<int>(n);
     }
     int Write(const char* data,unsigned count) override {
+        ++writes;
+        if(asynchronous) {
+            if(!owned_write.empty() && (count<owned_write.size() || std::memcmp(data,owned_write.data(),owned_write.size()))) ownership_violation=true;
+            if(completed_write) {const auto done=completed_write; completed_write=0; owned_write.clear(); return static_cast<int>(done);}
+            if(owned_write.empty()) owned_write.assign(data,std::min(count,limit));
+            return 0;
+        }
         const auto n=std::min(count,limit); output.append(data,n); partial.append(data,n);
         auto end=partial.find('\n');
         if(end!=std::string::npos) { const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line); }
         return static_cast<int>(n);
     }
-    bool gain_capability=false;
+    bool gain_capability=false, sparse_capability=false;
     void State() {
         const auto s=control.Snapshot();
         input+="BTTEST1 STATE "+std::string(s.running?"PLAYING":s.transport==PatternTransportState::Paused?"PAUSED":"IDLE")+"\n";
@@ -99,17 +117,18 @@ struct PreviewPort : SerialTransport {
         input+="BTPUBLISH1 NEXT 1 "+std::to_string(publication.NextIdentity())+"\n";
         if(capability) input+="BTPREVIEW1 CAP 1\nBTPREVIEW1 NEXT 1 "+std::to_string(preview.NextIdentity())+"\nBTPREVIEW1 STATE 1 "+
             std::to_string(s.published_id)+" "+std::to_string(s.working_id)+" "+std::to_string(s.pending_preview_id)+"\n";
+        if(sparse_capability) input+="BTPREVIEW1 DELTACAP 1\n";
         if(gain_capability) {
             char gain_state[96]; CHECK(FormatPatternGainState(s.gains,s.applied_gain_id,s.next_gain_id,gain_state,sizeof(gain_state)));
             input+="BTGAIN1 CAP 1\n"; input+=gain_state;
         }
         input+="BTPATTERN1 POS 2 "+std::to_string(s.running?1:s.transport==PatternTransportState::Paused?2:0)+" "+
             std::to_string(s.position.valid)+" "+std::to_string(s.position.absolute_tick)+" "+std::to_string(s.position.pattern_row)+" "+
-            std::to_string(s.position.loop_index)+" 2 1\n";
+            std::to_string(s.position.loop_index)+" "+std::to_string(baseline.pattern.active_rows)+" "+std::to_string(baseline.pattern.active_channels)+"\n";
     }
     void Snapshot(const RealtimePattern& pattern,unsigned id,bool working) {
         PatternSnapshotSender sender(pattern,12753); CHECK(sender.SetWorkingNamespace(working)); CHECK(sender.Begin(id,0,2));
-        while(sender.HasData()) { std::size_t n=0; const auto* data=sender.Data(n); input.append(data,n); sender.Consume(n); }
+        while(sender.HasData()) { std::size_t n=0; const auto* data=sender.Data(n); if(hold_snapshot) delayed_snapshot.append(data,n); else input.append(data,n); sender.Consume(n); }
     }
     void Handle(const std::string& line) {
         if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") { if(line=="BTTEST1 HELLO") {preview.NewSession(); publication.NewSession();} State(); return; }
@@ -132,6 +151,19 @@ struct PreviewPort : SerialTransport {
         if(ParsePatternGains(line.data(),line.size(),gain)) {
             CHECK_EQ(control.SubmitGains(gain.gains,gain.id),PatternRequestStatus::Accepted);
             input+="BTGAIN1 SUBMITTED 1 "+std::to_string(gain.id)+"\n"; Advance(0); return;
+        }
+        SparsePreviewMessage delta;
+        if(ParseSparsePreview(line.data(),line.size(),delta)) {
+            const auto base=metadata.pending_id?metadata.pending_id:metadata.working_id;
+            const auto result=preview.AcceptSparse(delta,0,metadata.pending_id?metadata.pending:metadata.working,base,publication.Busy());
+            if(result==PublicationStatus::Ready) {
+                CHECK(preview.Freeze()); CHECK_EQ(control.SubmitPreview(*preview.Frozen(),preview.Identity()),PatternRequestStatus::Accepted);
+                input+="BTPREVIEW1 SUBMITTED 1 "+std::to_string(delta.fields[0])+"\n"; Advance(0);
+            } else if(result==PublicationStatus::Receiving && delta.kind==PublicationKind::Begin)
+                input+="BTPREVIEW1 RECEIVING 1 "+std::to_string(delta.fields[0])+"\n";
+            else if(result!=PublicationStatus::Receiving)
+                input+="BTPREVIEW1 ERROR 1 "+std::to_string(delta.fields[0])+" "+std::to_string(unsigned(result))+"\n";
+            return;
         }
         const bool is_preview=line.find("BTPREVIEW1")==0; PublicationMessage m;
         if(!ParsePublication(line.data(),line.size(),m,is_preview)) { CHECK(false); return; }
@@ -169,9 +201,10 @@ struct PreviewPort : SerialTransport {
 };
 struct PreviewSession {
     PreviewPort* port=new PreviewPort;
-    BringUpSerial serial{nullptr,std::unique_ptr<SerialTransport>(port)};
-    LocalPatternEditor editor; unsigned now=0;
-    void Tick() { serial.Tick(now); serial.SyncEditor(editor,now); now+=10; }
+    BringUpSerial serial;
+    explicit PreviewSession(FILE* log=nullptr):serial(log,std::unique_ptr<SerialTransport>(port)) {}
+    LocalPatternEditor editor; unsigned now=0,step_ms=10;
+    void Tick() { serial.Tick(now); serial.SyncEditor(editor,now); now+=step_ms; }
     void Pump(unsigned steps=250) { for(unsigned i=0;i<steps;++i) Tick(); }
     void Note(unsigned value) { CHECK(editor.Apply(EditorAction::SetValue,value)); Tick(); }
 };
@@ -284,7 +317,7 @@ TEST_CASE(HostGainSerialPcmTransportPreviewPublicationAndReconnect) {
     CHECK(s.serial.Start()); s.Pump(30); s.port->Advance(1); CHECK_EQ(s.port->audio.back(),6); // ties away from zero
     // A queued complete gain line must yield to transport before its first byte.
     auto first=initial; first.channels[0]=16384; CHECK(s.serial.RequestChannelGains(first));
-    s.Tick(); const auto ordering=s.port->output.size(); CHECK(s.serial.Pause()); s.Pump(100);
+    const auto ordering=s.port->output.size(); CHECK(s.serial.Pause()); s.Pump(100);
     const auto pause=s.port->output.find("BTTEST1 PAUSE",ordering);
     const auto gain=s.port->output.find("BTGAIN1 SET",ordering);
     CHECK(pause!=std::string::npos); CHECK(gain!=std::string::npos); CHECK(pause<gain);
@@ -323,4 +356,364 @@ TEST_CASE(WindowsDiagnosticGainSubmissionOnceLeavesPatternAndTransportIndependen
     s.port->online=true; s.Pump(500); CHECK(!config.TakeRequest(true,true,true,request));
     CHECK_EQ(s.serial.ChannelGains()->gains.channels[0],16384u);
     CHECK(s.port->output.find("BTGAIN1 SET",after)==std::string::npos);
+}
+
+TEST_CASE(PreviewReadyWritesHaveBoundedServiceLatency) {
+    PreviewSession s; s.port->limit=96;
+    s.port->baseline.pattern.active_rows=16; s.port->baseline.pattern.active_channels=2;
+    NativeRateSampleBindings bindings{}; bindings.count=1;
+    bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+    CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+    s.port->metadata.working=s.port->baseline.pattern;
+    s.Pump(); CHECK(s.editor.Ready());
+    CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+    s.now+=100;
+    // Ready I/O must drain a complete small transfer without one SDL frame per cell.
+    s.Tick(); s.Tick();
+    CHECK(s.port->output.find("BTPREVIEW1 COMMIT")!=std::string::npos);
+}
+TEST_CASE(PreviewResetDiscardsOldDraftButPoweredReconnectRetainsWorking) {
+    HostPatternPreview p; auto baseline=PreviewBaseline();
+    Discover(p,5,4); auto working=baseline.pattern; working.cells[0][0].note=62;
+    Read(p,working,1,0,4); CHECK(SamePattern(*p.RecoveredDraft(),working));
+    p.RecoveredInstalled(); p.RetainLocal(true); p.Disconnect();
+    Discover(p,5,4); Read(p,working,2,0,4);
+    CHECK(SamePattern(*p.RecoveredDraft(),working));
+    p.RecoveredInstalled(); p.Disconnect(); Discover(p,1,0);
+    Read(p,baseline.pattern,3,0,0);
+    CHECK(SamePattern(*p.RecoveredDraft(),baseline.pattern));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+    CHECK(!p.TryBegin(baseline,1000));
+}
+
+TEST_CASE(PreviewDelayedReadbackPreservesNewerEditsAndFreshHostAdoptsPoweredWorking) {
+    HostPatternPreview p; auto baseline=PreviewBaseline(); Discover(p,5,4);
+    auto working=baseline.pattern; working.cells[0][0].note=62;
+    Read(p,working,1,0,4); CHECK(SamePattern(*p.RecoveredDraft(),working));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+    CHECK(!p.TryBegin(baseline,1000)); // New host must not restore its boot baseline.
+    p.RecoveredInstalled(); auto draft=working; draft.cells[0][0].note=63;
+    p.Observe(draft,1100); CHECK(p.TryBegin(baseline,1175)); Sent(p,5);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 5")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 5"));
+    auto newer=draft; newer.cells[0][0].note=64; p.Observe(newer,1200);
+    Discover(p,6,5); Read(p,draft,2,0,5);
+    CHECK(SamePattern(*p.RecoveredDraft(),newer));
+    CHECK(p.TryBegin(baseline,1300)); Sent(p,6);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 6")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 6"));
+    Discover(p,7,6); Read(p,newer,3,0,6);
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+}
+
+TEST_CASE(PreviewServiceStopsOnBackpressureWithoutLosingLatestRevision) {
+    PreviewSession s; s.Pump(); CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+    s.port->limit=0; s.now+=100; s.Tick();
+    const auto before=s.port->writes; s.Tick(); CHECK_EQ(s.port->writes,before+1);
+    CHECK(s.serial.Connected()); CHECK(s.editor.Dirty());
+    CHECK(s.editor.Apply(EditorAction::Restore)); s.Tick();
+    s.port->limit=3; s.Pump(500);
+    CHECK(SamePattern(s.port->metadata.working,s.port->baseline.pattern));
+    CHECK(!s.editor.Dirty()); CHECK(s.serial.Connected());
+}
+
+TEST_CASE(PreviewResetAfterFirstReceiptBeforeNextRefreshDropsStaleDraft) {
+    HostPatternPreview p; auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    auto draft=baseline.pattern; draft.cells[0][0].note=62;
+    p.Observe(draft,100); CHECK(p.TryBegin(baseline,175)); Sent(p,1);
+    p.RetainLocal(true); p.Disconnect(); Discover(p,1,0);
+    Read(p,baseline.pattern,2,0,0);
+    CHECK(SamePattern(*p.RecoveredDraft(),baseline.pattern));
+    CHECK(!p.TryBegin(baseline,1000));
+}
+
+TEST_CASE(PreviewStopDuringTransferAndRecoveryPreservesDraftWithoutF5) {
+    for(bool dirty : {false,true}) for(bool recovery : {false,true}) {
+        PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+        if(dirty) { CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); }
+        s.port->limit=1; s.now+=100; s.Tick(); s.Tick();
+        if(recovery) { s.port->online=false; s.Tick(); s.port->online=true; s.Pump(1000); }
+        const auto draft=*s.editor.Draft(); const auto baseline=*s.editor.Baseline();
+        const auto mark=s.port->output.size(); CHECK(s.serial.Stop()); s.port->limit=3; s.Pump(1000);
+        CHECK(s.serial.Stopped()); CHECK(s.serial.Connected()); CHECK(s.editor.Ready());
+        CHECK(SamePattern(draft,*s.editor.Draft())); CHECK(SamePattern(baseline.pattern,s.editor.Baseline()->pattern));
+        CHECK(s.port->output.find("BTTEST1 STOP\n",mark)!=std::string::npos);
+        CHECK(s.port->output.find("BTTEST1 START\n",mark)==std::string::npos);
+        CHECK(s.port->output.find("BTPUBLISH1 BEGIN",mark)==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewDiagnosticsCorrelateLocalRevisionAndWireTimestamps) {
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Debug);
+    FILE* log=std::tmpfile(); CHECK(log!=nullptr);
+    {
+        PreviewSession s(log); s.Pump();
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); s.Pump();
+        std::rewind(log); std::string text; char chunk[256];
+        while(std::fgets(chunk,sizeof(chunk),log)) text+=chunk;
+        CHECK(text.find("[host_ms=")!=std::string::npos);
+        CHECK(text.find("local draft changed: checksum=")!=std::string::npos);
+        CHECK(text.find("TX complete: BTPREVIEW1 COMMIT")!=std::string::npos);
+        CHECK(text.find("RX: BTPREVIEW1 APPLIED")!=std::string::npos);
+    }
+    std::fclose(log);
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Basic);
+}
+
+TEST_CASE(PreviewAsyncOwnedCellCannotBeReplacedByStopAtZeroReportedOffset) {
+    for(unsigned completion : {3u,96u}) {
+        PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); const auto draft=*s.editor.Draft();
+        s.port->asynchronous=true; s.port->limit=96; s.now+=100;
+        for(unsigned i=0;i<300 && s.port->owned_write.find("BTPREVIEW1 CELL")!=0;++i) {
+            if(!s.port->owned_write.empty()) s.port->CompleteWrite();
+            s.Tick();
+        }
+        CHECK(s.port->owned_write.find("BTPREVIEW1 CELL")==0);
+        const auto cell=s.port->owned_write; CHECK(s.serial.Stop());
+        const auto before=s.port->output.size(); s.Tick(); s.Tick(); // Backpressure must retain payload.
+        CHECK_EQ(s.port->owned_write,cell); CHECK(!s.port->ownership_violation);
+        s.port->CompleteWrite(completion); s.Tick();
+        for(unsigned i=0;i<500 && !s.serial.Stopped();++i) {
+            if(!s.port->owned_write.empty()) s.port->CompleteWrite(completion);
+            s.Tick();
+        }
+        CHECK(!s.port->ownership_violation); CHECK(s.serial.Stopped()); CHECK(s.serial.Connected());
+        CHECK(SamePattern(draft,*s.editor.Draft()));
+        const auto wire=s.port->output.substr(before);
+        CHECK(wire.find("BTTEST1 STOP\n")!=std::string::npos);
+        CHECK(wire.find("BTTEST1 START\n")==std::string::npos);
+        CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewAsyncStopDisconnectRecoveryRetainsDraftWithoutReplay) {
+    PreviewSession s; s.Pump(); CHECK(s.serial.Start()); s.Pump(30);
+    CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60); const auto draft=*s.editor.Draft();
+    s.port->asynchronous=true; s.port->limit=96; s.now+=100;
+    for(unsigned i=0;i<300 && s.port->owned_write.find("BTPREVIEW1 CELL")!=0;++i) {
+        if(!s.port->owned_write.empty()) { s.port->CompleteWrite(); }
+        s.Tick();
+    }
+    CHECK(s.port->owned_write.find("BTPREVIEW1 CELL")==0); CHECK(s.serial.Stop()); s.Tick();
+    CHECK(!s.port->ownership_violation);
+    s.port->online=false; s.Tick(); CHECK(!s.editor.Ready());
+    const auto mark=s.port->output.size(); s.port->asynchronous=false; s.port->online=true; s.Pump(1000);
+    CHECK(s.serial.Connected()); CHECK(s.serial.Playing()); CHECK(SamePattern(draft,*s.editor.Draft()));
+    const auto recovery=s.port->output.substr(mark);
+    CHECK(recovery.find("BTTEST1 START\n")==std::string::npos);
+    CHECK(recovery.find("BTTEST1 STOP\n")==std::string::npos);
+    CHECK(recovery.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(s.serial.Stop()); s.Pump(100); CHECK(s.serial.Stopped());
+}
+
+TEST_CASE(PreviewLatestAppliedRevisionNeedNotReadBackObsoleteCandidate) {
+    HostPatternPreview p; const auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    auto first=baseline.pattern; first.cells[1][0]={60,7}; p.Observe(first,100);
+    CHECK(p.TryBegin(baseline,175)); Sent(p,1);
+    auto latest=first; latest.cells[0][0]={NOTE_EMPTY,7}; p.Observe(latest,200);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 1",210)); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 1",220));
+    Discover(p,2,1);
+    CHECK(p.TryBegin(baseline,275)); // No obsolete-candidate GET round trip.
+    Sent(p,2); CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 2")); CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 2"));
+    Discover(p,3,2); Read(p,latest,2,0,2); CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+}
+
+TEST_CASE(PreviewAsyncRepeatedEditsConvergeAndDoNotReplaceFrozenLines) {
+    for(unsigned slice : {16u,2u}) {
+        PreviewSession s; s.port->limit=96;
+        s.port->baseline.pattern.active_rows=16; s.port->baseline.pattern.active_channels=3;
+        NativeRateSampleBindings bindings{}; bindings.count=1; bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+        CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+        s.port->metadata.working=s.port->baseline.pattern; s.Pump();
+        CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+        s.port->asynchronous=true; s.step_ms=slice; s.now+=100;
+        unsigned cells=0; bool latest=false;
+        for(unsigned i=0;i<2000;++i) {
+            if(!s.port->owned_write.empty()) {
+                if(s.port->owned_write.find("BTPREVIEW1 CELL")==0) {
+                    ++cells;
+                    if(cells==5) {CHECK(s.editor.Apply(EditorAction::NoteOff)); s.serial.SyncEditor(s.editor,s.now);}
+                    if(cells==8) {CHECK(s.editor.Apply(EditorAction::SetValue,60)); s.serial.SyncEditor(s.editor,s.now);}
+                    if(cells==10) {CHECK(s.editor.Apply(EditorAction::Clear)); s.serial.SyncEditor(s.editor,s.now); latest=true;}
+                }
+                s.port->CompleteWrite();
+            }
+            s.Tick();
+            if(latest && SamePattern(s.port->metadata.working,*s.editor.Draft()) &&
+                std::strstr(s.serial.PublicationStatus(),"synchronized")) break;
+        }
+        CHECK(latest); CHECK(!s.port->ownership_violation); CHECK(s.serial.Connected());
+        CHECK(SamePattern(s.port->metadata.working,*s.editor.Draft()));
+        CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,NOTE_OFF);
+        CHECK(s.editor.Dirty()); CHECK(s.port->output.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    }
+}
+
+TEST_CASE(PreviewAsyncEditsDuringStartedReadbackDrainThenConverge) {
+    PreviewSession s; s.Pump(); CHECK(s.editor.Apply(EditorAction::Down));
+    s.port->asynchronous=true; s.port->limit=96; s.port->hold_snapshot=true;
+    s.Note(60); s.now+=100;
+    for(unsigned i=0;i<500 && s.port->delayed_snapshot.empty();++i) {
+        if(!s.port->owned_write.empty()) {s.port->CompleteWrite();}
+        s.Tick();
+    }
+    CHECK(!s.port->delayed_snapshot.empty());
+    CHECK(s.editor.Apply(EditorAction::Clear)); s.serial.SyncEditor(s.editor,s.now);
+    const auto latest=*s.editor.Draft(); const auto mark=s.port->output.size();
+    for(unsigned i=0;i<10;++i) s.Tick();
+    CHECK(s.port->output.find("BTPREVIEW1 BEGIN",mark)==std::string::npos);
+    s.port->input+=s.port->delayed_snapshot; s.port->delayed_snapshot.clear(); s.port->hold_snapshot=false;
+    for(unsigned i=0;i<1000;++i) {
+        if(!s.port->owned_write.empty()) {s.port->CompleteWrite(3);}
+        s.Tick();
+        if(SamePattern(s.port->metadata.working,latest) && std::strstr(s.serial.PublicationStatus(),"synchronized")) break;
+    }
+    CHECK(!s.port->ownership_violation); CHECK(s.serial.Connected());
+    CHECK(SamePattern(latest,*s.editor.Draft())); CHECK(SamePattern(latest,s.port->metadata.working));
+    CHECK(s.editor.Dirty()); CHECK_EQ(s.editor.Baseline()->pattern.cells[1][0].note,NOTE_OFF);
+}
+
+TEST_CASE(HostPreviewUnknownInstrumentStaysExplicitAndDoesNotBecomeApplied) {
+    HostPatternPreview p; const auto baseline=PreviewBaseline(); Discover(p); Read(p,baseline.pattern,1,0,0);
+    p.RecoveredInstalled(); auto draft=baseline.pattern; draft.cells[0][0]={60,99};
+    p.Observe(draft,10); CHECK(p.TryBegin(baseline,85)); Sent(p,1);
+    CHECK(Reply(p,"BTPREVIEW1 REJECTED 1 1 unknown-instrument"));
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Rejected); CHECK(std::strstr(p.Status(),"unknown-instrument"));
+    CHECK(std::strstr(p.Status(),"draft not playing"));
+    CHECK(!Reply(p,"BTPREVIEW1 APPLIED 1 1"));
+    Discover(p,2); CHECK(!p.TryBegin(baseline,1000));
+    CHECK_EQ(draft.cells[0][0].instrument,99); CHECK_EQ(draft.cells[0][0].note,60);
+    CHECK_EQ(baseline.pattern.cells[0][0].instrument,7);
+}
+
+TEST_CASE(SparseSerialAsyncCrossChannelLatestStopAndReconnect) {
+    for(unsigned fragment:{3u,96u}) {
+        PreviewSession s; s.port->sparse_capability=true;
+        s.port->baseline.pattern.active_rows=32; s.port->baseline.pattern.active_channels=8;
+        NativeRateSampleBindings bindings{}; bindings.count=1;bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+        CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+        s.port->metadata.working=s.port->baseline.pattern;
+        s.Pump(); CHECK(s.editor.Ready()); CHECK(s.serial.Start());s.Pump(30);
+        const auto start=s.port->output.size(); CHECK(s.editor.Apply(EditorAction::Down)); s.Note(60);
+        s.port->asynchronous=true; s.port->limit=96; s.now+=100;
+        bool edited=false,stopped=false;
+        for(unsigned i=0;i<2000;++i) {
+            if(!s.port->owned_write.empty()) {
+                if(!edited && s.port->owned_write.find("BTPREVIEW1 DCELL")==0) {
+                    CHECK(s.editor.Apply(EditorAction::Clear));
+                    CHECK(s.editor.Apply(EditorAction::NextChannel));
+                    CHECK(s.editor.Apply(EditorAction::SetValue,60)); // explicit instrument selection is a separate edit
+                    CHECK(s.editor.Apply(EditorAction::Right)); CHECK(s.editor.Apply(EditorAction::SetValue,7));
+                    s.serial.SyncEditor(s.editor,s.now); edited=true;
+                    CHECK(s.serial.Stop()); stopped=true;
+                    const auto frozen=s.port->owned_write; s.Tick();s.Tick(); CHECK_EQ(s.port->owned_write,frozen);
+                }
+                s.port->CompleteWrite(fragment);
+            }
+            s.Tick();
+            if(edited && SamePattern(s.port->metadata.working,*s.editor.Draft()) &&
+                std::strstr(s.serial.PublicationStatus(),"synchronized") && s.serial.Stopped()) break;
+        }
+        CHECK(edited && stopped); CHECK(!s.port->ownership_violation); CHECK(s.serial.Connected());
+        CHECK(SamePattern(s.port->metadata.working,*s.editor.Draft())); CHECK(s.editor.Dirty());
+        const auto wire=s.port->output.substr(start);
+        CHECK(wire.find("BTPREVIEW1 BEGIN")==std::string::npos);
+        CHECK(wire.find("BTPREVIEW1 GET")==std::string::npos); // matched ACK chain, no per-edit full readback
+        CHECK(wire.find("BTTEST1 STOP\n")!=std::string::npos);
+        CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);
+        CHECK_EQ(s.port->metadata.working.cells[1][1].instrument,7);
+        const auto saved=*s.editor.Draft(); s.port->online=false;s.Tick();CHECK(!s.editor.Ready());
+        s.port->asynchronous=false;s.port->online=true;s.Pump(1000);
+        CHECK(s.serial.Connected());CHECK(!s.serial.Playing() && !s.serial.Paused());CHECK(SamePattern(saved,*s.editor.Draft()));
+    }
+}
+
+TEST_CASE(SparseSerialModeledLatencySeparatesTransmitAcceptanceAndApplication) {
+    std::size_t reference=0;
+    for(unsigned rows:{16u,32u,64u}) {
+        PreviewSession s;s.port->sparse_capability=true;s.port->limit=96;
+        s.port->baseline.pattern.active_rows=static_cast<std::uint8_t>(rows);s.port->baseline.pattern.active_channels=8;
+        NativeRateSampleBindings bindings{};bindings.count=1;bindings.bindings[0]={7,60,{s.port->pcm,64,100}};
+        CHECK_EQ(s.port->control.InitializeAudio(12753,100,s.port->baseline.pattern,bindings),PatternPlayerStatus::Success);
+        s.port->metadata.working=s.port->baseline.pattern;s.Pump();CHECK(s.serial.Start());s.Pump(30);s.port->Advance(5);
+        const auto edit=s.now;CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);
+        const auto mark=s.port->output.size();s.port->asynchronous=true;s.step_ms=2;
+        unsigned first_tx=0,commit_tx=0,accepted=0,applied=0;bool advanced=false;
+        for(unsigned i=0;i<1000;++i) {
+            if(!s.port->owned_write.empty()) {
+                if(!first_tx && s.port->owned_write.find("BTPREVIEW1 DBEGIN")==0) first_tx=s.now;
+                if(s.port->owned_write.find("BTPREVIEW1 DCOMMIT")==0) commit_tx=s.now;
+                s.port->CompleteWrite();
+            }
+            s.Tick();
+            if(!accepted && s.port->metadata.pending_id) accepted=s.now;
+            if(accepted && !advanced) {s.port->Advance(8);advanced=true;}
+            if(advanced && std::strstr(s.serial.PublicationStatus(),"synchronized")) {applied=s.now;break;}
+        }
+        CHECK(first_tx>=edit+75);CHECK(commit_tx>=first_tx);CHECK(accepted>=commit_tx);CHECK(applied>=accepted);
+        const auto wire=s.port->output.substr(mark);std::size_t bytes=0;unsigned lines=0;
+        for(std::size_t offset=0;offset<wire.size();) {
+            const auto end=wire.find('\n',offset);CHECK(end!=std::string::npos);if(end==std::string::npos)break;
+            if(wire.compare(offset,10,"BTPREVIEW1")==0) {bytes+=end+1-offset;++lines;}offset=end+1;
+        }
+        CHECK_EQ(lines,3);if(!reference)reference=bytes;CHECK_EQ(bytes,reference);
+        CHECK(!s.port->ownership_violation);CHECK_EQ(s.port->metadata.working.cells[1][0].note,60);
+        std::printf("Sparse BringUpSerial injected 2ms service rows=%u bytes=%zu edit->firstTX=%u commit=%u ACCEPTED=%u APPLIED=%u ms\n",
+            rows,bytes,first_tx-edit,commit_tx-edit,accepted-edit,applied-edit);
+    }
+}
+
+TEST_CASE(SparseReviewPausedF5ReadbackRebaseThenPreviewRestoreKeepsBaselineSeparate) {
+    PreviewSession s;s.port->sparse_capability=true;s.Pump();
+    CHECK(s.serial.Start());s.Pump(30);s.port->Advance(5);CHECK(s.serial.Pause());s.Pump(30);CHECK(s.serial.Paused());
+    CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);s.Pump(200);
+    CHECK_EQ(s.port->metadata.working.cells[1][0].note,60);CHECK(s.editor.Dirty());
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(500);
+    CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,60);CHECK(!s.editor.Dirty());CHECK(s.serial.Paused());
+    CHECK(s.editor.Apply(EditorAction::Clear));s.Pump(500);
+    CHECK_EQ(s.port->metadata.working.cells[1][0].note,NOTE_EMPTY);CHECK(s.editor.Dirty());
+    CHECK_EQ(s.port->baseline.pattern.cells[1][0].note,60);CHECK(s.serial.Paused());
+    const auto published=s.port->metadata.published_id;CHECK(published);
+    CHECK(s.editor.Apply(EditorAction::Restore));s.Pump(500);
+    CHECK_EQ(s.port->metadata.working.cells[1][0].note,60);CHECK(!s.editor.Dirty());
+    CHECK_EQ(s.port->metadata.published_id,published);CHECK(s.serial.Paused());CHECK(s.serial.Connected());
+}
+
+TEST_CASE(SparseReviewStateMismatchDuringOwnedPartialLinePreservesStopAndRecoversDraft) {
+    for(unsigned fragment:{3u,96u}) {
+        PreviewSession s;s.port->sparse_capability=true;s.Pump();CHECK(s.serial.Start());s.Pump(30);
+        CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);const auto draft=*s.editor.Draft();
+        s.port->asynchronous=true;s.port->limit=96;s.now+=100;
+        for(unsigned i=0;i<300 && s.port->owned_write.find("BTPREVIEW1 DCELL")!=0;++i) {
+            if(!s.port->owned_write.empty()) {s.port->CompleteWrite();}
+            s.Tick();
+        }
+        CHECK(s.port->owned_write.find("BTPREVIEW1 DCELL")==0);
+        const auto frozen=s.port->owned_write;const auto mark=s.port->output.size();
+        s.port->input+="BTPREVIEW1 STATE 1 0 21 0\n";s.Tick();
+        CHECK(std::strstr(s.serial.PublicationStatus(),"uncertain"));
+        CHECK(s.serial.Stop());s.Tick();CHECK_EQ(s.port->owned_write,frozen);
+        for(unsigned i=0;i<500 && !s.serial.Stopped();++i) {
+            if(!s.port->owned_write.empty()) {s.port->CompleteWrite(fragment);}
+            s.Tick();
+        }
+        CHECK(s.serial.Stopped());CHECK(s.serial.Connected());CHECK(!s.port->ownership_violation);
+        const auto wire=s.port->output.substr(mark);CHECK(wire.find(frozen+"BTTEST1 STOP\n")==0);
+        CHECK(wire.find("DCOMMIT")==std::string::npos);CHECK(SamePattern(draft,*s.editor.Draft()));
+        CHECK(SamePattern(s.port->metadata.working,s.port->baseline.pattern));
+        s.port->online=false;s.Tick();s.port->asynchronous=false;s.port->online=true;s.Pump(1000);
+        CHECK(s.serial.Connected());CHECK(!s.serial.Playing());CHECK(SamePattern(draft,*s.editor.Draft()));
+        CHECK(s.port->output.find("DCOMMIT",mark)==std::string::npos); // no blind replay after uncertain interruption
+        CHECK(s.port->output.find("BTTEST1 START",mark)==std::string::npos);
+    }
+}
+TEST_CASE(SparseReviewLateCapabilityCannotReuseLegacyUnverifiedCache) {
+    HostPatternPreview p;const auto baseline=PreviewBaseline();Discover(p);Read(p,baseline.pattern,1,0,0);
+    auto first=baseline.pattern;first.cells[1][0]={60,7};p.Observe(first,1);CHECK(p.TryBegin(baseline,76));Sent(p,1);
+    p.Observe(baseline.pattern,100);CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 1"));CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 1"));
+    CHECK(Reply(p,kSparsePreviewCapability));Discover(p,2,1);CHECK(p.TryBegin(baseline,175));
+    char text[96];std::size_t n=0;CHECK(p.FormatLine(text,sizeof(text),n));
+    CHECK(std::string(text,n).find("BTPREVIEW1 BEGIN 1 ")==0); // full fallback until a revision has verified cells
+    CHECK_EQ(p.Phase(),HostPreviewPhase::Sending);Sent(p,2);
+    CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 2"));CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 2"));
+    Discover(p,3,2);Read(p,baseline.pattern,2,0,2);CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
 }

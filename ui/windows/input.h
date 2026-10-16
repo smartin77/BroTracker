@@ -2,7 +2,8 @@
 #include <SDL.h>
 #include "ui/bringup_controls.h"
 #include "ui/local_pattern_editor.h"
-#include "ui/editor_repeat.h"
+#include "ui/editor_step_input.h"
+#include "ui/navigation_repeat.h"
 inline bool MapWindowsPublish(const SDL_Event& event) {
     return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
         !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT));
@@ -29,33 +30,67 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
 }
 class WindowsEditorInput {
 public:
+    explicit WindowsEditorInput(BroTracker::ValueStepDirection direction=BroTracker::ValueStepDirection::Normal) noexcept : repeat_(direction) {}
+    void Cancel() noexcept {
+        repeat_.Cancel(); navigation_.Cancel(); active_=-1;
+        for(unsigned i=0;i<7;++i) if(pressed_[i]) blocked_[i]=true;
+    }
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
-        if (!editor.Ready() || editor.Locked() || MapWindowsPublish(event)) repeat_.Cancel();
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-            focused_ = false; repeat_.Cancel(); return false;
+        if(!editor.Ready() || (editor.Locked() && !navigation_.Active()) || MapWindowsPublish(event)) Cancel();
+        if(event.type==SDL_QUIT) { Cancel(); return false; }
+        if(event.type==SDL_WINDOWEVENT) {
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; Cancel(); }
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED) focused_=true;
+            return false;
         }
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) focused_ = true;
-        if (event.type == SDL_KEYUP) {
-            if (event.key.keysym.sym == SDLK_PAGEUP) repeat_.Release(EditorAction::Increment);
-            if (event.key.keysym.sym == SDLK_PAGEDOWN) repeat_.Release(EditorAction::Decrement);
+        if(event.type!=SDL_KEYDOWN && event.type!=SDL_KEYUP) return false;
+        const auto mods=std::uint16_t(event.key.keysym.mod & (KMOD_CTRL|KMOD_ALT|KMOD_GUI|KMOD_SHIFT));
+        if(mods!=modifiers_) { Cancel(); modifiers_=mods; }
+        const int index=Index(event.key.keysym.sym);
+        if(event.type==SDL_KEYUP) {
+            if(index>=0) { pressed_[index]=false; blocked_[index]=false; if(active_==index) Cancel(); }
+            return false;
         }
-        if (event.type != SDL_KEYDOWN) return false;
-        if (event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT)) repeat_.Cancel();
-        if (event.key.repeat) return false;
-        const auto action = MapWindowsEditorAction(event);
-        if (action == EditorAction::None) return false;
-        if (!focused_) return true;
-        if (action == EditorAction::Increment || action == EditorAction::Decrement)
-            repeat_.Begin(action, now, editor);
-        else { repeat_.Cancel(); editor.Apply(action); }
+        if(event.key.repeat) return false;
+        if(index>=0) pressed_[index]=true;
+        const auto action=MapWindowsEditorAction(event);
+        if(action==EditorAction::None) { Cancel(); return false; }
+        if(!focused_ || !editor.Ready()) { Cancel(); return true; }
+        if(index>=0) {
+            const int opposite=index<4 ? (index^1) : -1;
+            if(opposite>=0 && pressed_[opposite]) { Cancel(); return true; }
+            if(blocked_[index]) return true;
+            Cancel(); blocked_[index]=false; active_=index;
+            if(action==EditorAction::Increment || action==EditorAction::Decrement) {
+                if(editor.Locked()) { Cancel(); return true; }
+                repeat_.Begin(action,now,editor);
+            } else navigation_.Begin(action,now,editor);
+        } else { Cancel(); editor.Apply(action); }
         return true;
     }
     void Tick(std::uint32_t now, SDL_Keymod modifiers, LocalPatternEditor& editor) noexcept {
-        repeat_.Tick(now, !editor.Locked() && focused_ && !(modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT)), editor);
+        const auto mods=std::uint16_t(modifiers & (KMOD_CTRL|KMOD_ALT|KMOD_GUI|KMOD_SHIFT));
+        if(mods!=modifiers_) { Cancel(); modifiers_=mods; }
+        if(!focused_ || !editor.Ready()) { Cancel(); return; }
+        if(navigation_.Active()) navigation_.Tick(now,editor);
+        else if(editor.Locked()) Cancel();
+        else repeat_.Tick(now,true,editor);
     }
 private:
-    EditorRepeat repeat_;
-    bool focused_ = true;
+    static int Index(SDL_Keycode key) noexcept {
+        switch(key) {
+        case SDLK_UP:return 0; case SDLK_DOWN:return 1;
+        case SDLK_LEFT:return 2; case SDLK_RIGHT:return 3;
+        case SDLK_TAB:return 4; case SDLK_PAGEUP:return 5; case SDLK_PAGEDOWN:return 6;
+        default:return -1;
+        }
+    }
+    EditorStepInput repeat_;
+    NavigationRepeat navigation_;
+    bool pressed_[7]{},blocked_[7]{};
+    int active_=-1;
+    std::uint16_t modifiers_=0;
+    bool focused_=true;
 };
 inline BringUpAction MapWindowsAction(const SDL_Event& event) {
     if (event.type == SDL_QUIT) return BringUpAction::Exit;

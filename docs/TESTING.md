@@ -61,3 +61,14 @@ This prints a `[RUN]` / `[ OK ]` / `[FAIL]` line for every `TEST_CASE`, followed
 3. Write one or more `TEST_CASE(...)` blocks using `CHECK`/`CHECK_EQ`.
 4. Register the new `.cpp` file in `CMakeLists.txt` under the `BroTrackerTests` executable's source list.
 5. Reconfigure (`cmake -S . -B build -G Ninja`) so CMake picks up the new source file, then build and run tests as above.
+
+## Contributor and Agent Artifact Workflow
+
+Build outputs, raw logs, machine-local configuration and per-run diagnostic evidence
+must remain untracked. Keep local evidence under the ignored `/diagnostics/`
+directory or another appropriate local archive; documentation references to these
+paths identify local evidence, not repository deliverables.
+
+Report build/test outcomes in the response and relevant tracked documentation.
+Reusable diagnostic tools may be deliberately maintained under `tools/`.
+Do not add source-code comments merely to record individual test runs.

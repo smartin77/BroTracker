@@ -8,7 +8,11 @@ enum class HostPreviewPhase { Recovering, Ready, Sending, Waiting, Accepted, Syn
 class HostPatternPreview {
 public:
     void SetBaseline(const DevicePatternSnapshot& baseline) noexcept {
-        if(baseline.version==2) { tempo_=baseline.tempo_hundredths; rows_=baseline.pattern.active_rows; channels_=baseline.pattern.active_channels; }
+        if(baseline.version==2 && baseline.tempo_hundredths && baseline.pattern.active_rows &&
+            baseline.pattern.active_rows<=kRealtimePatternRowCapacity && baseline.pattern.active_channels &&
+            baseline.pattern.active_channels<=kRealtimePatternChannelCapacity) {
+            tempo_=baseline.tempo_hundredths; rows_=baseline.pattern.active_rows; channels_=baseline.pattern.active_channels;
+        }
     }
     bool Supported() const noexcept { return supported_; }
     HostPreviewPhase Phase() const noexcept { return phase_; }
@@ -20,6 +24,8 @@ public:
     void RetainLocal(bool dirty) noexcept { retain_local_=dirty; }
     void Disconnect() noexcept {
         if(!retain_local_ && phase_==HostPreviewPhase::Synchronized) latest_valid_=attempted_valid_=false;
+        reconnecting_=true;
+        sparse_supported_=false;
         supported_=next_fresh_=state_fresh_=false; next_=0; accepted_=current_=0; recovered_ready_=false;
         readback_.Clear(); read_active_=read_label_=false; verified_=pending_verified_=false;
         phase_=HostPreviewPhase::Recovering; Set("Preview outcome unknown; recovering device state");
@@ -36,6 +42,17 @@ public:
             }
         }
     }
+    // Captured coordinates/value, never the current cursor. One latest desired slot per cell.
+    void ObserveCell(const SparsePreviewCell& cell,std::uint32_t now) noexcept {
+        if(!latest_valid_ || cell.row>=kRealtimePatternRowCapacity || cell.channel>=kRealtimePatternChannelCapacity ||
+            cell.row>=latest_.active_rows || cell.channel>=latest_.active_channels) return;
+        auto& previous=latest_.cells[cell.row][cell.channel];
+        auto& timing=latest_.note_off_timing[cell.row][cell.channel];
+        if(previous.note==cell.note && previous.instrument==cell.instrument && timing==cell.timing) return;
+        previous={cell.note,cell.instrument}; timing=cell.timing; changed_=now;
+        if(!debouncing_) {first_change_=now;debouncing_=true;}
+        if(!Recovering() && !TransferBusy()) {if(phase_==HostPreviewPhase::Rejected)phase_=HostPreviewPhase::Ready;Set("Preview pending transfer");}
+    }
     const RealtimePattern* RecoveredDraft() const noexcept {
         return recovered_ready_ ? &latest_ : nullptr;
     }
@@ -48,24 +65,65 @@ public:
     }
     void Suspend(bool value) noexcept { suspended_=value; }
     bool TryBegin(const DevicePatternSnapshot& baseline,std::uint32_t now) noexcept {
+        if(supported_ && !suspended_ && !Recovering() && !TransferBusy() && latest_valid_ &&
+            (latest_.active_rows!=rows_ || latest_.active_channels!=channels_)) {
+            phase_=HostPreviewPhase::Rejected;Set("Preview rejected: dimensions differ from device");return false;
+        }
+        // Undo/Restore can reach a verified revision without another transaction.
+        // Do not leave an obsolete rejection/pending label, or consume an identity.
+        if(sparse_supported_ && !suspended_ && !Recovering() && !TransferBusy() && latest_valid_ && verified_ &&
+            (!pending_id_ || pending_verified_) && SamePattern(latest_,pending_id_?pending_:applied_)) {
+            attempted_=latest_; attempted_valid_=true;
+            if(pending_id_) {
+                if(phase_!=HostPreviewPhase::Accepted) started_=now;
+                phase_=HostPreviewPhase::Accepted; Set("Preview accepted; waiting for row application");
+            } else {phase_=HostPreviewPhase::Synchronized;Set("Working preview synchronized");}
+            return false;
+        }
         if(supported_ && next_fresh_ && !next_) { Set("Preview identities exhausted; device restart required"); return false; }
         if(!supported_ || suspended_ || Recovering() || TransferBusy() || !next_fresh_ || !next_ || !latest_valid_ ||
             (attempted_valid_ && SamePattern(latest_,attempted_)) ||
             (now-changed_<kPreviewDebounceMs && now-first_change_<kPreviewMaximumDebounceMs)) return false;
-        serializer_=HostPatternPublication{};
-        if(!serializer_.Begin(next_,baseline,latest_,now)) return false;
-        current_=next_; next_=0; next_fresh_=false; debouncing_=false; attempted_=latest_; attempted_valid_=true;
+        delta_transfer_=sparse_supported_ && verified_;
+        delta_count_=delta_line_=0;
+        if(delta_transfer_) {
+            const auto& base=pending_id_ && pending_verified_?pending_:applied_;
+            delta_base_=pending_id_ && pending_verified_?pending_id_:working_id_;
+            for(unsigned row=0;row<rows_;++row) for(unsigned channel=0;channel<channels_;++channel)
+                if(latest_.cells[row][channel].note!=base.cells[row][channel].note ||
+                    latest_.cells[row][channel].instrument!=base.cells[row][channel].instrument ||
+                    latest_.note_off_timing[row][channel]!=base.note_off_timing[row][channel])
+                    delta_indices_[delta_count_++]=static_cast<std::uint16_t>(row*kRealtimePatternChannelCapacity+channel);
+            if(!delta_count_) {attempted_=latest_;attempted_valid_=true;return false;}
+            delta_hash_=SparsePreviewHeaderHash(next_,delta_base_,delta_count_);
+            for(unsigned i=0;i<delta_count_;++i) delta_hash_=SparsePreviewHashCell(delta_hash_,DeltaCell(latest_,i));
+        } else {
+            serializer_=HostPatternPublication{};
+            if(!serializer_.Begin(next_,baseline,latest_,now)) return false;
+        }
+        current_=next_; attempted_high_water_=current_; next_=0; next_fresh_=false; debouncing_=false; attempted_=latest_; attempted_valid_=true;
         receiving_=submitted_=commit_possible_=false; phase_=HostPreviewPhase::Sending; started_=now;
         Set("Preview sending"); return true;
     }
     bool FormatLine(char* text,std::size_t capacity,std::size_t& length) const noexcept {
-        return Sending() && serializer_.FormatLine(text,capacity,length,true);
+        if(!Sending()) return false;
+        if(!delta_transfer_) return serializer_.FormatLine(text,capacity,length,true);
+        int n=0;
+        if(!delta_line_) n=std::snprintf(text,capacity,"BTPREVIEW1 DBEGIN 1 %" PRIu32 " %" PRIu32 " %u\n",current_,delta_base_,delta_count_);
+        else if(delta_line_<=delta_count_) {
+            const auto cell=DeltaCell(attempted_,delta_line_-1);
+            n=std::snprintf(text,capacity,"BTPREVIEW1 DCELL 1 %" PRIu32 " %u %u %u %u %u %u\n",current_,
+                delta_line_-1,unsigned(cell.row),unsigned(cell.channel),unsigned(cell.note),unsigned(cell.instrument),unsigned(cell.timing));
+        } else n=std::snprintf(text,capacity,"BTPREVIEW1 DCOMMIT 1 %" PRIu32 " %u %" PRIu32 "\n",current_,delta_count_,delta_hash_);
+        if(n<0 || static_cast<std::size_t>(n)>=capacity) return false;
+        length=static_cast<std::size_t>(n);return true;
     }
-    void BeforeWrite() noexcept { if(Sending() && serializer_.CommitLine()) commit_possible_=true; }
+    void BeforeWrite() noexcept { if(Sending() && CommitLine()) commit_possible_=true; }
     void LineComplete() noexcept {
         if(!Sending()) return;
-        const bool commit=serializer_.CommitLine(); serializer_.LineComplete();
-        if(commit) { phase_=HostPreviewPhase::Waiting; Set("Preview awaiting device validation"); }
+        const bool commit=CommitLine();
+        if(delta_transfer_) ++delta_line_; else serializer_.LineComplete();
+        if(commit) {phase_=HostPreviewPhase::Waiting;Set("Preview awaiting device validation");}
     }
     void Tick(std::uint32_t now) noexcept {
         if((TransferBusy() || phase_==HostPreviewPhase::Accepted) && now-started_>=kHostPublicationTimeoutMs) Recover();
@@ -88,23 +146,49 @@ public:
             if(Recovering() && !status_[0]) Set("Recovering device working pattern");
             return true;
         }
+        if(length==sizeof(kSparsePreviewCapability)-1 && !std::memcmp(line,kSparsePreviewCapability,length)) {
+            if(!supported_) return false; sparse_supported_=true; return true;
+        }
         std::uint32_t f[5]{};
         if(SnapshotFields(line,length,"BTPREVIEW1 NEXT ",f,2) && f[0]==1 && supported_ && discovery_) {
-            if(current_ && f[1] && f[1]<=current_) return false;
-            next_=f[1]; next_fresh_=true; return true;
+            // NEXT is a device-lifetime high-water mark, including rejected BEGINs.
+            // A rollback after reconnect proves the old working context is gone.
+            if(reconnecting_) {
+                if(f[1] && f[1]-1 < consumed_high_water_) {
+                    latest_valid_=attempted_valid_=false; debouncing_=false;
+                    retain_local_=false; consumed_high_water_=attempted_high_water_=0;
+                    Set("Device identities reset; loading authoritative working pattern");
+                }
+                reconnecting_=false;
+            }
+            const auto consumed=f[1] ? f[1]-1 : UINT32_MAX;
+            if(consumed>consumed_high_water_) consumed_high_water_=consumed;
+            // BEGIN can be rejected before staging consumes its identity. Accept
+            // authoritative NEXT, but never reuse a local attempted identity.
+            next_=f[1];
+            if(next_ && next_<=attempted_high_water_)
+                next_=attempted_high_water_==UINT32_MAX ? 0 : attempted_high_water_+1;
+            next_fresh_=true; return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 STATE ",f,4) && f[0]==1 && supported_ && discovery_) {
             if(f[3] && f[3]<=f[2]) return false;
             if(Recovering() && (published_id_!=f[1] || working_id_!=f[2] || pending_id_!=f[3])) {
                 readback_.Clear(); read_active_=read_label_=false; verified_=pending_verified_=false;
             }
-            if(phase_==HostPreviewPhase::Accepted && (working_id_!=f[2] || pending_id_!=f[3])) Recover();
+            // Revision IDs and verified cell copies are one ownership unit in every
+            // phase. Relabeling old cells while Ready/Rejected/Sending can produce
+            // a valid checksum against an unrelated base and falsely claim sync.
+            if((verified_ || pending_verified_ || phase_==HostPreviewPhase::Accepted ||
+                (sparse_supported_ && phase_==HostPreviewPhase::Synchronized)) &&
+                (published_id_!=f[1] || working_id_!=f[2] || pending_id_!=f[3])) Recover();
             published_id_=f[1]; working_id_=f[2]; pending_id_=f[3]; state_fresh_=true;
             return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 RECEIVING 1 ",f,1)) {
             if((!Sending() && phase_!=HostPreviewPhase::Waiting) || f[0]!=current_ || receiving_) return false;
-            receiving_=true; return true;
+            receiving_=true;
+            if(current_>consumed_high_water_) consumed_high_water_=current_;
+            return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 SUBMITTED 1 ",f,1)) {
             if(phase_!=HostPreviewPhase::Waiting || f[0]!=current_ || !receiving_ || submitted_) return false;
@@ -112,12 +196,37 @@ public:
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 ACCEPTED 1 ",f,1)) {
             if(phase_!=HostPreviewPhase::Waiting || f[0]!=current_ || !submitted_) return false;
+            if(delta_transfer_) {pending_=attempted_;pending_verified_=true;}
             accepted_=current_; pending_id_=current_; phase_=HostPreviewPhase::Accepted; started_=now;
             Set("Preview accepted; waiting for row application"); return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 APPLIED 1 ",f,1)) {
             if(!accepted_ || f[0]!=accepted_) return false;
+            const bool newer_ready=!TransferBusy() && accepted_==current_ && attempted_valid_ &&
+                latest_valid_ && !SamePattern(latest_,attempted_);
+            const auto applied_id=accepted_;
+            if(sparse_supported_ && pending_verified_) {applied_=pending_;verified_=true;}
             working_id_=accepted_; accepted_=0; pending_id_=0;
+            if(sparse_supported_ && delta_transfer_) {
+                pending_verified_=false;
+                if(!TransferBusy() && (applied_id==current_ || (latest_valid_ && SamePattern(latest_,applied_)))) {
+                    phase_=latest_valid_ && SamePattern(latest_,applied_)?HostPreviewPhase::Synchronized:HostPreviewPhase::Ready;
+                    next_fresh_=false; Set(phase_==HostPreviewPhase::Synchronized ? "Working preview synchronized" : "Newer draft pending");
+                }
+                return true;
+            }
+            // Legacy full transfers still require exact readback. Their previous
+            // cache must not become a sparse base if capability arrives later.
+            verified_=pending_verified_=false;
+            if(newer_ready) {
+                // A matched SUBMITTED/ACCEPTED/APPLIED chain establishes receipt
+                // of the frozen candidate. Do not read obsolete cells before
+                // sending the newer desired revision. Final convergence still
+                // requires exact readback; uncertainty always uses recovery.
+                phase_=HostPreviewPhase::Ready; next_fresh_=false;
+                Set("Newer draft pending; intermediate preview applied");
+                return true;
+            }
             if(!TransferBusy()) { Recover(); Set("Preview verifying working readback"); }
             return true;
         }
@@ -128,8 +237,8 @@ public:
             return true;
         }
         if(SnapshotFields(line,length,"BTPREVIEW1 ERROR 1 ",f,2)) {
-            if(!TransferBusy() || f[0]!=current_ || f[1]<2 || f[1]>11) return false;
-            if(commit_possible_ && (f[1]==3 || f[1]==4)) Recover();
+            if(!TransferBusy() || f[0]!=current_ || f[1]<2 || f[1]>12) return false;
+            if(f[1]==12 || (commit_possible_ && (f[1]==3 || f[1]==4))) Recover();
             else { phase_=HostPreviewPhase::Rejected; std::snprintf(status_,sizeof(status_),"Preview rejected: protocol error %u",unsigned(f[1])); }
             return true;
         }
@@ -181,9 +290,20 @@ public:
         return false;
     }
 private:
+    bool CommitLine() const noexcept {return delta_transfer_?delta_line_==delta_count_+1:serializer_.CommitLine();}
+    SparsePreviewCell DeltaCell(const RealtimePattern& p,unsigned index) const noexcept {
+        const auto row=delta_indices_[index]/kRealtimePatternChannelCapacity;
+        const auto channel=delta_indices_[index]%kRealtimePatternChannelCapacity;
+        return {static_cast<std::uint8_t>(row),static_cast<std::uint8_t>(channel),p.cells[row][channel].note,
+            p.cells[row][channel].instrument,p.note_off_timing[row][channel]};
+    }
+    bool sparse_supported_=false,delta_transfer_=false;
+    std::uint16_t delta_indices_[kSparsePreviewCellCapacity]{};
+    unsigned delta_count_=0,delta_line_=0;
+    std::uint32_t delta_base_=0,delta_hash_=0;
     void Set(const char* s) noexcept { std::snprintf(status_,sizeof(status_),"%s",s); }
     void Recover() noexcept {
-        phase_=HostPreviewPhase::Recovering; state_fresh_=false; verified_=pending_verified_=false;
+        phase_=HostPreviewPhase::Recovering; state_fresh_=false; verified_=pending_verified_=false; recovered_ready_=false;
         readback_.Cancel(); read_active_=read_label_=false; Set("Preview outcome uncertain; verifying device state");
     }
     RealtimePattern latest_,attempted_,applied_,pending_;
@@ -191,6 +311,8 @@ private:
     PatternSnapshotAssembler readback_;
     HostPreviewPhase phase_=HostPreviewPhase::Recovering;
     bool supported_=false,discovery_=false,next_fresh_=false,state_fresh_=false,suspended_=false;
+    bool reconnecting_=false;
+    std::uint32_t consumed_high_water_=0,attempted_high_water_=0;
     bool retain_local_=false,debouncing_=false,latest_valid_=false,attempted_valid_=false,receiving_=false,submitted_=false,commit_possible_=false;
     bool read_active_=false,read_label_=false,verified_=false,pending_verified_=false,recovered_ready_=false;
     unsigned selector_=0;

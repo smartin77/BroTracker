@@ -15,6 +15,12 @@ dArkOS compatibility validation remains deferred. These
 steps refine the broader roadmap; planned playback behavior still requires
 implementation and validation.
 
+Primary development firmware: `teensy41_dev` (the PlatformIO default), inheriting
+the complete `teensy41_pattern_variable_rate` configuration without duplicate flags.
+From the repository root, `pio run -t upload` builds and uploads the default.
+Existing explicit names remain usable with `pio run -e <environment> -t upload`
+for regression/diagnostic testing; their firmware behavior is unchanged.
+
 ### Musical Scheduler Timing
 
 * [x] Implement the sample-timeline foundation: initialization, reset and counting
@@ -159,6 +165,101 @@ design remains unchanged.
   preparation now exist in the separate preparer below. Rendering consumes prepared
   positions without introducing a clock or synchronization policy; Teensy processing
   cost is unmeasured.
+* [x] Add separate portable `VariableRateSampleVoice` in
+  `src/core/audio/variable_rate_sample_voice.h`, tested in
+  `tests/test_variable_rate_sample_voice.cpp`: immutable non-owning PCM16 mono,
+  positive Q32.32 source-frame step with exact unity, matching source/output rates.
+  Separate integer position/fractional phase retain full caller-buffer size support;
+  checked advancement safely completes even for maximum steps. Exact int64 linear
+  interpolation rounds once to nearest with ties away from zero, clamps the second
+  endpoint at the last frame, then releases/zero-pads at completion. Transactional
+  validation, retrigger/replacement, Stop/Reset and exact partition independence;
+  unity output matches RamSampleVoice. No native-rate API or playback changes.
+  Linear interpolation is not band-limited (upward pitch may alias); rate changes
+  pitch and duration, not time stretching. Hardware cost is unmeasured.
+* [x] Record D0055's agreed sample model: source rate, reference note, signed
+  fine tuning and rhythmic tempo remain separate. Preserve explicit tuning;
+  otherwise reference internal 60 (Yamaha C-3), zero correction, original speed/
+  pitch/duration as a playback anchor, not measured C tuning. Sample BPM does not
+  determine pitch. Positive tuning raises playback rate; storage precision remains
+  undecided. This is a design decision, not implemented metadata initialization.
+* [x] Implement portable `NoteToPlaybackStep` in `note_playback_step.h` with
+  checked-in `note_playback_steps.h` constants and exact-integer generation source
+  `tools/generate_note_playback_steps.py`: explicit target/reference pitches 24..127,
+  positive Q32.32 equal-tempered ratio, exact unity/octaves, full interval range
+  -103..103. Reject special/out-of-range notes without changing output. Nearest
+  quantization error < half Q32 LSB; relative error < 0.045 ppm. No runtime floating
+  point/allocation/I/O. Tests cover all intervals against independent 512-bit exact
+  arithmetic, monotonicity, invalid notes and octave voice PCM/partition composition.
+  Reference pitch remains explicit; beeper anchors are not measured tuning.
+* [x] Add separate `VariableRateVoiceBlockRenderer` in
+  `src/core/audio/variable_rate_voice_block_renderer.h`: eight fixed variable-rate
+  voices, up to 16 prepared Trigger/Stop commands carrying non-owning PCM views
+  and positive Q32.32 steps. Exact half-open block offsets, stable equal-offset
+  order and voice continuation; whole-request preflight preserves all state/output
+  on rejection. Matching rates only, bounded allocation-free/noexcept processing.
+  `tests/test_variable_rate_voice_block_renderer.cpp` covers exact/fractional PCM,
+  partition independence, simultaneous commands, retrigger/replacement, Stop,
+  boundaries, capacity and transactional rejection including fractional phase.
+  No note/instrument/player/firmware/UI integration or hardware cost measurement.
+* [x] Add separate `VariableRateSampleCommandPreparer` in
+  `src/core/playback/variable_rate_sample_commands.h`: up to 16 unique raw-ID
+  bindings with explicit reference notes and immutable non-owning PCM views.
+  Matching rates only; NoteToPlaybackStep resolves pitched events to positive
+  Q32.32 Trigger steps. Channel continuation, selection-only updates, repeated
+  retriggers and Arrival OFF Stop preserve ordered channel/offset metadata.
+  EndOfPosition OFF updates logical state without scheduling a Stop; ownership
+  remains with the future player. Configure/Prepare are transactional; Reset
+  retains bindings. Bounded allocation-free/noexcept work. Tests cover validation,
+  reference/note bounds, exact unity/octaves, ordering, rollback and independently
+  expected fractional mixed PCM across block partitions. No native-rate changes;
+  variable-rate player/firmware/UI integration and hardware validation remain open.
+* [x] Add separate `VariableRatePatternPlayer` in
+  `src/core/playback/variable_rate_pattern_player.h`, with coverage in
+  `tests/test_variable_rate_pattern_player.cpp`. Completed core orchestration reuses
+  cursor/row generation, explicit-reference-note preparation, variable-rate rendering
+  and gain-aware mono mixing. Transactional Configure/Render; Start restarts zero,
+  Stop clears playback, Pause silences and Continue replays the reported current row.
+  Exact deferred EndOfPosition Stops precede boundary triggers; coherent consumed
+  position and unity-default transactional gains preserve established lifecycles.
+  Stopped/paused replacement and same-dimension volatile preview use complete
+  two-pass validation/reconstruction, bounded candidate supersession and next-row
+  application without restarting sounding voices. Fixed 128 frames, 16 commands,
+  512 ticks plus completion pull; rejection preserves state/output without truncation.
+  Immutable caller-owned PCM and matching rates only, allocation-free/noexcept.
+  Tests validate independent unity/octave/fractional PCM, loop partitions, both OFF
+  modes, transport, gains, replacement/preview, limits and rollback/retry including
+  fractional phase; equivalent unity bindings match native-rate PCM. Native-rate
+  player/API and firmware remain unchanged. Hardware performance is unmeasured.
+* [x] Add opt-in `teensy41_pattern_variable_rate`, extending SD playback with PERF.
+  Compile-time selection owns only the chosen player; shared bounded control FIFOs,
+  serial protocol, ownership/readback and fault policies are retained. Reference
+  bindings 60/62 keep unchanged beepers at unity; prepared SD reference 60 retains
+  the third-channel fixture and two-beeper failure fallback. Supported notes 24..127
+  transpose through explicit references; matching rates only, no finetune/tempo match.
+  Host target `BroTrackerVariableRateBringUpTests` uses the actual selection flag and
+  validates transposition, transport/OFF/gains, SD selection, preview/publication,
+  frozen handoff, identities/readback/backpressure, PERF arithmetic and failures.
+  Existing environments/native-rate regression coverage remain unchanged.
+* [ ] Build/upload and validate the variable-rate environment on Windows BTX + Teensy:
+  reference/semitone/octave playback, automatic preview/F4, stopped/paused F5,
+  Pause/current-row Continue, both OFF modes, reconnect without Start, memory usage
+  and PERF. Prior native-rate measurements do not validate this rendering path.
+  Linear interpolation may alias and changes pitch/duration together; ArkOS and
+  hardware timing/performance remain open. Integrate tuning metadata later.
+  Fractional-semitone correction remains a separate future layer. D0055 defines
+  source/output ratio * note-interval ratio * fine-tuning ratio. Keep PCM16 mono
+  44100 Hz as implemented baseline; preserve future 8000/22050/48000 Hz conversion
+  paths without fixing retained-versus-converted storage. Low rate does not imply
+  8-bit PCM. Current voice requires matching rates; hardware cost remains unmeasured.
+* [ ] Add optional original BPM/quarter-note beat-length metadata and explicitly
+  enabled loop-tempo matching (target/original BPM). Derive BPM from duration only
+  with known beat count, never infer meter/bar count or reference pitch. Rate matching
+  changes pitch and duration; requested semitone offset/fractional residual is speed
+  transposition, not a musical root. Define combination with note transposition
+  without double application. Analysis suggestions/manual correction, time stretching,
+  quality/anti-alias policy and hardware-performance validation remain pending.
+  Current beeper C-3/D-3 bindings are trigger anchors, not measured tuning.
 * [x] Implement stateless `MixPcm16Mono` in `src/core/audio/pcm16_mixer.h`, with
   coverage in `tests/test_pcm16_mixer.cpp`: allocation-free mixing of eight PCM16
   mono channels using unity-gain `int32_t` summation. Saturation is applied once
@@ -316,7 +417,7 @@ design remains unchanged.
   `platform.cpp`, but the current SD-streamed WAV test sequence is not pattern
   playback and does not use the RAM loader for this purpose. The opt-in pattern
   path uses static diagnostic PCM fixtures; production sample loading remains open.
-* [ ] Complete Teensy playback of one looping 16-row pattern. Bounded realtime
+* [ ] Complete Teensy playback of one looping pattern (currently 32-row fixture). Bounded realtime
   pattern storage, raw row-command generation and logical channel-state continuation
   are implemented in core playback; prepared native-rate Trigger/Stop commands now
   dispatch to core RAM voices and render at exact offsets, with core mono mixing
@@ -526,16 +627,46 @@ design remains unchanged.
   validation on 2026-10-10 confirms the final editor behavior works as agreed.
   Legacy edits remain local until explicit F5 publication; capability-gated volatile
   preview now has separate automatic transfer. Publication
-  hardware validation, ArkOS sending bindings and live edits remain open.
+  hardware validation and broader editing integration remain open; temporary
+  ArkOS sending bindings are implemented below.
 
 * [x] Implement host-side note/instrument pattern data, JSON loading and preview
   rendering. Evidence: `src/core/{pattern,channel,event,tune}.h`, the tune loader,
   `src/ui/pattern_screen.cpp` and `tests/test_tune_loader.cpp`. The preview uses a
   fixed position and does not provide interactive editing or realtime publication.
-* [ ] Implement ArkOS row/channel/field navigation and note/instrument entry with
-  an edit cursor distinct from the live playback row. Host input and diagnostic
-  controls and the shared local editor exist; ArkOS handheld editor bindings and
-  hardware validation remain unimplemented.
+* [x] Implement temporary ArkOS handheld bindings in `ui/arkos/input.h` and main:
+  D-pad row/field navigation; L1+Up/Down shared value stepping, L1+Left/Right channel;
+  Start capability-gated transport, B Stop/reset, X OFF, Y Clear, L1+Y Restore,
+  A stopped/paused publication, L1+Start clean STOP/exit; Select unassigned.
+  Shared preview/publication/editor coordinators preserve baseline/history and
+  uncertainty recovery. Fixed held-state handling consumes chords, cancels on
+  releases/focus/removal/disconnect/locking, and requires release after modifier
+  changes. SDL controller instance filtering and verified button/hat fallback
+  prevent duplicate raw/controller events. Labels use the existing padded panel.
+  Synthetic SDL tests and available host syntax checks are not handheld validation.
+* [x] Add bounded held navigation to temporary ArkOS input: plain D-pad row/field
+  and L1+Left/Right channel repeat. Named timing is immediate, then 350 ms first
+  repeat, 100 ms intervals before 1000 ms held, 60 ms from 1000 ms and 40 ms from
+  2000 ms. One navigation/value stream emits at most one action per service;
+  bounds, channel wrapping, cancellation and release-before-rearm are preserved.
+  Navigation remains available under publication lock; value repeats retain their
+  own timing and mutation lock. Deterministic input tests cover timing, stalls,
+  opposition, releases/modifiers, lock behavior and timestamp wrap.
+* [x] Share platform-independent navigation timing in `src/ui/navigation_repeat.h`
+  between ArkOS and Windows. Windows arrows and Tab/Shift+Tab ignore OS repeat,
+  preserve older-key release ownership, and require release after modifier changes
+  or opposing arrows. Navigation/value streams are exclusive; publication locking
+  retains navigation. Deterministic Windows/shared and retained ArkOS tests cover
+  timing, stalls, timestamp wrap, cancellation and history-free navigation.
+* [x] User confirmed shared held navigation on Windows and ArkOS (2026-10-15).
+* [x] User confirmed the added held navigation on ArkOS (2026-10-15); paging
+  and playback ranges remain proposals.
+* [x] User confirmed on 2026-10-15 that the current temporary controls and workflows
+  work on ArkOS. See [ArkOS controls](ARKOS_CONTROLS.md). This does not establish
+  dArkOS validation or measured physical timing/performance.
+* [ ] Extend device/profile and OS-hotkey coverage and exhaustive reconnect,
+  backpressure/removal checks. Final configurable profiles and bindings remain
+  undecided; dArkOS requires separate validation.
 * [ ] Send validated edit commands to Teensy: validate pattern, row, channel,
   note and instrument values, bound command buffering and handling, and report
   acceptance or rejection to BTX. The current diagnostic exchange has no edits.
@@ -580,11 +711,13 @@ design remains unchanged.
 
 * [x] Add shared pattern-derived note entry: first PgUp/PgDn on an empty Note
   field inserts the nearest preceding pitch in the current draft channel unchanged,
-  skipping empty/instrument-only/OFF. No preceding pitch initializes C-0; no
+  skipping empty/instrument-only/OFF. No preceding pitch initializes C-3 (internal 60); no
   cross-channel search or pattern wrap, no automatic instrument. Subsequent actions
   retain cyclic/repeat behavior. No session memory; edits/deletions, snapshot load,
   Restore and confirmed readback are reflected immediately. Host tests cover both
-  directions, channel isolation, skipped cells, fallback and held repetition.
+  directions, channel isolation, skipped cells, fallback, Undo/Redo and held repetition.
+  User confirmed the C-3 empty-note fallback on Windows on 2026-10-12;
+  ArkOS validation remains pending.
 * [x] User confirmed on 2026-10-11 that, after clearing both channels, a published
   first-channel C-3 / instrument 01 pattern on rows 01 and 09 plays correctly.
   This does not confirm all paused-publication cases or measured hardware timing.
@@ -698,10 +831,158 @@ design remains unchanged.
   remain visible without automatic retry. Tests cover partial writes, held edits,
   dirty state, recovery, races and end-to-end PCM/Restore/publication.
 * [ ] Complete exhaustive validation of F4/F5 coordination, rejection, uncertainty/reconnect,
-  backpressure and pause latency on Windows + Teensy, then ArkOS. Handheld bindings
-  remain deferred. No SD persistence; physical timing/performance remain unmeasured.
+  backpressure and pause latency on Windows + Teensy, then ArkOS. Temporary handheld
+  bindings exist; final profile/input design remains deferred. No SD persistence; physical timing/performance remain unmeasured.
+
+* [x] Correct host preview service cadence: bounded ready-line bursts and complete
+  Windows worker line capacity, stopping on backpressure and retaining transport
+  priority. Regression tests cover a 32-cell transfer, newer edits during delayed
+  readback, and device identity rollback versus powered-device reconnect.
+* [ ] Revalidate stale draft display after device reset (the historical valid-edit
+  latency complaint is accepted/closed for this stage on 2026-10-14); preserve checks
+  after USB/device reset on Windows + Teensy. Host regressions reproduce service
+  cadence and reset-retention defects; no hardware fix confirmation yet.
+  On 2026-10-13 the user confirmed beeper/PCM transposition, audible distinction
+  of both OFF timings, and continued playback after forced BTX kill/relaunch
+  with Teensy powered. This does not establish exact edit/application latency.
+
+* [x] Add bounded host-millisecond diagnostics for local draft checksums and
+  serial TX/RX, plus Enter/keypad mapping and STOP regressions during clean/dirty
+  preview transfer/recovery and held editing. No debounce or scheduling change.
+* [ ] Complete Enter hardware regression and broader working-preview validation;
+  ordinary preview latency is accepted/closed for this stage below.
+  The user reports improved preview responsiveness and that the alleged Enter
+  STOP failure did not recur; no log reproduces an Enter defect and no speculative
+  fix was made. Automated 2026-10-13 serial tests applied six previews: BEGIN to
+  COMMIT 27-53 ms, COMMIT to ACCEPTED 2-19 ms, and COMMIT to APPLIED 6-170 ms
+  (host observations). Original 48-cell working data was restored; STOP reset
+  was acknowledged. This does not measure audible onset or local-edit latency.
+  SDL mapping tests pass; hardware window-message injection aborted on focus
+  gating before keys were sent. Physical Return/keypad checks remain open.
+  A passed row can naturally wait for its next loop; highlight timing alone does
+  not establish whether its row-start event has been consumed. Power-cycle
+  restoration is expected because baseline and working data remain RAM-only.
+
+* [x] Implement BTX-only Basic/Debug logging and optional startup retention
+  ([D0058](ARCHITECTURE_DECISIONS.md#d0058---btx-logging-modes-and-startup-log-retention),
+  [logging reference](LOGGING.md)). Schema-1 optional settings default to Basic/0;
+  transactional validation, UTC/local-offset/monotonic timestamps, bounded filtering
+  and duplicate suppression, Debug host/SDL summary, exact numbered archives,
+  append override and failure preservation have portable host coverage. Firmware
+  and realtime processing are unchanged.
+* [ ] Manually validate Windows/ArkOS Basic/Debug output, safe-config defaults,
+  rotation ordering/permissions and append behavior. ArkOS build/runtime validation
+  remains open. Windows per-user Debug/5 config was explicitly authorized; ordinary
+  startup never rewrites config. Hardware timing/performance checks remain open.
+
+* [x] Reproduce and correct captured host STOP failure (2026-10-13, local
+  23:14:21): an asynchronous Windows write owned a preview CELL despite returning
+  zero; cancellation replaced it with STOP and misattributed its completion.
+  Track write attempts independently of reported offset, finish owned lines before
+  transport, and apply the same ownership guard to preview/publication/gain lanes.
+  Delayed/partial completion, backpressure and disconnect/recovery regressions
+  preserve drafts and forbid automatic START/publication. No SDL/firmware fix.
+* [ ] Revalidate captured STOP correction on Windows + Teensy using Return and
+  keypad Enter during rapid preview transfers. Previous user non-recurrence remains
+  historical evidence; the newly captured failure supersedes the earlier absence
+  of a reproducing log. Host tests establish the cause; hardware success is pending.
+
+* [x] Improve latest-draft host preview delivery (2026-10-14): Windows serial
+  service runs in eight bounded 2 ms slices within the existing 16 ms UI idle span,
+  and the worker wakes for new writes. Immutable asynchronous ownership and STOP
+  line-boundary priority remain intact. A strictly acknowledged obsolete APPLIED
+  revision need not be read back before sending newer coalesced work; final exact
+  readback and all uncertain-outcome recovery remain mandatory. Debounce/repeat,
+  musical row boundaries and the wire protocol are unchanged.
+  Async tests cover repeated edits, delayed started readback, final convergence,
+  framing, STOP and disconnect recovery. Actual BTX synthetic Windows-message
+  tests observed 240/251 ms 48-cell transfers versus 1062/1041 ms in supplied logs;
+  draft-to-APPLIED was 401/295 ms versus 1266/1146 ms. Scenarios differ; these are
+  host observations, not controlled audible-latency measurements. Working data
+  was restored exactly, no publication/upload, and final transport is Stopped.
+* [x] Record 2026-10-14 user validation: preview responsiveness improved substantially;
+  edits sufficiently ahead of playback were reflected reliably in the user's test.
+  Near playback, initial/default-note playback can precede the subsequently edited
+  pitch's application. The user accepts this behavior for the current development
+  stage and considers the latency correction closed. No zero-latency or
+  sample-accurate hardware claim; no new Enter, rotation or ArkOS validation.
+* [ ] Complete broader physical-keyboard and stressed preview validation.
+  The latest supplied logs contain 11 Enter requests, all followed by STOPPED,
+  with no STOP-unconfirmed; retain asynchronous STOP regression coverage. Upcoming
+  rows can still consume an earlier frozen revision before a newer edit arrives;
+  already-consumed rows wait for their next occurrence. No instantaneous WYSIWYG
+  promise; exhaustive backpressure/reconnect and ArkOS validation remain open.
+
+* [x] Correct host startup log rotation to descending same-directory renames,
+  preserving exact-name scope, retention and append bypass. Isolated Windows tests
+  verify actual creation/access/last-write timestamps and file identity, plus locked-file
+  partial failure preserving unarchived current. No real logs/config or diagnostic
+  archives were used; full manual platform rotation validation remains pending.
 
 ## Deferred Tasks
+
+* [x] Add negotiated transactional sparse working preview (D0059): capture complete
+  cell results/coordinates, coalesce same-cell changes, preserve cross-channel edits
+  and full 512-cell Restore. A normal edit sends one DCELL, not a full pattern.
+  Validate explicit base revision, identities/order/metadata/checksum and the complete
+  reconstructed candidate; reuse frozen audio-owner ownership, next-row application,
+  ACCEPTED/APPLIED, supersession and transport priority. Matched sparse application
+  avoids per-edit full readback; initial/recovery snapshots and legacy full-preview
+  fallback remain. Publication/F5, tempo and input acceleration are unchanged.
+  Deterministic parser/coordinator/player and asynchronous tests cover exact PCM,
+  constant one-cell size across 16/32/64 rows, coalescing, Restore, invalid/stale
+  transactions, STOP, timeout and reconnect. Host/editor staging remains bounded.
+  Windows CTest 8/8, Windows application build, Eoan ARM64 CTest 10/10 and both
+  ABI/dependency checks pass; ArkOS package refreshed. Development firmware
+  compilation/linking passes; no upload or hardware validation in this step.
+* [x] Second-pass sparse-preview review (2026-10-16): reproduce/fix pre-staging
+  NEXT recovery deadlock with a separate attempted-ID floor; invalidate verified
+  caches on STATE mismatch in every phase and discard stale uninstalled readbacks.
+  Settle Restore/Undo already matching applied/pending content without another
+  transfer, including older application after a newer rejection. Guard absolute
+  metadata/cell bounds and clear captured edits at explicit context reset.
+  Adversarial tests include missed ACKs with actual owner application and exact
+  recovered PCM, owned partial-write STOP/reconnect, late capability/legacy fallback,
+  paused F5/readback/Restore, upper cells and UINT32_MAX. No scheduling/debounce
+  change or new hardware validation; published-baseline semantics remain separate.
+  Final checks: 292 shared/core cases, Windows CTest 8/8 and application compile,
+  Eoan ARM64 CTest 10/10 plus both ABI checks and refreshed ArkOS package;
+  development-firmware compile/link passes. No Windows package/upload/hardware.
+* [ ] Hardware-validate sparse preview on Windows and ArkOS: rapid cross-channel
+  edits, supersession, Restore, STOP/backpressure and reconnect/uncertain recovery.
+  Separate local edit/TX/ACCEPTED/APPLIED observations from audible row occurrence;
+  no new hardware latency, physical timing or performance result is claimed.
+
+* [ ] Further optimize local-edit-to-applied preview latency, especially near row
+  boundaries. Current accepted behavior preserves live editing; stopped-only
+  editing is a possible future interaction policy, not an adopted restriction.
+  Classic scrolling and a centered edit cursor remain undecided UI options.
+  Do not infer zero latency or resolution of every timing case.
+
+* [x] Extend value stepping to numeric Instrument fields (raw IDs 0..98 / displayed
+  01..99), cycling through empty 0xFF in both directions. Fresh empty entry selects
+  01 unchanged; interaction-only cycle state resets on navigation, explicit edits,
+  history/context replacement. Holds renew the 400 ms boundary pause. Higher device
+  IDs are preserved, not clamped; instrument edits preserve notes. The deprecated
+  `note_step_direction` config alias remains accepted, but both names together
+  reject transactionally. Host tests cover cycles, inversion, history and OFF timing.
+* [x] User confirmed Windows unified value directions, renewed boundary pauses and
+  OFF timing toggling; this is not ArkOS or dArkOS validation.
+* [x] User confirmed 32-row editing and progression beyond row 16; this is not
+  confirmation of loop timing or realtime performance.
+* [ ] Complete remaining numeric instrument edit edge-case validation; ArkOS
+  input/runtime and unmeasured hardware timing/performance remain open.
+
+* [x] Implement schema-1 `[editing] value_step_direction=normal|reversed` at the
+  shared Note/numeric Instrument input boundary (default/safe-config normal). Held direction
+  inverts once; logical actions, OFF timing and navigation do not.
+  Logical stepping cycles 127 -> OFF -> 24 / 24 -> OFF -> 127, preserving instruments
+  and Arrival entry/exit metadata. Endpoint and OFF-entry holds pause 400 ms.
+  Empty initialization remains preceding pitch/C-3; host tests cover config,
+  cycles, holds, metadata and Undo/Redo. No user config rewrite; temporary ArkOS bindings now reuse this preference.
+* [x] User confirmed cyclic OFF stepping and `note_step_direction=reversed` on
+  Windows. This confirmation does not establish ArkOS validation.
+* [ ] Validate ArkOS bindings/runtime and remaining held-repeat edge cases.
 
 * [ ] Define channel/instrument gain controls and the final mixing headroom policy;
   add host/UI gain control and validate the device protocol without implying mute.
@@ -741,7 +1022,7 @@ design remains unchanged.
   deterministically. Cursor and published baseline remain independent; matching
   F5 readback/rebase preserves history. Undo/Redo feed automatic preview, never
   publication. Publication locks mutation but permits navigation. Storage is
-  65,804 bytes on the current host ABI (8-byte changes, 128 per transaction).
+  262,412 bytes on the current Windows host ABI (8-byte changes, 512 per transaction).
   Disconnect retains disabled bounded history until recovery, but the protocol
   cannot prove editing-context identity: reconnect conservatively clears it.
   Same-session unchanged readback preserves history; changed recovery clears it.
@@ -762,7 +1043,7 @@ design remains unchanged.
 * [x] Implement one-based user-visible instrument numbering: raw IDs 0/1 display
   `01`/`02`, 0xFF stays `--`, and numbers 100..255 expand to three digits without
   truncation. Internal bindings/wire IDs remain unchanged; empty editing selects
-  `01`, bounds do not wrap, and OFF timing remains separate. Host tests cover
+  `01`; numeric editing cycles 01..99 through `--`, with OFF timing separate. Host tests cover
   formatting, editing/Restore and publication/snapshot raw-ID roundtrip.
 * [ ] Validate one-based instrument display/editing on Windows + Teensy and ArkOS;
   existing publication/hardware validation remains open.
@@ -806,3 +1087,173 @@ design remains unchanged.
   Duration determines tempo; determining a musical note additionally requires a
   known or measured reference pitch. No sample integration, resampling or tuning
   implementation is included in this task.
+
+### Pattern Length and Playback Flow
+
+* [x] Extend bounded core pattern storage to 64 rows and the actual Teensy bring-up
+  fixture to 32 active rows, using `BROTRACKER_PATTERN_FIXTURE_ROWS` /
+  `kPatternBringUpFixtureRows` (supported fixture choices 16/32/64). Existing first
+  16 rows, tempo, bindings, gains and transport remain unchanged; the tail is
+  genuinely empty, including instrument 0xFF and Arrival OFF metadata. Both players,
+  snapshot/readback, preview/publication, editor and full-pattern history use the
+  shared capacity without truncation. The display remains 32 rows, independently.
+  Host tests cover upper rows, looping, partition independence, transfer of all
+  512 cells, editing/history and transactional rejection. Host new-pattern length
+  remains a creation default, never an automatic device resize.
+* [ ] Validate the new 32-row fixture on Teensy: rows 16->17, loop 32->1, upper-row
+  edits/preview/publication, native-rate and variable-rate paths; inspect linker
+  RAM/stack headroom and remeasure callback cost. Prior 16-row hardware records do
+  not validate this change. Add paging/scrolling before exposing all 64 rows in UI.
+
+
+Follow [D0056](ARCHITECTURE_DECISIONS.md#d0056--pattern-length-and-playback-flow):
+stored pattern length, playback flow and visible row count are separate.
+Bounded realtime storage now supports up to 64 rows; the firmware fixture defaults
+to 32 active rows. Single-pattern looping remains unchanged.
+
+* [ ] Implement per-pattern stored lengths of 16, 32 or 64 rows and a tune default
+  used only for newly created patterns; changing the default must not resize
+  existing patterns. Bounded core capacity/transfer support is complete above;
+  project/tune creation remains pending. Preserve four rows per quarter note
+  without LPB changes.
+* [ ] Define flow FX names/codes/parameters, same-row conflicts, invalid targets,
+  combination rules, end-of-sequence and standalone loop behavior before implementing
+  order-list sequencing, Pattern Break and Position Jump. Complete the current row
+  before transitions; target order entries rather than pattern IDs. Retain skipped
+  stored events, including shorter played sections within a longer stored pattern.
+* [ ] Define and test sounding audio/MIDI note, instrument-continuation and deferred
+  EndOfPosition OFF behavior at transitions, including paused-row replay interaction.
+* [ ] Decide live length changes, resizing/data retention and undo semantics.
+* [ ] Evaluate a proposed 64-row view as two 32-row pages. The editor cursor would
+  control the visible page; playback would not automatically flip it. Show the
+  authoritative off-page playback position. Page controls and this view policy
+  remain proposals, not implemented or finalized controls.
+* [ ] Design a future temporary playback/loop range independently of stored pattern
+  length and the visible page. Range semantics/controls remain undecided and
+  unimplemented; this does not resize patterns or change current live editing.
+
+### Handheld Input Design
+
+* [ ] Design handheld input normalization and action bindings, with ArkOS as the
+  primary handheld target and separate dArkOS compatibility validation. Vertical
+  versus horizontal layout is an ergonomic distinction, not a reliable identifier
+  for raw-button mappings. Separate hardware/SDL normalization from BroTracker
+  action bindings; consult the official
+  [SDL controller mapping documentation](https://wiki.libsdl.org/SDL2/SDL_GameControllerAddMapping)
+  for device GUIDs and button, hat and axis mappings.
+  Evaluate verified device profiles and optional calibration; require setup only
+  when a usable mapping cannot be established. Account for FN presence/absence,
+  face-button labels versus physical positions, shoulder arrangement, hats and
+  axis-based triggers. Check which controls/modifier combinations actually reach
+  BTX and which OS/emulator hotkeys intercept. Do not assume RetroArch or
+  EmulationStation bindings apply to standalone BTX; supplied community hotkey
+  examples remain unverified, device-specific examples rather than universal defaults.
+  Evaluate guided confirmation of navigation, confirm/back and modifier controls
+  before saving. Validate candidate mappings transactionally and provide cancellation
+  and recovery without relying solely on newly remapped controls. Removing application
+  config or using safe-config restores application defaults but cannot necessarily
+  repair system SDL mapping. First-run behavior, profile identification, reset
+  workflow and final ArkOS/keyboard bindings remain undecided. Coordinate with the
+  shared `config.ini` foundation without changing its scope or reserving controls.
+
+### Shared Host Configuration
+
+* [x] Implement optional bounded schema-1 `config.ini` parsing and Windows/ArkOS
+  startup loading with built-ins (new-pattern length 32), transactional validation,
+  predictable SDL per-user paths, diagnostics and `--safe-config` bypass. See
+  [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
+  and `config/config.ini.example`. Host tests cover lengths, malformed/duplicate
+  settings, size limits, rollback, missing/unreadable files and safe recovery.
+* [ ] Validate config paths and safe-config startup manually on Windows and ArkOS.
+* [ ] Integrate the resolved new-pattern default into future project/pattern creation;
+  existing patterns must not be resized by host configuration. Design
+  additional settings and input-mapping/profile recovery separately; no bindings reserved.
+
+### Development fixture and callback peak follow-up (2026-10-15)
+
+* [x] User confirms accelerated held navigation on Windows and ArkOS. This does
+  not validate the new diagnostic fixture, callback display or hardware performance.
+* [x] Variable-rate development fixture: eight active channels, configurable
+  16/32/64 rows (default 32), explicit deterministic pitched beeper events on every
+  CH1/CH2 row, no OFF, and genuinely empty CH3..CH8. Historical native-rate fixtures
+  remain unchanged; sample selection is by cell instrument ID.
+* [x] Correct existing development test2.wav binding to display 04/raw 3, reference
+  C-3, without a boot trigger. Preserve beeper reference anchors and native tempo.
+* [x] Shared Windows/ArkOS measured CBpk display from existing strict PERF parsing:
+  steady cumulative callback maximum/budget, initialization separate, 3000 ms
+  freshness, unavailable on missing/stale/disconnected data. Not total CPU load.
+* [ ] Validate new fixture and callback display on hardware; rebuild host applications
+  for the shared presentation. Prior navigation confirmation does not cover this.
+* [ ] Choose a safe complete three-sample storage strategy after measured real SD
+  metadata: display 03/raw 2 (test.wav) remains deferred; test2/test3 are now
+  implemented separately below.
+  The 2026-10-15 inspection establishes 887076 PCM bytes; current internal RAM
+  is insufficient. Do not assume PSRAM, truncate or substitute samples.
+
+* [x] Add boot-only read-only metadata inspection for the established exact SD paths
+  Samples/test.wav, Samples/test2.wav and Samples/test3.wav. Reuse checked WAV
+  validation and shared SdReader ownership; no PCM reads/reservations or SD writes.
+  Retain fixed results and bounded main-loop WAVMETA/WAVTOTAL reporting after HELLO.
+  Fake-reader tests cover paths, per-file failures, unsupported/truncated/malformed
+  data, chunk limits, cleanup and partial diagnostic writes; not actual SD evidence.
+* [x] Capture the three real WAVMETA records and valid combined WAVTOTAL after the
+  authorized user-requested upload (2026-10-15). Exact root metadata is established
+  below; no new PCM reservation or PSRAM assumption. Broader hardware validation
+  remains open.
+
+* [x] Automated real-board SD inspection on 2026-10-15 after authorized teensy41_dev
+  upload: all three established paths validated PCM16 mono/44100 Hz. Required bytes
+  are 613940 + 136568 + 136568 = 887076; WAVPREP retained successful test2 loading.
+  Metadata measurement is complete; selecting a safe three-sample storage design
+  remains open. Current internal RAM is insufficient even without stack/heap margin.
+* [x] Automated Windows-side protocol validation: complete 32x8 fixture/readback,
+  every beeper row, empty CH3..CH8, rows 0..31 and loop transition, Start/Pause/
+  current-row Continue/Stop, unchanged post-upload patterns and gains, stopped
+  finish and port release. Actual PERF parsing/freshness checks passed. These are
+  protocol/test results, not ArkOS execution, audible/visual or physical timing tests.
+* [ ] Manually validate the new fixture and CBpk presentation on Windows/ArkOS;
+  retain broader memory/cache, audio timing/performance and stress checks.
+
+* [x] Build/package the current navigation + CBpk ArkOS BTX in the preserved Eoan
+  ARM64 environment (2026-10-15): 10/10 CTest, both executable ABI/dependency checks,
+  verified six-file deploy/arkos package. No handheld deployment; new fixture/CBpk
+  visual and listening checks remain pending.
+
+* [x] Prepare two independently validated manual-test WAVs in variable-rate
+  development firmware: test2.wav display 03/raw 2 and test3.wav display 04/raw 3,
+  both reference C-3, with no automatic pattern events. Replace the old reservation
+  with two 68284-frame aligned static RAM2 buffers (273136 PCM bytes total).
+  Publish only successful views and report failures independently. Tests cover
+  paths, capacity/unsupported/missing failures, binding independence and rendering.
+  All-three-file metadata inspection and empty CH3..CH8 remain intact; test.wav
+  playback is deferred. Firmware linker check passed (RAM2 free 230368 bytes).
+* [ ] Validate the two-buffer firmware on hardware after user upload, including
+  instruments 03/04 playback/preview/publication, per-file failure diagnostics, overlap
+  headroom, runtime memory/cache use and PERF. No upload or hardware tests in this step.
+
+* [x] Correct current development WAV IDs to contiguous 03/raw 2 (test2.wav) and
+  04/raw 3 (test3.wav), with no reserved test.wav gap. Preserve separate loading,
+  buffers and reference notes. Replace dense beepers with the agreed sparse
+  32-row phrase, truncating to its first half for 16 rows and repeating for 64;
+  all other cells/CH3..CH8 remain empty, no OFF. Raw 59 encodes B natural/German H.
+* [x] Trace/test exact fake SD paths through different decoded PCM, bindings,
+  prepared commands and voices. Independently expected replacement/retrigger and
+  simultaneous mixed PCM, partition independence and explicit unknown-instrument
+  preview rejection pass. Add boot-only decoded-PCM FNV-1a32 WAVHASH reporting,
+  with failed-load validity and complete-line priority boundaries.
+* [ ] Hardware-validate the new sparse fixture, contiguous IDs and both WAVHASH
+  records after user upload. The user's identical-sound report remains unresolved;
+  equal lengths are not content evidence and no actual new PCM checksums have
+  been captured. Do not alter/substitute SD files or claim a reproduced audio cause.
+
+* [x] User confirms Windows BTX sparse-fixture and instruments 03/04 functionality
+  (2026-10-15), separately from the new beeper levels. ArkOS confirmation and actual
+  WAVHASH comparison evidence remain open.
+* [x] Raise only teensy41_dev beeper PCM by a named exact 4x multiplier (+12.04 dB),
+  preserving historical diagnostic levels, waveforms/decay/duration, reference
+  notes, sparse events, WAV data, gains and mixer policy. Exhaustive original/4x
+  checks and pre-narrowing compile-time bounds cover all 8192 frames per waveform.
+  Square absolute peak is 2400; triangle absolute peak is 2048.
+* [ ] Validate the new level balance on Windows and ArkOS, including overlapping
+  beepers/PCM and unity-mixer saturation. No clipping-free or realtime claim from
+  sample bounds; no upload/hardware tests in this change.

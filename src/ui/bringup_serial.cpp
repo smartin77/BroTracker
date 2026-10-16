@@ -1,4 +1,5 @@
 #include "bringup_serial.h"
+#include "host_logging.h"
 #include <cstring>
 
 BringUpSerial::BringUpSerial(FILE* log, const char* test_device)
@@ -14,8 +15,12 @@ BringUpSerial::~BringUpSerial() = default;
 void BringUpSerial::Log(const char* message, const char* detail)
 {
     if (!log_) return;
-    std::fprintf(log_, "USB bring-up: %s %s\n", message, detail);
-    std::fflush(log_);
+    char text[2048];
+    const int n=std::snprintf(text,sizeof(text),"[host_ms=%" PRIu32 "] %s %s",diagnostic_now_,message,detail);
+    if(n<0 || static_cast<std::size_t>(n)>=sizeof(text)) return;
+    const auto level=BroTracker::ClassifyHostDiagnostic("USB bring-up",std::string_view(message));
+    const auto payload_level=BroTracker::ClassifyHostDiagnostic("USB bring-up",std::string_view(detail));
+    BroTracker::HostLog(log_, level==BroTracker::HostLogLevel::Basic || payload_level==BroTracker::HostLogLevel::Basic ? BroTracker::HostLogLevel::Basic : BroTracker::HostLogLevel::Debug,"USB bring-up",text);
 }
 
 void BringUpSerial::Disconnect(const char* reason)
@@ -45,6 +50,7 @@ void BringUpSerial::Disconnect(const char* reason)
     pending_ = Command::None;
     start_queued_ = stop_queued_ = false;
     tx_size_ = tx_offset_ = used_ = 0;
+    tx_write_attempted_=false;
     overflow_ = false;
     live_ = {};
     position_received_ = false;
@@ -57,6 +63,24 @@ void BringUpSerial::Disconnect(const char* reason)
 
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
+    diagnostic_now_=now;
+    if(editor.Ready()) for(unsigned i=0;i<BroTracker::kSparsePreviewCellCapacity;++i) {
+        BroTracker::SparsePreviewCell cell;
+        if(editor.TakeCapturedCell(i,cell) && preview_session_ && !publish_queued_ && !publication_.Blocking())
+            preview_.ObserveCell(cell,now);
+    }
+    if(editor_seen_ && editor.Ready() && !BroTracker::SamePattern(observed_editor_,*editor.Draft())) {
+        const auto& draft=*editor.Draft();
+        auto hash=BroTracker::PublicationHeaderHash(draft.active_rows,draft.active_channels);
+        for(unsigned r=0;r<draft.active_rows;++r) for(unsigned c=0;c<draft.active_channels;++c) {
+            hash=BroTracker::SnapshotHashByte(hash,draft.cells[r][c].note);
+            hash=BroTracker::SnapshotHashByte(hash,draft.cells[r][c].instrument);
+            hash=BroTracker::SnapshotHashByte(hash,static_cast<std::uint8_t>(draft.note_off_timing[r][c]));
+        }
+        char detail[96];
+        std::snprintf(detail,sizeof(detail),"checksum=%" PRIu32 " row=%u channel=%u",hash,editor.Cursor().row,editor.Cursor().channel);
+        Log("local draft changed:",detail);
+    }
     // Capture edits before applying an asynchronously completed recovery readback.
     // A transport disconnect may already have cleared capability this frame.
     if(preview_session_ && editor_seen_ && editor.Ready() && !publish_queued_ &&
@@ -86,6 +110,18 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     if(!publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
     editor.SetLocked(PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
+    if(std::strcmp(logged_preview_status_,preview_.Status())) {
+        std::snprintf(logged_preview_status_,sizeof(logged_preview_status_),"%s",preview_.Status());
+        Log("preview status:",logged_preview_status_);
+    }
+    if(std::strcmp(logged_publication_status_,publication_.Status())) {
+        std::snprintf(logged_publication_status_,sizeof(logged_publication_status_),"%s",publication_.Status());
+        Log("publication status:",logged_publication_status_);
+    }
+    if(std::strcmp(logged_gain_status_,gains_.Status())) {
+        std::snprintf(logged_gain_status_,sizeof(logged_gain_status_),"%s",gains_.Status());
+        Log("gain status:",logged_gain_status_);
+    }
     if(editor.Ready()) preview_.RetainLocal(editor.Dirty());
     editor_seen_=editor.Ready();
     if(editor_seen_) observed_editor_=*editor.Draft();
@@ -145,7 +181,7 @@ bool BringUpSerial::Stop()
 {
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
     publication_.StopRequested();
-    if(tx_publication_ && tx_offset_==0 && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
+    if(tx_publication_ && tx_offset_==0 && !tx_write_attempted_ && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
         tx_size_=0; tx_publication_=false; // Whole unattempted line may be dropped, never a partial line.
     }
     stop_queued_ = true;
@@ -225,6 +261,7 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 {
     if (!connected_) return std::nullopt;
     auto view = live_;
+    if(now-performance_at_>=kCallbackPerformanceStaleMs) view.callback_performance.reset();
     if (const auto* snapshot = pattern_assembler_.Snapshot()) view.device_pattern = *snapshot;
     view.preview_supported=preview_.Supported();
     view.gains_supported=gains_.Supported();
@@ -245,7 +282,13 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
-    if (!std::strncmp(line_,"BTGAIN1",7)) {
+    if (!std::strncmp(line_,"BTPATTERN1 PERF ",sizeof("BTPATTERN1 PERF ")-1)) {
+        BroTracker::PatternPerformance report;
+        if(connected_ && BroTracker::ParsePatternPerformance(line_,used_,report)) {
+            live_.callback_performance=report; performance_at_=now;
+        }
+    }
+    else if (!std::strncmp(line_,"BTGAIN1",7)) {
         if(connected_) (void)gains_.Response(line_,used_,now);
     }
     else if (!std::strncmp(line_,"BTPREVIEW1",10)) {
@@ -366,6 +409,19 @@ void BringUpSerial::OnLine(std::uint32_t now)
 
 void BringUpSerial::Tick(std::uint32_t now)
 {
+    diagnostic_now_=now;
+    // Fixed burst: ready transfers do not pay one UI/render interval per cell.
+    // Each pass rechecks transport priority and retains partial-line ownership.
+    // No waiting for I/O completion; asynchronous/backpressured writes stay pending.
+    for (unsigned pass = 0; pass < 64; ++pass) {
+        write_backpressure_=false;
+        ServiceSerial(now);
+        if (!opened_ || !connected_ || write_backpressure_) break;
+    }
+}
+
+void BringUpSerial::ServiceSerial(std::uint32_t now)
+{
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -384,11 +440,11 @@ void BringUpSerial::Tick(std::uint32_t now)
         Send(Command::Hello, now);
     }
     if (!transport_->Healthy()) { Disconnect(transport_->Error()); return; }
-    if(tx_publication_ && tx_offset_==0 && publication_.Phase()!=BroTracker::HostPublicationPhase::Sending) {
+    if(tx_publication_ && tx_offset_==0 && !tx_write_attempted_ && publication_.Phase()!=BroTracker::HostPublicationPhase::Sending) {
         tx_size_=0; tx_publication_=false;
     }
-    if(tx_preview_ && tx_offset_==0 && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
-    if(tx_gains_ && tx_offset_==0 && TransportPending()) { tx_size_=0; tx_gains_=false; }
+    if(tx_preview_ && tx_offset_==0 && !tx_write_attempted_ && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
+    if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
@@ -397,11 +453,14 @@ void BringUpSerial::Tick(std::uint32_t now)
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_gains_) gains_.BeforeWrite(now);
+        tx_write_attempted_=true;
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
+        write_backpressure_=count >= 0 && static_cast<unsigned>(count) < tx_size_ - tx_offset_;
         if (count > 0)
         {
             tx_offset_ += count;
             if (tx_offset_ == tx_size_) {
+                tx_write_attempted_=false;
                 Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
@@ -460,8 +519,9 @@ void BringUpSerial::Tick(std::uint32_t now)
         {
             const auto command = transport_queued_; transport_queued_ = Command::None; Send(command, now);
             // Queue the write in this same service, before a host render/present.
+            tx_write_attempted_=true;
             const auto count = transport_->Write(tx_,tx_size_);
-            if (count > 0) { tx_offset_ = count; if(tx_offset_ == tx_size_) Log("TX complete:",tx_); }
+            if (count > 0) { tx_offset_ = count; if(tx_offset_ == tx_size_) {tx_write_attempted_=false; Log("TX complete:",tx_);} }
             else if (count < 0) { Disconnect(transport_->Error()); return; }
         }
         else if (stop_queued_)

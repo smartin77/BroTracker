@@ -92,7 +92,7 @@ namespace
         Framebuffer& framebuffer,
         const Tune& tune,
         const Pattern& pattern,
-        const PatternDisplayState& display)
+        const PatternDisplayState& display, const std::optional<LivePlaybackView>& live)
     {
         std::ostringstream tempo_stream;
 
@@ -127,7 +127,7 @@ namespace
             "BPM:",
             "PAT:",
             "POS:",
-            "CPU:"
+            display.device_mode ? "CBpk:" : "CPU:"
         };
 
         const std::string header_values[] =
@@ -141,7 +141,9 @@ namespace
             display.device_mode ? (display.playback_highlight ?
                 (display.row < 9 ? "0" : "") + std::to_string(display.row + 1) : "--") : "16",
 
-            display.device_mode ? "--" : "03%"
+            display.device_mode ? (live && live->callback_performance && live->callback_performance->steady_callbacks && live->callback_performance->budget_cycles ?
+                std::to_string((std::uint64_t(live->callback_performance->maximum_cycles)*100 +
+                    live->callback_performance->budget_cycles/2)/live->callback_performance->budget_cycles) + "%" : "--") : "03%"
         };
 
         const int header_item_count =
@@ -809,7 +811,7 @@ static void RenderPatternScreen(
     DrawMainHeader(
         framebuffer,
         tune,
-        pattern, display);
+        pattern, display, live);
 
     DrawPattern(
         framebuffer,
@@ -837,6 +839,13 @@ static void RenderPatternScreen(
         if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
         if (display.device_mode)
         {
+            if(live->callback_performance && live->callback_performance->steady_callbacks && live->callback_performance->budget_cycles) {
+                const auto& perf=*live->callback_performance;
+                const auto hundredths=std::uint64_t(perf.maximum_cycles)*10000/perf.budget_cycles;
+                info("Callback peak/budget " + std::to_string(hundredths/100) + "." +
+                    (hundredths%100<10 ? "0" : "") + std::to_string(hundredths%100) +
+                    "% (steady, cumulative)",header_value);
+            } else info("Callback peak/budget unavailable",header_name);
             // Shared read-only presentation: zero is a gain, never a tracker mute.
             if (!live->gains_supported) info("Channel gains unavailable", header_name);
             else {

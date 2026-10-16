@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <vector>
 
@@ -24,6 +25,7 @@ class WindowsSerialTransport final : public SerialTransport {
     std::atomic<bool> stop_{false};
     std::thread worker_;
     std::mutex mutex_;
+    std::condition_variable wake_;
     std::array<char, 4096> rx_{};
     unsigned head_ = 0, size_ = 0;
     std::array<char, kWindowsSerialWriteCapacity> tx_{};
@@ -148,7 +150,10 @@ class WindowsSerialTransport final : public SerialTransport {
                 }
                 for (DWORD i = 0; i < count; ++i) rx_[(head_ + size_++) % rx_.size()] = incoming[i];
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::unique_lock<std::mutex> wait_lock(mutex_);
+            wake_.wait_for(wait_lock,std::chrono::milliseconds(5),[this] {
+                return stop_ || (tx_size_ && !tx_result_);
+            });
         }
         CloseHandle(port);
         Log("serial handle closed");
@@ -165,7 +170,7 @@ public:
         worker_ = std::thread([this] { Run(); });
         return false;
     }
-    void Close() override { stop_ = true; } // No UI-thread wait for serial I/O.
+    void Close() override { stop_ = true; wake_.notify_one(); } // No UI-thread wait for serial I/O.
     bool Healthy() override { return state_ == Opened && !stop_; }
     int Read(char* data, unsigned capacity) override {
         if (!Healthy()) return -1;
@@ -180,7 +185,7 @@ public:
         if (tx_result_) { int result = tx_result_; tx_result_ = 0; tx_size_ = 0; return result; }
         if (!tx_size_) {
             count = WindowsSerialWritePrefix(count);
-            std::memcpy(tx_.data(), data, count); tx_size_ = count;
+            std::memcpy(tx_.data(), data, count); tx_size_ = count; wake_.notify_one();
         }
         return 0;
     }

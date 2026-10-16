@@ -256,12 +256,33 @@ The note field uses exactly three characters. The hyphen is exclusively
 a separator between a natural note name and its octave, for example C-0.
 Sharp notes use the accidental in that position, for example C#0.
 
-Incrementing or decrementing an empty or NOTE_OFF field initializes it
-to C-0. Subsequent pitched-note editing cycles through C-0..G-8: incrementing
-G-8 wraps to C-0 and decrementing C-0 wraps to G-8. Held editing renews a 400 ms
-pause upon reaching the endpoint before wrapping, resetting acceleration.
-A separate keydown at an endpoint wraps immediately, then waits 400 ms before
-repeating. Instrument-value bounds remain separate and do not wrap.
+Incrementing or decrementing an empty Note field inserts the nearest preceding
+pitched note in the current draft channel unchanged, or C-3 (internal 60) if none
+exists. Logical stepping cycles through C-0..G-8 plus NOTE_OFF: increase moves
+G-8 -> OFF -> C-0; decrease moves C-0 -> OFF -> G-8. Other pitched notes change
+by one semitone. Instruments are preserved; entering/leaving OFF uses Arrival
+metadata. Held editing renews a 400 ms acceleration pause at the pitched endpoint
+and again on entering OFF. A new physical press takes its action immediately;
+the next action from OFF follows the selected logical direction.
+
+Optional schema-1 `[editing] value_step_direction=normal|reversed` controls Note
+and numeric Instrument input interpretation. The deprecated `note_step_direction`
+alias remains accepted; specifying both names rejects the complete configuration.
+Built-in/`--safe-config` default is normal: PgUp increases, PgDn decreases;
+reversed swaps these value requests once at the shared input boundary, including
+holds. Logical actions, explicit assignment, future letter-note entry, navigation
+and OFF timing-field toggling retain their meanings.
+
+Editable instrument numbers are 01..99 (raw IDs 0..98), with empty `--` (0xFF).
+Increase cycles 99 -> -- -> 01; decrease cycles 01 -> -- -> 99. A fresh empty
+field inserts 01 unchanged in either direction. Interaction state distinguishes
+fresh entry from cycling through empty; navigation, explicit edits, history
+restoration and context replacement reset it. Holds renew the endpoint 400 ms
+pause at the directional endpoint and empty cycle boundary. Higher IDs received
+from the device remain unchanged and readable; numeric stepping rejects them
+rather than clamping or renumbering. Instrument edits never change the note;
+OFF timing remains separate.
+
 
 Values below 24 must not be silently clamped, transposed or relabeled.
 Consumers must handle them explicitly as unsupported pattern notes.
@@ -1625,3 +1646,236 @@ The row-start and all row commands are consumed exactly once on subsequent rende
 notes retrigger and EndOfPosition OFF schedules anew. Exact tick-to-sample conversion
 and bounded cursor positioning define logical scheduling, without a new clock or
 host extrapolation. Start and STOP/reset retain their existing behavior.
+
+## D0055 — Sample Rate, Reference Pitch and Loop Tempo
+
+Source sample rate, reference note, fine tuning and rhythmic loop tempo are separate
+properties. Sample BPM must not automatically determine reference pitch. This
+extends D00010 (sample format baseline), follows D0018 (Yamaha note numbering),
+and uses D0029's quarter-note beat definition for tempo metadata.
+
+### Reference pitch and initialization
+
+Preserve valid explicit reference-note/tuning metadata when available. Without
+explicit tuning metadata, default to internal reference note 60 (Yamaha C-3) and
+zero tuning correction. At that note, reproduce original speed, pitch and duration.
+This fallback is a playback anchor, not a claim that the recording is tuned to C.
+
+Users may set a known/measured reference note and fine tuning. Future analysis may
+suggest values but must not silently replace explicit settings. Fine tuning is a
+signed playback correction: positive correction raises playback pitch/rate. Exact
+storage units and precision remain an implementation decision.
+
+The playback relationship is:
+
+```text
+source-frame step =
+    (source_sample_rate / output_sample_rate)
+    * 2^((target_note - reference_note) / 12)
+    * fine_tuning_ratio
+```
+
+Zero tuning correction means a ratio of one. The mathematical relationship does
+not prescribe floating-point processing, metadata storage or a final rate API.
+
+### Sample-rate support and storage
+
+PCM16 mono 44100 Hz remains the current implementation baseline. Preserve a path
+for lower-rate samples, including 8000 and 22050 Hz, and future 48000 Hz. At the
+reference note, source/output conversion must reproduce original speed/duration
+and pitch. Source rate and PCM bit depth are independent: low rate does not mean
+8-bit PCM. These additional rates/formats are not currently implemented.
+
+Do not fix the final storage strategy: retained lower-rate PCM or correctly
+converted internal PCM may be selected later. Either must preserve duration/pitch
+and consistent metadata, including the effective PCM rate used for playback.
+
+### Rhythmic loops and tempo matching
+
+Original BPM and musical length in quarter-note beats are optional, independent
+metadata. Calculate tempo from exact duration only when the musical beat count is
+known (`BPM = 60 * quarter_note_beats / duration_seconds`); duration alone cannot
+establish meter or bar count. Future tempo detection suggests values with manual
+correction rather than silently declaring musical length.
+
+Matching loop tempo by changing playback rate requires explicit enablement; it
+is never the default for every sample:
+
+```text
+tempo_ratio = target_BPM / original_BPM
+```
+
+This changes both pitch and duration, distinct from pitch-preserving time stretching,
+which remains separate future work. When requested, express speed transposition
+as the nearest integer semitone offset plus a signed fractional residual. This
+rate-derived offset does not identify the recording's musical root note.
+
+Combining tempo matching with note transposition must have explicit semantics;
+do not silently apply the same rate adjustment twice. Their user-facing policy
+and exact representation remain future integration decisions.
+
+### Implementation status
+
+VariableRateSampleVoice currently accepts explicit positive Q32.32 steps and
+requires matching source/output rates. Reference-note interval mapping is the next
+foundation. General source/output conversion, tuning metadata integration, tempo
+matching, analysis and time stretching remain pending. Current beeper C-3/D-3
+bindings are trigger anchors, not measured physical tuning. This decision adds no
+playback implementation or changes to the native-rate baseline.
+
+## D0056 — Pattern Length and Playback Flow
+
+Each pattern has its own stored length: 16, 32 or 64 rows. The tune provides a
+default length of 32 rows for newly created patterns; changing that default does not resize
+existing patterns. Stored length is distinct from playback flow and from the
+number of rows visible in the UI. Row numbering remains a presentation choice
+per [D0016](#d0016---pattern-row-numbering), with zero-based internal indices.
+
+### Playback flow
+
+Future Pattern Break FX completes the current row, then continues at an explicitly
+selected row of the next order-list entry. Future Position Jump FX completes the
+current row, then continues at a selected order-list entry. Jump targets refer to
+sequence/order entries, not directly to pattern IDs: one pattern may occur more
+than once in the sequence. Combining Jump and Break may select both the destination
+order entry and destination row; exact combination rules remain pending.
+
+These FX do not resize patterns or delete skipped events. For example, a stored
+64-row pattern with a break on displayed row 16 (decimal one-based) plays its first
+16 rows before continuing elsewhere, retaining all 64 stored rows. Break also
+permits shorter played sections, such as 12 rows within a stored 16-row pattern.
+
+Keep four rows per quarter note per
+[D0029](#d0029---timing-model-and-microtiming). Variable pattern length does not
+introduce LPB or change the timing model. External-format importers remain
+responsible for conversion per [D0031](#d0031---external-format-import); this
+decision does not adopt an external format's FX encoding or combination rules.
+
+### Pending decisions
+
+- FX names, codes and parameter representation.
+- Conflict resolution for multiple flow commands on one row.
+- Invalid destination handling.
+- End-of-sequence behavior and standalone pattern-loop semantics.
+- Sounding audio/MIDI notes, instrument continuation and deferred EndOfPosition
+  OFF handling at transitions. Interaction with paused current-row replay per
+  [D0054](#d0054---paused-pattern-row-replay) must also be defined.
+- Live length changes, resizing/data retention and undo semantics.
+- Paging/scrolling for 64-row patterns on the current 32-row display.
+
+### Implementation status
+
+The current 16-row realtime capacity and single-pattern looping remain unchanged.
+This decision records design only; it does not implement variable realtime pattern
+capacity, multiple-pattern sequencing or flow FX.
+
+## D0057 — Host Configuration and Safe Recovery
+
+BTX has optional host-only `config.ini` settings with versioned validation.
+Built-in defaults are always available: schema version 1 and new-pattern length
+32 rows per D0056. Supported lengths are 16, 32 and 64. This exposes a default for
+future creation; it does not resize existing patterns, change the 16-row device
+fixture/realtime capacity or implement project creation.
+
+Windows and ArkOS resolve `config.ini` through
+`SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`, independent of launch working
+directory. Windows normally uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`.
+ArkOS uses `$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, or
+`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
+is unset. The resolved path is logged. No file is created, rewritten or deleted
+automatically; SDL may create the preference directory.
+
+Schema 1 requires one `[btx]` section and exactly one each of `schema_version=1`
+and `new_pattern_length=16`, `32` or `64`. Keys/section names are case-sensitive.
+ASCII spaces/tabs/CR around fields and whole-line `;`/`#` comments are accepted;
+inline comments, unknown settings, duplicate settings/sections, malformed unsigned
+decimals and unsupported versions are rejected. File size is bounded to 4096 bytes;
+validation is transactional. Missing files normally use built-ins; unreadable,
+oversized or invalid files use built-ins with an actionable startup log diagnostic.
+Loading occurs only at host startup, outside realtime processing.
+
+Both hosts accept `--safe-config`, bypassing external configuration and using
+built-ins even when a future mapping is syntactically valid but unusable. This
+restores application defaults, not necessarily system SDL mappings. Configuration
+failure must not block startup, transport or existing input controls. Configurable
+input mappings, profile identification and final handheld/keyboard bindings remain
+future work; this foundation reserves no controls.
+
+
+## D0058 - BTX Logging Modes and Startup Log Retention
+
+Logging is exclusively BTX-owned. Schema 1 gains optional `[logging]` settings:
+`mode=basic|debug`, `preserve_last=0..20`; built-ins are Basic and zero archives.
+D0057's required `[btx]` fields remain unchanged. Validation is transactional;
+invalid configuration and `--safe-config` use all built-ins. Normal startup never
+creates/rewrites user configuration. The example explicitly opts into Debug/5.
+
+Basic records startup identity/configuration, session and applied transport changes,
+errors/rejections/recovery and clean shutdown. Routine CELL/POS/PERF, per-edit detail
+and periodic audio statistics are Debug-only. Bounded duplicate suppression retains
+meaningful waiting/error/state changes. Debug adds one-time host OS, architecture,
+CPU/memory and SDL backend information. Unavailable information is explicit; host
+resources cannot establish Teensy CPU/RAM/PSRAM or firmware build identity.
+
+Host events carry UTC, local time with timezone offset and steady-clock `mono_ms`.
+Shared serial diagnostics retain SDL `host_ms` with a separate clock origin. These
+are host observations, not exact device/audio times. No firmware logging, diagnostic
+formatting, telemetry frequency or realtime callback work changes.
+
+Debug with N>0 rotates once before opening current: `name(1).log` is newest, through
+`name(N).log`. Only this logger's exact archive names up to 20 are considered. Current
+is renamed to archive 1 only after descending archive renames and retention pruning
+succeed. Same-directory renames preserve file identity without copying. On Windows, capture
+and restore the moved source's exact original timestamps through its open handle
+to counter NTFS filename tunneling; do not invent times or disguise copying. A new current is opened only on success.
+Rotation failure falls back to appending unarchived current with a diagnostic.
+Earlier archive moves/removals are not rolled back; failure may leave archives
+partially shifted but must not authorize truncating unarchived current. Failed
+opening falls back to stderr (plus a Windows debugger notice) without blocking
+startup. `BROTRACKER_APPEND_LOG=1` skips rotation and reports that decision. No runtime
+rotation/compression or arbitrary cleanup occurs.
+
+Windows retains its SDL per-user terminal log directory; ArkOS retains the documented
+`/tmp/brotracker-arkos.log`, while configuration remains per-user per D0057. `/tmp`
+is not durable evidence storage. See [BTX logging](LOGGING.md) for exact paths and
+validation. Manual Windows/ArkOS validation remains pending.
+
+## D0059 ? Transactional Sparse Working-Pattern Preview
+
+Ordinary live edits transfer changed cells rather than a complete pattern when
+`BTPREVIEW1 DELTACAP 1` is negotiated. Capture coordinates and complete
+note/instrument/OFF-timing values at mutation time; navigation never retargets
+queued edits. Fixed latest-value slots coalesce unsent changes to the same cell
+and preserve changes across cells. One immutable in-flight revision and one latest
+candidate bound storage; Restore may change all 512 cells without truncation.
+
+Each transaction names its nonzero preview identity and authoritative base working
+revision: the accepted pending revision when present, otherwise the applied one.
+The device reconstructs a same-dimension candidate in existing fixed staging,
+checks strict unique row/channel order and checksum, then uses the existing frozen
+audio-owner handoff and complete playback validation. Stale bases and conflicting
+reused identities reject without changing playback. ACCEPTED means validated and
+staged; APPLIED means actual application, including next-row application while
+Playing. Publication, musical timing and input acceleration are unchanged.
+
+A matched SUBMITTED/ACCEPTED/APPLIED chain for the immutable sparse candidate
+establishes the working revision without a full per-edit readback. Identity/state
+mismatch, uncertain completion and reconnect require authoritative STATE and full
+readback. Never blindly repeat COMMIT or automatically Start/publish. Initial
+synchronization still reads complete snapshots. Older firmware retains full-preview
+fallback. Published baseline, dirty comparison and F5 exact published readback
+remain separate; volatile preview provides no SD persistence.
+
+See [bring-up protocol](TEENSY_PATTERN_BRINGUP.md#transactional-sparse-working-preview)
+for grammar, limits and recovery. Hardware latency/interaction validation remains
+pending; protocol timings do not measure audible or physical sample timing.
+
+Verified cell copies remain bound to their published/applied/pending identities in
+all host phases. Unexpected STATE changes invalidate those copies before another
+sparse base can be selected. Recovery also invalidates uninstalled readback results.
+A pre-staging BEGIN rejection may leave device NEXT unchanged: accept that discovery,
+but keep a separate host attempted-ID floor across disconnect and skip attempted
+identities for later explicit revisions. Only established device-counter rollback
+clears that floor; exhaustion never wraps. No uncertain transaction is blindly retried.
+Undo/Restore reaching a verified applied or pending revision requires no new transfer;
+report synchronized or waiting-for-application respectively, preserving the baseline.

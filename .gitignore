@@ -16,3 +16,5 @@ __pycache__/
 *.map
 *.lst
 build_output.txt
+/diagnostics/
+/deploy/windows/BroTrackerTerminal.exe

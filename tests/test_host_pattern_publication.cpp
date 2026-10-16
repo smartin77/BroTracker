@@ -210,7 +210,8 @@ TEST_CASE(HostPublicationReadbackFailureStaysUncertainAndDoesNotResend) {
 TEST_CASE(WindowsPublicationLongCellLinesCompleteWithoutReopening) {
     for (unsigned rejected=0; rejected<2; ++rejected) {
         Session s; s.Ready(true,2,16,2); s.port->windows_worker=true;
-        CHECK_EQ(WindowsSerialWritePrefix(33),32);
+        CHECK_EQ(WindowsSerialWritePrefix(33),33u);
+        CHECK_EQ(WindowsSerialWritePrefix(kWindowsSerialWriteCapacity+1),kWindowsSerialWriteCapacity);
         CHECK(s.editor.Apply(rejected ? EditorAction::Increment : EditorAction::Clear));
         const auto draft=*s.editor.Draft(), baseline=s.editor.Baseline()->pattern;
         CHECK(s.serial.Publish(s.editor,s.now));

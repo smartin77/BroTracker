@@ -1,5 +1,6 @@
 // Linux PTY integration test: no USB device or firmware upload required.
 #include "ui/bringup_serial.h"
+#include "ui/host_logging.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -28,6 +29,7 @@ struct Peer
     ~Peer() { if (master >= 0) close(master); }
     void Reply(const std::string& text)
     { CHECK(write(master, text.data(), text.size()) == static_cast<ssize_t>(text.size())); }
+    void ExpectNoData() { pollfd descriptor{master,POLLIN,0}; CHECK(poll(&descriptor,1,0)==0); }
     void Expect(const char* expected)
     {
         std::string received;
@@ -44,10 +46,44 @@ struct Peer
     }
 };
 
+// Real Linux PTY transport with deterministic write ownership/backpressure.
+// Zero return owns the complete attempted payload until a positive completion.
+class ControlledPtyTransport : public SerialTransport {
+public:
+    explicit ControlledPtyTransport(const char* device):device_(device),port_(MakeSerialTransport()) {}
+    bool gated=false;
+    unsigned credit=0, start_attempts=0;
+    std::string owned;
+    const char* owned_pointer=nullptr;
+    void CheckOwned() const { if(owned_pointer) CHECK(std::memcmp(owned_pointer,owned.data(),owned.size())==0); }
+    bool Open(FILE* log,const char*) override {return port_->Open(log,device_);}
+    bool Healthy() override {CheckOwned(); return port_->Healthy();}
+    void Close() override {CheckOwned(); owned.clear(); owned_pointer=nullptr; port_->Close();}
+    int Read(char* data,unsigned count) override {return port_->Read(data,count);}
+    int Write(const char* data,unsigned count) override {
+        CheckOwned();
+        if(owned_pointer) {CHECK(data==owned_pointer); CHECK(count==owned.size()); CHECK(owned==std::string(data,count));}
+        if(std::string(data,count)=="BTTEST1 START\n") ++start_attempts;
+        if(gated && !credit) {
+            if(!owned_pointer) {owned.assign(data,count); owned_pointer=data;}
+            return 0;
+        }
+        const auto limit=gated ? std::min(count,credit) : count;
+        const auto written=port_->Write(data,limit);
+        if(written>0) { if(gated) credit-=static_cast<unsigned>(written); owned.clear(); owned_pointer=nullptr; }
+        return written;
+    }
+    const char* Error() const override {return port_->Error();}
+private:
+    const char* device_;
+    std::unique_ptr<SerialTransport> port_;
+};
+
 int main()
 {
     try
     {
+        BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Debug);
         // Exercise the actual Linux open path without root bypassing permissions.
         {
             Peer denied;
@@ -184,48 +220,58 @@ int main()
             peer.Reply("BTTEST1 STOPPED\n"); serial.Tick(1006);
             CHECK(serial.Stopped());
         }
-        // Disconnect at each START boundary: behind STATUS, ready to write,
-        // or fully written but not acknowledged. No automatic replay.
-        for (int phase = 0; phase < 3; ++phase)
+        // Real wire state defines the boundary, not the number of Tick calls.
+        // The bounded immediate-write service can send START in the same Tick
+        // that consumes STATUS. Gate writes explicitly to cover zero/partial I/O.
+        for (int phase = 0; phase < 4; ++phase)
         {
             Peer peer;
-            char device[128];
-            std::strcpy(device, peer.path);
-            BringUpSerial serial(log, device);
+            char device[128]; std::strcpy(device,peer.path);
+            auto* port=new ControlledPtyTransport(device);
+            BringUpSerial serial(log,std::unique_ptr<SerialTransport>(port));
             serial.Tick(0); peer.Expect("BTTEST1 HELLO\n");
             peer.Reply("BTTEST1 STATE DONE\n"); serial.Tick(1);
-            serial.Tick(1000); serial.Tick(1001);
-            peer.Expect("BTTEST1 STATUS\n");
+            serial.Tick(1000); peer.Expect("BTTEST1 STATUS\n");
             CHECK(serial.Start());
-            if (phase > 0)
-            {
+            if(phase>0) {
+                port->gated=true; port->credit=phase==1 ? 0 : phase==2 ? 5 : 100;
                 peer.Reply("BTTEST1 STATE DONE\n"); serial.Tick(1002);
-                if (phase == 2)
-                {
-                    serial.Tick(1003); peer.Expect("BTTEST1 START\n");
-                }
-            }
-            close(peer.master); peer.master = -1;
+                CHECK(port->start_attempts>0);
+                if(phase==1) {CHECK(port->owned=="BTTEST1 START\n"); peer.ExpectNoData();}
+                else peer.Expect(phase==2 ? "BTTES" : "BTTEST1 START\n");
+            } else {CHECK(port->start_attempts==0); peer.ExpectNoData();}
+            close(peer.master); peer.master=-1;
             serial.Tick(1004);
             CHECK(!serial.Connected() && !serial.Finished());
-            CHECK(serial.StartCancelled() == (phase < 2));
-            CHECK(std::strstr(serial.Status(), phase < 2 ? "not sent" : "unknown"));
+            CHECK(serial.StartCancelled()==(phase==0));
+            CHECK(std::strstr(serial.Status(),phase==0 ? "not sent" : "unknown"));
             CHECK(!serial.Stop());
-            Peer replacement;
-            std::strcpy(device, replacement.path);
+            Peer replacement; std::strcpy(device,replacement.path);
+            port->gated=false;
             serial.Tick(2000); replacement.Expect("BTTEST1 HELLO\n");
-            replacement.Reply("BTTEST1 STATE DONE\n"); serial.Tick(2001);
-            serial.Tick(2002);
-            pollfd descriptor{replacement.master, POLLIN, 0};
-            CHECK(poll(&descriptor, 1, 0) == 0); // No replayed START or STOP.
-            if (phase < 2)
-            {
-                // UI uses StartCancelled() to restore the first-press action.
-                CHECK(serial.Start());
-                CHECK(!serial.StartCancelled());
-                serial.Tick(2003); serial.Tick(2004);
-                replacement.Expect("BTTEST1 START\n");
-            }
+            replacement.Reply("BTTEST1 STATE DONE\n"); serial.Tick(2001); serial.Tick(2002);
+            replacement.ExpectNoData(); // Never replay an attempted or cancelled START.
+            CHECK(serial.Start()); CHECK(!serial.StartCancelled());
+            serial.Tick(2003); replacement.Expect("BTTEST1 START\n");
+        }
+        // STOP cannot replace an owned zero-completion or partial START line.
+        for(const unsigned prefix : {0u,5u}) {
+            Peer peer;
+            auto* port=new ControlledPtyTransport(peer.path);
+            BringUpSerial serial(log,std::unique_ptr<SerialTransport>(port));
+            serial.Tick(0); peer.Expect("BTTEST1 HELLO\n");
+            peer.Reply("BTTEST1 STATE IDLE\n"); serial.Tick(1);
+            port->gated=true; port->credit=prefix;
+            CHECK(serial.Start()); serial.Tick(2);
+            if(prefix) peer.Expect("BTTES"); else peer.ExpectNoData();
+            CHECK(serial.Stop()); serial.Tick(3); port->CheckOwned();
+            peer.ExpectNoData();
+            port->credit=100; serial.Tick(4);
+            peer.Expect(prefix ? "T1 START\n" : "BTTEST1 START\n");
+            peer.ExpectNoData(); CHECK(!serial.Stopped());
+            peer.Reply("BTTEST1 STARTED\n"); serial.Tick(5); peer.Expect("BTTEST1 STOP\n");
+            CHECK(!serial.Stopped()); peer.Reply("BTTEST1 STOPPED\n"); serial.Tick(6);
+            CHECK(serial.Stopped()); peer.ExpectNoData();
         }
         // STOP remains bounded: no acknowledgement is not success.
         {
@@ -238,9 +284,12 @@ int main()
             serial.Tick(6002);
             CHECK(!serial.Connected() && !serial.Stopped());
         }
+        CHECK(std::fseek(log,0,SEEK_END)==0);
+        const auto length=std::ftell(log); CHECK(length>0);
+        std::string captured(static_cast<std::size_t>(length),'\0');
         std::rewind(log);
-        char diagnostics[16384]{};
-        CHECK(std::fread(diagnostics, 1, sizeof(diagnostics) - 1, log) > 0);
+        CHECK(std::fread(&captured[0],1,captured.size(),log)==captured.size());
+        const auto* diagnostics=captured.c_str();
         CHECK(std::strstr(diagnostics, "handshake accepted"));
         CHECK(std::strstr(diagnostics, "BTTEST1 DONE"));
         CHECK(std::strstr(diagnostics, "BTTEST1 ERROR playback"));

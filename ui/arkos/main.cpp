@@ -14,7 +14,11 @@
 #include <cstring>
 
 #include "ui/bringup_serial.h"
+#include "ui/host_config.h"
+#include "ui/host_logging.h"
+#include "ui/sdl/host_diagnostics.h"
 #include "ui/bringup_controls.h"
+#include "ui/arkos/input.h"
 
 #include "core/constants.h"
 #include "core/logger.h"
@@ -26,26 +30,6 @@
 
 namespace
 {
-BringUpAction MapBringUpAction(const SDL_Event& event, SDL_JoystickID controller_id)
-{
-    // Use mapped buttons from the opened controller only. Raw joystick events
-    // have no reliable portable mapping and also duplicate controller events.
-    if (controller_id < 0 || event.type != SDL_CONTROLLERBUTTONDOWN ||
-        event.cbutton.which != controller_id)
-        return BringUpAction::None;
-    switch (event.cbutton.button)
-    {
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-    case SDL_CONTROLLER_BUTTON_B:
-        return BringUpAction::Start;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-    case SDL_CONTROLLER_BUTTON_X:
-        return BringUpAction::StopExit;
-    default:
-        return BringUpAction::None;
-    }
-}
-
 constexpr const char* kBringUpLogPath =
     "/tmp/brotracker-arkos.log";
 
@@ -56,9 +40,7 @@ void WriteBringUpDiagnostic(
     if (log == nullptr)
         return;
 
-    std::fputs(message, log);
-    std::fputc('\n', log);
-    std::fflush(log);
+    BroTracker::HostLog(log,BroTracker::ClassifyHostDiagnostic("ArkOS",message),"ArkOS",message);
 }
 
 void WriteBringUpDiagnostic(
@@ -69,8 +51,7 @@ void WriteBringUpDiagnostic(
     if (log == nullptr)
         return;
 
-    std::fprintf(log, "%s%d\n", message, value);
-    std::fflush(log);
+    BroTracker::HostLogf(log,BroTracker::HostLogLevel::Debug,"ArkOS","%s%d",message,value);
 }
 
 void WriteSdlFailure(
@@ -80,30 +61,24 @@ void WriteSdlFailure(
     if (log == nullptr)
         return;
 
-    std::fprintf(
-        log,
-        "%s: %s\n",
-        message,
-        SDL_GetError());
-    std::fflush(log);
+    BroTracker::HostLogf(log,BroTracker::HostLogLevel::Basic,"ArkOS error","%s: %s",message,SDL_GetError());
 }
 } // namespace
 
-int main(int, char*[])
+int main(int argc, char* argv[])
 {
-    const char* append_log = std::getenv("BROTRACKER_APPEND_LOG");
-    FILE* bring_up_log = std::fopen(kBringUpLogPath,
-        append_log != nullptr && std::strcmp(append_log, "1") == 0 ? "a" : "w");
-
-    if (bring_up_log == nullptr)
-        LogError("Failed to open the ArkOS bring-up log.");
-
-    WriteBringUpDiagnostic(
-        bring_up_log,
-        "BroTracker Terminal (BTX): application entry");
-
-    LogInfo("BroTracker Terminal (BTX) starting on ArkOS.");
-
+    char* config_directory=SDL_GetPrefPath("BroTracker","BroTracker Terminal");
+    const auto config_path=config_directory ? std::filesystem::u8path(config_directory)/"config.ini" : std::filesystem::path{};
+    SDL_free(config_directory);
+    const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
+    BroTracker::ConfigureHostLogging(host_config.config.logging_mode);
+    const char* append=std::getenv("BROTRACKER_APPEND_LOG");
+    const auto plan=BroTracker::PrepareHostLog(kBringUpLogPath,host_config.config,append && std::strcmp(append,"1")==0);
+    FILE* bring_up_log=plan.use_stderr?nullptr:std::fopen(kBringUpLogPath,plan.append?"a":"w");
+    const bool owns_log=bring_up_log!=nullptr;
+    if(!bring_up_log) {bring_up_log=stderr; LogError("ArkOS log unavailable; using stderr. Check /tmp permissions; startup continues");}
+    BroTracker::LogHostStartup(bring_up_log,"ArkOS/Linux",host_config,config_path,plan);
+    BroTracker::LogHostSystem(bring_up_log);
     WriteBringUpDiagnostic(
         bring_up_log,
         "UI font load: start");
@@ -263,10 +238,23 @@ int main(int, char*[])
             "controller/joystick open result: unavailable");
     }
 
-    const SDL_JoystickID controller_id = game_controller != nullptr
-        ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(game_controller)) : -1;
-    WriteBringUpDiagnostic(bring_up_log,
-        "controls: mapped L1/B = START/RESTART; R1/X = STOP, then EXIT; keyboard/raw joystick/axes ignored");
+    ArkOSEditorInput editor_input(host_config.config.value_step_direction);
+    auto select_controller = [&]() {
+        if (!game_controller) return;
+        const auto stream = SDL_GameControllerEventState(SDL_ENABLE)==SDL_ENABLE ?
+            ArkOSInputStream::Controller : ArkOSInputStream::VerifiedRaw;
+        SDL_JoystickEventState(SDL_ENABLE);
+        editor_input.SelectController(game_controller,stream);
+        char guid[64];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(game_controller)),guid,sizeof(guid));
+        BroTracker::HostLogf(bring_up_log,BroTracker::HostLogLevel::Debug,"ArkOS input",
+            "controller=%s guid=%s instance=%d stream=%s; raw fallback uses SDL button/hat bindings only",
+            SDL_GameControllerName(game_controller),guid,editor_input.Device(),
+            stream==ArkOSInputStream::Controller ? "controller" : "verified raw");
+    };
+    select_controller();
+    WriteBringUpDiagnostic(bring_up_log,kArkOSEditorHints);
+    LogSdlHostDiagnostics(bring_up_log);
     BringUpSerial serial(bring_up_log);
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
@@ -289,24 +277,28 @@ int main(int, char*[])
                 controls.Request(BringUpAction::Exit, "SDL_QUIT/display error", SDL_GetTicks());
                 break;
             }
-            const BringUpAction action = MapBringUpAction(event, controller_id);
-            if (action != BringUpAction::None)
-            {
-                const char* button = SDL_GameControllerGetStringForButton(
-                    static_cast<SDL_GameControllerButton>(event.cbutton.button));
-                char source[96];
-                std::snprintf(source, sizeof(source), "mapped button %s", button);
-                controls.Request(action, source, SDL_GetTicks());
+            const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
+            if (game_controller && editor_input.Device()<0) {
+                SDL_GameControllerClose(game_controller); game_controller=nullptr;
+                WriteBringUpDiagnostic(bring_up_log,"selected controller removed; held edits cancelled");
             }
+            if (!game_controller && event.type==SDL_CONTROLLERDEVICEADDED && SDL_IsGameController(event.cdevice.which)) {
+                game_controller=SDL_GameControllerOpen(event.cdevice.which); select_controller();
+            }
+            if(result.publish && !controls.Exiting() && !controls.StopPending())
+                (void)serial.Publish(editor,SDL_GetTicks());
+            if(result.transport!=BringUpAction::None)
+                controls.Request(result.transport,"ArkOS mapped input",SDL_GetTicks());
         }
-
+        editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
+        serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
+        controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
+        serial.SyncEditor(editor,SDL_GetTicks());
         const HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            controller_id < 0 ? "Mapped SDL GameController required" :
-            !serial.Connected() ? "Waiting for Teensy | R1 / X: EXIT" :
-            serial.StartPending() ? (controls.RestartPending() ? "RESTART pending | R1 / X: STOP" : "START pending | R1 / X: STOP") :
-            !serial.Finished() ? "L1 / B: RESTART | R1 / X: STOP (stay)" :
-            "L1 / B: START | R1 / X: EXIT", serial.PublicationStatus()};
+            editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
+            serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
+            serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if (!controls.Quit() && !display.Present(framebuffer))
@@ -333,8 +325,9 @@ int main(int, char*[])
     WriteBringUpDiagnostic(
         bring_up_log,
         "normal shutdown");
+    BroTracker::HostLog(bring_up_log,BroTracker::HostLogLevel::Basic,"Terminal","clean shutdown");
 
-    if (bring_up_log != nullptr)
+    if (owns_log)
         std::fclose(bring_up_log);
 
     return 0;

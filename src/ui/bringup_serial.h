@@ -69,6 +69,8 @@ private:
     void Disconnect(const char* reason);
     void Send(Command command, std::uint32_t now);
     void OnLine(std::uint32_t now);
+    void ServiceSerial(std::uint32_t now);
+    bool write_backpressure_=false;
     void ClearPosition();
     BroTracker::PatternSnapshotAssembler pattern_assembler_;
     unsigned snapshot_version_ = 1;
@@ -77,9 +79,13 @@ private:
     LivePlaybackView live_;
     bool position_received_ = false;
     std::uint32_t position_at_ = 0;
+    std::uint32_t performance_at_ = 0;
     std::unique_ptr<SerialTransport> transport_;
     bool opened_ = false;
     FILE* log_;
+    std::uint32_t diagnostic_now_=0;
+    char logged_preview_status_[96]{};
+    char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
     bool connected_ = false;
     bool stopped_ = false;
@@ -106,6 +112,8 @@ private:
     std::uint32_t next_publication_id_ = 0;
     bool publication_readback_requested_ = false, next_refresh_ = false;
     bool tx_publication_ = false;
+    // Zero reported bytes may still mean the asynchronous worker owns the line.
+    bool tx_write_attempted_=false;
     char tx_[BroTracker::kPatternSnapshotLineCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
     char line_[256]{};

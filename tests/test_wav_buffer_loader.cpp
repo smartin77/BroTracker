@@ -92,3 +92,39 @@ TEST_CASE(WavBufferIoFailureMetadataAndPartialCopyContract) {
     CHECK_EQ(LoadWavToBuffer(reader,nullptr,4,metadata),WavBufferStatus::InvalidDestination);
     CHECK_EQ(LoadWavToBuffer(reader,out,UINT64_MAX,metadata),WavBufferStatus::InvalidCapacity);
 }
+
+TEST_CASE(WavHeaderInspectionNoPcmAndBoundedChunkTraversal) {
+    Reader reader(Wave(Format(),{1,0,2,0}));
+    // Fail any read at PCM offset: inspection must skip it, not copy or scan it.
+    reader.short_at=44; // PCM starts at 44; no read is allowed there.
+    WavMetadata m;
+    CHECK_EQ(InspectWavMetadata(reader,m),WavBufferStatus::Success);
+    CHECK_EQ(m.file_bytes,reader.bytes.size()); CHECK_EQ(m.data_bytes,4);
+    CHECK_EQ(m.frames,2); CHECK_EQ(m.required_pcm_bytes,4); CHECK_EQ(m.duration_us,45);
+    CHECK(m.duration_known); CHECK_EQ(m.format,1); CHECK_EQ(m.channels,1); CHECK_EQ(m.bits,16);
+    CHECK_EQ(InspectWavMetadata(reader,m,1),WavBufferStatus::ChunkLimit);
+    auto bytes=Wave(); Put32(bytes,4,UINT32_MAX); Reader oversized(bytes);
+    CHECK_EQ(InspectWavMetadata(oversized,m),WavBufferStatus::Truncated);
+    Reader overflow(Wave()); Put32(overflow.bytes,40,UINT32_MAX);
+    CHECK_EQ(InspectWavMetadata(overflow,m),WavBufferStatus::InvalidChunk);
+    auto fmt=Format(); fmt[24-20]=0x80; fmt[25-20]=0xbb; // 48000 Hz, consistent byte rate below.
+    fmt[8]=0; fmt[9]=0x77; fmt[10]=1; // 96000 bytes/sec
+    Reader unsupported(Wave(fmt,{1,0,2,0}));
+    CHECK_EQ(InspectWavMetadata(unsupported,m),WavBufferStatus::UnsupportedFormat);
+    CHECK_EQ(m.sample_rate,48000); CHECK_EQ(m.frames,2); CHECK_EQ(m.required_pcm_bytes,0);
+    CHECK(m.duration_known);
+}
+
+TEST_CASE(WavInspectionChunkBudgetPaddingAndIoFailures) {
+    auto bytes=Wave(Format(),{1,0},true); Reader padded(bytes); WavMetadata m;
+    CHECK_EQ(InspectWavMetadata(padded,m),WavBufferStatus::Success); CHECK_EQ(m.frames,1);
+    padded.size_fail=true; CHECK_EQ(InspectWavMetadata(padded,m),WavBufferStatus::IoError); CHECK(!m.file_known);
+    padded.size_fail=false; padded.seek_fail=true;
+    CHECK_EQ(InspectWavMetadata(padded,m),WavBufferStatus::IoError); CHECK(m.file_known);
+    bytes=Wave();
+    for(unsigned i=0;i<1022;++i) Chunk(bytes,"JUNK",{});
+    Put32(bytes,4,bytes.size()-8); Reader boundary(bytes);
+    CHECK_EQ(InspectWavMetadata(boundary,m),WavBufferStatus::Success);
+    Chunk(bytes,"JUNK",{}); Put32(bytes,4,bytes.size()-8); Reader too_many(bytes);
+    CHECK_EQ(InspectWavMetadata(too_many,m),WavBufferStatus::ChunkLimit);
+}

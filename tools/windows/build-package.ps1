@@ -1,8 +1,10 @@
 param(
     [string]$ToolchainBin = (Split-Path (Get-Command g++.exe -ErrorAction Stop).Source),
-    [string]$BuildDirectory = "build"
+    [string]$BuildDirectory = "build",
+    [switch]$EmptyWindowTitle
 )
 $ErrorActionPreference = "Stop"
+$emptyTitle = if ($EmptyWindowTitle) { "ON" } else { "OFF" }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $build = [IO.Path]::GetFullPath((Join-Path $repo $BuildDirectory))
 $package = Join-Path $repo "deploy/windows"
@@ -11,12 +13,14 @@ function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXI
 & "$ToolchainBin/cmake.exe" -S $repo -B $build -G "MinGW Makefiles" `
     "-DCMAKE_CXX_COMPILER=$ToolchainBin/g++.exe" "-DCMAKE_C_COMPILER=$ToolchainBin/gcc.exe" `
     "-DCMAKE_MAKE_PROGRAM=$ToolchainBin/mingw32-make.exe" `
-    "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON
+    "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON `
+    "-DBROTRACKER_WINDOWS_EMPTY_TITLE=$emptyTitle"
 Check-Exit
 # A compiler-path change can make CMake regenerate the cache and discard -D
 # options on that first pass. Reapply target options before building/packaging.
 & "$ToolchainBin/cmake.exe" -S $repo -B $build `
-    "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON
+    "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON `
+    "-DBROTRACKER_WINDOWS_EMPTY_TITLE=$emptyTitle"
 Check-Exit
 & "$ToolchainBin/cmake.exe" --build $build --parallel 4
 Check-Exit
