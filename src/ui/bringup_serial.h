@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include "serial_transport.h"
+#include "bringup/audio_output_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
 #include "bringup/host_pattern_publication.h"
@@ -40,6 +41,10 @@ public:
     BroTracker::HostGainPhase ChannelGainPhase() const { return gains_.Phase(); }
     bool ChannelGainsSynchronized() const { return connected_ && gains_.Synchronized(); }
     const char* ChannelGainStatus() const { return gains_.Status(); }
+    // Set once at host startup, before the first Tick. Default sends no override.
+    void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
+    bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    const char* ActiveAudioOutput() const { return audio_active_; }
     bool Start();
     bool Stop();
     bool Pause();
@@ -60,7 +65,7 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio };
     bool QueueTransport(Command command);
     const char* PublicationUnavailable(const LocalPatternEditor& editor) const;
     Command transport_queued_ = Command::None;
@@ -87,6 +92,9 @@ private:
     char logged_preview_status_[96]{};
     char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
+    BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
+    bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
+    char audio_active_[8]="unknown";
     bool connected_ = false;
     bool stopped_ = false;
     Command pending_ = Command::None;

@@ -19,7 +19,87 @@ Primary development firmware: `teensy41_dev` (the PlatformIO default), inheritin
 the complete `teensy41_pattern_variable_rate` configuration without duplicate flags.
 From the repository root, `pio run -t upload` builds and uploads the default.
 Existing explicit names remain usable with `pio run -e <environment> -t upload`
-for regression/diagnostic testing; their firmware behavior is unchanged.
+for regression/diagnostic testing; application environments now share the manual
+output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
+
+### PT8211 Diagnostics and Loading Signature
+
+* [x] Implement and physically validate isolated protocol-2 fixed-buffer emission,
+  record sequence/CRC checks, cumulative CRC/end count and ACK flow control.
+  Preserve raw/failed captures; software-reset and true cold-power-up checks
+  completed for the selected attached/detached direct-USB and ADuM3160 runs.
+* [x] Complete the explicitly selected four-condition comparison: 13 runs,
+  matching firmware, all six observed attached/detached timing ranges separated
+  across both USB topologies. This is finite-sample evidence, not a general
+  presence detector or DAC-health validation. See
+  `assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json`.
+* [x] Add opt-in host-only experimental PT8211_LIKE / UNLOADED / UNKNOWN loading
+  classifier. Freeze bounded median, central-distribution and raw-trial bands
+  to the selected setup, firmware identity and 600 MHz clock; require unanimous
+  pull-down evidence plus pull-up cross-checks. Replay all 13 calibration runs
+  and test rejection/boundary/integrity cases. In-sample agreement is not
+  independent accuracy validation. See `tools/pt8211_probe/README.md`.
+* [x] Complete initial six-run ADuM3160 held-out validation with frozen classifier:
+  attached PT8211_LIKE / PT8211_LIKE / UNKNOWN; detached UNLOADED three times.
+  First two attached and all three detached originals are currently verified.
+  Preserve the historical attached UNKNOWN: reported GPIO 21 pull-down trial
+  806 cycles (hard lower bound 853, margin -47); its raw/manifest are unavailable
+  for independent revalidation. Do not reinterpret this as a pass.
+* [x] Restore available original evidence byte-for-byte; verify all eight surviving
+  captures and frozen calibration report fingerprint. Separate synthetic unit
+  tests from physical replay; explicitly skip unavailable originals. See
+  `assets/hardware_diagnostics/pt8211_evidence_inventory.json` and
+  `assets/hardware_diagnostics/MISSING_EVIDENCE.md`. Historical full 13-run replay
+  is currently blocked by ten missing original capture directories; reported
+  summaries do not replace raw evidence. One surviving attached transport log
+  is missing. Keep archives and original captures.
+* [ ] Collect further held-out repeated attached/detached passes, matched direct/ADuM3160
+  runs, additional cold starts and supply/temperature/wiring variation. Assess
+  UNKNOWN behavior and false signatures from other loads before accepting
+  firmware-side use. Keep incompatible firmware profiles separate.
+* [ ] Implement and validate Audio Shield diagnostics when physical hardware is
+  available. Recognition remains pending, neither passed nor evidence of absence.
+* [x] Add manual production output selection through existing host `config.ini`:
+  `[audio] output=bridge` or `pt8211`; template explicitly selects bridge.
+  Explicit preference outranks firmware fallback (USB_BRIDGE). Empty/absent or
+  invalid output retains existing selection logic; invalid values log a warning.
+  Negotiate/ack actual Teensy route before START; reconnect requests are idempotent.
+  Fixed static storage constructs one DMA output before AudioMemory. Different
+  selection after activation reports restart-required; restart BTX to reload INI
+  and restart Teensy to change an active route. No firmware rebuild for INI changes.
+* [x] Correct deferred activation against PJRC internal IRQ enables using independent
+  BASEPRI protection; preserve caller PRIMASK/BASEPRI and one static DMA output.
+  Native pending-IRQ model passes 36 cases for pattern/legacy graphs and reproduces
+  two PRIMASK-only failures. Prior harness did not prove continuous masking.
+* [x] Upload corrected development firmware and verify Windows serial bridge route
+  on COM3 / Teensy 17681760 (2026-10-19): selection/default/rejection, START/STOP,
+  telemetry, idle reconnect and playing reconnect (ticks 1099 -> 2956). Leave stopped.
+  Preserve successful and failed test-script evidence under build/activation-review.
+* [x] Export persistent SDL config path through ArkOS/dArkOS launchers; ship only an
+  example, never overwrite user settings. Shared parsing/negotiation and isolated
+  installer/launcher preservation checks cover bridge and pt8211 preferences.
+* [x] User hardware confirmation (2026-10-19): PT8211 is physically attached to
+  Teensy 4.1; with `[audio] output=bridge`, audio plays through the Windows USB
+  bridge while PT8211 remains silent. USB_BRIDGE remains the development default.
+* [x] Earlier isolated PT8211 stereo smoke test passed: 440 Hz left only and
+  880 Hz right only. This is separate from production INI-driven selection.
+* [ ] Physically validate `[audio] output=pt8211` through the new INI negotiation:
+  analog L/R playback and silent USB PCM. The earlier isolated playback result
+  does not validate this production selection path.
+* [x] Locally cross-build the ArkOS Eoan ARM64 host using the existing QEMU root;
+  all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged SDL paths
+  and byte-preserved settings. This is build-root validation, not a handheld pass.
+* [ ] Physically validate ArkOS INI path, bridge playback, controls and reconnect
+  when a handheld is available. No ArkOS deployment/test performed in this task.
+* [ ] Physically validate dArkOS separately; ArkOS results cannot validate dArkOS.
+* [ ] Execute INI-driven production hardware checklist in TEENSY_AUDIO_ARCHITECTURE:
+  PT8211 L/R mono and silent USB, bridge PCM/MQS cadence, SD samples, controls,
+  acknowledgment, reconnect and explicit rejection/restart behavior.
+* [ ] Review future platform-only automatic boot detection/selection and update the
+  audio architecture for intended priority Audio Shield > PT8211 > USB Audio
+  bridge, with an explicit manual override and visible UNKNOWN diagnostics.
+  Preserve Teensy update/clock ownership, static storage and bounded realtime
+  execution. Current routing is manual only; no probing or automatic fallback.
 
 ### Musical Scheduler Timing
 

@@ -1,0 +1,569 @@
+{
+  "restored": [
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/summary.json",
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.json",
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.md",
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json",
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.md"
+  ],
+  "identical_deduplicated": [
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/summary.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/manifest.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/results.json",
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/summary.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/manifest.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/results.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/summary.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/manifest.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/results.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/summary.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/manifest.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/raw.jsonl",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/results.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/summary.json",
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/transport.jsonl",
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.json",
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.md",
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json",
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.md"
+  ],
+  "conflicts": [],
+  "sources": {
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "30ddc88005e23661c299e462bf11e1d6fa8906cfa79d25e45510f769d38f8abe"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "30ddc88005e23661c299e462bf11e1d6fa8906cfa79d25e45510f769d38f8abe"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "a20f0588049c7eb36a54acec46560b6816feed99bd8a0a3709c9d5ddad627a85"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "a20f0588049c7eb36a54acec46560b6816feed99bd8a0a3709c9d5ddad627a85"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "589bb0cabe404ceae5152c87e78b4fa7ad4e45bdddd0c37a63808f47b784b4bc"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "589bb0cabe404ceae5152c87e78b4fa7ad4e45bdddd0c37a63808f47b784b4bc"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "de30fde82934840767ef607a148e644b9790824e67088f87815ca0f60c1d6389"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "de30fde82934840767ef607a148e644b9790824e67088f87815ca0f60c1d6389"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "e832b5ee35ac302fce0f8b6471d86c0f22a984a5e5f2a3abcaf4900537426ff7"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "e832b5ee35ac302fce0f8b6471d86c0f22a984a5e5f2a3abcaf4900537426ff7"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "ead45b5dd7240c7d55a2f1f375deb608a3dc4e174987324a493819a416985c46"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "ead45b5dd7240c7d55a2f1f375deb608a3dc4e174987324a493819a416985c46"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "5d63e475b10e35b5fde07693310119d47738907df30d40ce3e2f761d86d5b847"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "5d63e475b10e35b5fde07693310119d47738907df30d40ce3e2f761d86d5b847"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "bda9215657e315233d9c71e4751203957537c0caab50a36df4e0de338147a2b6"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "bda9215657e315233d9c71e4751203957537c0caab50a36df4e0de338147a2b6"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "90a71b39db8916db81467732ded6d887df8164d05cefa3efb476b33d1c5a3f8f"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "90a71b39db8916db81467732ded6d887df8164d05cefa3efb476b33d1c5a3f8f"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "91690d4d045f4dbfcf13bd5a37fd27f0d036f79932cb46a759e4e953b048a314"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "91690d4d045f4dbfcf13bd5a37fd27f0d036f79932cb46a759e4e953b048a314"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "756e6215c18a342a899b46ad031c7a9a7785feb6b1474953e5883256d2aaeb1b"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "756e6215c18a342a899b46ad031c7a9a7785feb6b1474953e5883256d2aaeb1b"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.review.zip",
+        "sha256": "8d36da11a691c20e6756ef07d35e2b7783b10b960ffc528132265f8f6031acd8"
+      },
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "8d36da11a691c20e6756ef07d35e2b7783b10b960ffc528132265f8f6031acd8"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "6dcf2e74bff87882de7b3911acfa41f2d07e2ca9af2484bd8dee1daadc1daa2d"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "6dcf2e74bff87882de7b3911acfa41f2d07e2ca9af2484bd8dee1daadc1daa2d"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "9eafd85cd6d4f5afcc3f62bc983fa4b364603b5b4e154c8b1ead4d85bd6f18be"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "9eafd85cd6d4f5afcc3f62bc983fa4b364603b5b4e154c8b1ead4d85bd6f18be"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "a06e6e7bbbf9f4343a41b739ef48f41952dc47f93551917fcd73410b73b23ba9"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "a06e6e7bbbf9f4343a41b739ef48f41952dc47f93551917fcd73410b73b23ba9"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "cb0cf23c632c083be8b20a72c4788f57dc414e13386b02dd09271aea2cf83be1"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "cb0cf23c632c083be8b20a72c4788f57dc414e13386b02dd09271aea2cf83be1"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "5f172b07866c0d6cf58934bb93f90742858f91e3a34cdf0ce59e2c036a101fa4"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "5f172b07866c0d6cf58934bb93f90742858f91e3a34cdf0ce59e2c036a101fa4"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "7c263426e84bdb098079a70801b0b879867df84ec30e235fb8bdbd601160eee5"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "7c263426e84bdb098079a70801b0b879867df84ec30e235fb8bdbd601160eee5"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "a88c81da0097d2e612d36f67c41d26bf3407a5141518ef9a0f23ad30d52b0322"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "a88c81da0097d2e612d36f67c41d26bf3407a5141518ef9a0f23ad30d52b0322"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "65627ac38f7a40095fee6be8bef92d30b5918f83561eed02d27ca9866740b1d0"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "65627ac38f7a40095fee6be8bef92d30b5918f83561eed02d27ca9866740b1d0"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "fe04c6baec469436d4ea02b82d796dc1fcb26dcd0631ef774b33fc2069fa3929"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "fe04c6baec469436d4ea02b82d796dc1fcb26dcd0631ef774b33fc2069fa3929"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "c05f2d8540b21cc5e8414015f4fb1a8e38ee46bdac44ae23396cbf2eb497d59b"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "c05f2d8540b21cc5e8414015f4fb1a8e38ee46bdac44ae23396cbf2eb497d59b"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "b4f54b683181c26c3654e6f056a4d1aacbeaa046d90752a557a0d6a3fce50b82"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "b4f54b683181c26c3654e6f056a4d1aacbeaa046d90752a557a0d6a3fce50b82"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "531fb2bbd5a7be210b7dfe9c82bd50eb9d2f148014a182ee4d5fe8bd62583f20"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "531fb2bbd5a7be210b7dfe9c82bd50eb9d2f148014a182ee4d5fe8bd62583f20"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "cfbd8392e7a42a06422426d62c4fa24c04ca86a407dbfd940bddf99b842f0f2c"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "cfbd8392e7a42a06422426d62c4fa24c04ca86a407dbfd940bddf99b842f0f2c"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "e075b8510fa0968e8e655cccbf7d67e18fb7d0260ffd620f4497ac08bc38418c"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "e075b8510fa0968e8e655cccbf7d67e18fb7d0260ffd620f4497ac08bc38418c"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "b964da9cc1f28b2a42c8ef476814b3e1f9505e11d42352daed540baa51fc813d"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "b964da9cc1f28b2a42c8ef476814b3e1f9505e11d42352daed540baa51fc813d"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "0a5a632685f47efe56830d24b8e1be63e3254c84bba1e5025db931be6789cc77"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "0a5a632685f47efe56830d24b8e1be63e3254c84bba1e5025db931be6789cc77"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "1bcd04047d30ec5fe3b681eb6e3c48628e3d61ce3d5e99c0d25d0a7a823512a4"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "1bcd04047d30ec5fe3b681eb6e3c48628e3d61ce3d5e99c0d25d0a7a823512a4"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "3d66148970f20f272333578fa954e7dd64f3a587bd0c5695318566b0183352ed"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "3d66148970f20f272333578fa954e7dd64f3a587bd0c5695318566b0183352ed"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "feb19fcb4208315867f9ba318c34b887d60d1ae24458616aa7b240be764249d2"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "feb19fcb4208315867f9ba318c34b887d60d1ae24458616aa7b240be764249d2"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f/transport.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "872329e8d6d4db5c7e8f4b8739f2df6677e1cefed54e1d817c55eed499b515da"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "872329e8d6d4db5c7e8f4b8739f2df6677e1cefed54e1d817c55eed499b515da"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/manifest.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "9683eb8b6a22807762730e958fc30e53a50ae05ef2421b05fe69a913fdc1d54f"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "9683eb8b6a22807762730e958fc30e53a50ae05ef2421b05fe69a913fdc1d54f"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/raw.jsonl": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "74d0dc0f6cdb8ae3fe7b1d924985a46b1a2196b6dd03facff1ce49ad73d5791d"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "74d0dc0f6cdb8ae3fe7b1d924985a46b1a2196b6dd03facff1ce49ad73d5791d"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/results.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "3af207639e19b116cb512f5e334d8f6dee8151037f7d48b61f995d3490fa4b51"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "3af207639e19b116cb512f5e334d8f6dee8151037f7d48b61f995d3490fa4b51"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a/summary.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "aa0e4237179ee5e0152f4af82a6a4e18619327272d487147840a0230f584580b"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "aa0e4237179ee5e0152f4af82a6a4e18619327272d487147840a0230f584580b"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "ae70f2bf208cbb68e96c3b16b10bd0cd8ad0df8dad7242677a81050079083c0c"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "ae70f2bf208cbb68e96c3b16b10bd0cd8ad0df8dad7242677a81050079083c0c"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_loading_evaluation_20261018T215018Z-3c5ff8b8.md": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "f3a729791032a0998fd622399e7a5a9db5838d11efca5474c839ca8f372ef622"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "f3a729791032a0998fd622399e7a5a9db5838d11efca5474c839ca8f372ef622"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "b2d42c57f7d1b3b387993b4f1f7491e75801a2200c0a954d16eb2f309b39509a"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "b2d42c57f7d1b3b387993b4f1f7491e75801a2200c0a954d16eb2f309b39509a"
+      }
+    ],
+    "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.md": [
+      {
+        "archive": "D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_heldout_surviving_findings_20261019T165131Z-dc6651db.review.zip",
+        "sha256": "2df9e50735b574a76c59938878baa2816e70ab67a4cd0acb904892a5442e2561"
+      },
+      {
+        "archive": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+        "sha256": "2df9e50735b574a76c59938878baa2816e70ab67a4cd0acb904892a5442e2561"
+      }
+    ]
+  },
+  "raw_hash_checks": [
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24",
+      "raw_sha256": "9eafd85cd6d4f5afcc3f62bc983fa4b364603b5b4e154c8b1ead4d85bd6f18be",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b",
+      "raw_sha256": "a88c81da0097d2e612d36f67c41d26bf3407a5141518ef9a0f23ad30d52b0322",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb",
+      "raw_sha256": "531fb2bbd5a7be210b7dfe9c82bd50eb9d2f148014a182ee4d5fe8bd62583f20",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f",
+      "raw_sha256": "1bcd04047d30ec5fe3b681eb6e3c48628e3d61ce3d5e99c0d25d0a7a823512a4",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a",
+      "raw_sha256": "74d0dc0f6cdb8ae3fe7b1d924985a46b1a2196b6dd03facff1ce49ad73d5791d",
+      "missing_files": [
+        "transport.jsonl"
+      ]
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66",
+      "raw_sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e",
+      "raw_sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4",
+      "missing_files": []
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb",
+      "raw_sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5",
+      "missing_files": []
+    }
+  ],
+  "calibration_report_sha256": "b2d42c57f7d1b3b387993b4f1f7491e75801a2200c0a954d16eb2f309b39509a",
+  "missing_calibration_paths": [
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd"
+  ],
+  "missing_attached_unknown": "assets/hardware_diagnostics/pt8211_attached/20261018T215809.161405Z-93ee62f3",
+  "limits": "UNKNOWN and its reported 806-cycle trial are historical reported evidence only; original raw/manifest unavailable. No missing measurements reconstructed."
+}

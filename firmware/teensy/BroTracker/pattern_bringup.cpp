@@ -3,6 +3,7 @@
 #include "pattern_beeper_samples.h"
 #include <Arduino.h>
 #include <Audio.h>
+#include "production_audio_output.h"
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_player_selection.h"
 #include "bringup/pattern_fixture.h"
@@ -84,7 +85,7 @@ namespace
         PatternAudioSource() : AudioStream(0,nullptr) {}
         void update() override
         {
-            // MQS may schedule updates during static construction, before setup.
+            // Hardware may schedule updates before activation publishes readiness.
             // Do not configure, allocate or latch false failures until memory is ready.
             if (!g_audio_ready) return;
 #ifdef BROTRACKER_PATTERN_PERF
@@ -125,18 +126,18 @@ namespace
         bool initialized_ = false;
     };
     PatternAudioSource g_source;
-    AudioOutputMQS g_mqs;
-    AudioConnection g_to_mqs(g_source,0,g_mqs,0);
-#if defined(AUDIO_INTERFACE)
-    AudioOutputUSB g_usb;
-    AudioConnection g_to_usb_left(g_source,0,g_usb,0);
-    AudioConnection g_to_usb_right(g_source,0,g_usb,1);
-#endif
+    AudioOutputUSB g_usb; // Enumeration retained; no PCM connections in PT8211 mode.
+    ProductionAudioOutput g_output;
+    const char* SelectAudio(AudioOutputChoice request) {
+        const auto* error=g_output.Select(request,g_source,g_usb);
+        if(!error) { InterruptGuard guard; g_audio_ready=true; }
+        return error;
+    }
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
     constexpr std::size_t kTxCapacity = 16;
-    static_assert(kTxCapacity >= kPatternDiscoveryReplyCount, "Discovery must fit TX FIFO");
+    static_assert(kTxCapacity >= kPatternDiscoveryReplyCount + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
@@ -180,6 +181,7 @@ namespace
             status.running ? "BTTEST1 STATE PLAYING\n" :
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
+        if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
         OfferPosition(status);
         if (advertise_snapshot) {
             (void)QueueLine("BTPATTERN1 SNAPCAP 2\n");
@@ -383,7 +385,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + kPatternDiscoveryReplyCount <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + kPatternDiscoveryReplyCount + 1 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
@@ -421,6 +423,15 @@ namespace
                     g_wav_inspection_report.Offer(g_wav_inspection);
                 }
 #endif
+            }
+            else if (!std::strncmp(line,"BTAUDIO1",8)) {
+                AudioOutputChoice request=AudioOutputChoice::Default;
+                const bool valid=ParseAudioOutputRequest(line,request);
+                const char* error=!valid ? "malformed" : !g_protocol_connected ? "not-connected" : SelectAudio(request);
+                char reply[96];
+                if(error) std::snprintf(reply,sizeof(reply),"BTAUDIO1 ERROR 1 %s active=%s\n",error,AudioOutputName(g_output.Active()));
+                else std::snprintf(reply,sizeof(reply),"BTAUDIO1 SELECTED 1 %s\n",AudioOutputName(g_output.Active()));
+                (void)QueueLine(reply);
             }
             else if (!std::strncmp(line,"BTGAIN1",7)) {
                 if(!std::strcmp(line,"BTGAIN1 GET 1")) QueueGains(Snapshot());
@@ -528,6 +539,7 @@ namespace
                 const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start :
                     !std::strcmp(line,"BTTEST1 PAUSE") ? PatternRequest::Pause :
                     !std::strcmp(line,"BTTEST1 CONTINUE") ? PatternRequest::Continue : PatternRequest::Stop;
+                if(g_output.Active()==AudioOutputChoice::Default) (void)SelectAudio(AudioOutputChoice::Default);
                 PatternRequestStatus accepted;
                 { InterruptGuard guard; accepted = g_control.Submit(request); }
                 if (accepted != PatternRequestStatus::Accepted) (void)QueueLine("BTTEST1 ERROR request-overflow\n");
@@ -593,8 +605,8 @@ namespace
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif
         g_working.working=g_active_pattern;
-        AudioMemory(8);
-        { InterruptGuard guard; g_audio_ready = true; }
+        // Hardware, connections and AudioMemory activate on selection or first transport command.
+        // Until then no DMA callbacks run; SD preparation and protocol remain available.
     }
     void PatternBringUpKernelInit() {}
     void PatternBringUpKernelRun() { ServiceSerial(); }

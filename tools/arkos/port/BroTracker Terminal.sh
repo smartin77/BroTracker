@@ -165,7 +165,7 @@ audio_supervisor() {
 
 }
 
-XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
 if [ -d "/opt/system/Tools/PortMaster/" ]; then
     controlfolder="/opt/system/Tools/PortMaster"
@@ -199,6 +199,11 @@ trap 'cleanup 143' TERM
 trap 'cleanup 129' HUP
 launcher_pid=$BASHPID
 
+# Resolve configuration in the runtime user's persistent SDL preference tree.
+# Never copy a packaged example over user settings. Log the launch-time candidate;
+# the application logs the authoritative SDL-resolved path after startup.
+export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+printf 'Launcher: persistent config candidate=%s/BroTracker/BroTracker Terminal/config.ini\n' "$XDG_DATA_HOME"
 # Direct UI runs keep their normal fresh log; only this launch appends.
 BROTRACKER_APPEND_LOG=1 ./BroTrackerTerminal &
 ui_pid=$!

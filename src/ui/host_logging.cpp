@@ -163,6 +163,9 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     const std::filesystem::path& path,const HostLogOpenPlan& plan) noexcept {
     HostLogf(file,HostLogLevel::Basic,"Terminal","BTX application start; platform=%s; build=%s %s; device firmware build identity unavailable",platform,__DATE__,__TIME__);
     HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
+    HostLogf(file,HostLogLevel::Basic,"Configuration","audio.output=%s (Teensy production route)", AudioOutputName(config.config.audio_output));
+    if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [audio] output: expected bridge or pt8211 (lowercase); ignoring audio override, retaining firmware default");
     HostLogf(file,HostLogLevel::Basic,"Logging","mode=%s preserve_last=%u; %s; timestamps describe host observation, not physical audio timing",
         HostDebugLogging()?"debug":"basic",config.config.preserve_last,plan.diagnostic);
 }

@@ -61,6 +61,137 @@ The shared engine provides:
 
 This boundary allows the same audio engine architecture to run on Teensy and on host platforms using different audio backends.
 
+## Current manual production output selection
+
+BTX reads the existing user `config.ini` once at host startup. The authoritative
+path is logged, resolved with `SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`:
+Windows normally `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`; Linux/ArkOS
+`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, otherwise
+`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini`.
+`config/config.ini.example` is the distributed template; retain its required
+`[btx]` settings. Add:
+
+```ini
+[audio]
+output=bridge
+```
+
+Supported explicit values are `bridge` (Teensy USB Audio -> existing host bridge)
+and `pt8211` (Teensy analog DAC). Sections, keys and values are case-sensitive;
+ASCII whitespace is trimmed, matching the existing parser. This changes Teensy's
+production route, not the host playback-device selection. The template explicitly
+selects bridge. Absent/empty output, missing file or `--safe-config` supplies no
+override: retain an already active route, otherwise use firmware fallback
+**USB_BRIDGE**. Invalid nonempty output logs a clear warning, ignores only the
+audio override and retains other valid settings. Other structural INI errors
+keep the parser's existing transactional failure/default behavior.
+
+Precedence is explicit INI preference, then existing firmware selection logic.
+`firmware/teensy/BroTracker/audio_output_config.h` defines the fallback:
+
+```cpp
+#define BROTRACKER_AUDIO_OUTPUT BROTRACKER_OUTPUT_USB_BRIDGE
+```
+
+Normal INI changes do not require firmware rebuild/upload, but require restarting
+BTX to reload the file. Once Teensy has activated a route, selecting a different
+route requires restarting Teensy too. No hot switch, probing or automatic fallback
+is implemented. Changing the firmware fallback itself requires rebuild/upload.
+
+### Startup and reconnect protocol
+
+Firmware advertises `BTAUDIO1 CAP 1` during the existing serial handshake. BTX
+sends exactly one `BTAUDIO1 SET 1 bridge` or `pt8211` per connection for an explicit
+preference, or `BTAUDIO1 SET 1 default` on capable firmware without an override.
+`default` is a wire operation, not a supported explicit INI value. Teensy replies
+`BTAUDIO1 SELECTED 1 bridge` or `pt8211` only after activating that route. BTX
+requires a matching acknowledgment before allowing START for a requested route;
+mismatch, unsupported old firmware, rejection or timeout is visible in status/logs.
+There is no silent acknowledgment of a different output.
+
+Audio hardware and AudioMemory activation are deferred until selection, or the
+first pattern transport command (START/STOP/PAUSE/CONTINUE), or legacy WAV
+START, using the fallback.
+An explicit first selection locks the route for this Teensy boot. Same-route
+requests and no-override reconnects are idempotent, without resetting audio.
+A different explicit request returns `BTAUDIO1 ERROR 1 restart-required active=...`;
+the existing route/playback is retained, and no host START is replayed. Reconnect
+never starts playback automatically. Older firmware without audio negotiation
+continues normal controls when no override is requested; an explicit unsupported
+request fails visibly instead of pretending it applied.
+
+### Driver ownership and routing
+
+A fixed aligned static buffer holds exactly one constructed hardware output and
+fixed storage holds its connections; outputs are never destroyed/reconstructed.
+The hardware constructor claims update responsibility before `AudioMemory(8)`;
+an independent BASEPRI threshold of 16 blocks the installed DMA (priority 128)
+and software Audio (208) IRQs throughout construction, patching and pool setup.
+PJRC DMA allocation, AudioConnection::connect and AudioMemory internally enable
+PRIMASK, so an outer PRIMASK guard alone is insufficient. BASEPRI_MAX never weakens
+a stricter caller priority mask; both original PRIMASK and BASEPRI are restored,
+with barriers. This does not claim continuous global IRQ masking: priority-zero
+IRQs and faults are outside BASEPRI protection and do not run the audio handlers.
+Do not assign priority zero to these audio IRQs; installed-source guards check
+the priority assumptions. The original harness omitted internal interrupt enables
+and did not establish this property.
+This avoids AudioMemory's heap-allocated fallback timer. USB never owns the graph
+clock. Source initialization and pending control processing still occur on the
+first audio callback; SD preparation remains boot-only. No general configuration
+framework or realtime allocation was added.
+
+PT8211 uses SAI1/DMA, DIN=7, WS=20, BCK=21, 3.3 V and common GND. The mono source/mix
+feeds both DAC channels; no production PCM connections feed USB Audio, so the
+retained USB interface sends silence. Bridge uses the existing MQS SAI3/DMA timing
+path on pins 10/12 and mono PCM to both USB channels. USB enumeration, serial,
+MIDI, telemetry and existing core fixes remain enabled. Disconnect all power for
+hardware wiring changes. Selection indicates a driver, never attachment or DAC
+health. The isolated diagnostics, experimental host-only classifier and historical
+evidence are unchanged. Future automatic priority remains Audio Shield > PT8211 >
+USB Audio bridge with manual override; Shield recognition awaits physical hardware.
+
+### Offline validation
+
+Run `python -B tools/teensy_audio/check_selection.py --build build/audio-selection`.
+This compiles the actual activation method with instrumented driver/connection/pool
+stubs and modeled ARM interrupt masks: it checks deferred construction, one owner,
+mono routing, idempotence, rejection and mask restoration in six cases. It does
+not validate DMA clocks or physical audio. Existing host config/controls tests
+cover precedence, case/whitespace, acknowledgments, rejection, timeout and reconnect.
+
+### Windows serial hardware validation (2026-10-19)
+
+The corrected teensy41_dev firmware was uploaded to Teensy serial 17681760 on COM3.
+Bridge selection/default retention, different-route rejection, invalid-route
+rejection, START/STOP, live version-2 telemetry, idle reconnect without START and
+playing reconnect without resetting the timeline passed. Absolute ticks advanced
+from 1099 to 2956 across the playing reconnect. Playback was left stopped.
+Raw serial and reports are in
+`build/activation-review/serial-20261019T191518Z-33f86245/` (untracked review artifacts).
+Two failed test-script attempts are preserved: one expected old version-1 telemetry,
+the other incorrectly required no partial line at a serial-session boundary.
+No PT8211 activation/listening, Windows listening or physical ArkOS/dArkOS validation
+was performed; the attached audio module is unconfirmed. Listening remains for the user.
+
+### Remaining hardware listening and host validation
+
+1. Only after PT8211 attachment is physically confirmed, stop BTX; merge/edit the
+   user INI (retain required `[btx]`) to `output=pt8211`. With all power disconnected,
+   verify module wiring, then reconnect Teensy and launch the rebuilt BTX.
+2. Confirm the logged config path/value, `BTAUDIO1 SET 1 pt8211` and matching
+   `BTAUDIO1 SELECTED 1 pt8211`. No playback should start without START. Start,
+   stop and restart; verify equal mono on DAC L/R, silent USB PCM, SD samples and
+   telemetry. Check pause/continue where supported.
+3. Reconnect serial/BTX using the same configuration, both idle and during playback.
+   Confirm one request/ack per connection, no audio reset or automatic START.
+4. While Teensy remains powered, restart BTX with `output=bridge`. Expect explicit
+   `restart-required active=pt8211`, no applied bridge acknowledgment and no route
+   replacement. STOP must remain usable. Stop BTX, disconnect all Teensy power,
+   reconnect and launch BTX: now expect SELECTED bridge and normal USB PCM playback.
+5. Repeat startup with output missing, empty and invalid (e.g. `PT8211`): on a fresh
+   Teensy boot the fallback is bridge; invalid logs a warning. On a locked PT8211
+   route a missing/empty/invalid override retains PT8211. Test `--safe-config` too.
+
 ## Realtime Audio Output
 
 The primary realtime audio path is a native Teensy 4.1 audio output path.

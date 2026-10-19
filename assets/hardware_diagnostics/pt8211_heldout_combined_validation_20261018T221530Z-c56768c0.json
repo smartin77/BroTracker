@@ -1,0 +1,1023 @@
+{
+  "created_utc": "2026-10-18T22:15:30.464378+00:00",
+  "experiment": "Frozen classifier combined held-out attached/detached ADuM3160 validation",
+  "frozen_file_fingerprints_before_and_after": {
+    "tools/pt8211_probe/loading_profile.json": "2102a943c7f82a4e4ed2e2cdfaa0d5d82eaeb4b4466932f31a9709e783c11af9",
+    "tools/pt8211_probe/loading_classifier.py": "32283e81e8aefeb9597daeb69c957eefe22a3945c515eb1ede9524b9b4d524de",
+    "firmware/teensy/pt8211_probe/main.cpp": "9257ea4d5704bf62e2925e909979a3fa5587651f504985d3afcd263d976a348c",
+    "firmware/teensy/pt8211_probe/record_transport.h": "5350bb62fc259e21c63e36307fa50e19ea6dc0a01e6c1f5d11e59f48d0e18c57",
+    "firmware/teensy/pt8211_probe/select_source.py": "31f5d95fd005a290f5d48b624fdd7c0440efb939531dde60accd980d2c6987c1"
+  },
+  "frozen_files_unchanged": true,
+  "profile_id": "teensy41-pt8211-loading-v1",
+  "calibration_count_unchanged": 13,
+  "new_detached_attempts": [
+    {
+      "attempt": 1,
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221153.351814Z-c3bdde66",
+      "expected_signature": "UNLOADED",
+      "manual_label": "detached",
+      "isolator": "adum3160",
+      "boot": "cold power-up (operator reported)",
+      "manifest": {
+        "manual_hardware_label": "detached",
+        "manual_usb_isolator": "adum3160",
+        "port": "COM4",
+        "started_utc": "2026-10-18T22:11:53.352822+00:00",
+        "complete": true,
+        "note": "HELD-OUT frozen loading classifier validation: detached ADuM3160 true cold power-up, start 1 of 3. Operator removed PT8211 with all power disconnected. Not calibration data; no reset/program before capture.",
+        "firmware": {
+          "type": "meta",
+          "schema": 2,
+          "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+          "build": "Oct 18 2026 22:51:30",
+          "teensyduino": 162,
+          "cpu_hz": 600000000,
+          "trials": 64,
+          "observations": 8,
+          "settle_us": 100,
+          "timeout_us": 100,
+          "observation_us": 10,
+          "control_ms": 10000,
+          "block_samples": 128,
+          "sample_rate": 44100,
+          "ack_ms": 2000,
+          "dump_ms": 60000,
+          "record_retries": 0
+        },
+        "wire_protocol": 2,
+        "record_retries": 0,
+        "raw_sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454"
+      },
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "ec61154d",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "evidence_status": "RAW VERIFIED NOW",
+      "transport_validation": "PASS: sequences, per-record CRCs, cumulative CRC/count, raw SHA, final newline, decoded results, summary, ACK log and identical firmware metadata.",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 484,
+              "median": 485.0,
+              "p95": 490,
+              "max": 496,
+              "mean": 485.640625,
+              "stdev": 2.124023213002862
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.6875,
+              "stdev": 0.899218410621135
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 484,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 484.984375,
+              "stdev": 0.7601847534481339
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -253,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.734375,
+              "stdev": 0.8881544681951445
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 631,
+              "max": 632,
+              "mean": 629.515625,
+              "stdev": 0.8476472493761777
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 198,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.5,
+              "stdev": 0.8100925873009825
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -20,
+                "minimum": -20.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      },
+      "expected_signature_guard_decomposition": {
+        "pin7_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin7_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221246.746733Z-fb5f505e",
+      "expected_signature": "UNLOADED",
+      "manual_label": "detached",
+      "isolator": "adum3160",
+      "boot": "software reset/boot-only",
+      "manifest": {
+        "manual_hardware_label": "detached",
+        "manual_usb_isolator": "adum3160",
+        "port": "COM4",
+        "started_utc": "2026-10-18T22:12:46.746733+00:00",
+        "complete": true,
+        "note": "HELD-OUT frozen loading classifier validation: detached ADuM3160 software-reset/boot-only start 2 of 3. Not calibration data. No tuning, firmware edit/build/program.",
+        "firmware": {
+          "type": "meta",
+          "schema": 2,
+          "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+          "build": "Oct 18 2026 22:51:30",
+          "teensyduino": 162,
+          "cpu_hz": 600000000,
+          "trials": 64,
+          "observations": 8,
+          "settle_us": 100,
+          "timeout_us": 100,
+          "observation_us": 10,
+          "control_ms": 10000,
+          "block_samples": 128,
+          "sample_rate": 44100,
+          "ack_ms": 2000,
+          "dump_ms": 60000,
+          "record_retries": 0
+        },
+        "wire_protocol": 2,
+        "record_retries": 0,
+        "raw_sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4"
+      },
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "97884e15",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "evidence_status": "RAW VERIFIED NOW",
+      "transport_validation": "PASS: sequences, per-record CRCs, cumulative CRC/count, raw SHA, final newline, decoded results, summary, ACK log and identical firmware metadata.",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 485,
+              "p05": 489,
+              "median": 492.0,
+              "p95": 492,
+              "max": 496,
+              "mean": 491.234375,
+              "stdev": 1.5384873608109362
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -217.0,
+                "central": -219,
+                "trial": -223,
+                "minimum": -223
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.75,
+              "stdev": 0.8660254037844386
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 485,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 485.453125,
+              "stdev": 0.7891785186983994
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -252,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.734375,
+              "stdev": 0.8881544681951445
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 632,
+              "max": 632,
+              "mean": 629.640625,
+              "stdev": 1.0660556314634804
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 197,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.34375,
+              "stdev": 0.9222721602108567
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      },
+      "expected_signature_guard_decomposition": {
+        "pin7_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin7_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        }
+      }
+    },
+    {
+      "attempt": 3,
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221328.971752Z-24c3b8fb",
+      "expected_signature": "UNLOADED",
+      "manual_label": "detached",
+      "isolator": "adum3160",
+      "boot": "software reset/boot-only",
+      "manifest": {
+        "manual_hardware_label": "detached",
+        "manual_usb_isolator": "adum3160",
+        "port": "COM4",
+        "started_utc": "2026-10-18T22:13:28.971752+00:00",
+        "complete": true,
+        "note": "HELD-OUT frozen loading classifier validation: detached ADuM3160 software-reset/boot-only start 3 of 3. Not calibration data. No tuning, firmware edit/build/program.",
+        "firmware": {
+          "type": "meta",
+          "schema": 2,
+          "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+          "build": "Oct 18 2026 22:51:30",
+          "teensyduino": 162,
+          "cpu_hz": 600000000,
+          "trials": 64,
+          "observations": 8,
+          "settle_us": 100,
+          "timeout_us": 100,
+          "observation_us": 10,
+          "control_ms": 10000,
+          "block_samples": 128,
+          "sample_rate": 44100,
+          "ack_ms": 2000,
+          "dump_ms": 60000,
+          "record_retries": 0
+        },
+        "wire_protocol": 2,
+        "record_retries": 0,
+        "raw_sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5"
+      },
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "4f4aab02",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "evidence_status": "RAW VERIFIED NOW",
+      "transport_validation": "PASS: sequences, per-record CRCs, cumulative CRC/count, raw SHA, final newline, decoded results, summary, ACK log and identical firmware metadata.",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 487,
+              "p05": 490,
+              "median": 492.0,
+              "p95": 492,
+              "max": 495,
+              "mean": 491.296875,
+              "stdev": 1.2077831901359615
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -217.0,
+                "central": -218,
+                "trial": -221,
+                "minimum": -221
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 9,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 169,
+              "p05": 169,
+              "median": 170.0,
+              "p95": 170,
+              "max": 170,
+              "mean": 169.8125,
+              "stdev": 0.3903123748998999
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -20,
+                "minimum": -20.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 9,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 485,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 485.328125,
+              "stdev": 0.7511384588576197
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -252,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 169,
+              "median": 170.0,
+              "p95": 170,
+              "max": 170,
+              "mean": 169.75,
+              "stdev": 0.5
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 632,
+              "max": 632,
+              "mean": 629.78125,
+              "stdev": 1.230710541719701
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.453125,
+              "stdev": 0.8087352684129708
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      },
+      "expected_signature_guard_decomposition": {
+        "pin7_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin7_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin20_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target0": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        },
+        "pin21_target1": {
+          "median_and_central_pass": true,
+          "hard_raw_pass": true,
+          "rejected_constraints": []
+        }
+      }
+    }
+  ],
+  "new_attempt_count": 3,
+  "replacement_attempts": 0,
+  "new_detached_predictions": {
+    "UNLOADED": 3
+  },
+  "attached_previous_results": [
+    {
+      "attempt": 1,
+      "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215700.434997Z-194bfe2f",
+      "manual_label": "attached",
+      "isolator": "adum3160",
+      "boot": "software reset/boot-only",
+      "expected_signature": "PT8211_LIKE",
+      "previously_reported_prediction": "PT8211_LIKE",
+      "evidence_status": "PREVIOUSLY REPORTED IN CONVERSATION ONLY; original report/raw/manifests deleted by user; NOT revalidated now",
+      "previously_reported_feature_margins_PT8211_LIKE_cycles": {
+        "pin7_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin7_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin21_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin21_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        }
+      },
+      "previously_reported_reason": [],
+      "raw_available": false
+    },
+    {
+      "attempt": 2,
+      "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215735.599162Z-ee13663a",
+      "manual_label": "attached",
+      "isolator": "adum3160",
+      "boot": "software reset/boot-only",
+      "expected_signature": "PT8211_LIKE",
+      "previously_reported_prediction": "PT8211_LIKE",
+      "evidence_status": "PREVIOUSLY REPORTED IN CONVERSATION ONLY; original report/raw/manifests deleted by user; NOT revalidated now",
+      "previously_reported_feature_margins_PT8211_LIKE_cycles": {
+        "pin7_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin7_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin21_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin21_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        }
+      },
+      "previously_reported_reason": [],
+      "raw_available": false
+    },
+    {
+      "attempt": 3,
+      "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3",
+      "manual_label": "attached",
+      "isolator": "adum3160",
+      "boot": "software reset/boot-only",
+      "expected_signature": "PT8211_LIKE",
+      "previously_reported_prediction": "UNKNOWN",
+      "evidence_status": "PREVIOUSLY REPORTED IN CONVERSATION ONLY; original report/raw/manifests deleted by user; NOT revalidated now",
+      "previously_reported_feature_margins_PT8211_LIKE_cycles": {
+        "pin7_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 11,
+          "minimum": 8
+        },
+        "pin7_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin20_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        },
+        "pin21_target0": {
+          "median": 8,
+          "central": 8,
+          "trial": -47,
+          "minimum": -47
+        },
+        "pin21_target1": {
+          "median": 8,
+          "central": 8,
+          "trial": 8,
+          "minimum": 8
+        }
+      },
+      "previously_reported_reason": [
+        "GPIO21 pull-down first raw trial: 806 cycles, below frozen 853..872 raw band; median 861, median/central margins +8, hard margin -47."
+      ],
+      "raw_available": false
+    }
+  ],
+  "combined_outcomes_provenance_split": {
+    "new_raw_verified_detached": {
+      "expected": "UNLOADED",
+      "UNLOADED": 3,
+      "PT8211_LIKE": 0,
+      "UNKNOWN": 0
+    },
+    "previously_reported_attached_not_revalidated": {
+      "expected": "PT8211_LIKE",
+      "PT8211_LIKE": 2,
+      "UNLOADED": 0,
+      "UNKNOWN": 1
+    }
+  },
+  "evidence_limit": {
+    "user_confirmed_previous_datasets_removed": true,
+    "combined_raw_verified_validation_complete": false,
+    "review_export_complete": false,
+    "missing_paths": [
+      "assets\\hardware_diagnostics\\pt8211_heldout_attached_validation_20261018T215857Z-b0a0e4c7.json",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215700.434997Z-194bfe2f\\raw.jsonl",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215700.434997Z-194bfe2f\\manifest.json",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215735.599162Z-ee13663a\\raw.jsonl",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215735.599162Z-ee13663a\\manifest.json",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3\\raw.jsonl",
+      "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3\\manifest.json"
+    ],
+    "explanation": "The earlier attached report and datasets no longer exist. Attached predictions/margins above are explicitly transcribed from prior conversation results, not reconstructed measurements. The requested independent check of the 806-cycle trial cannot be supplied without the original raw file and manifest."
+  },
+  "hard_guard_sensitivity": [
+    "Frozen classification remains unchanged. Every new detached feature passes median, p05/p95 and hard raw bounds, with no rejection reasons.",
+    "The earlier reported attached UNKNOWN had passing median and central envelopes but one 806-cycle raw value below 853. The +8 median/central margins did not override the -47 raw margin. Original evidence is unavailable for rechecking.",
+    "For n=64, p05 uses sorted index floor(63*0.05)=3. A single low outlier (1/64 trials) can leave median/p05/p95 within profile yet fail the every-trial guard.",
+    "The hard guard deliberately trades sensitivity to rare extremes for fail-closed behavior: one trial outside the finite envelope makes the whole run UNKNOWN, even with robust center agreement. Across six groups there are 384 opportunities per run for such a guard rejection.",
+    "UNKNOWN is not UNLOADED or proof of absence/DAC failure. Do not tune the band from this held-out outcome or discard the outlier. Any future rule revision needs a new version and fresh prospective validation.",
+    "No general accuracy estimate is supported by six small same-setup held-out runs, especially with the attached raw evidence deleted."
+  ],
+  "scope": "No firmware/profile/classifier edits, rebuilds, programming, production changes or Git writes. Exactly three new detached attempts; all preserved outside calibration. No outcome-dependent retries."
+}

@@ -9,6 +9,13 @@ cp -a "$repo/deploy/arkos" "$work/repo/deploy/"
 cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/repo/tools/arkos/port/"
 # Change only the destination in a disposable copy; production paths stay fixed.
 sed "s|^ports=/roms/ports$|ports=$work/ports|" "$repo/tools/arkos/install-port.sh" > "$work/repo/tools/arkos/install-port.sh"
+# The source template is copied only into the disposable package fixture.
+mkdir -p "$work/repo/deploy/arkos/config"
+cp "$repo/config/config.ini.example" "$work/repo/deploy/arkos/config/"
+export HOME="$work/user-home" XDG_DATA_HOME="$work/persistent-data"
+mkdir -p "$XDG_DATA_HOME/BroTracker/BroTracker Terminal"
+printf '[btx]\nschema_version=1\nnew_pattern_length=64\n[logging]\nmode=debug\npreserve_last=5\n[editing]\nvalue_step_direction=reversed\n[audio]\noutput=pt8211\n' > "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini"
+cp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
 installer="$work/repo/tools/arkos/install-port.sh"
 app="$work/ports/brotracker"
 new_launcher="$work/ports/BroTracker Terminal.sh"
@@ -104,4 +111,6 @@ PATH="$work/advisory-bin:$PATH" TEST_NO_DIALOUT=1 SUDO_USER=ark USER=root bash "
 ! grep -q 'Advisory:' "$work/no-group"
 PATH="$work/advisory-bin:$PATH" SUDO_USER=root USER=root bash "$installer" > "$work/unknown-user" 2>&1
 grep -q 'runtime user is unknown' "$work/unknown-user"
-echo 'Installer/package upgrade checks passed (isolated temporary destination)'
+cmp "$work/repo/deploy/arkos/config/config.ini.example" "$app/config/config.ini.example"
+cmp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+echo 'Installer/package upgrade and persistent user-config preservation checks passed (isolated temporary destination)'

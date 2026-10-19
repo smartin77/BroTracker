@@ -256,6 +256,7 @@ int main(int argc, char* argv[])
     WriteBringUpDiagnostic(bring_up_log,kArkOSEditorHints);
     LogSdlHostDiagnostics(bring_up_log);
     BringUpSerial serial(bring_up_log);
+    serial.SetAudioOutputPreference(host_config.config.audio_output);
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 

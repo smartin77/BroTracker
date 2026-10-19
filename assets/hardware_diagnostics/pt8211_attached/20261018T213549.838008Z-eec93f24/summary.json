@@ -1,0 +1,301 @@
+{
+  "pins": {
+    "pin7_target0": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 717,
+        "p05": 717,
+        "median": 717.0,
+        "p95": 723,
+        "max": 728,
+        "mean": 717.890625,
+        "stdev": 2.0087090653887634
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 717,
+        "p05": 717,
+        "median": 717.0,
+        "p95": 723,
+        "max": 728,
+        "mean": 717.890625,
+        "stdev": 2.0087090653887634
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 1.195,
+        "p05": 1.195,
+        "median": 1.195,
+        "p95": 1.205,
+        "max": 1.2133333333333334,
+        "mean": 1.196484375,
+        "stdev": 0.003347848442314592
+      },
+      "observation_bitmasks": {
+        "0": 64
+      },
+      "high_observations": 0,
+      "total_observations": 512
+    },
+    "pin7_target1": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 198,
+        "p05": 198,
+        "median": 198.0,
+        "p95": 200,
+        "max": 200,
+        "mean": 198.5,
+        "stdev": 0.7905694150420949
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 198,
+        "p05": 198,
+        "median": 198.0,
+        "p95": 200,
+        "max": 200,
+        "mean": 198.5,
+        "stdev": 0.7905694150420949
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 0.33,
+        "p05": 0.33,
+        "median": 0.33,
+        "p95": 0.3333333333333333,
+        "max": 0.3333333333333333,
+        "mean": 0.3308333333333333,
+        "stdev": 0.0013176156917368113
+      },
+      "observation_bitmasks": {
+        "255": 64
+      },
+      "high_observations": 512,
+      "total_observations": 512
+    },
+    "pin20_target0": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 745,
+        "p05": 745,
+        "median": 745.0,
+        "p95": 748,
+        "max": 748,
+        "mean": 745.765625,
+        "stdev": 1.2214513331995671
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 745,
+        "p05": 745,
+        "median": 745.0,
+        "p95": 748,
+        "max": 748,
+        "mean": 745.765625,
+        "stdev": 1.2214513331995671
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 1.2416666666666667,
+        "p05": 1.2416666666666667,
+        "median": 1.2416666666666667,
+        "p95": 1.2466666666666666,
+        "max": 1.2466666666666666,
+        "mean": 1.2429427083333333,
+        "stdev": 0.0020357522219992493
+      },
+      "observation_bitmasks": {
+        "0": 64
+      },
+      "high_observations": 0,
+      "total_observations": 512
+    },
+    "pin20_target1": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 197,
+        "p05": 198,
+        "median": 198.0,
+        "p95": 200,
+        "max": 200,
+        "mean": 198.4375,
+        "stdev": 0.7880950133074057
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 197,
+        "p05": 198,
+        "median": 198.0,
+        "p95": 200,
+        "max": 200,
+        "mean": 198.4375,
+        "stdev": 0.7880950133074057
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 0.3283333333333333,
+        "p05": 0.33,
+        "median": 0.33,
+        "p95": 0.3333333333333333,
+        "max": 0.3333333333333333,
+        "mean": 0.3307291666666667,
+        "stdev": 0.0013134916888456643
+      },
+      "observation_bitmasks": {
+        "255": 64
+      },
+      "high_observations": 512,
+      "total_observations": 512
+    },
+    "pin21_target0": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 861,
+        "p05": 861,
+        "median": 861.0,
+        "p95": 864,
+        "max": 864,
+        "mean": 861.84375,
+        "stdev": 1.277433339748106
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 861,
+        "p05": 861,
+        "median": 861.0,
+        "p95": 864,
+        "max": 864,
+        "mean": 861.84375,
+        "stdev": 1.277433339748106
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 1.435,
+        "p05": 1.435,
+        "median": 1.435,
+        "p95": 1.44,
+        "max": 1.44,
+        "mean": 1.43640625,
+        "stdev": 0.0021290555662467916
+      },
+      "observation_bitmasks": {
+        "0": 64
+      },
+      "high_observations": 0,
+      "total_observations": 512
+    },
+    "pin21_target1": {
+      "timeouts": 0,
+      "initial_already_target": 0,
+      "raw_elapsed_cycles": {
+        "n": 64,
+        "min": 226,
+        "p05": 226,
+        "median": 226.0,
+        "p95": 228,
+        "max": 229,
+        "mean": 226.5625,
+        "stdev": 0.899218410621135
+      },
+      "transition_cycles": {
+        "n": 64,
+        "min": 226,
+        "p05": 226,
+        "median": 226.0,
+        "p95": 228,
+        "max": 229,
+        "mean": 226.5625,
+        "stdev": 0.899218410621135
+      },
+      "transition_us": {
+        "n": 64,
+        "min": 0.37666666666666665,
+        "p05": 0.37666666666666665,
+        "median": 0.37666666666666665,
+        "p95": 0.38,
+        "max": 0.38166666666666665,
+        "mean": 0.37760416666666663,
+        "stdev": 0.0014986973510352334
+      },
+      "observation_bitmasks": {
+        "255": 64
+      },
+      "high_observations": 512,
+      "total_observations": 512
+    }
+  },
+  "control": {
+    "cpu": {
+      "n": 100,
+      "min": 0.21315,
+      "p05": 0.21315,
+      "median": 0.21315,
+      "p95": 0.253575,
+      "max": 0.253575,
+      "mean": 0.22178625,
+      "stdev": 0.015946070195741013
+    },
+    "cpu_peak": {
+      "n": 100,
+      "min": 0.2205,
+      "p05": 0.2205,
+      "median": 0.2646,
+      "p95": 0.2646,
+      "max": 0.2646,
+      "mean": 0.25772775,
+      "stdev": 0.01566649525859246
+    },
+    "memory": {
+      "n": 100,
+      "min": 0,
+      "p05": 0,
+      "median": 0.0,
+      "p95": 1,
+      "max": 1,
+      "mean": 0.2,
+      "stdev": 0.4
+    },
+    "memory_peak": {
+      "n": 100,
+      "min": 3,
+      "p05": 3,
+      "median": 3.0,
+      "p95": 3,
+      "max": 3,
+      "mean": 3,
+      "stdev": 0.0
+    },
+    "cadence_cycles": {
+      "n": 3444,
+      "min": 1741043,
+      "p05": 1741481,
+      "median": 1741496.0,
+      "p95": 1741511,
+      "max": 1742353,
+      "mean": 1741496.7918118467,
+      "stdev": 43.379151587137834
+    },
+    "cadence_us": {
+      "n": 3444,
+      "min": 2901.7383333333332,
+      "p05": 2902.4683333333332,
+      "median": 2902.4933333333333,
+      "p95": 2902.5183333333334,
+      "max": 2903.9216666666666,
+      "mean": 2902.4946530197444,
+      "stdev": 0.07229858597856943
+    },
+    "callbacks": 3445
+  }
+}

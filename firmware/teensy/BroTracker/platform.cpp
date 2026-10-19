@@ -17,6 +17,7 @@ namespace BroTracker
 
 #include <Arduino.h>
 #include <Audio.h>
+#include "production_audio_output.h"
 #include <SD.h>
 #include <scheduler.h>
 #include <utility>
@@ -26,23 +27,18 @@ namespace BroTracker
 {
 namespace
 {
-    // Minimal native audio path used to verify the Teensy audio processing
-    // boundary on real hardware:
-    //   AudioTestSource, SamplePlayer -> AudioMixer4 -> AudioOutputMQS
-    // A USB Audio path is attached alongside it when the selected Teensy
-    // USB type includes an audio interface.
+    // Playback mix feeds the manually selected production output.
     Scheduler g_scheduler;
     AudioTestSource g_audio_test_source(g_scheduler);
     SamplePlayer g_sample_player_a;
     SamplePlayer g_sample_player_b;
     AudioMixer4 g_audio_mixer;
-    AudioOutputMQS g_audio_output_mqs;
+    AudioOutputUSB g_audio_output_usb;
+    ProductionAudioOutput g_output;
 
     AudioConnection g_patch_source_to_mixer(g_audio_test_source, 0, g_audio_mixer, 0);
     AudioConnection g_patch_player_a_to_mixer(g_sample_player_a, 0, g_audio_mixer, 1);
     AudioConnection g_patch_player_b_to_mixer(g_sample_player_b, 0, g_audio_mixer, 2);
-    AudioConnection g_patch_mixer_to_mqs(g_audio_mixer, 0, g_audio_output_mqs, 0);
-
     constexpr bool kEnableAudioTestTone = false;
 
     const char kTest1SamplePath[] = "Samples/test.wav";
@@ -137,6 +133,7 @@ namespace
 
     bool StartSequence()
     {
+        (void)g_output.Select(AudioOutputChoice::Default,g_audio_mixer,g_audio_output_usb);
         StopSequence();
         g_simultaneous_test_loop = 0;
         g_next_stream_open_attempted = false;
@@ -198,9 +195,18 @@ namespace
                 if(std::strcmp(line,"BTTEST1 HELLO")==0)UsbTraceReplay();
 #endif
                 ReportSequence();
+                Serial.println("BTAUDIO1 CAP 1");
 #ifdef BROTRACKER_USB_TX_TRACE
                 UsbTraceProtocolActivity(); // reply precedes a bounded dump slice
 #endif
+            }
+            else if (!std::strncmp(line,"BTAUDIO1",8)) {
+                AudioOutputChoice request=AudioOutputChoice::Default;
+                const bool valid=ParseAudioOutputRequest(line,request);
+                const char* error=valid ? g_output.Select(request,g_audio_mixer,g_audio_output_usb) : "malformed";
+                if(error) { Serial.print("BTAUDIO1 ERROR 1 ");Serial.print(error);Serial.print(" active="); }
+                else Serial.print("BTAUDIO1 SELECTED 1 ");
+                Serial.println(AudioOutputName(g_output.Active()));
             }
             else if (std::strcmp(line, "BTTEST1 START") == 0)
             {
@@ -228,11 +234,6 @@ namespace
         }
     }
 
-#if defined(AUDIO_INTERFACE)
-    AudioOutputUSB g_audio_output_usb;
-    AudioConnection g_patch_mixer_to_usb_left(g_audio_mixer, 0, g_audio_output_usb, 0);
-    AudioConnection g_patch_mixer_to_usb_right(g_audio_mixer, 0, g_audio_output_usb, 1);
-#endif
 }
 
     void PlatformInit()
@@ -253,7 +254,7 @@ namespace
             Serial.println("USB AUDIO: DISABLED");
         #endif
 
-        AudioMemory(8);
+        // AudioMemory is deferred until a route is selected, before playback.
 
         g_audio_mixer.gain(0, kEnableAudioTestTone ? 1.0f : 0.0f);
         g_audio_mixer.gain(1, 1.0f);

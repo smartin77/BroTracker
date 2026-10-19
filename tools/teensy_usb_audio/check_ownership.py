@@ -6,7 +6,10 @@ p=argparse.ArgumentParser();p.add_argument('--framework',type=Path,required=True
 root=Path(__file__).resolve().parents[2];core=a.framework/'cores/teensy4';original=(core/'usb_audio.cpp').read_text();patched=patch_bytes(original.encode(),VERSION).decode();stream=(core/'AudioStream.cpp').read_text();usb=(core/'usb.c').read_text()
 from lifecycle_core import patch_usb
 patch_usb(usb.encode()) # exact installed lifecycle source guard
-assert 'AudioMemory(8);' in (root/'firmware/teensy/BroTracker/platform.cpp').read_text()
+output=(root/'firmware/teensy/BroTracker/production_audio_output.cpp').read_text()
+assert 'AudioMemory(8);' in output
+assert output.index('new (&hardware_) AudioOutputPT8211') < output.index('AudioMemory(8);')
+assert output.index('new (&hardware_) AudioOutputMQS') < output.index('AudioMemory(8);')
 assert 'AudioInputUSB g_' not in (root/'firmware/teensy/BroTracker/platform.cpp').read_text()
 def extract(s,start):
  pos=s.index(start);i=s.index('{',pos);depth=1;j=i+1

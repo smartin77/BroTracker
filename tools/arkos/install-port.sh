@@ -15,6 +15,7 @@ files=(
     BroTrackerTerminal
     BroTrackerAlsaBridge
     launch.sh
+    config/config.ini.example
     assets/dummy_my_tune.json
     assets/fonts/brotracker.btf
     assets/fonts/brotracker.bfm
@@ -45,7 +46,7 @@ fi
 for file in "${files[@]}"; do
     [[ -f "$package/$file" ]] || fail "Package file is missing: $file"
 done
-for dir in "$app" "$app/assets" "$app/assets/fonts"; do
+for dir in "$app" "$app/assets" "$app/assets/fonts" "$app/config"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
 done
@@ -67,7 +68,7 @@ for existing in "$diagnostic_launcher" "$port_launcher" "$legacy_launcher"; do
     fi
 done
 
-mkdir -p -- "$app/assets/fonts"
+mkdir -p -- "$app/assets/fonts" "$app/config"
 for file in "${files[@]}"; do
     case "$file" in
         BroTrackerTerminal|BroTrackerAlsaBridge|launch.sh) mode=0755 ;;
@@ -84,3 +85,4 @@ rm -f -- "$obsolete"
 
 echo "Installed BroTracker Terminal (BTX) in $app"
 echo "Ports launcher: $port_launcher"
+echo "Config example only: $app/config/config.ini.example; existing user config is never overwritten."

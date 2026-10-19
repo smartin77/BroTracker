@@ -26,6 +26,8 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
+    audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
+    std::strcpy(audio_active_,"unknown");
     gains_.Disconnect(); tx_gains_=false;
     publication_.Disconnect();
     preview_.Disconnect(); tx_preview_=false;
@@ -169,6 +171,7 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 bool BringUpSerial::Start()
 {
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
+    if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
     start_queued_ = true;
     ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
@@ -221,6 +224,8 @@ const char* BringUpSerial::Status() const
         if (start_unconfirmed_) return "Waiting - START result unknown";
         return "Waiting for Teensy USB";
     }
+    if(audio_failed_) return "Audio selection failed - see log; restart Teensy to change route";
+    if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return "Waiting for Teensy audio selection";
     if (stop_queued_ || pending_ == Command::Stop) return "Connected - stopping";
     if (start_queued_ || pending_ == Command::Start) return "Connected - starting";
     if (transport_queued_ == Command::Pause || pending_ == Command::Pause) return "Connected - pausing";
@@ -237,8 +242,12 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     const char* verb = command == Command::Hello ? "HELLO" :
                        command == Command::Status ? "STATUS" :
                        command == Command::Start ? "START" :
-                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : "STOP";
+                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
+    if(command==Command::Audio) {
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
+        audio_sent_=true;
+    }
     tx_offset_ = 0; tx_publication_=false;
     if(command==Command::Hello || command==Command::Status) {
         next_discovery_expected_=true; next_refresh_=false; preview_.DiscoveryRequested();
@@ -282,6 +291,22 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
+    if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {
+        const char* route=line_+20;
+        const bool known=!std::strcmp(route,"bridge") || !std::strcmp(route,"pt8211");
+        const bool matches=known && (audio_preference_==BroTracker::AudioOutputChoice::Default ||
+            !std::strcmp(route,BroTracker::AudioOutputName(audio_preference_)));
+        audio_confirmed_=matches; audio_failed_=!matches;
+        if(!matches) start_queued_=false;
+        if(known) std::snprintf(audio_active_,sizeof(audio_active_),"%s",route);
+        pending_=Command::None;
+        Log(matches ? "audio selection confirmed:" : "audio selection ERROR mismatched acknowledgment:",line_);
+        return;
+    }
+    if(pending_==Command::Audio && (!std::strncmp(line_,"BTAUDIO1 ERROR ",15) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
+        audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR:",line_);return;
+    }
     if (!std::strncmp(line_,"BTPATTERN1 PERF ",sizeof("BTPATTERN1 PERF ")-1)) {
         BroTracker::PatternPerformance report;
         if(connected_ && BroTracker::ParsePatternPerformance(line_,used_,report)) {
@@ -506,11 +531,17 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     // for its reply. STATE received during transport is ignored above; ACKs differ.
     if (pending_ == Command::Status && (transport_queued_ != Command::None || stop_queued_ || start_queued_) && tx_offset_ == tx_size_)
         pending_ = Command::None;
+    if(pending_==Command::Audio && now-sent_at_>=6000 && tx_offset_==tx_size_) {
+        audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
+    }
     if (pending_ != Command::None && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
-        if (start_queued_)
+        if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
+            Send(Command::Audio,now);
+        }
+        else if (start_queued_)
         {
             Send(Command::Start, now);
             start_queued_ = false;

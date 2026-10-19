@@ -67,6 +67,8 @@ cat > "$work/ports/brotracker/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
 [[ "$BROTRACKER_APPEND_LOG" == 1 && "$SDL_GAMECONTROLLERCONFIG" == test-mapping ]] || exit 80
 [[ -z "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] || exit 84
+[[ "$XDG_DATA_HOME" == "$TEST_DIR/data" ]] || exit 85
+printf '%s\n' "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" > "$TEST_DIR/config-path"
 echo $$ > "$TEST_DIR/ui.pid"
 echo 'stub UI append' >> /tmp/brotracker-arkos.log
 child=
@@ -320,4 +322,17 @@ PYTHON
 mv "$work/ports/brotracker/BroTrackerAlsaBridge" "$work/bridge-disabled"
 run_case ready 0.2 normal
 grep -q 'missing/not executable' "$log"
+# Direct launcher fallback uses persistent HOME, forwards arguments, never writes config.
+mkdir -p "$work/direct" "$work/home/.local/share/BroTracker/BroTracker Terminal"
+cp "$repo/tools/arkos/launch.sh" "$work/direct/launch.sh"
+printf '[audio]\noutput=bridge\n' > "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini"
+cp "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+cat > "$work/direct/BroTrackerTerminal" <<'STUB'
+#!/bin/bash
+[[ "$XDG_DATA_HOME" == "$TEST_DIR/home/.local/share" && "$1" == --safe-config ]] || exit 86
+STUB
+chmod +x "$work/direct/BroTrackerTerminal"
+env -u XDG_DATA_HOME HOME="$work/home" bash "$work/direct/launch.sh" --safe-config
+cmp "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+echo 'Persistent config fallback/export, argument forwarding and preservation checks passed'
 echo 'All launcher retry/log/cleanup/exit checks passed'

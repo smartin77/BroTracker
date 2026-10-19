@@ -113,11 +113,12 @@ printf 'NEEDED:\n%s\nRequired versions:\n%s\n' "$needed" "$versions"
 cat "$build_dir/alsa-bridge-dependencies.txt"
 
 # Stage application files only, after all checks passed. Never copy SDL2.
-mkdir -p "$package_dir/assets/fonts"
+mkdir -p "$package_dir/assets/fonts" "$package_dir/config"
 cp "$build_dir/BroTrackerTerminal" "$package_dir/BroTrackerTerminal"
 cp "$binary" "$package_dir/BroTrackerAlsaBridge"
 cp "$repo_root/assets/fonts/brotracker.btf" "$repo_root/assets/fonts/brotracker.bfm" "$package_dir/assets/fonts/"
 cp "$repo_root/assets/dummy_my_tune.json" "$package_dir/assets/"
+cp "$repo_root/config/config.ini.example" "$package_dir/config/config.ini.example"
 cp "$repo_root/tools/arkos/launch.sh" "$package_dir/launch.sh"
 chmod 0755 "$package_dir/BroTrackerTerminal" "$package_dir/BroTrackerAlsaBridge" "$package_dir/launch.sh"
 # Retire only the previous application executable in an existing staging directory.
