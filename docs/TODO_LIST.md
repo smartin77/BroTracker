@@ -21,6 +21,49 @@ From the repository root, `pio run -t upload` builds and uploads the default.
 Existing explicit names remain usable with `pio run -e <environment> -t upload`
 for regression/diagnostic testing; their firmware behavior is unchanged.
 
+### PT8211 Diagnostics and Loading Signature
+
+* [x] Implement and physically validate isolated protocol-2 fixed-buffer emission,
+  record sequence/CRC checks, cumulative CRC/end count and ACK flow control.
+  Preserve raw/failed captures; software-reset and true cold-power-up checks
+  completed for the selected attached/detached direct-USB and ADuM3160 runs.
+* [x] Complete the explicitly selected four-condition comparison: 13 runs,
+  matching firmware, all six observed attached/detached timing ranges separated
+  across both USB topologies. This is finite-sample evidence, not a general
+  presence detector or DAC-health validation. See
+  `assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json`.
+* [x] Add opt-in host-only experimental PT8211_LIKE / UNLOADED / UNKNOWN loading
+  classifier. Freeze bounded median, central-distribution and raw-trial bands
+  to the selected setup, firmware identity and 600 MHz clock; require unanimous
+  pull-down evidence plus pull-up cross-checks. Replay all 13 calibration runs
+  and test rejection/boundary/integrity cases. In-sample agreement is not
+  independent accuracy validation. See `tools/pt8211_probe/README.md`.
+* [x] Complete initial six-run ADuM3160 held-out validation with frozen classifier:
+  attached PT8211_LIKE / PT8211_LIKE / UNKNOWN; detached UNLOADED three times.
+  First two attached and all three detached originals are currently verified.
+  Preserve the historical attached UNKNOWN: reported GPIO 21 pull-down trial
+  806 cycles (hard lower bound 853, margin -47); its raw/manifest are unavailable
+  for independent revalidation. Do not reinterpret this as a pass.
+* [x] Restore available original evidence byte-for-byte; verify all eight surviving
+  captures and frozen calibration report fingerprint. Separate synthetic unit
+  tests from physical replay; explicitly skip unavailable originals. See
+  `assets/hardware_diagnostics/pt8211_evidence_inventory.json` and
+  `assets/hardware_diagnostics/MISSING_EVIDENCE.md`. Historical full 13-run replay
+  is currently blocked by ten missing original capture directories; reported
+  summaries do not replace raw evidence. One surviving attached transport log
+  is missing. Keep archives and original captures.
+* [ ] Collect further held-out repeated attached/detached passes, matched direct/ADuM3160
+  runs, additional cold starts and supply/temperature/wiring variation. Assess
+  UNKNOWN behavior and false signatures from other loads before accepting
+  firmware-side use. Keep incompatible firmware profiles separate.
+* [ ] Implement and validate Audio Shield diagnostics when physical hardware is
+  available. Recognition remains pending, neither passed nor evidence of absence.
+* [ ] Review platform-only boot detection/selection integration and update the
+  audio architecture for intended priority Audio Shield > PT8211 > USB Audio
+  bridge, with an explicit manual override and visible UNKNOWN diagnostics.
+  Preserve Teensy update/clock ownership, static storage and bounded realtime
+  execution. Production routing/configuration remain unchanged at this stage.
+
 ### Musical Scheduler Timing
 
 * [x] Implement the sample-timeline foundation: initialization, reset and counting

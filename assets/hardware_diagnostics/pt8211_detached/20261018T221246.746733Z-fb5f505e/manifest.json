@@ -1,0 +1,30 @@
+{
+  "manual_hardware_label": "detached",
+  "manual_usb_isolator": "adum3160",
+  "port": "COM4",
+  "started_utc": "2026-10-18T22:12:46.746733+00:00",
+  "complete": true,
+  "note": "HELD-OUT frozen loading classifier validation: detached ADuM3160 software-reset/boot-only start 2 of 3. Not calibration data. No tuning, firmware edit/build/program.",
+  "firmware": {
+    "type": "meta",
+    "schema": 2,
+    "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+    "build": "Oct 18 2026 22:51:30",
+    "teensyduino": 162,
+    "cpu_hz": 600000000,
+    "trials": 64,
+    "observations": 8,
+    "settle_us": 100,
+    "timeout_us": 100,
+    "observation_us": 10,
+    "control_ms": 10000,
+    "block_samples": 128,
+    "sample_rate": 44100,
+    "ack_ms": 2000,
+    "dump_ms": 60000,
+    "record_retries": 0
+  },
+  "wire_protocol": 2,
+  "record_retries": 0,
+  "raw_sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4"
+}

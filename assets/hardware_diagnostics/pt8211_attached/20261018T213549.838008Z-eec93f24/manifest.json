@@ -1,0 +1,30 @@
+{
+  "manual_hardware_label": "attached",
+  "manual_usb_isolator": "adum3160",
+  "port": "COM4",
+  "started_utc": "2026-10-18T21:35:49.839159+00:00",
+  "complete": true,
+  "note": "Protocol-2 attached ADuM3160 true cold power-up: operator reattached PT8211 with all power disconnected, then connected through ADuM3160. Same uploaded firmware; no reset/program before capture.",
+  "firmware": {
+    "type": "meta",
+    "schema": 2,
+    "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+    "build": "Oct 18 2026 22:51:30",
+    "teensyduino": 162,
+    "cpu_hz": 600000000,
+    "trials": 64,
+    "observations": 8,
+    "settle_us": 100,
+    "timeout_us": 100,
+    "observation_us": 10,
+    "control_ms": 10000,
+    "block_samples": 128,
+    "sample_rate": 44100,
+    "ack_ms": 2000,
+    "dump_ms": 60000,
+    "record_retries": 0
+  },
+  "wire_protocol": 2,
+  "record_retries": 0,
+  "raw_sha256": "9eafd85cd6d4f5afcc3f62bc983fa4b364603b5b4e154c8b1ead4d85bd6f18be"
+}

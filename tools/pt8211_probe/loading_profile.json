@@ -1,0 +1,399 @@
+{
+  "profile_id": "teensy41-pt8211-loading-v1",
+  "profile_version": 1,
+  "description": "Experimental loading signature for the tested Teensy 4.1/module/wiring; not chip identification or DAC health.",
+  "calibration_report": "assets/hardware_diagnostics/pt8211_protocol2_four_conditions_20261018T213803Z-66f1eb0d.json",
+  "calibration_report_sha256": "b2d42c57f7d1b3b387993b4f1f7491e75801a2200c0a954d16eb2f309b39509a",
+  "selected_run_paths": [
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27",
+    "assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T213549.838008Z-eec93f24",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T213623.702761Z-6a10f51b",
+    "assets\\hardware_diagnostics\\pt8211_attached\\20261018T213657.978728Z-3a50cddb"
+  ],
+  "firmware": {
+    "type": "meta",
+    "schema": 2,
+    "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+    "build": "Oct 18 2026 22:51:30",
+    "teensyduino": 162,
+    "cpu_hz": 600000000,
+    "trials": 64,
+    "observations": 8,
+    "settle_us": 100,
+    "timeout_us": 100,
+    "observation_us": 10,
+    "control_ms": 10000,
+    "block_samples": 128,
+    "sample_rate": 44100,
+    "ack_ms": 2000,
+    "dump_ms": 60000,
+    "record_retries": 0
+  },
+  "supported_isolator_labels": [
+    "none",
+    "adum3160"
+  ],
+  "padding_cycles": 8,
+  "padding_derivation": "Largest within-label, per-feature between-boot median spread (7 cycles) plus one engineering guard cycle. Not a confidence interval.",
+  "statistics": "median; p05/p95 with sorted index floor((n-1)*q); hard min/max guard. Bounds inclusive. No trimming or ignored bad trials.",
+  "decision": "All three pull-down primary gates must agree on one class; all three pull-up cross-checks must confirm that class. Any disagreement or quality/profile failure is UNKNOWN.",
+  "bands": {
+    "pin7_target0": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            717.0,
+            724.0
+          ],
+          "central": [
+            716,
+            724
+          ],
+          "trial": [
+            716,
+            728
+          ]
+        },
+        "median": [
+          709.0,
+          732.0
+        ],
+        "central": [
+          708,
+          732
+        ],
+        "trial": [
+          708,
+          736
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            485.0,
+            492.0
+          ],
+          "central": [
+            484,
+            492
+          ],
+          "trial": [
+            484,
+            496
+          ]
+        },
+        "median": [
+          477.0,
+          500.0
+        ],
+        "central": [
+          476,
+          500
+        ],
+        "trial": [
+          476,
+          504
+        ]
+      }
+    },
+    "pin7_target1": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            198.0,
+            198.0
+          ],
+          "central": [
+            197,
+            200
+          ],
+          "trial": [
+            197,
+            200
+          ]
+        },
+        "median": [
+          190.0,
+          206.0
+        ],
+        "central": [
+          189,
+          208
+        ],
+        "trial": [
+          189,
+          208
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            170.0,
+            170.0
+          ],
+          "central": [
+            168,
+            171
+          ],
+          "trial": [
+            168,
+            171
+          ]
+        },
+        "median": [
+          162.0,
+          178.0
+        ],
+        "central": [
+          160,
+          179
+        ],
+        "trial": [
+          160,
+          179
+        ]
+      }
+    },
+    "pin20_target0": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            745.0,
+            745.0
+          ],
+          "central": [
+            745,
+            748
+          ],
+          "trial": [
+            745,
+            748
+          ]
+        },
+        "median": [
+          737.0,
+          753.0
+        ],
+        "central": [
+          737,
+          756
+        ],
+        "trial": [
+          737,
+          756
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            485.0,
+            485.0
+          ],
+          "central": [
+            484,
+            514
+          ],
+          "trial": [
+            484,
+            516
+          ]
+        },
+        "median": [
+          477.0,
+          493.0
+        ],
+        "central": [
+          476,
+          522
+        ],
+        "trial": [
+          476,
+          524
+        ]
+      }
+    },
+    "pin20_target1": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            198.0,
+            198.0
+          ],
+          "central": [
+            197,
+            200
+          ],
+          "trial": [
+            197,
+            200
+          ]
+        },
+        "median": [
+          190.0,
+          206.0
+        ],
+        "central": [
+          189,
+          208
+        ],
+        "trial": [
+          189,
+          208
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            170.0,
+            170.0
+          ],
+          "central": [
+            168,
+            171
+          ],
+          "trial": [
+            168,
+            171
+          ]
+        },
+        "median": [
+          162.0,
+          178.0
+        ],
+        "central": [
+          160,
+          179
+        ],
+        "trial": [
+          160,
+          179
+        ]
+      }
+    },
+    "pin21_target0": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            861.0,
+            861.0
+          ],
+          "central": [
+            861,
+            864
+          ],
+          "trial": [
+            861,
+            864
+          ]
+        },
+        "median": [
+          853.0,
+          869.0
+        ],
+        "central": [
+          853,
+          872
+        ],
+        "trial": [
+          853,
+          872
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            629.0,
+            629.0
+          ],
+          "central": [
+            629,
+            632
+          ],
+          "trial": [
+            629,
+            632
+          ]
+        },
+        "median": [
+          621.0,
+          637.0
+        ],
+        "central": [
+          621,
+          640
+        ],
+        "trial": [
+          621,
+          640
+        ]
+      }
+    },
+    "pin21_target1": {
+      "PT8211_LIKE": {
+        "observed_extrema": {
+          "median": [
+            226.0,
+            226.0
+          ],
+          "central": [
+            226,
+            229
+          ],
+          "trial": [
+            226,
+            229
+          ]
+        },
+        "median": [
+          218.0,
+          234.0
+        ],
+        "central": [
+          218,
+          237
+        ],
+        "trial": [
+          218,
+          237
+        ]
+      },
+      "UNLOADED": {
+        "observed_extrema": {
+          "median": [
+            198.0,
+            198.0
+          ],
+          "central": [
+            197,
+            200
+          ],
+          "trial": [
+            197,
+            200
+          ]
+        },
+        "median": [
+          190.0,
+          206.0
+        ],
+        "central": [
+          189,
+          208
+        ],
+        "trial": [
+          189,
+          208
+        ]
+      }
+    }
+  }
+}

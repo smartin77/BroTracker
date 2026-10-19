@@ -1,0 +1,30 @@
+{
+  "manual_hardware_label": "attached",
+  "manual_usb_isolator": "adum3160",
+  "port": "COM4",
+  "started_utc": "2026-10-18T21:36:57.978728+00:00",
+  "complete": true,
+  "note": "Protocol-2 attached ADuM3160 boot 3: software reset via teensy_reboot.exe -s, then teensy_loader_cli --mcu=imxrt1062 -b -v boot-only through isolator. No programming; not cold power-up.",
+  "firmware": {
+    "type": "meta",
+    "schema": 2,
+    "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+    "build": "Oct 18 2026 22:51:30",
+    "teensyduino": 162,
+    "cpu_hz": 600000000,
+    "trials": 64,
+    "observations": 8,
+    "settle_us": 100,
+    "timeout_us": 100,
+    "observation_us": 10,
+    "control_ms": 10000,
+    "block_samples": 128,
+    "sample_rate": 44100,
+    "ack_ms": 2000,
+    "dump_ms": 60000,
+    "record_retries": 0
+  },
+  "wire_protocol": 2,
+  "record_retries": 0,
+  "raw_sha256": "531fb2bbd5a7be210b7dfe9c82bd50eb9d2f148014a182ee4d5fe8bd62583f20"
+}

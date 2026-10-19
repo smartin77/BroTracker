@@ -1,0 +1,1683 @@
+{
+  "scope": "Commit preparation: no new physical measurements; original evidence replay only. Synthetic tests are not physical evidence.",
+  "tests": {
+    "run": 40,
+    "passed": 28,
+    "failed": 0,
+    "skipped": 12,
+    "skip_reasons": [
+      {
+        "test": "test_full_calibration_replay (test_physical_replay.PhysicalReplayTest.test_full_calibration_replay)",
+        "reason": "Full 13-run replay blocked; missing originals: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd"
+      },
+      {
+        "test": "test_original_20261018T205239_548877Z_13ee2d9b (test_physical_replay.PhysicalReplayTest.test_original_20261018T205239_548877Z_13ee2d9b)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205239.548877Z-13ee2d9b\\results.json"
+      },
+      {
+        "test": "test_original_20261018T205318_757431Z_12c8ba57 (test_physical_replay.PhysicalReplayTest.test_original_20261018T205318_757431Z_12c8ba57)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205318.757431Z-12c8ba57\\results.json"
+      },
+      {
+        "test": "test_original_20261018T205357_062029Z_f15e692a (test_physical_replay.PhysicalReplayTest.test_original_20261018T205357_062029Z_f15e692a)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T205357.062029Z-f15e692a\\results.json"
+      },
+      {
+        "test": "test_original_20261018T210730_652396Z_fd65f4b4 (test_physical_replay.PhysicalReplayTest.test_original_20261018T210730_652396Z_fd65f4b4)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T210730.652396Z-fd65f4b4\\results.json"
+      },
+      {
+        "test": "test_original_20261018T211202_422679Z_b513ae3e (test_physical_replay.PhysicalReplayTest.test_original_20261018T211202_422679Z_b513ae3e)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211202.422679Z-b513ae3e\\results.json"
+      },
+      {
+        "test": "test_original_20261018T211237_372223Z_dac20f4d (test_physical_replay.PhysicalReplayTest.test_original_20261018T211237_372223Z_dac20f4d)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211237.372223Z-dac20f4d\\results.json"
+      },
+      {
+        "test": "test_original_20261018T211316_759098Z_94e9a48c (test_physical_replay.PhysicalReplayTest.test_original_20261018T211316_759098Z_94e9a48c)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T211316.759098Z-94e9a48c\\results.json"
+      },
+      {
+        "test": "test_original_20261018T212105_020506Z_50618547 (test_physical_replay.PhysicalReplayTest.test_original_20261018T212105_020506Z_50618547)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212105.020506Z-50618547\\results.json"
+      },
+      {
+        "test": "test_original_20261018T212143_422401Z_e0756d27 (test_physical_replay.PhysicalReplayTest.test_original_20261018T212143_422401Z_e0756d27)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212143.422401Z-e0756d27\\results.json"
+      },
+      {
+        "test": "test_original_20261018T212219_792664Z_80fd4dcd (test_physical_replay.PhysicalReplayTest.test_original_20261018T212219_792664Z_80fd4dcd)",
+        "reason": "Missing original evidence: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_detached\\20261018T212219.792664Z-80fd4dcd\\results.json"
+      },
+      {
+        "test": "test_original_20261018T215809_161405Z_93ee62f3 (test_physical_replay.PhysicalReplayTest.test_original_20261018T215809_161405Z_93ee62f3)",
+        "reason": "Historical UNKNOWN (reported 806-cycle trial), missing originals: D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3\\raw.jsonl, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3\\manifest.json, D:\\dev\\smartin77\\BroTracker\\assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3\\results.json"
+      }
+    ]
+  },
+  "unchanged_frozen_files_sha256": {
+    "tools/pt8211_probe/loading_profile.json": "2102a943c7f82a4e4ed2e2cdfaa0d5d82eaeb4b4466932f31a9709e783c11af9",
+    "tools/pt8211_probe/loading_classifier.py": "32283e81e8aefeb9597daeb69c957eefe22a3945c515eb1ede9524b9b4d524de",
+    "firmware/teensy/pt8211_probe/main.cpp": "9257ea4d5704bf62e2925e909979a3fa5587651f504985d3afcd263d976a348c",
+    "firmware/teensy/pt8211_probe/record_transport.h": "5350bb62fc259e21c63e36307fa50e19ea6dc0a01e6c1f5d11e59f48d0e18c57",
+    "firmware/teensy/pt8211_probe/select_source.py": "31f5d95fd005a290f5d48b624fdd7c0440efb939531dde60accd980d2c6987c1"
+  },
+  "replayed_original_runs": [
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213549.838008Z-eec93f24",
+      "raw_sha256": "9eafd85cd6d4f5afcc3f62bc983fa4b364603b5b4e154c8b1ead4d85bd6f18be",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "PT8211_LIKE",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 717,
+            "p05": 717,
+            "median": 717.0,
+            "p95": 723,
+            "max": 728,
+            "mean": 717.890625,
+            "stdev": 2.0087090653887634
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -217.0,
+              "central": -223,
+              "trial": -224,
+              "minimum": -224
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.5,
+            "stdev": 0.7905694150420949
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 745,
+            "p05": 745,
+            "median": 745.0,
+            "p95": 748,
+            "max": 748,
+            "mean": 745.765625,
+            "stdev": 1.2214513331995671
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -252.0,
+              "central": -226,
+              "trial": -224,
+              "minimum": -252.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.4375,
+            "stdev": 0.7880950133074057
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 861,
+            "p05": 861,
+            "median": 861.0,
+            "p95": 864,
+            "max": 864,
+            "mean": 861.84375,
+            "stdev": 1.277433339748106
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 226,
+            "p05": 226,
+            "median": 226.0,
+            "p95": 228,
+            "max": 229,
+            "mean": 226.5625,
+            "stdev": 0.899218410621135
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -20,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213623.702761Z-6a10f51b",
+      "raw_sha256": "a88c81da0097d2e612d36f67c41d26bf3407a5141518ef9a0f23ad30d52b0322",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "PT8211_LIKE",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 717,
+            "p05": 717,
+            "median": 717.0,
+            "p95": 721,
+            "max": 723,
+            "mean": 717.875,
+            "stdev": 1.5155444566227676
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 9,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -217.0,
+              "central": -221,
+              "trial": -219,
+              "minimum": -221
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 197,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.265625,
+            "stdev": 0.8522431339559152
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 745,
+            "p05": 745,
+            "median": 745.0,
+            "p95": 748,
+            "max": 748,
+            "mean": 745.5625,
+            "stdev": 0.9662265521087692
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -252.0,
+              "central": -226,
+              "trial": -224,
+              "minimum": -252.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 197,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.296875,
+            "stdev": 0.9130937708554363
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 861,
+            "p05": 861,
+            "median": 861.0,
+            "p95": 864,
+            "max": 864,
+            "mean": 861.640625,
+            "stdev": 1.0512966324377722
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 226,
+            "p05": 226,
+            "median": 226.0,
+            "p95": 229,
+            "max": 229,
+            "mean": 226.609375,
+            "stdev": 1.206974361523475
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T213657.978728Z-3a50cddb",
+      "raw_sha256": "531fb2bbd5a7be210b7dfe9c82bd50eb9d2f148014a182ee4d5fe8bd62583f20",
+      "record_count": 3929,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "PT8211_LIKE",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 718,
+            "p05": 721,
+            "median": 724.0,
+            "p95": 724,
+            "max": 727,
+            "mean": 723.359375,
+            "stdev": 1.32720556409887
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 9,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -223,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.453125,
+            "stdev": 0.7691246546399355
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 745,
+            "p05": 745,
+            "median": 745.0,
+            "p95": 747,
+            "max": 747,
+            "mean": 745.46875,
+            "stdev": 0.7699178121721825
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -252.0,
+              "central": -225,
+              "trial": -223,
+              "minimum": -252.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.484375,
+            "stdev": 0.7904149918713587
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 861,
+            "p05": 861,
+            "median": 861.0,
+            "p95": 863,
+            "max": 864,
+            "mean": 861.5,
+            "stdev": 0.82915619758885
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -223,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 226,
+            "p05": 226,
+            "median": 226.0,
+            "p95": 229,
+            "max": 229,
+            "mean": 226.75,
+            "stdev": 1.14564392373896
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T215700.434997Z-194bfe2f",
+      "raw_sha256": "1bcd04047d30ec5fe3b681eb6e3c48628e3d61ce3d5e99c0d25d0a7a823512a4",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "PT8211_LIKE",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 716,
+            "p05": 716,
+            "median": 717.0,
+            "p95": 721,
+            "max": 723,
+            "mean": 717.484375,
+            "stdev": 1.620109829417438
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -217.0,
+              "central": -221,
+              "trial": -219,
+              "minimum": -221
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.4375,
+            "stdev": 0.7680128579652817
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 745,
+            "p05": 745,
+            "median": 745.0,
+            "p95": 747,
+            "max": 747,
+            "mean": 745.5,
+            "stdev": 0.7905694150420949
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -252.0,
+              "central": -225,
+              "trial": -223,
+              "minimum": -252.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.4375,
+            "stdev": 0.7680128579652817
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 861,
+            "p05": 861,
+            "median": 861.0,
+            "p95": 863,
+            "max": 864,
+            "mean": 861.515625,
+            "stdev": 0.8476472493761777
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -223,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 226,
+            "p05": 226,
+            "median": 226.0,
+            "p95": 229,
+            "max": 229,
+            "mean": 226.65625,
+            "stdev": 1.0784646204210873
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_attached/20261018T215735.599162Z-ee13663a",
+      "raw_sha256": "74d0dc0f6cdb8ae3fe7b1d924985a46b1a2196b6dd03facff1ce49ad73d5791d",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "PT8211_LIKE",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 717,
+            "p05": 721,
+            "median": 724.0,
+            "p95": 724,
+            "max": 728,
+            "mean": 723.3125,
+            "stdev": 1.4238482187368147
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 197,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.203125,
+            "stdev": 0.8325354252973263
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 745,
+            "p05": 745,
+            "median": 745.0,
+            "p95": 748,
+            "max": 748,
+            "mean": 745.59375,
+            "stdev": 0.9955957701296244
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -252.0,
+              "central": -226,
+              "trial": -224,
+              "minimum": -252.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 197,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.265625,
+            "stdev": 0.8881544681951445
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 861,
+            "p05": 861,
+            "median": 861.0,
+            "p95": 864,
+            "max": 864,
+            "mean": 861.625,
+            "stdev": 1.0680004681646913
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 226,
+            "p05": 226,
+            "median": 226.0,
+            "p95": 229,
+            "max": 229,
+            "mean": 226.65625,
+            "stdev": 1.2401959270615268
+          },
+          "evidence": "PT8211_LIKE",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            },
+            "UNLOADED": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221153.351814Z-c3bdde66",
+      "raw_sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "UNLOADED",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 484,
+            "p05": 484,
+            "median": 485.0,
+            "p95": 490,
+            "max": 496,
+            "mean": 485.640625,
+            "stdev": 2.124023213002862
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 168,
+            "p05": 168,
+            "median": 170.0,
+            "p95": 171,
+            "max": 171,
+            "mean": 169.6875,
+            "stdev": 0.899218410621135
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 484,
+            "p05": 484,
+            "median": 485.0,
+            "p95": 487,
+            "max": 487,
+            "mean": 484.984375,
+            "stdev": 0.7601847534481339
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -252.0,
+              "central": -253,
+              "trial": -253,
+              "minimum": -253
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 168,
+            "p05": 168,
+            "median": 170.0,
+            "p95": 171,
+            "max": 171,
+            "mean": 169.734375,
+            "stdev": 0.8881544681951445
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 629,
+            "p05": 629,
+            "median": 629.0,
+            "p95": 631,
+            "max": 632,
+            "mean": 629.515625,
+            "stdev": 0.8476472493761777
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 198,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.5,
+            "stdev": 0.8100925873009825
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -20,
+              "trial": -20,
+              "minimum": -20.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221246.746733Z-fb5f505e",
+      "raw_sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "UNLOADED",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 485,
+            "p05": 489,
+            "median": 492.0,
+            "p95": 492,
+            "max": 496,
+            "mean": 491.234375,
+            "stdev": 1.5384873608109362
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -217.0,
+              "central": -219,
+              "trial": -223,
+              "minimum": -223
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 168,
+            "p05": 168,
+            "median": 170.0,
+            "p95": 171,
+            "max": 171,
+            "mean": 169.75,
+            "stdev": 0.8660254037844386
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 484,
+            "p05": 485,
+            "median": 485.0,
+            "p95": 487,
+            "max": 487,
+            "mean": 485.453125,
+            "stdev": 0.7891785186983994
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -252.0,
+              "central": -252,
+              "trial": -253,
+              "minimum": -253
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 168,
+            "p05": 168,
+            "median": 170.0,
+            "p95": 171,
+            "max": 171,
+            "mean": 169.734375,
+            "stdev": 0.8881544681951445
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 629,
+            "p05": 629,
+            "median": 629.0,
+            "p95": 632,
+            "max": 632,
+            "mean": 629.640625,
+            "stdev": 1.0660556314634804
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 197,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.34375,
+            "stdev": 0.9222721602108567
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -21,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    },
+    {
+      "directory": "assets/hardware_diagnostics/pt8211_detached/20261018T221328.971752Z-24c3b8fb",
+      "raw_sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5",
+      "record_count": 3930,
+      "firmware_metadata": {
+        "type": "meta",
+        "schema": 2,
+        "source_sha256": "a9179c5f093605fd51845dbfa8c064604089083de9e3930fcb4805c6504fb805",
+        "build": "Oct 18 2026 22:51:30",
+        "teensyduino": 162,
+        "cpu_hz": 600000000,
+        "trials": 64,
+        "observations": 8,
+        "settle_us": 100,
+        "timeout_us": 100,
+        "observation_us": 10,
+        "control_ms": 10000,
+        "block_samples": 128,
+        "sample_rate": 44100,
+        "ack_ms": 2000,
+        "dump_ms": 60000,
+        "record_retries": 0
+      },
+      "prediction": "UNLOADED",
+      "reasons": [],
+      "features": {
+        "pin7_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 487,
+            "p05": 490,
+            "median": 492.0,
+            "p95": 492,
+            "max": 495,
+            "mean": 491.296875,
+            "stdev": 1.2077831901359615
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -217.0,
+              "central": -218,
+              "trial": -221,
+              "minimum": -221
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 9,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin7_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 169,
+            "p05": 169,
+            "median": 170.0,
+            "p95": 170,
+            "max": 170,
+            "mean": 169.8125,
+            "stdev": 0.3903123748998999
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -20,
+              "trial": -20,
+              "minimum": -20.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 9,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 484,
+            "p05": 485,
+            "median": 485.0,
+            "p95": 487,
+            "max": 487,
+            "mean": 485.328125,
+            "stdev": 0.7511384588576197
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -252.0,
+              "central": -252,
+              "trial": -253,
+              "minimum": -253
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin20_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 168,
+            "p05": 169,
+            "median": 170.0,
+            "p95": 170,
+            "max": 170,
+            "mean": 169.75,
+            "stdev": 0.5
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -20,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 9,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target0": {
+          "role": "primary",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 629,
+            "p05": 629,
+            "median": 629.0,
+            "p95": 632,
+            "max": 632,
+            "mean": 629.78125,
+            "stdev": 1.230710541719701
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -224.0,
+              "central": -224,
+              "trial": -224,
+              "minimum": -224.0
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        },
+        "pin21_target1": {
+          "role": "cross-check",
+          "statistics_cycles": {
+            "n": 64,
+            "min": 197,
+            "p05": 198,
+            "median": 198.0,
+            "p95": 200,
+            "max": 200,
+            "mean": 198.453125,
+            "stdev": 0.8087352684129708
+          },
+          "evidence": "UNLOADED",
+          "class_margins_cycles": {
+            "PT8211_LIKE": {
+              "median": -20.0,
+              "central": -20,
+              "trial": -21,
+              "minimum": -21
+            },
+            "UNLOADED": {
+              "median": 8.0,
+              "central": 8,
+              "trial": 8,
+              "minimum": 8.0
+            }
+          }
+        }
+      },
+      "profile_id": "teensy41-pt8211-loading-v1",
+      "integrity_verified": true,
+      "primary_margin_cycles": 8.0,
+      "cross_check_margin_cycles": 8.0,
+      "minimum_margin_cycles": 8.0
+    }
+  ],
+  "historical_unverified_unknown": {
+    "run": "20261018T215809.161405Z-93ee62f3",
+    "prediction": "UNKNOWN",
+    "reported_trial_cycles": 806,
+    "independently_verified": false
+  },
+  "calibration_report_sha256": "b2d42c57f7d1b3b387993b4f1f7491e75801a2200c0a954d16eb2f309b39509a"
+}

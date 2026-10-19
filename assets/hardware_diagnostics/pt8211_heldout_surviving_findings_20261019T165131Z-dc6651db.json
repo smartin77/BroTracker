@@ -1,0 +1,1122 @@
+{
+  "created_utc": "2026-10-19T16:51:32.644609+00:00",
+  "operation": "No captures or tuning. Surviving data classified with frozen tooling; supplied archive partially inspected without full restoration. Archive document instructions were not executed.",
+  "source_combined_report": "assets\\hardware_diagnostics\\pt8211_heldout_combined_validation_20261018T221530Z-c56768c0.json",
+  "source_recovery_zip": "C:\\Temp\\BroTracker\\BroTracker_PT8211_recovery.zip",
+  "source_recovery_zip_sha256": "78df4c7d83ff4f721aa301d9ed0e3fc64bb3639272384c92cbf6f02f81e153f1",
+  "frozen_file_fingerprints_before_and_after": {
+    "tools/pt8211_probe/loading_profile.json": "2102a943c7f82a4e4ed2e2cdfaa0d5d82eaeb4b4466932f31a9709e783c11af9",
+    "tools/pt8211_probe/loading_classifier.py": "32283e81e8aefeb9597daeb69c957eefe22a3945c515eb1ede9524b9b4d524de",
+    "firmware/teensy/pt8211_probe/main.cpp": "9257ea4d5704bf62e2925e909979a3fa5587651f504985d3afcd263d976a348c",
+    "firmware/teensy/pt8211_probe/record_transport.h": "5350bb62fc259e21c63e36307fa50e19ea6dc0a01e6c1f5d11e59f48d0e18c57",
+    "firmware/teensy/pt8211_probe/select_source.py": "31f5d95fd005a290f5d48b624fdd7c0440efb939531dde60accd980d2c6987c1"
+  },
+  "directly_verified_runs": [
+    {
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221153.351814Z-c3bdde66",
+      "manual_label": "detached",
+      "expected_signature": "UNLOADED",
+      "evidence": "Surviving workspace raw evidence; directly revalidated now",
+      "raw_sha256": "cd8180d5af8b462927e2c2ebea6d43e5ae42deb952cd65de590c8b86c14a4454",
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "ec61154d",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "validation": "PASS: raw SHA, every sequence and record CRC, cumulative CRC/count, complete framing, exact decoded results and recomputed summary, expected firmware metadata.",
+      "ack_log": "ACK write log verified",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 484,
+              "median": 485.0,
+              "p95": 490,
+              "max": 496,
+              "mean": 485.640625,
+              "stdev": 2.124023213002862
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.6875,
+              "stdev": 0.899218410621135
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 484,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 484.984375,
+              "stdev": 0.7601847534481339
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -253,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.734375,
+              "stdev": 0.8881544681951445
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 631,
+              "max": 632,
+              "mean": 629.515625,
+              "stdev": 0.8476472493761777
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 198,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.5,
+              "stdev": 0.8100925873009825
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -20,
+                "minimum": -20.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      }
+    },
+    {
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221246.746733Z-fb5f505e",
+      "manual_label": "detached",
+      "expected_signature": "UNLOADED",
+      "evidence": "Surviving workspace raw evidence; directly revalidated now",
+      "raw_sha256": "926f5eabaf7150620ee1b2a7891468350b95a74046d94af1645901358fb143e4",
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "97884e15",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "validation": "PASS: raw SHA, every sequence and record CRC, cumulative CRC/count, complete framing, exact decoded results and recomputed summary, expected firmware metadata.",
+      "ack_log": "ACK write log verified",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 485,
+              "p05": 489,
+              "median": 492.0,
+              "p95": 492,
+              "max": 496,
+              "mean": 491.234375,
+              "stdev": 1.5384873608109362
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -217.0,
+                "central": -219,
+                "trial": -223,
+                "minimum": -223
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.75,
+              "stdev": 0.8660254037844386
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 485,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 485.453125,
+              "stdev": 0.7891785186983994
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -252,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 168,
+              "median": 170.0,
+              "p95": 171,
+              "max": 171,
+              "mean": 169.734375,
+              "stdev": 0.8881544681951445
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 632,
+              "max": 632,
+              "mean": 629.640625,
+              "stdev": 1.0660556314634804
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 197,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.34375,
+              "stdev": 0.9222721602108567
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      }
+    },
+    {
+      "directory": "assets\\hardware_diagnostics\\pt8211_detached\\20261018T221328.971752Z-24c3b8fb",
+      "manual_label": "detached",
+      "expected_signature": "UNLOADED",
+      "evidence": "Surviving workspace raw evidence; directly revalidated now",
+      "raw_sha256": "181769d2327d5dcd33444bc68d07c3b94cdc147c86e5f3244766baea10854ef5",
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "4f4aab02",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "validation": "PASS: raw SHA, every sequence and record CRC, cumulative CRC/count, complete framing, exact decoded results and recomputed summary, expected firmware metadata.",
+      "ack_log": "ACK write log verified",
+      "classification": {
+        "prediction": "UNLOADED",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 487,
+              "p05": 490,
+              "median": 492.0,
+              "p95": 492,
+              "max": 495,
+              "mean": 491.296875,
+              "stdev": 1.2077831901359615
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -217.0,
+                "central": -218,
+                "trial": -221,
+                "minimum": -221
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 9,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 169,
+              "p05": 169,
+              "median": 170.0,
+              "p95": 170,
+              "max": 170,
+              "mean": 169.8125,
+              "stdev": 0.3903123748998999
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -20,
+                "minimum": -20.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 9,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 484,
+              "p05": 485,
+              "median": 485.0,
+              "p95": 487,
+              "max": 487,
+              "mean": 485.328125,
+              "stdev": 0.7511384588576197
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -252.0,
+                "central": -252,
+                "trial": -253,
+                "minimum": -253
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 168,
+              "p05": 169,
+              "median": 170.0,
+              "p95": 170,
+              "max": 170,
+              "mean": 169.75,
+              "stdev": 0.5
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 9,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 629,
+              "p05": 629,
+              "median": 629.0,
+              "p95": 632,
+              "max": 632,
+              "mean": 629.78125,
+              "stdev": 1.230710541719701
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.453125,
+              "stdev": 0.8087352684129708
+            },
+            "evidence": "UNLOADED",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": -20.0,
+                "central": -20,
+                "trial": -21,
+                "minimum": -21
+              },
+              "UNLOADED": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      }
+    },
+    {
+      "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215700.434997Z-194bfe2f",
+      "manual_label": "attached",
+      "expected_signature": "PT8211_LIKE",
+      "evidence": "Raw evidence supplied in recovery ZIP; directly revalidated now",
+      "raw_sha256": "1bcd04047d30ec5fe3b681eb6e3c48628e3d61ce3d5e99c0d25d0a7a823512a4",
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "f938062c",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "validation": "PASS: raw SHA, every sequence and record CRC, cumulative CRC/count, complete framing, exact decoded results and recomputed summary, expected firmware metadata.",
+      "ack_log": "ACK write log verified",
+      "classification": {
+        "prediction": "PT8211_LIKE",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 716,
+              "p05": 716,
+              "median": 717.0,
+              "p95": 721,
+              "max": 723,
+              "mean": 717.484375,
+              "stdev": 1.620109829417438
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -217.0,
+                "central": -221,
+                "trial": -219,
+                "minimum": -221
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 198,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.4375,
+              "stdev": 0.7680128579652817
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 745,
+              "p05": 745,
+              "median": 745.0,
+              "p95": 747,
+              "max": 747,
+              "mean": 745.5,
+              "stdev": 0.7905694150420949
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -252.0,
+                "central": -225,
+                "trial": -223,
+                "minimum": -252.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 198,
+              "p05": 198,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.4375,
+              "stdev": 0.7680128579652817
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 861,
+              "p05": 861,
+              "median": 861.0,
+              "p95": 863,
+              "max": 864,
+              "mean": 861.515625,
+              "stdev": 0.8476472493761777
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -224.0,
+                "central": -223,
+                "trial": -224,
+                "minimum": -224.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 226,
+              "p05": 226,
+              "median": 226.0,
+              "p95": 229,
+              "max": 229,
+              "mean": 226.65625,
+              "stdev": 1.0784646204210873
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      }
+    },
+    {
+      "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215735.599162Z-ee13663a",
+      "manual_label": "attached",
+      "expected_signature": "PT8211_LIKE",
+      "evidence": "Raw evidence supplied in recovery ZIP; directly revalidated now",
+      "raw_sha256": "74d0dc0f6cdb8ae3fe7b1d924985a46b1a2196b6dd03facff1ce49ad73d5791d",
+      "raw_bytes": 387856,
+      "record_counts": {
+        "meta": 1,
+        "pin": 384,
+        "control": 100,
+        "cadence": 3444,
+        "end": 1
+      },
+      "end": {
+        "type": "end",
+        "callbacks": 3445,
+        "intervals": 3444,
+        "cadence_overflow": false,
+        "records": 3930,
+        "stream_crc32": "99cd13ca",
+        "short_writes": 0,
+        "zero_writes": 0,
+        "record_retries": 0
+      },
+      "validation": "PASS: raw SHA, every sequence and record CRC, cumulative CRC/count, complete framing, exact decoded results and recomputed summary, expected firmware metadata.",
+      "ack_log": "Unavailable in supplied recovery archive; not required for raw CRC/sequence validation",
+      "classification": {
+        "prediction": "PT8211_LIKE",
+        "reasons": [],
+        "features": {
+          "pin7_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 717,
+              "p05": 721,
+              "median": 724.0,
+              "p95": 724,
+              "max": 728,
+              "mean": 723.3125,
+              "stdev": 1.4238482187368147
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              }
+            }
+          },
+          "pin7_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 197,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.203125,
+              "stdev": 0.8325354252973263
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          },
+          "pin20_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 745,
+              "p05": 745,
+              "median": 745.0,
+              "p95": 748,
+              "max": 748,
+              "mean": 745.59375,
+              "stdev": 0.9955957701296244
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -252.0,
+                "central": -226,
+                "trial": -224,
+                "minimum": -252.0
+              }
+            }
+          },
+          "pin20_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 197,
+              "p05": 197,
+              "median": 198.0,
+              "p95": 200,
+              "max": 200,
+              "mean": 198.265625,
+              "stdev": 0.8881544681951445
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          },
+          "pin21_target0": {
+            "role": "primary",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 861,
+              "p05": 861,
+              "median": 861.0,
+              "p95": 864,
+              "max": 864,
+              "mean": 861.625,
+              "stdev": 1.0680004681646913
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -224.0,
+                "central": -224,
+                "trial": -224,
+                "minimum": -224.0
+              }
+            }
+          },
+          "pin21_target1": {
+            "role": "cross-check",
+            "statistics_cycles": {
+              "n": 64,
+              "min": 226,
+              "p05": 226,
+              "median": 226.0,
+              "p95": 229,
+              "max": 229,
+              "mean": 226.65625,
+              "stdev": 1.2401959270615268
+            },
+            "evidence": "PT8211_LIKE",
+            "class_margins_cycles": {
+              "PT8211_LIKE": {
+                "median": 8.0,
+                "central": 8,
+                "trial": 8,
+                "minimum": 8.0
+              },
+              "UNLOADED": {
+                "median": -20.0,
+                "central": -21,
+                "trial": -21,
+                "minimum": -21
+              }
+            }
+          }
+        },
+        "profile_id": "teensy41-pt8211-loading-v1",
+        "integrity_verified": true,
+        "primary_margin_cycles": 8.0,
+        "cross_check_margin_cycles": 8.0,
+        "minimum_margin_cycles": 8.0
+      }
+    }
+  ],
+  "attached_run3_previous_result": {
+    "attempt": 3,
+    "directory": "assets\\hardware_diagnostics\\pt8211_attached\\20261018T215809.161405Z-93ee62f3",
+    "manual_label": "attached",
+    "isolator": "adum3160",
+    "boot": "software reset/boot-only",
+    "expected_signature": "PT8211_LIKE",
+    "previously_reported_prediction": "UNKNOWN",
+    "evidence_status": "PREVIOUSLY REPORTED IN CONVERSATION ONLY; original report/raw/manifests deleted by user; NOT revalidated now",
+    "previously_reported_feature_margins_PT8211_LIKE_cycles": {
+      "pin7_target0": {
+        "median": 8,
+        "central": 8,
+        "trial": 11,
+        "minimum": 8
+      },
+      "pin7_target1": {
+        "median": 8,
+        "central": 8,
+        "trial": 8,
+        "minimum": 8
+      },
+      "pin20_target0": {
+        "median": 8,
+        "central": 8,
+        "trial": 8,
+        "minimum": 8
+      },
+      "pin20_target1": {
+        "median": 8,
+        "central": 8,
+        "trial": 8,
+        "minimum": 8
+      },
+      "pin21_target0": {
+        "median": 8,
+        "central": 8,
+        "trial": -47,
+        "minimum": -47
+      },
+      "pin21_target1": {
+        "median": 8,
+        "central": 8,
+        "trial": 8,
+        "minimum": 8
+      }
+    },
+    "previously_reported_reason": [
+      "GPIO21 pull-down first raw trial: 806 cycles, below frozen 853..872 raw band; median 861, median/central margins +8, hard margin -47."
+    ],
+    "raw_available": false
+  },
+  "all_six_outcomes": {
+    "detached_surviving_raw_verified": [
+      "UNLOADED",
+      "UNLOADED",
+      "UNLOADED"
+    ],
+    "attached_recovery_raw_verified": [
+      "PT8211_LIKE",
+      "PT8211_LIKE"
+    ],
+    "attached_run3_previously_reported_not_revalidated": "UNKNOWN"
+  },
+  "interpretation": [
+    "All three detached runs are UNLOADED with no rejection reasons and minimum margins of eight cycles. Every feature passes median, p05/p95 and raw-trial guards.",
+    "Attached runs 1/2 are now directly verified from recovery raw evidence, rather than solely previously reported.",
+    "Attached run 3 remains UNKNOWN: previously reported GPIO21 down raw trial 806 cycles, below 853, giving a -47-cycle raw margin despite +8 median/central margins. Its raw and manifest remain unavailable; no reclassification or pass is claimed.",
+    "The hard every-trial guard can reject one extreme while median/p05/p95 pass. It is fail-closed loading-signature behavior, not proof of physical absence or DAC failure."
+  ],
+  "scope": "No captures, profile/classifier/firmware tuning, production changes or Git writes. Existing datasets, recovery ZIP and previous reports/export preserved."
+}
