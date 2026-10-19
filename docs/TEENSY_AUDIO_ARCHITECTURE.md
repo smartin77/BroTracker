@@ -154,9 +154,12 @@ USB Audio bridge with manual override; Shield recognition awaits physical hardwa
 
 Run `python -B tools/teensy_audio/check_selection.py --build build/audio-selection`.
 This compiles the actual activation method with instrumented driver/connection/pool
-stubs and modeled ARM interrupt masks: it checks deferred construction, one owner,
-mono routing, idempotence, rejection and mask restoration in six cases. It does
-not validate DMA clocks or physical audio. Existing host config/controls tests
+stubs and modeled ARM interrupt masks, including internal interrupt enables and
+pending DMA/audio-update interrupts during activation. All 36 activation cases
+passed across PT8211/bridge paths and pattern/legacy graphs, checking deferred
+construction, one owner, mono routing, idempotence, rejection and mask restoration.
+The two PRIMASK-only negative controls reproduce the unsafe activation failure.
+These checks do not validate DMA clocks or physical audio. Existing host config/controls tests
 cover precedence, case/whitespace, acknowledgments, rejection, timeout and reconnect.
 
 ### Windows serial hardware validation (2026-10-19)
@@ -170,12 +173,23 @@ Raw serial and reports are in
 `build/activation-review/serial-20261019T191518Z-33f86245/` (untracked review artifacts).
 Two failed test-script attempts are preserved: one expected old version-1 telemetry,
 the other incorrectly required no partial line at a serial-session boundary.
-No PT8211 activation/listening, Windows listening or physical ArkOS/dArkOS validation
-was performed; the attached audio module is unconfirmed. Listening remains for the user.
+Those automated serial checks did not establish listening results.
 
-### Remaining hardware listening and host validation
+### User-confirmed INI output selection (2026-10-19)
 
-1. Only after PT8211 attachment is physically confirmed, stop BTX; merge/edit the
+With PT8211 attached, the user confirmed that production INI selection works
+correctly for both `[audio] output=pt8211` and `output=bridge` on Windows.
+In bridge mode, Windows USB bridge audio plays while PT8211 remains silent.
+This confirmation is separate from the earlier isolated 440 Hz left / 880 Hz
+right smoke test. USB_BRIDGE remains the development default. Physical ArkOS
+and dArkOS validation remains pending; neither is established by Windows results.
+
+### Additional hardware and host regression checks
+
+The basic Windows INI output selection is user-confirmed; the following checklist
+retains the detailed lifecycle and playback checks for further validation.
+
+1. For repeat validation with PT8211 attached, stop BTX; merge/edit the
    user INI (retain required `[btx]`) to `output=pt8211`. With all power disconnected,
    verify module wiring, then reconnect Teensy and launch the rebuilt BTX.
 2. Confirm the logged config path/value, `BTAUDIO1 SET 1 pt8211` and matching

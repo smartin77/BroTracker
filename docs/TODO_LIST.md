@@ -83,16 +83,17 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   bridge while PT8211 remains silent. USB_BRIDGE remains the development default.
 * [x] Earlier isolated PT8211 stereo smoke test passed: 440 Hz left only and
   880 Hz right only. This is separate from production INI-driven selection.
-* [ ] Physically validate `[audio] output=pt8211` through the new INI negotiation:
-  analog L/R playback and silent USB PCM. The earlier isolated playback result
-  does not validate this production selection path.
+* [x] User hardware confirmation (2026-10-19): production INI output selection
+  works correctly for both `[audio] output=pt8211` and `output=bridge` on Windows.
+  This validates the new selection mechanism separately from the isolated smoke
+  test. USB_BRIDGE remains the development default.
 * [x] Locally cross-build the ArkOS Eoan ARM64 host using the existing QEMU root;
   all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged SDL paths
   and byte-preserved settings. This is build-root validation, not a handheld pass.
 * [ ] Physically validate ArkOS INI path, bridge playback, controls and reconnect
   when a handheld is available. No ArkOS deployment/test performed in this task.
 * [ ] Physically validate dArkOS separately; ArkOS results cannot validate dArkOS.
-* [ ] Execute INI-driven production hardware checklist in TEENSY_AUDIO_ARCHITECTURE:
+* [ ] Complete remaining detailed INI-driven hardware regression checks in TEENSY_AUDIO_ARCHITECTURE:
   PT8211 L/R mono and silent USB, bridge PCM/MQS cadence, SD samples, controls,
   acknowledgment, reconnect and explicit rejection/restart behavior.
 * [ ] Review future platform-only automatic boot detection/selection and update the
