@@ -17,6 +17,55 @@ this is not dArkOS validation or a timing/performance measurement. The reference
 supersedes the legacy L1/B and R1/X bindings in historical observations below.
 Final configurable input profiles remain future work.
 
+## Persistent user configuration (ArkOS and dArkOS)
+
+The same parser and serial audio negotiation as Windows read the runtime user's
+persistent SDL preference path, independent of the working directory or package:
+`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, falling back to
+`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
+is unset. For HOME=/home/ark with no XDG override this is
+`/home/ark/.local/share/BroTracker/BroTracker Terminal/config.ini`.
+The launcher exports the effective XDG_DATA_HOME; the application logs the actual
+SDL-resolved path. Run as the normal Ports user, not sudo/root. Windows normally
+uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini` and logs its resolved path.
+
+Merge into the existing file without removing [btx], [logging], [editing] or
+other existing settings (keep required schema fields):
+
+```ini
+[audio]
+output=bridge
+```
+
+`bridge` and `pt8211` are accepted lowercase values, with trimmed whitespace.
+An explicit value selects the Teensy route, not the handheld playback device.
+Missing/empty values keep the active route or use firmware USB_BRIDGE on a fresh
+Teensy boot. Invalid values warn and ignore the audio override. Restart BTX to
+reload; changing an already activated route also requires restarting Teensy.
+Reconnect resends the preference but never starts playback or resets an unchanged
+route. The acknowledged route must match; a different locked route is rejected
+with restart-required. PT8211 is manual only; no presence detection is enabled.
+
+Future packages/installations carry `config/config.ini.example` as an example
+inside the application tree. Neither launcher nor installer creates or overwrites
+the persistent user config. Merge the example manually if a user file exists.
+`--safe-config` on direct invocation bypasses the file; the direct launcher
+forwards arguments. Shared Linux tests are not physical handheld tests: ArkOS
+and dArkOS hardware checks remain separate and pending for this integration.
+
+### Local configuration verification, 2026-10-19
+
+The existing Eoan ARM64 QEMU root was available; all 10 CTest cases and the
+ARM64 interpreter/dependency/symbol-version/relocation checks passed. The rebuilt terminal
+loaded both bridge and pt8211 preferences headlessly, logged the effective SDL
+paths and preserved all test INI bytes (including btx/logging/editing settings).
+Launcher/installer fixture tests passed persistent-path export/fallback and
+preservation checks. No new package was staged and no handheld was contacted.
+ArkOS physical bridge/listening/reconnect checks remain pending. dArkOS physical
+checks remain independently pending; local ABI/host tests validate neither device.
+The connected Windows Teensy passed serial bridge acknowledgment, START/STOP and
+telemetry/reconnect checks; those are not handheld or listening results.
+
 ## One-time serial access setup on ArkOS/dArkOS
 
 For the user running Ports (usually `ark`), if the CDC port is owned by

@@ -1771,7 +1771,10 @@ capacity, multiple-pattern sequencing or flow FX.
 
 ## D0057 — Host Configuration and Safe Recovery
 
-BTX has optional host-only `config.ini` settings with versioned validation.
+BTX has optional `config.ini` settings with versioned validation. The later
+manual `[audio] output=bridge/pt8211` extension requests the Teensy production
+route through serial negotiation; it is not a host playback-device selector.
+See `TEENSY_AUDIO_ARCHITECTURE.md` for precedence and restart requirements.
 Built-in defaults are always available: schema version 1 and new-pattern length
 32 rows per D0056. Supported lengths are 16, 32 and 64. This exposes a default for
 future creation; it does not resize existing patterns, change the 16-row device

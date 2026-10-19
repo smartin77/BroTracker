@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include "bringup/audio_output_selection.h"
 #include <cstdint>
 #include <filesystem>
 #include <string_view>
@@ -10,6 +11,8 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    AudioOutputChoice audio_output = AudioOutputChoice::Default;
+    bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
     std::uint32_t schema_version = 1;
     std::uint32_t new_pattern_length = 32;
     HostLogMode logging_mode = HostLogMode::Basic;
@@ -22,6 +25,8 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // exactly once. Optional [logging]: mode=basic/debug, preserve_last=0..20.
 // Optional [editing]: value_step_direction=normal/reversed; deprecated alias
 // note_step_direction is accepted, but supplying both names rejects.
+// Optional [audio]: output=bridge/pt8211. Empty/absent uses firmware default.
+// Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.

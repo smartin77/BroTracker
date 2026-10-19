@@ -1,4 +1,8 @@
-; Optional host settings. Copy manually to the documented user config path.
+; Optional host settings. Merge into an existing user config; never overwrite it.
+; Windows: %APPDATA%/BroTracker/BroTracker Terminal/config.ini
+; ArkOS/dArkOS: $XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini
+; If XDG_DATA_HOME is unset: $HOME/.local/share/BroTracker/BroTracker Terminal/config.ini
+; Restart BTX to reload. Restart Teensy to change an already activated route.
 [btx]
 schema_version=1
 new_pattern_length=32
@@ -12,3 +16,7 @@ preserve_last=5
 ; Deprecated alias: note_step_direction. Do not specify both names.
 [editing]
 value_step_direction=normal
+
+; Selects Teensy output, not the host playback device. Restart Teensy to change an active route.
+[audio]
+output=bridge

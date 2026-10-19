@@ -94,3 +94,54 @@ TEST_CASE(ValueStepDirectionCanonicalAliasAndConflictRollback) {
         CHECK(c.value_step_direction==ValueStepDirection::Normal); CHECK_EQ(c.new_pattern_length,32u);
     }
 }
+
+TEST_CASE(HostConfigAudioPrecedenceAndInvalidFieldFallback) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c;
+    CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);
+    CHECK(c.audio_output==AudioOutputChoice::Default);
+    for(const auto text : {"[audio]\noutput=", "[audio]\n output = \t ", "[audio]"}) {
+        CHECK(ParseHostConfig(base+text,c)==HostConfigStatus::Loaded);
+        CHECK(c.audio_output==AudioOutputChoice::Default); CHECK(!c.audio_output_invalid);
+    }
+    CHECK(ParseHostConfig(base+" [audio] \n output = pt8211 \r\n",c)==HostConfigStatus::Loaded);
+    CHECK(c.audio_output==AudioOutputChoice::Pt8211);
+    CHECK(ParseHostConfig(base+"[audio]\noutput=bridge",c)==HostConfigStatus::Loaded);
+    CHECK(c.audio_output==AudioOutputChoice::Bridge);
+    for(const auto value : {"PT8211","Bridge","shield","bad"}) {
+        CHECK(ParseHostConfig(base+"[audio]\noutput="+value,c)==HostConfigStatus::Loaded);
+        CHECK(c.audio_output_invalid); CHECK(c.audio_output==AudioOutputChoice::Default);
+        CHECK_EQ(c.new_pattern_length,64u);
+    }
+    CHECK(ParseHostConfig(base+"[audio]\noutput=bridge\noutput=pt8211",c)==HostConfigStatus::Invalid);
+    CHECK(ParseHostConfig(base+"[audio]\n[Audio]\noutput=bridge",c)==HostConfigStatus::Invalid);
+    CHECK(LoadHostConfig({},true).config.audio_output==AudioOutputChoice::Default);
+}
+TEST_CASE(ProductionAudioSelectionLocksOnceAndReconnectIsIdempotent) {
+    AudioOutputSelection selection;
+    CHECK(selection.Active()==AudioOutputChoice::Default);
+    CHECK(selection.CanSelect(AudioOutputChoice::Pt8211,AudioOutputChoice::Bridge));
+    selection.Commit(AudioOutputChoice::Pt8211,AudioOutputChoice::Bridge);
+    CHECK(selection.Active()==AudioOutputChoice::Pt8211);
+    CHECK(selection.CanSelect(AudioOutputChoice::Pt8211,AudioOutputChoice::Bridge));
+    CHECK(!selection.CanSelect(AudioOutputChoice::Bridge,AudioOutputChoice::Bridge));
+    CHECK(selection.CanSelect(AudioOutputChoice::Default,AudioOutputChoice::Bridge));
+    selection.Commit(AudioOutputChoice::Default,AudioOutputChoice::Bridge);
+    CHECK(selection.Active()==AudioOutputChoice::Pt8211);
+    selection.Commit(AudioOutputChoice::Bridge,AudioOutputChoice::Bridge);
+    CHECK(selection.Active()==AudioOutputChoice::Pt8211);
+    AudioOutputSelection fallback;
+    fallback.Commit(AudioOutputChoice::Default,AudioOutputChoice::Bridge);
+    CHECK(fallback.Active()==AudioOutputChoice::Bridge);
+    CHECK(fallback.CanSelect(AudioOutputChoice::Bridge,AudioOutputChoice::Bridge));
+}
+
+TEST_CASE(ProductionAudioRequestStrictParsing) {
+    AudioOutputChoice c=AudioOutputChoice::Default;
+    CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 pt8211",c));CHECK(c==AudioOutputChoice::Pt8211);
+    CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 bridge",c));CHECK(c==AudioOutputChoice::Bridge);
+    CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 default",c));CHECK(c==AudioOutputChoice::Default);
+    for(const auto bad : {"BTAUDIO1 SET 2 bridge","BTAUDIO1 SET 1 PT8211","BTAUDIO1 SET 1 shield",
+                         "BTAUDIO1 SET 1 bridge extra","BTAUDIO1 SET 1 ","BTAUDIO1"})
+        CHECK(!ParseAudioOutputRequest(bad,c));
+}
