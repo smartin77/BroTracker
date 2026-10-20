@@ -81,9 +81,10 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('DEVICE_INFO_VERSION: unbound variable',failing.stderr)
         result=subprocess.run(['bash',str(installed)],env=env,capture_output=True,text=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-        for marker in ['device_info:','controls:','helper:','synthetic runner reached','finish:']:
+        for marker in ['device_info:','controls:','helper:','synthetic runner reached']:
             self.assertIn(marker,result.stdout)
         self.assertNotIn('unbound variable',result.stderr)
+        self.assertNotIn('finish:',result.stdout)  # External/network-capable return hook is never called.
     def test_non_utf8_process_names_preserve_ownership_refusal(self):
         proc=self.root/'proc';proc.mkdir()
         for pid,data in [('118',b'irq/45-\xc8\n'),('120',b'irq/152-\xc8\n')]:
@@ -141,8 +142,8 @@ class RunnerTests(unittest.TestCase):
                 else: self.assertFalse(serial.request.called)
                 self.assertTrue((e.root/'events.jsonl').exists())
     def test_result_deadlines_and_immediate_exit(self):
-        for success,seconds in [(False,15),(True,30)]:
-            e=self.experiment();e.show=Mock();e.viewer=Mock();e.viewer.poll.return_value=None
+        for success,seconds in [(False,r.RESULT_SECONDS),(True,r.RESULT_SECONDS)]:
+            e=self.experiment();e.results_finalized=True;e.show=Mock();e.viewer=Mock();e.viewer.poll.return_value=None
             clock=[0.]
             with patch.object(r.time,'monotonic',side_effect=lambda:clock[0]),patch.object(r.time,'sleep',side_effect=lambda n:clock.__setitem__(0,clock[0]+n)):
                 e.wait_results(success)
@@ -150,7 +151,7 @@ class RunnerTests(unittest.TestCase):
             e.cancelled=False;e.finishing=True;clock[0]=0
             with patch.object(r.time,'monotonic',side_effect=lambda:clock[0]),patch.object(r.time,'sleep',side_effect=lambda n:e.cancel()):
                 e.wait_results(success)
-            self.assertTrue(e.cancelled);self.assertEqual(clock[0],0)
+            self.assertFalse(e.cancelled);self.assertTrue(e.results_dismissed);self.assertEqual(clock[0],0)
     def test_precise_cancellation_source_is_retained_in_timeline_and_reason(self):
         e=self.experiment();e.cancel_producers[123]='btx'
         source=dict(producer_pid=123,view='btx',phase='RUNNING BTX-active',reason='controller_back',
@@ -168,6 +169,46 @@ class RunnerTests(unittest.TestCase):
         self.assertIsNone(e.viewer);self.assertFalse(e.cancelled)
         records=[json.loads(line) for line in (e.root/'events.jsonl').read_text().splitlines()]
         self.assertEqual(records[-1]['event'],'owned_view_shutdown_requested')
+    def test_cancelled_partial_run_defers_analysis_and_returns_after_cleanup(self):
+        e=self.experiment();directory=e.root/'on';directory.mkdir();(directory/'bridge-partial').mkdir()
+        e.preflight=Mock(side_effect=r.Cancelled('emergency B'))
+        e.run_analysis=Mock(side_effect=AssertionError('must not analyze partial evidence on emergency exit'))
+        self.assertFalse(e.run());e.run_analysis.assert_not_called()
+        self.assertTrue((directory/'analysis-deferred.json').exists())
+        self.assertEqual(json.loads((e.root/'summary.json').read_text())['outcome'],'CANCELLED')
+    def test_saved_completed_result_is_immutable_when_b_dismisses(self):
+        e=self.experiment();e.preflight=Mock()
+        e.condition=lambda mode,identity:e.results.append(dict(mode=mode,success=True))
+        self.assertTrue(e.run());before=(e.root/'summary.json').read_bytes()
+        e.cancel('B dismisses completed results')
+        self.assertFalse(e.cancelled);self.assertTrue(e.results_dismissed)
+        self.assertEqual((e.root/'summary.json').read_bytes(),before)
+        self.assertEqual(json.loads(before)['outcome'],'COMPLETED')
+    def test_analysis_worker_is_cancellable_and_cleanup_reaps_only_owned_worker(self):
+        e=self.experiment();d=e.root/'on';d.mkdir();trace=d/'bridge-synthetic';trace.mkdir()
+        child=Mock();child.pid=555;child.poll.return_value=None;child.wait.return_value=0
+        e.launch=Mock(return_value=child);e.check_view=Mock();e.status=Mock()
+        with patch.object(r.time,'sleep',side_effect=lambda n:e.cancel('B during analysis')):
+            with self.assertRaises(r.Cancelled):e.run_analysis(d,trace)
+        self.assertEqual(e.cleanup(),[]);child.kill.assert_called_once();child.wait.assert_called_once()
+    def test_analysis_worker_timeout_is_bounded_and_preserves_trace(self):
+        e=self.experiment();d=e.root/'on';d.mkdir();trace=d/'bridge-synthetic';trace.mkdir()
+        child=Mock();child.pid=555;child.poll.return_value=None;child.wait.return_value=0
+        e.launch=Mock(return_value=child);e.check_view=Mock();e.status=Mock()
+        with patch.object(r.time,'monotonic',side_effect=[0,r.ANALYSIS_SECONDS+1]):
+            with self.assertRaisesRegex(r.Failure,'analysis timeout'):e.run_analysis(d,trace)
+        self.assertTrue(trace.exists());self.assertEqual(e.cleanup(),[]);child.kill.assert_called_once()
+    def test_real_analysis_worker_completes_with_strict_transfer_bounds(self):
+        from test_analyze_clicks import ComparisonTests
+        fixture=ComparisonTests('test_partial_zero_error_discard_accounting');fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.save()
+        e=self.experiment();e.repo=Path(__file__).resolve().parents[2]
+        d=e.root/'on';d.mkdir()
+        report=e.run_analysis(d,fixture.root)
+        self.assertTrue(report['complete']);self.assertTrue(report['accepted_equals_mapped_received'])
+        self.assertEqual(set(report['pcm_transfer_bounds_ns']),{'capture','playback'})
+        self.assertIsNone(e.analysis);self.assertTrue((d/'analysis.json').exists())
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff
@@ -245,7 +286,7 @@ class RunnerTests(unittest.TestCase):
     def test_stop_does_not_affect_unowned_playback(self):
         e=self.experiment();e.open_serial=Mock();e.stop_playback();e.open_serial.assert_not_called()
     def test_sparse_off_checks_are_scheduled_consistently(self):
-        e=self.experiment();e.ensure_bridge=Mock();e.session=Mock();e.open_serial=Mock(return_value=e.session)
+        e=self.experiment();e.ensure_bridge=Mock();e.status=Mock();e.session=Mock();e.open_serial=Mock(return_value=e.session)
         clock=[0.];calls=[]
         def observe():
             calls.append(clock[0]);return dict(ns=int(clock[0]*1e9),position=dict(tick=100+int(clock[0]*100)))
@@ -292,8 +333,11 @@ class RunnerTests(unittest.TestCase):
                 child.wait.side_effect=wait
             return child
         e.launch=launch
-        with patch.object(r,'analyze',return_value={'complete':True,'accepted_equals_mapped_received':True}):
-            e.condition('on',4000000000);e.condition('off',4000000004)
+        def analysis(directory,trace):
+            report=dict(complete=True,accepted_equals_mapped_received=True,pcm_transfer_bounds_ns={'capture':[0,300],'playback':[0,300]})
+            r.save(directory/'analysis.json',report);return report
+        e.run_analysis=analysis
+        e.condition('on',4000000000);e.condition('off',4000000004)
         self.assertEqual(len(e.results),2);self.assertTrue(all(v['success'] for v in e.results))
         self.assertEqual(e.stop_playback.call_count,2);self.assertEqual(e.active_phase.call_count,2)
         self.assertTrue((e.root/'on/analysis.json').exists());self.assertTrue((e.root/'off/result.json').exists())

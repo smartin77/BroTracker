@@ -5,18 +5,18 @@ launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 pathfile="$launcher_dir/BroTracker Bridge Clicks.repo.path"
 if [[ ! -r "$pathfile" ]]; then
     printf 'FAILED: missing %s\nSee tools/alsa_bridge/README.md\n' "$pathfile"
-    read -r -t 60 -p 'Press Enter to return to Ports: ' || true
+    sleep 3
     exit 1
 fi
 IFS= read -r repo < "$pathfile"
 if [[ "$repo" != /* || ! -f "$repo/tools/alsa_bridge/offline_runner.py" ]]; then
     echo 'FAILED: repo.path must name the absolute transferred checkout directory'
-    read -r -t 60 || true
+    sleep 3
     exit 1
 fi
 if ! command -v python3 >/dev/null; then
     echo 'FAILED: Python 3.7+ is required; install during online preparation'
-    read -r -t 60 || true
+    sleep 3
     exit 1
 fi
 export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
@@ -39,5 +39,6 @@ printf 'PREPARING offline bridge-click experiment; no Wi-Fi or hub required.\n'
 python3 -B "$repo/tools/alsa_bridge/offline_runner.py" --repo "$repo"
 code=$?
 printf 'Diagnostics finished, status=%s. Results remain in %s/assets/hardware_diagnostics/bridge_clicks/\n' "$code" "$repo"
-if type pm_finish >/dev/null 2>&1; then pm_finish; fi
+# Do not invoke the external pm_finish return hook: it may wait for network.
+# Exiting this owned Ports entry returns directly; no network or input required.
 exit "$code"

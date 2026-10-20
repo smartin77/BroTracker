@@ -40,6 +40,11 @@ class ComparisonTests(unittest.TestCase):
                      'frame_bytes': 4, 'queue_frames': 8192}
         self.completion = {'schema': 1, 'incomplete': False, 'writer_failed': False, 'lost_records': 0,
                            'queued_records': len(self.records), 'attempted_records': len(self.records)}
+    def test_pcm_coverage_bounds_track_successful_transfers_only(self):
+        report=self.save()
+        for side,kind in [('capture',2),('playback',3)]:
+            times=[r['ns'] for r in self.records if r['kind']==kind and r['result']>0]
+            self.assertEqual(report['pcm_transfer_bounds_ns'][side],[min(times),max(times)])
     def event(self, kind, **kwargs):
         r = dict.fromkeys(FIELDS, 0)
         r.update(seq=len(self.records)+1, ns=1000000000+len(self.records)*1000, kind=kind,

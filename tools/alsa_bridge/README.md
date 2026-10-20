@@ -328,13 +328,17 @@ typed timestamp, questionnaire or external recording is required to complete a r
 
 The diagnostic display shows **B: EXIT** throughout preflight, measurement and
 results using fixed 3x integer text at 640x480. B, mapped controller Back,
-Escape or closing the diagnostic window cancels the runner, including during
+Escape or closing the diagnostic window is emergency cancel/exit, including during
 bounded setup/serial waits. Cancellation is **CANCELLED**, never technical success.
 Only owned children are stopped; serial handles close and a bounded STOP/idle
 attempt follows BTX serial release when playback was owned. All evidence remains.
-Failures show a short error and return to Ports after 15 seconds; completed results
-return after 30 seconds. B/Back/Escape returns immediately (after bounded cleanup
-when cancelling a live run). Full paths, errors and tracebacks remain in saved logs.
+The entire experiment is unattended. Finalized outcomes display briefly (3 seconds)
+and return to Ports automatically, without B or Wi-Fi. After publication, B only
+dismisses the screen and cannot change the saved outcome. During a running test or
+analysis, B cancels with bounded cleanup and preserves partial evidence. Full
+paths, errors and tracebacks remain in saved logs. The diagnostic launcher exits
+directly instead of invoking PortMaster's external, potentially network-dependent
+`pm_finish` return hook; normal application launchers are unchanged.
 Normal BTX input and STOP-on-exit behavior outside diagnostic mode are unchanged.
 Controller B/Back cancellation arms only after all initial held inputs have been
 released for 250 ms; launch events, unknown controller instances, other buttons
@@ -357,9 +361,10 @@ failures rather than user cancellation.
 3. Leave it running for both conditions. The fixed order is diagnostics **on**,
    then **off**. Each has 60 seconds BTX-active and at least 60 seconds BTX-off.
    Setup, serial handoff, observations and finalization are separately timestamped.
-4. Read the completed/failed result. It remains displayed until a button/key,
-   window close or the bounded five-minute final display timeout. Results stay
-   on disk after returning to Ports. Disconnect Teensy before reconnecting Wi-Fi
+4. Do not press B for normal completion. Both 60+60-second condition pairs run,
+   followed by finalization; results display briefly and return to Ports automatically.
+   B is only emergency cancel/exit if needed. Results stay on disk. Disconnect
+   Teensy before reconnecting Wi-Fi
    for retrieval; keep every successful and failed attempt.
 
 Each attempt uses a unique
@@ -426,6 +431,23 @@ successful read and accepted-write timestamps to span both complete measured
 phases, along with normal sequence/count/PCM validation. Timeout, missing/stale
 status, early exit, workload mismatch, overflow/limit loss or insufficient phase
 coverage fails the attempt. No threshold or completeness check is weakened.
+
+Strict recording analysis runs in an owned, cancellable worker with a 180-second
+limit, visible elapsed progress, and analysis/bridge-shutdown/cleanup boundary
+events. Timeout fails the attempt. PCM phase bounds come from the same validated
+transfer scan; sequence, hashes, PCM equality and phase coverage remain required.
+Emergency/failed runs do not analyze partial dumps synchronously before exit:
+`analysis-deferred.json` records the explicit offline command and any partial
+worker output is retained. Raw evidence is not marked complete by deferral.
+
+The 20261020T204220Z ArkOS attempt remains CANCELLED (0/2 conditions). Its retained
+80.21-second recording validates byte-for-byte, but BTX-off was interrupted and
+there is no diagnostics-off pair. The user separately confirmed irregular dull
+pops while listening. This is an auditory observation, not an automated PCM fault
+finding or an identified cause. Historical screen presentation timing and the
+reported Wi-Fi message remain unverified; saved status-write timestamps are not
+proof of when a screen was seen. Matched physical validation remains pending.
+
 
 Cleanup first stops/reaps only an owned BTX if needed, then makes bounded
 supported STOP/STATUS requests after serial release, finalizes the owned bridge,

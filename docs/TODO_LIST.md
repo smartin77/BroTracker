@@ -1161,13 +1161,19 @@ design remains unchanged.
   Automatic phase boundaries support later listening reports; audible-click status
   remains NOT YET CONFIRMED until user feedback, separate from technical completion.
   Diagnostic B/Back/Escape/window-close cancellation includes preflight and owned
-  cleanup; fixed 3x status text and 15-second failure/30-second completion return.
+  cleanup; fixed 3x status text and automatic 3-second final-outcome return.
+  Final outcomes are immutable on dismissal. Analysis is an owned cancellable
+  worker (180-second limit); emergency exits defer partial analysis and retain raw
+  evidence. Diagnostic return bypasses external pm_finish; no network is required.
+  ArkOS attempt 20261020T204220Z remains CANCELLED, 0/2 conditions; its retained
+  80.21-second PCM validates. User heard irregular dull pops (separate listening
+  confirmation, cause/phase alignment unknown); complete matched validation pending.
 * [ ] Physically investigate intermittent ArkOS clicks using the unchanged looping
   pattern: matched BTX-active/diagnostically-released runs with an independent bridge,
   diagnostics off/on and optional aligned headphone recording. Preserve every run
   under `assets/hardware_diagnostics/bridge_clicks/`; validate PCM accounting before
   interpreting transients, gaps, recovery or occupancy trends. ArkOS and dArkOS
-  physical validation remain separate and pending; neither bridge fault nor
+  complete physical validation remain separate and pending; neither bridge fault nor
   hardware limitation is established. Do not reopen resolved cold-boot corruption
   without new evidence; see the earlier validation record.
 

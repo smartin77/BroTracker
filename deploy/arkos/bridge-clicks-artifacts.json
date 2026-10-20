@@ -7,8 +7,8 @@
   "source_sha256": {
     "tools/alsa_bridge/main.cpp": "cd336db3187eb429a0f9cb626ffa27f8ecdb6dc71e3186c1ce6d7401ea5e1d81",
     "tools/alsa_bridge/click_diagnostics.h": "2afbc5dab3fb1869d9c1297382d86cec8e5fb5dc502716111214de73f6f244ee",
-    "tools/alsa_bridge/offline_runner.py": "977a063bf85c61337ff49491efd6290aa7367b70b384c80092bddfdfd125afb0",
-    "tools/alsa_bridge/analyze_clicks.py": "68c4b1524a5f4e6f35b643db33257a5a6d328f60ea3792c479d8a2f64de1dc2b",
+    "tools/alsa_bridge/offline_runner.py": "be6dc5696b4eab5ba455be27d1b5a484efbd1b37fae68965b8c11a507cdd4284",
+    "tools/alsa_bridge/analyze_clicks.py": "24df3f0592a997817a940acf518dc15c0aa297cb2c1b05d675092bdaec64ca75",
     "tools/alsa_bridge/offline_metadata.py": "b69c36fe5072f8602b20c3d57b1426925a2d2aa6f1f79d8dc5d4d90313c964c2",
     "tools/alsa_bridge/prepare_offline.py": "7a1f9a5f96aef4b9c250567748c0159931dc8aa89a24a86aab1c9a84a1034678",
     "ui/arkos/main.cpp": "9f2f8be8febd87e9e29cd7cf6a69a0068d32f767ef1e6b127c87c52fe533b9a9",

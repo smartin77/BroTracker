@@ -13,12 +13,12 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
 import tty
 import traceback
-from analyze_clicks import analyze
 from offline_metadata import collect, supplementary
 
 PHASE_SECONDS=60
@@ -26,6 +26,8 @@ SETUP_SECONDS=60
 RECORD_SECONDS=240
 HANDOFF_SECONDS=8
 CHECK_SECONDS=3
+ANALYSIS_SECONDS=180
+RESULT_SECONDS=3
 class Failure(RuntimeError): pass
 class Cancelled(Failure): pass
 
@@ -160,10 +162,10 @@ class Experiment:
         base=self.repo/'assets/hardware_diagnostics/bridge_clicks'; base.mkdir(parents=True,exist_ok=True)
         self.root=Path(tempfile.mkdtemp(prefix=time.strftime('%Y%m%dT%H%M%SZ-',time.gmtime())+'offline-',dir=base))
         self.events=(self.root/'events.jsonl').open('x',encoding='utf-8'); self.status_path=self.root/'STATUS.txt'
-        self.bridge=self.btx=self.viewer=self.session=None
+        self.bridge=self.btx=self.viewer=self.session=self.analysis=None
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
-        self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False; self.cancel_producers={}; self.cancel_records=set(); self.current_phase="initializing"
+        self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False; self.cancel_producers={}; self.cancel_records=set(); self.current_phase="initializing"; self.results_finalized=False; self.results_dismissed=False
     def retain_traceback(self):
         try:
             with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
@@ -351,7 +353,7 @@ class Experiment:
             if value['tick']>previous: progress_ns=now
             elif now-progress_ns>2000000000: raise Failure('active playback ticks stopped advancing')
             previous=value['tick']; last=value
-            self.status('RUNNING BTX-active: '+str(max(0,int(deadline-time.monotonic())))+'s')
+            self.status('RUNNING '+(self.active_dir.name if self.active_dir else 'test')+' / BTX-active: '+str(max(0,int(deadline-time.monotonic())))+'s\nNo input required.\nAuto-return after both pairs.')
             time.sleep(.5)
         self.ensure_bridge()
         if self.btx.poll() is not None: raise Failure('BTX exited before full active coverage')
@@ -383,7 +385,9 @@ class Experiment:
         for offset in [PHASE_SECONDS/2,PHASE_SECONDS]:
             target=start+int(offset*1e9)
             while time.monotonic_ns()<target:
-                self.ensure_bridge(); time.sleep(min(.5,max(0,(target-time.monotonic_ns())/1e9)))
+                self.ensure_bridge()
+                self.status('RUNNING '+(self.active_dir.name if self.active_dir else 'test')+' / BTX-off: '+str(max(0,int((deadline-time.monotonic_ns())/1e9)))+'s\nNo input required.\nAuto-return after both pairs.')
+                time.sleep(min(.5,max(0,(target-time.monotonic_ns())/1e9)))
             self.ensure_bridge(); value=session.observe(); self.ensure_bridge()
             if value['position']['tick']<=observations[-1]['position']['tick']: raise Failure('off-phase timeline stalled/reset')
             observations.append(value); self.event('off_observation',**value)
@@ -442,28 +446,53 @@ class Experiment:
         released,exited=self.release_btx(diagnostic)
         result['serial_release_ns']=released['ns']; result['btx_exit_observed_ns']=exited
         if Path('/tmp/brotracker-arkos.log').exists(): (directory/'btx-internal.log').write_bytes(Path('/tmp/brotracker-arkos.log').read_bytes())
-        self.show(); self.status('RUNNING BTX-off: sparse serial checks; no Wi-Fi')
+        self.show(); self.status('RUNNING '+mode+' / BTX-off\nNo input required.\nAuto-return after both pairs.')
         result['off']=self.off_phase(directory/'off',released)
         self.stop_playback()
         after=self.readback(directory/'after',identity+2); self.close_serial()
         result['workload_after']=after
         if after!=before: raise Failure('workload changed across condition')
+        self.event('bridge_shutdown_begin',pid=self.bridge.pid)
         result['bridge_exit']=terminate_owned(self.bridge); self.bridge=None
+        self.event('bridge_shutdown_end',code=result['bridge_exit'])
         if result['bridge_exit']!=0: raise Failure('bridge finalization failed')
         if mode=='on':
-            report=analyze(traces[0]); save(directory/'analysis.json',report)
+            report=self.run_analysis(directory,traces[0])
             if not report['complete'] or not report['accepted_equals_mapped_received']: raise Failure('paired PCM incomplete/mismatched')
-            import csv
-            bounds={2:[],3:[]}
-            with (traces[0]/'transfers.tsv').open() as f:
-                for row in csv.DictReader(f,delimiter='\t'):
-                    if int(row['kind']) in bounds and int(row['result'])>0: bounds[int(row['kind'])].append(int(row['ns']))
-            verify_pcm_coverage(bounds,result['active']['start_ns'],result['off']['end_ns'])
+            verify_pcm_coverage(report['pcm_transfer_bounds_ns'],result['active']['start_ns'],result['off']['end_ns'])
             result['pcm_phase_coverage']=True
         else: result['pcm_phase_coverage']='not recorded by design; telemetry observations only'
         result['success']=True; save(directory/'result.json',result)
+    def run_analysis(self,directory,trace):
+        # Run existing strict analysis off the orchestration thread. No audio is active.
+        self.status('FINALIZING '+directory.name+' recording\nAudio stopped. Please wait.\nB: emergency exit.')
+        self.event('analysis_begin',trace=str(trace),timeout_seconds=ANALYSIS_SECONDS)
+        self.analysis=self.launch([sys.executable,'-B',str(self.repo/'tools/alsa_bridge/analyze_clicks.py'),
+                                  str(trace),'--output',str(directory/'analysis.json')],directory/'analysis.log')
+        began=time.monotonic();next_update=began
+        while self.analysis.poll() is None:
+            self.check_view()
+            now=time.monotonic()
+            if now-began>=ANALYSIS_SECONDS: raise Failure('analysis timeout; raw evidence retained')
+            if now>=next_update:
+                self.status('FINALIZING '+directory.name+' recording: '+str(int(now-began))+'s\nAudio stopped. Please wait.\nB: emergency exit.')
+                next_update=now+1
+            time.sleep(.1)
+        code=self.analysis.wait(timeout=1);self.analysis=None
+        self.event('analysis_end',trace=str(trace),code=code,elapsed_seconds=time.monotonic()-began)
+        report=json.loads((directory/'analysis.json').read_text())
+        if code or not report.get('complete') or not report.get('accepted_equals_mapped_received'):
+            raise Failure('paired PCM incomplete/mismatched; see analysis.json')
+        return report
     def cleanup(self):
+        self.event('cleanup_begin')
         errors=[]
+        if self.analysis:
+            try:
+                terminate_owned(self.analysis,force=True)
+                self.event('analysis_worker_reaped',pid=self.analysis.pid)
+            except Exception as e: errors.append('analysis cleanup: '+str(e))
+            self.analysis=None
         if self.btx:
             try:
                 # On failure only, terminate our own UI; process wait proves release.
@@ -475,9 +504,13 @@ class Experiment:
         try: self.close_serial()
         except Exception as e: errors.append('serial finalization: '+str(e))
         if self.bridge:
-            try: terminate_owned(self.bridge)
+            try:
+                self.event('bridge_shutdown_begin',pid=self.bridge.pid)
+                code=terminate_owned(self.bridge)
+                self.event('bridge_shutdown_end',code=code)
             except Exception as e: errors.append(str(e))
             self.bridge=None
+        self.event('cleanup_end',errors=errors)
         return errors
     def run(self):
         failure=None
@@ -498,25 +531,34 @@ class Experiment:
         if self.recording_error: errors.append('runner timeline evidence incomplete')
         if self.config_path is not None and (sha(self.config_path) if self.config_path.exists() else None)!=self.config_before:
             errors.append('persistent user config changed; original retained, not overwritten')
+        # Emergency/failed runs must not synchronously analyze large partial dumps.
+        # Preserve raw/partial reports and explicitly defer optional offline replay.
         for trace in self.root.glob('*/bridge-*'):
             if not trace.is_dir(): continue
-            output=trace.parent/'analysis.json'
-            if not output.exists():
-                try: report=analyze(trace)
-                except Exception as e: report=dict(complete=False,errors=[str(e)])
-                save(output,report)
+            if (trace.parent/'analysis.json').exists() and not failure and not self.cancelled: continue
+            save(trace.parent/'analysis-deferred.json',dict(status='NOT ANALYZED',
+                 reason='Experiment cancelled or failed; bounded exit takes precedence; any existing report retained',trace=str(trace),
+                 command=[sys.executable,'-B',str(self.repo/'tools/alsa_bridge/analyze_clicks.py'),str(trace),
+                          '--output',str(trace.parent/'analysis-offline.json')]))
+            self.event('analysis_deferred',trace=str(trace))
+        if not failure and not self.cancelled and (len(self.results)!=2 or not all(v.get('success') for v in self.results)):
+            errors.append('both complete matched conditions required')
         summary=dict(success=not self.cancelled and not failure and not errors,technical_success=not self.cancelled and not failure and not errors,
             outcome='CANCELLED' if self.cancelled else ('FAILED' if failure or errors else 'COMPLETED'),
             audible_click_status='NOT YET CONFIRMED',listening_report='User may report clicks and phase afterward; no event markers or external recording required',failure=failure,cleanup_errors=errors,conditions=self.results,
             limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
             'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.')
+        # Freeze the result decision before publication; later B only dismisses UI.
+        self.results_finalized=True
+        self.event('results_publication_begin',outcome=summary['outcome'])
         save(self.root/'summary.json',summary)
         text=summary['outcome']+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nAudible clicks: NOT YET CONFIRMED. Phase times retained for later listening report. See summary.json'
         (self.root/'SUMMARY.txt').write_text(text+'\n'+str(self.root)+'\n')
         # Full errors and paths stay in evidence, never shrink the on-screen font.
         short_error=(failure or '; '.join(errors)).splitlines()[0][:100] if failure or errors else ''
         self.status(summary['outcome']+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+
-                    '/2\n'+short_error+'\nAudible clicks:\nNOT YET CONFIRMED\nDetails saved in run logs.')
+                    '/2\n'+short_error+'\nAudible clicks:\nNOT YET CONFIRMED\nReturning to Ports automatically.\nDetails saved in run logs.')
+        self.event('results_finalized',outcome=summary['outcome'])
         return summary['success']
     def cancel_from_view(self):
         source=None
@@ -528,7 +570,7 @@ class Experiment:
                 value=json.loads(path.read_text())
                 if value['producer_pid']!=pid or value['view']!=view: raise ValueError('source ownership mismatch')
                 source=value;self.cancel_records.add(path.name)
-                self.event('cancellation_requested',source=source,observed_phase=self.current_phase)
+                self.event('results_dismiss_input' if self.results_finalized else 'cancellation_requested',source=source,observed_phase=self.current_phase)
             except (OSError,ValueError,KeyError) as error:
                 self.event('cancellation_source_error',path=path.name,reason=str(error))
         if source:
@@ -539,6 +581,8 @@ class Experiment:
             self.event('cancellation_requested',source=None,observed_phase=self.current_phase,reason=reason)
         self.cancel(reason)
     def cancel(self,reason='Cancellation requested by runner'):
+        if self.results_finalized:
+            self.results_dismissed=True;self.event('results_dismissed',reason=reason);return
         if self.cancelled: return
         self.cancelled=True
         if not self.finishing: raise Cancelled(reason)
@@ -546,8 +590,8 @@ class Experiment:
         # Cancelled attempts return immediately after cleanup; other outcomes are timed.
         if self.cancelled: return
         self.show()
-        deadline=time.monotonic()+(30 if success else 15)
-        while not self.cancelled and time.monotonic()<deadline:
+        deadline=time.monotonic()+RESULT_SECONDS
+        while not self.results_dismissed and time.monotonic()<deadline:
             if self.viewer is None or self.viewer.poll() is not None: break
             time.sleep(.1)
     def close_files(self):

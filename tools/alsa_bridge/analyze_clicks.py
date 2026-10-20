@@ -45,6 +45,7 @@ def analyze(directory):
         if len(data) % 4:
             errors.append(name+' has a partial frame')
     captured = played = discarded = count = 0
+    pcm_bounds = {"capture": [], "playback": []}
     previous_ns = previous_service = first_service = None
     gaps, queue_levels, cap_avail, play_avail, cap_delay, play_delay = [], [], [], [], [], []
     gap_events = []
@@ -95,6 +96,9 @@ def analyze(directory):
                 elif n == 0:
                     stats['zero'] += 1
                 else:
+                    bounds=pcm_bounds[side]
+                    if not bounds: bounds.extend([r['ns'],r['ns']])
+                    else: bounds[1]=r['ns']
                     stats['short_positive'] += n < r['requested']
                     if r['source'] != (captured if kind == 2 else played+discarded):
                         errors.append('source mapping mismatch')
@@ -163,6 +167,7 @@ def analyze(directory):
         return (valid[-1]['delay']-valid[0]['delay'])/seconds
     return {'schema': 1, 'directory': str(directory), 'complete': not errors,
             'errors': errors, 'sha256': hashes, 'metadata': meta,
+            'pcm_transfer_bounds_ns': pcm_bounds,
             'records': count, 'captured_frames': captured, 'accepted_frames': played,
             'discarded_application_frames': discarded, 'remaining_frames': captured-played-discarded,
             'duration_seconds': duration_ns/1e9, 'transfers': transfers,
