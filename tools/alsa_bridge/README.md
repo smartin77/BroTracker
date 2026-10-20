@@ -326,6 +326,17 @@ a later report of clicks and, if remembered, the phase can be associated with th
 unique run directory and automatic monotonic phase boundaries. No live marker,
 typed timestamp, questionnaire or external recording is required to complete a run.
 
+The diagnostic display shows **B: EXIT** throughout preflight, measurement and
+results using fixed 3x integer text at 640x480. B, mapped controller Back,
+Escape or closing the diagnostic window cancels the runner, including during
+bounded setup/serial waits. Cancellation is **CANCELLED**, never technical success.
+Only owned children are stopped; serial handles close and a bounded STOP/idle
+attempt follows BTX serial release when playback was owned. All evidence remains.
+Failures show a short error and return to Ports after 15 seconds; completed results
+return after 30 seconds. B/Back/Escape returns immediately (after bounded cleanup
+when cancelling a live run). Full paths, errors and tracebacks remain in saved logs.
+Normal BTX input and STOP-on-exit behavior outside diagnostic mode are unchanged.
+
 #### One unattended console launch
 
 1. Finish Git transfer and preparation. Disconnect Wi-Fi and connect Teensy

@@ -262,6 +262,13 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     target_include_directories(BroTrackerOfflineModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/libraries/scheduler/src)
     add_test(NAME BroTrackerOfflineModeTests COMMAND BroTrackerOfflineModeTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-mode)
     if(BROTRACKER_BUILD_ARKOS_UI)
+        add_executable(BroTrackerDiagnosticStatusTests tools/alsa_bridge/diagnostic_status_test.cpp
+            ui/sdl/sdl_display_backend.cpp src/ui/font.cpp src/ui/text_renderer.cpp src/renderer/framebuffer.cpp)
+        target_include_directories(BroTrackerDiagnosticStatusTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} src)
+        target_link_libraries(BroTrackerDiagnosticStatusTests PRIVATE ${BROTRACKER_SDL2_TARGET} pthread)
+        target_compile_options(BroTrackerDiagnosticStatusTests PRIVATE -UNDEBUG)
+        add_test(NAME BroTrackerDiagnosticStatusTests COMMAND BroTrackerDiagnosticStatusTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-status.txt)
+        set_tests_properties(BroTrackerDiagnosticStatusTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 10)
         add_test(NAME BroTrackerOfflineBTXChecks
             COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check_offline_btx.py
                 $<TARGET_FILE:BroTrackerTerminal> ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-btx)

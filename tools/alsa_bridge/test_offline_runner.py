@@ -105,6 +105,52 @@ class RunnerTests(unittest.TestCase):
         summary=json.loads((e.root/'summary.json').read_text())
         self.assertEqual(summary['failure'],'RuntimeError: synthetic unexpected crash')
         self.assertTrue((e.root/'SUMMARY.txt').exists())
+    def test_cancellation_at_each_stage_preserves_evidence_and_owned_cleanup(self):
+        for stage in ['preflight','BTX-active','handoff','BTX-off']:
+            with self.subTest(stage=stage):
+                e=self.experiment();e.status=Mock()
+                child=Mock();child.pid=123;child.poll.return_value=None;child.wait.return_value=0
+                child.kill.side_effect=lambda:setattr(child.poll,'return_value',0)
+                serial=Mock()
+                serial.request.side_effect=lambda command,predicate: 'BTTEST1 STOPPED' if command.endswith('STOP') else 'BTTEST1 STATE IDLE'
+                def setup():
+                    e.session=serial
+                    if stage=='preflight': e.cancel()
+                    e.playback_owned=True;e.btx=child;e.bridge=Mock();e.bridge.wait.return_value=0
+                e.preflight=setup
+                def condition(mode,identity):
+                    if stage=='BTX-active':
+                        e.ensure_bridge=Mock();e.btx_status=Mock(return_value=dict(phase='running',running=True,valid=True,tick=2,pattern_hash=1,tempo_hundredths=12500,gains=[]))
+                        with patch.object(r.time,'sleep',side_effect=lambda n:e.cancel()):
+                            e.active_phase(e.root,dict(tick=1,pattern_hash=1,tempo_hundredths=12500,gains=[]))
+                    elif stage=='handoff':
+                        child.wait.side_effect=[r.Cancelled('cancel during serial handoff'),0]
+                        e.release_btx(e.root)
+                    else:
+                        e.btx=None;e.ensure_bridge=Mock();e.open_serial=Mock(return_value=serial)
+                        serial.observe.return_value=dict(ns=time.monotonic_ns(),position=dict(tick=2))
+                        with patch.object(r.time,'sleep',side_effect=lambda n:e.cancel()):
+                            e.off_phase(e.root/'off',dict(tick=1))
+                e.condition=condition
+                self.assertFalse(e.run())
+                summary=json.loads((e.root/'summary.json').read_text())
+                self.assertEqual(summary['outcome'],'CANCELLED');self.assertFalse(summary['success'])
+                self.assertTrue(e.cleanup_done);serial.close.assert_called_once()
+                if stage!='preflight':
+                    self.assertEqual([call[0][0] for call in serial.request.call_args_list],['BTTEST1 STOP','BTTEST1 STATUS'])
+                else: self.assertFalse(serial.request.called)
+                self.assertTrue((e.root/'events.jsonl').exists())
+    def test_result_deadlines_and_immediate_exit(self):
+        for success,seconds in [(False,15),(True,30)]:
+            e=self.experiment();e.show=Mock();e.viewer=Mock();e.viewer.poll.return_value=None
+            clock=[0.]
+            with patch.object(r.time,'monotonic',side_effect=lambda:clock[0]),patch.object(r.time,'sleep',side_effect=lambda n:clock.__setitem__(0,clock[0]+n)):
+                e.wait_results(success)
+            self.assertGreaterEqual(clock[0],seconds);self.assertLess(clock[0],seconds+.2)
+            e.cancelled=False;e.finishing=True;clock[0]=0
+            with patch.object(r.time,'monotonic',side_effect=lambda:clock[0]),patch.object(r.time,'sleep',side_effect=lambda n:e.cancel()):
+                e.wait_results(success)
+            self.assertTrue(e.cancelled);self.assertEqual(clock[0],0)
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff

@@ -295,6 +295,9 @@ int main(int argc, char* argv[])
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
         {
+            if(diagnostic.Enabled() && DiagnosticExitEvent(event)) {
+                RequestDiagnosticCancel(); diagnostic.Fail("cancelled"); break;
+            }
             if (event.type == SDL_QUIT)
             {
                 WriteBringUpDiagnostic(bring_up_log, "EXIT requested by SDL_QUIT");
@@ -326,8 +329,7 @@ int main(int argc, char* argv[])
             serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
-        if(diagnostic_status) DrawWrappedFixedText(framebuffer,4,4,framebuffer.Width()-8,40,
-            DiagnosticStatusText(diagnostic_status),Color{255,255,255});
+        if(diagnostic_status) DrawDiagnosticStatus(framebuffer,diagnostic_status);
         if (!controls.Quit() && !display.Present(framebuffer))
         {
             WriteSdlFailure(

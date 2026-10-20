@@ -18,3 +18,4 @@ __pycache__/
 build_output.txt
 /diagnostics/
 /deploy/windows/BroTrackerTerminal.exe
+/assets/hardware_diagnostics/bridge_clicks/

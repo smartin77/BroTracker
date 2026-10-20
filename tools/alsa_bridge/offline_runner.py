@@ -27,6 +27,7 @@ RECORD_SECONDS=240
 HANDOFF_SECONDS=8
 CHECK_SECONDS=3
 class Failure(RuntimeError): pass
+class Cancelled(Failure): pass
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def save(path,value):
@@ -72,8 +73,9 @@ def snapshot_content(lines,namespace,identity):
     if int(last[4])!=count or int(last[5])!=h: raise Failure('pattern readback checksum mismatch')
     return dict(version=2,rows=rows,channels=channels,tempo_hundredths=tempo,cells=cells,pattern_hash=h)
 
-def refuse_existing_sessions(proc_root=Path('/proc')):
+def refuse_existing_sessions(proc_root=Path('/proc'),owned_pids=()):
     for proc in proc_root.glob('[0-9]*'):
+        if int(proc.name) in owned_pids: continue
         try: name=(proc/'comm').read_bytes().strip()
         except (PermissionError,FileNotFoundError,ProcessLookupError): continue
         if name.startswith((b'BroTrackerTerm',b'BroTrackerAlsa',b'offline_runner')):
@@ -161,7 +163,7 @@ class Experiment:
         self.bridge=self.btx=self.viewer=self.session=None
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
-        self.release_ns=None; self.active_dir=None; self.cleanup_done=False
+        self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False
     def retain_traceback(self):
         try:
             with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
@@ -174,7 +176,7 @@ class Experiment:
             self.events.write(json.dumps(record)+'\n'); self.events.flush()
         except OSError: self.recording_error=True
     def status(self,text):
-        atomic(self.status_path,'BroTracker offline diagnostics\n'+text+'\nResults: '+str(self.root)+'\n')
+        atomic(self.status_path,text+'\n')
         print(text,flush=True); self.event('status',text=text)
     def launch(self,command,log,**kwargs):
         f=log.open('xb'); self.owned_logs.append(f)
@@ -182,7 +184,7 @@ class Experiment:
         self.event('owned_process_started',pid=child.pid,command=list(map(str,command))); return child
     def show(self):
         if self.viewer is None:
-            self.viewer=self.launch([str(self.terminal),'--diagnostic-status',str(self.status_path)],self.root/('display-'+str(time.monotonic_ns())+'.log'),cwd=self.package)
+            self.viewer=self.launch([str(self.terminal),'--diagnostic-status',str(self.status_path)],self.root/('display-'+str(time.monotonic_ns())+'.log'),cwd=self.package,env=dict(os.environ,BROTRACKER_DIAGNOSTIC_RUNNER_PID=str(os.getpid())))
     def hide(self): terminate_owned(self.viewer); self.viewer=None
     def open_serial(self,prefix):
         if self.btx is not None and self.btx.poll() is None: raise Failure('refusing competing BTX serial reader')
@@ -198,6 +200,9 @@ class Experiment:
         fcntl.flock(self.lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         manifest=json.loads((self.package/'bridge-clicks-artifacts.json').read_text())
         self.terminal=self.package/'BroTrackerTerminal'; self.binary=self.package/'BroTrackerAlsaBridge'
+        # Show cancellation UI before dependency, config, device and serial checks.
+        if self.terminal.exists() and sha(self.terminal)==manifest['sha256'].get('BroTrackerTerminal'):
+            self.display_verified=True; self.show()
         for name,flag,expected in [('BroTrackerAlsaBridge','--diagnostic-info','bridge-clicks-offline-v2'),
                                    ('BroTrackerTerminal','--offline-diagnostic-info','btx-offline-clicks-v2')]:
             path=self.package/name
@@ -223,7 +228,7 @@ class Experiment:
                 raise Failure('artifact/source fingerprint mismatch: '+path)
         save(self.root/'artifacts.json',manifest)
         # Do not replace an existing bridge/BTX session, even if it is idle.
-        refuse_existing_sessions()
+        refuse_existing_sessions(owned_pids=(self.viewer.pid,) if self.viewer else ())
         if shutil.disk_usage(self.root).free<512*1024*1024:
             raise Failure('need at least 512 MiB free storage')
         save(self.root/'supplementary-context.json',supplementary(self.workload,self.root))
@@ -390,7 +395,6 @@ class Experiment:
         before=self.readback(directory/'before',identity); self.close_serial()
         result['workload_before']=before
         if len(self.results)>1 and before!=self.results[0]['workload_before']: raise Failure('matched workload/sample metadata differs between runs')
-        self.hide()
         env=os.environ.copy()
         for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE']:
             env.pop(key,None)
@@ -406,8 +410,10 @@ class Experiment:
         else: raise Failure('bridge setup timeout')
         diagnostic=directory/'btx'; diagnostic.mkdir()
         env['BROTRACKER_DIAGNOSTIC_STATUS_FILE']=str(self.status_path)
+        env['BROTRACKER_DIAGNOSTIC_RUNNER_PID']=str(os.getpid())
         if Path('/tmp/brotracker-arkos.log').exists():
             shutil.copyfile('/tmp/brotracker-arkos.log',directory/'btx-log-before-launch.log')
+        self.hide()
         self.btx=self.launch([str(self.terminal),'--offline-click-diagnostic',str(diagnostic)],directory/'btx.log',env=env,cwd=self.package)
         prepared=self.wait_status(diagnostic,lambda v:v['phase']=='prepared',setup_deadline)
         self.check_workload(diagnostic,before)
@@ -465,9 +471,14 @@ class Experiment:
         try:
             self.preflight()
             for i,mode in enumerate(['on','off']): self.condition(mode,4000000000+i*4)
+        except Cancelled as e:
+            self.cancelled=True; failure=str(e); self.event('cancelled',reason=failure)
         except Exception as e:
             self.retain_traceback()
             failure=type(e).__name__+': '+str(e); self.event('failure',reason=failure)
+        self.finishing=True
+        try: self.status('CANCELLED: closing owned resources' if self.cancelled else 'FINALIZING: closing owned resources')
+        except OSError: self.recording_error=True
         errors=self.cleanup(); self.cleanup_done=True
         if self.active_dir and not (self.active_dir/'btx-internal.log').exists() and Path('/tmp/brotracker-arkos.log').exists():
             shutil.copyfile('/tmp/brotracker-arkos.log',self.active_dir/'btx-internal.log')
@@ -481,14 +492,31 @@ class Experiment:
                 try: report=analyze(trace)
                 except Exception as e: report=dict(complete=False,errors=[str(e)])
                 save(output,report)
-        summary=dict(success=not failure and not errors,technical_success=not failure and not errors,
+        summary=dict(success=not self.cancelled and not failure and not errors,technical_success=not self.cancelled and not failure and not errors,
+            outcome='CANCELLED' if self.cancelled else ('FAILED' if failure or errors else 'COMPLETED'),
             audible_click_status='NOT YET CONFIRMED',listening_report='User may report clicks and phase afterward; no event markers or external recording required',failure=failure,cleanup_errors=errors,conditions=self.results,
             limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
             'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.')
         save(self.root/'summary.json',summary)
-        text=('COMPLETED' if summary['success'] else 'FAILED')+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nAudible clicks: NOT YET CONFIRMED. Phase times retained for later listening report. See summary.json'
+        text=summary['outcome']+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nAudible clicks: NOT YET CONFIRMED. Phase times retained for later listening report. See summary.json'
         (self.root/'SUMMARY.txt').write_text(text+'\n'+str(self.root)+'\n')
-        self.status(text); return summary['success']
+        # Full errors and paths stay in evidence, never shrink the on-screen font.
+        short_error=(failure or '; '.join(errors)).splitlines()[0][:100] if failure or errors else ''
+        self.status(summary['outcome']+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+
+                    '/2\n'+short_error+'\nAudible clicks:\nNOT YET CONFIRMED\nDetails saved in run logs.')
+        return summary['success']
+    def cancel(self):
+        if self.cancelled: return
+        self.cancelled=True
+        if not self.finishing: raise Cancelled('Cancelled by B/Back/Escape or window close')
+    def wait_results(self,success):
+        # Cancelled attempts return immediately after cleanup; other outcomes are timed.
+        if self.cancelled: return
+        self.show()
+        deadline=time.monotonic()+(30 if success else 15)
+        while not self.cancelled and time.monotonic()<deadline:
+            if self.viewer is None or self.viewer.poll() is not None: break
+            time.sleep(.1)
     def close_files(self):
         if hasattr(self,'lock'): self.lock.close()
         for log in self.owned_logs: log.close()
@@ -502,10 +530,11 @@ def main():
     if args.no_display: e.show=lambda:None
     def interrupted(signum,frame): raise Failure('runner interrupted by signal '+str(signum))
     for sig in [signal.SIGTERM,signal.SIGINT,signal.SIGHUP]: signal.signal(sig,interrupted)
+    signal.signal(signal.SIGUSR1,lambda signum,frame:e.cancel())
     try:
         success=e.run()
         if not args.no_display and e.display_verified:
-            try: e.show(); e.viewer.wait(timeout=300)
+            try: e.wait_results(success)
             except Exception: pass
         return 0 if success else 1
     except Exception:
