@@ -13,6 +13,7 @@
 #include <memory>
 #include "discovery.h"
 #include "recording.h"
+#include "click_diagnostics.h"
 
 namespace
 {
@@ -213,6 +214,92 @@ struct Bridge
 {
     Pcm capture, playback;
     std::unique_ptr<recording::Recorder> recorder;
+    std::unique_ptr<clicks::Trace> trace;
+    uint64_t next_status = 0;
+    bool normal_end = false;
+
+    void Note(clicks::Kind kind, uint32_t requested=0, int64_t result=0,
+              const void* pcm=nullptr, uint32_t step=0, int64_t avail=0,
+              int64_t delay=0, uint32_t state=0) noexcept
+    {
+        if (!trace) return;
+        clicks::Record r;
+        r.kind=kind; r.requested=requested; r.result=result; r.step=step;
+        r.captured=captured; r.played=played; r.discarded=discarded; r.queued=queued;
+        r.source=kind==clicks::Write ? played+discarded : captured;
+        r.avail=avail; r.delay=delay; r.state=state;
+        trace->Emit(r,pcm);
+    }
+    void SampleStatus() noexcept
+    {
+        if (!trace) return;
+        const auto now=clicks::Now();
+        if(now<next_status) return;
+        next_status=now+20000000; // at most 50 status pairs/second, no catch-up loop
+        for(bool reading : {true,false}) {
+            auto* pcm=reading?capture.handle:playback.handle;
+            snd_pcm_sframes_t avail=0,delay=0;
+            const int result=snd_pcm_avail_delay(pcm,&avail,&delay);
+            Note(reading?clicks::StatusCapture:clicks::StatusPlayback,0,result,nullptr,
+                 0,avail,delay,static_cast<uint32_t>(snd_pcm_state(pcm)));
+        }
+    }
+    // Fatal reporting is outside the audio loop, after destructor finalization.
+    static void ServiceCheck(int result,const char* operation) {
+        if(result<0) throw std::runtime_error(std::string(operation)+": "+snd_strerror(result));
+    }
+    void SetupTrace()
+    {
+        const char* base=std::getenv("BROTRACKER_BRIDGE_CLICKS_DIR");
+        if(!base || !*base) return;
+        unsigned limit=180;
+        if(const char* value=std::getenv("BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS")) {
+            char* end=nullptr; errno=0;
+            const auto n=std::strtoul(value,&end,10);
+            if(errno || !*value || *end || n<180 || n>300)
+                throw std::runtime_error("click limit must be 180..300 seconds");
+            limit=static_cast<unsigned>(n);
+        }
+        trace=std::make_unique<clicks::Trace>(base,clicks::kSlots,nullptr,limit);
+        const auto& dir=trace->Directory();
+        std::fprintf(stderr,"Click evidence: %s\n",dir.c_str());
+        FILE* f=std::fopen((dir+"/alsa-parameters.txt").c_str(),"wx");
+        if(!f) throw std::runtime_error("open ALSA diagnostic parameters failed");
+        snd_output_t* output=nullptr;
+        const int attached=snd_output_stdio_attach(&output,f,0);
+        if(attached<0) { std::fclose(f); Check(attached,"attach diagnostic dump"); }
+        int failed=0;
+        for(auto* pcm : {capture.handle,playback.handle}) {
+            std::fprintf(f,"\n%s name=%s\n",pcm==capture.handle?"CAPTURE":"PLAYBACK",snd_pcm_name(pcm));
+            failed |= snd_pcm_dump(pcm,output)<0;
+            snd_pcm_sw_params_t* sw;
+            snd_pcm_sw_params_alloca(&sw);
+            failed |= snd_pcm_sw_params_current(pcm,sw)<0;
+            snd_pcm_uframes_t avail=0,start=0,stop=0,boundary=0;
+            failed |= snd_pcm_sw_params_get_avail_min(sw,&avail)<0;
+            failed |= snd_pcm_sw_params_get_start_threshold(sw,&start)<0;
+            failed |= snd_pcm_sw_params_get_stop_threshold(sw,&stop)<0;
+            failed |= snd_pcm_sw_params_get_boundary(sw,&boundary)<0;
+            std::fprintf(f,"actual avail_min=%lu start_threshold=%lu stop_threshold=%lu boundary=%lu\n",
+                (unsigned long)avail,(unsigned long)start,(unsigned long)stop,(unsigned long)boundary);
+        }
+        failed |= snd_output_close(output)<0;
+        failed |= std::fclose(f)!=0;
+        if(failed) throw std::runtime_error("write ALSA diagnostic parameters failed");
+        f=std::fopen((dir+"/run.json").c_str(),"wx");
+        if(!f) throw std::runtime_error("open click run metadata failed");
+        const auto stamp=recording::Stamp::Now();
+        const int n=std::fprintf(f,"{\"schema\":1,\"pid\":%ld,\"rate\":44100,\"channels\":2,"
+            "\"format\":\"S16_LE\",\"frame_bytes\":4,\"queue_frames\":8192,\"chunk_frames\":256,"
+            "\"diagnostic_slots\":4096,\"limit_seconds\":%u,\"status_interval_ms\":20,"
+            "\"clock\":\"CLOCK_MONOTONIC\",\"anchor_ns\":%llu,\"wall_seconds\":%lld,"
+            "\"wall_nanoseconds\":%ld,\"alsa_version\":\"%s\"}\n",
+            (long)getpid(),limit,(unsigned long long)clicks::Now(),(long long)stamp.wall.tv_sec,
+            stamp.wall.tv_nsec,snd_asoundlib_version());
+        const bool bad=n<0 || std::ferror(f);
+        const int closed=std::fclose(f);
+        if(bad || closed) throw std::runtime_error("write click run metadata failed");
+    }
     std::array<std::uint8_t, kQueueFrames * kFrameBytes> samples{};
     snd_pcm_uframes_t head = 0, queued = 0, high_water = 0;
     unsigned long long captured = 0, played = 0, discarded = 0;
@@ -220,6 +307,11 @@ struct Bridge
 
     ~Bridge()
     {
+        Note(clicks::End,0,normal_end?0:-1);
+        if (trace) {
+            trace->Finish();
+            if(trace->Failed()) std::fprintf(stderr,"Click diagnostic writer failed; evidence incomplete\n");
+        }
         if (recorder) recorder->Finish();
         std::fprintf(stderr,
             "Summary: captured=%llu frames, submitted=%llu frames, "
@@ -235,29 +327,35 @@ struct Bridge
     {
         if (result >= 0 || result == -EAGAIN || result == -EINTR) return false;
         if (result != -EPIPE && result != -ESTRPIPE)
-            Check(static_cast<int>(result), reading ? "capture read" : "playback write");
+            ServiceCheck(static_cast<int>(result), reading ? "capture read" : "playback write");
         // Reset the pair together after a discontinuity. No stale queued PCM
         // is replayed, and no blocking resume/recovery loop delays Ctrl+C.
         if (recorder) recorder->Xrun(reading ? "capture" : "playback", static_cast<int>(result));
-        const bool capture_xrun = (reading && result == -EPIPE) ||
-            snd_pcm_state(capture.handle) == SND_PCM_STATE_XRUN;
-        const bool playback_xrun = (!reading && result == -EPIPE) ||
-            snd_pcm_state(playback.handle) == SND_PCM_STATE_XRUN;
+        const auto capture_state=snd_pcm_state(capture.handle);
+        const auto playback_state=snd_pcm_state(playback.handle);
+        Note(clicks::Recovery,0,result,nullptr,0,capture_state,playback_state,reading?1:0);
+        const bool capture_xrun = (reading && result == -EPIPE) || capture_state == SND_PCM_STATE_XRUN;
+        const bool playback_xrun = (!reading && result == -EPIPE) || playback_state == SND_PCM_STATE_XRUN;
         overruns += capture_xrun;
         underruns += playback_xrun;
         suspends += result == -ESTRPIPE;
-        std::fprintf(stderr,
+        if (!trace) std::fprintf(stderr,
             "Discontinuity: %s %s; capture_overruns=%u playback_underruns=%u "
             "suspends=%u; discarding %lu queued frames and resetting both PCMs\n",
             reading ? "capture" : "playback", snd_strerror(static_cast<int>(result)),
             overruns, underruns, suspends, static_cast<unsigned long>(queued));
-        Check(snd_pcm_drop(capture.handle), "drop capture");
-        Check(snd_pcm_drop(playback.handle), "drop playback");
+        auto recover=[&](int code,const char* operation,uint32_t step) {
+            Note(clicks::Recovery,0,code,nullptr,step);
+            ServiceCheck(code,operation);
+        };
+        recover(snd_pcm_drop(capture.handle), "drop capture",1);
+        recover(snd_pcm_drop(playback.handle), "drop playback",2);
+        Note(clicks::Discard,0,queued);
         discarded += queued;
         queued = head = 0;
-        Check(snd_pcm_prepare(capture.handle), "recover capture");
-        Check(snd_pcm_prepare(playback.handle), "recover playback");
-        if (!stopped) Check(snd_pcm_start(capture.handle), "restart capture");
+        recover(snd_pcm_prepare(capture.handle), "recover capture",3);
+        recover(snd_pcm_prepare(playback.handle), "recover playback",4);
+        if (!stopped) recover(snd_pcm_start(capture.handle), "restart capture",5);
         return true;
     }
 
@@ -271,20 +369,31 @@ struct Bridge
                 recording::Event(dir,"recording_failure",e.what());
             }
         }
+        // Files, allocations and worker creation precede capture start. Setup
+        // failure preserves its directory/log and must not disable audio.
+        try { SetupTrace(); }
+        catch(const std::exception& e) {
+            trace.reset();
+            std::fprintf(stderr,"Click diagnostics unavailable: %s; audio continues\n",e.what());
+        }
         const int start_result=snd_pcm_start(capture.handle);
+        Note(clicks::Start,0,start_result);
         if(start_result<0) {
             if(recorder) recorder->CaptureStartFailed(start_result);
-            Check(start_result,"start capture");
+            ServiceCheck(start_result,"start capture");
         }
         if(recorder) recorder->CaptureStarted(); // bounded notes only, no file I/O
         while (!stopped)
         {
+            Note(clicks::Service);
+            SampleStatus();
             bool progress = false;
             if (queued < kQueueFrames)
             {
                 const auto tail = (head + queued) % kQueueFrames;
                 const auto frames = std::min({kChunkFrames, kQueueFrames - queued, kQueueFrames - tail});
                 const auto result = snd_pcm_readi(capture.handle, samples.data() + tail * kFrameBytes, frames);
+                Note(clicks::Read,frames,result,samples.data()+tail*kFrameBytes);
                 if (Retry(result, true)) continue;
                 if (result > 0)
                 {
@@ -300,6 +409,7 @@ struct Bridge
             {
                 const auto frames = std::min({kChunkFrames, queued, kQueueFrames - head});
                 const auto result = snd_pcm_writei(playback.handle, samples.data() + head * kFrameBytes, frames);
+                Note(clicks::Write,frames,result,samples.data()+head*kFrameBytes);
                 if (Retry(result, false)) continue;
                 if (result > 0)
                 {
@@ -314,6 +424,7 @@ struct Bridge
             // a capture overrun on the subsequent read, never hidden by growth.
             if (!progress) poll(nullptr, 0, 1);
         }
+        normal_end=true;
     }
 };
 }
@@ -321,7 +432,12 @@ struct Bridge
 int main(int argc, char** argv)
 {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
-    const bool automatic = argc == 2 && std::strcmp(argv[1], "--auto") == 0;
+    if(argc==2 && std::strcmp(argv[1],"--diagnostic-info")==0) {
+        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300}");
+        return 0;
+    }
+    const bool preflight=argc==2 && std::strcmp(argv[1],"--preflight")==0;
+    const bool automatic = preflight || (argc == 2 && std::strcmp(argv[1], "--auto") == 0);
     if (!automatic && (argc != 3 || std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "--auto") == 0))
     {
         std::fprintf(stderr, "Usage: %s --auto | CAPTURE_DEVICE PLAYBACK_DEVICE\n"
@@ -361,7 +477,7 @@ int main(int argc, char** argv)
                 "Buffer settings are NOT measured end-to-end latency.\n",
                 static_cast<unsigned long>(kQueueFrames),
                 static_cast<unsigned long>(kQueueFrames * kFrameBytes));
-            if (!stopped) bridge.Run();
+            if (!stopped && !preflight) bridge.Run();
             std::fprintf(stderr, "Signal received; closing audio devices.\n");
         }
         recording::Event(diagnostic_dir,"bridge_end","signal/normal shutdown");

@@ -245,6 +245,28 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     add_test(NAME BroTrackerRecordingTests COMMAND BroTrackerRecordingTests)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
+    add_executable(BroTrackerClickDiagnosticsTests tools/alsa_bridge/click_diagnostics_test.cpp)
+    target_link_libraries(BroTrackerClickDiagnosticsTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerClickDiagnosticsTests
+        COMMAND BroTrackerClickDiagnosticsTests ${CMAKE_CURRENT_BINARY_DIR})
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME BroTrackerClickAnalysisTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_analyze_clicks.py)
+    set_tests_properties(BroTrackerClickAnalysisTests PROPERTIES
+        ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-click-tests")
+    add_test(NAME BroTrackerOfflineRunnerTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_offline_runner.py)
+    set_tests_properties(BroTrackerOfflineRunnerTests PROPERTIES
+        TIMEOUT 30 ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-tests")
+    add_executable(BroTrackerOfflineModeTests tools/alsa_bridge/offline_mode_test.cpp)
+    target_include_directories(BroTrackerOfflineModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/libraries/scheduler/src)
+    add_test(NAME BroTrackerOfflineModeTests COMMAND BroTrackerOfflineModeTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-mode)
+    if(BROTRACKER_BUILD_ARKOS_UI)
+        add_test(NAME BroTrackerOfflineBTXChecks
+            COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check_offline_btx.py
+                $<TARGET_FILE:BroTrackerTerminal> ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-btx)
+        set_tests_properties(BroTrackerOfflineBTXChecks PROPERTIES TIMEOUT 30)
+    endif()
 endif()
 
 # Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,

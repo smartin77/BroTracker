@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+"""Bounded offline experiment; BTX exclusively owns serial during the active phase."""
+import argparse
+import collections
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shutil
+import signal
+import struct
+import subprocess
+import tempfile
+import termios
+import time
+import tty
+from analyze_clicks import analyze
+
+PHASE_SECONDS=60
+SETUP_SECONDS=60
+RECORD_SECONDS=240
+HANDOFF_SECONDS=8
+CHECK_SECONDS=3
+class Failure(RuntimeError): pass
+
+def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def save(path,value):
+    with Path(path).open('x',encoding='utf-8') as f: json.dump(value,f,indent=2); f.write('\n')
+def atomic(path,text):
+    pending=path.with_name(path.name+'.pending'); pending.write_text(text,encoding='utf-8'); os.replace(pending,path)
+
+def verify_pcm_coverage(bounds,start,end):
+    for side,times in bounds.items():
+        if not times or min(times)>start or max(times)<end:
+            raise Failure('PCM does not cover both measured phases: '+str(side))
+
+def position(line):
+    m=re.fullmatch(r'BTPATTERN1 POS 2 ([012]) ([01]) ([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+) ([0-9]+)',line)
+    if not m: return None
+    state,valid,tick,row,loop,rows,channels=map(int,m.groups())
+    if not 1<=rows<=64 or not 1<=channels<=8: raise Failure('invalid telemetry dimensions')
+    if valid and (state==0 or row!=tick//96%rows or loop!=tick//96//rows): raise Failure('incoherent telemetry')
+    return dict(state=state,valid=valid,tick=tick,row=row,loop=loop,rows=rows,channels=channels)
+
+def snapshot_content(lines,namespace,identity):
+    chosen=[]
+    for line in lines:
+        fields=line.split()
+        if len(fields)>3 and fields[0]==namespace and fields[2]=='2' and fields[3]==str(identity): chosen.append(fields)
+    if not chosen or chosen[0][1]!='BEGIN' or chosen[-1][1]!='END': raise Failure('missing pattern readback')
+    first,last=chosen[0],chosen[-1]
+    if len(first)!=8 or len(last)!=6: raise Failure('malformed readback envelope')
+    rows,channels,tempo,count=map(int,first[4:])
+    if not 1<=rows<=64 or not 1<=channels<=8 or count!=rows*channels or len(chosen)!=count+2: raise Failure('pattern readback count mismatch')
+    h=2166136261
+    def byte(v):
+        nonlocal h
+        h=((h^v)*16777619)&0xffffffff
+    for n in [rows,channels]+[(tempo>>(8*i))&255 for i in range(4)]: byte(n)
+    cells=[]
+    for index,f in enumerate(chosen[1:-1]):
+        if len(f)!=8 or f[1]!='CELL' or int(f[4])!=index: raise Failure('pattern cell order/shape mismatch')
+        values=list(map(int,f[5:]))
+        if any(v<0 or v>255 for v in values) or values[2]>1 or not (24<=values[0]<=127 or values[0] in [254,255]): raise Failure('pattern cell byte out of range')
+        cells.append(values)
+        for n in values: byte(n)
+    if int(last[4])!=count or int(last[5])!=h: raise Failure('pattern readback checksum mismatch')
+    return dict(version=2,rows=rows,channels=channels,tempo_hundredths=tempo,cells=cells,pattern_hash=h)
+
+class SerialSession:
+    """Bounded nonblocking requests, used only when BTX has no serial ownership."""
+    def __init__(self,port,prefix,event):
+        self.fd=None; self.rx=None; self.txfile=None
+        self.event=event; self.history=collections.deque(maxlen=4096); self.seq=0; self.pending=bytearray()
+        try:
+            self.fd=os.open(port,os.O_RDWR|os.O_NOCTTY|os.O_NONBLOCK)
+            fcntl.ioctl(self.fd,termios.TIOCEXCL)
+            tty.setraw(self.fd)
+            attrs=termios.tcgetattr(self.fd); attrs[2]|=termios.CLOCAL|termios.CREAD; attrs[2]&=~termios.CRTSCTS
+            attrs[4]=attrs[5]=termios.B115200; termios.tcsetattr(self.fd,termios.TCSANOW,attrs)
+            fcntl.ioctl(self.fd,termios.TIOCMBIS,struct.pack('I',termios.TIOCM_DTR|termios.TIOCM_RTS))
+            self.rx=Path(str(prefix)+'.rx').open('xb'); self.txfile=Path(str(prefix)+'.tx').open('xb')
+        except Exception: self.close(); raise
+    def pump(self,timeout=.05):
+        ready,_,_=select.select([self.fd],[],[],timeout)
+        if not ready: return
+        data=os.read(self.fd,4096)
+        if not data: raise Failure('serial disconnected')
+        self.rx.write(data)
+        for b in data:
+            if b==10:
+                text=bytes(self.pending).rstrip(b'\r').decode('ascii'); self.pending.clear(); self.seq+=1
+                self.history.append((self.seq,text)); self.event('serial_line',seq=self.seq,text=text)
+            else:
+                self.pending.append(b)
+                if len(self.pending)>4096: raise Failure('oversized serial line; raw bytes retained')
+    def request(self,command,predicate,timeout=CHECK_SECONDS):
+        after=self.seq; data=(command+'\n').encode(); offset=0; end=time.monotonic()+timeout
+        self.event('serial_request',command=command)
+        while time.monotonic()<end:
+            if offset<len(data):
+                _,write,_=select.select([],[self.fd],[],.02)
+                if write:
+                    try: n=os.write(self.fd,data[offset:])
+                    except BlockingIOError: n=0
+                    self.txfile.write(data[offset:offset+n]); offset+=n
+            self.pump(.02)
+            for seq,line in self.history:
+                if seq>after and offset==len(data) and predicate(line): return line
+                if seq>after and (line.startswith('BTTEST1 ERROR') or line.startswith('BTAUDIO1 ERROR')): raise Failure(line)
+        raise Failure('serial request timeout: '+command)
+    def observe(self):
+        # A STATUS response is the freshness barrier; do not treat backed-up POS as current.
+        state=self.request('BTTEST1 STATUS',lambda s:s.startswith('BTTEST1 STATE '))
+        if state!='BTTEST1 STATE PLAYING': raise Failure('playback not confirmed: '+state)
+        after=self.seq; end=time.monotonic()+CHECK_SECONDS; first=None
+        while time.monotonic()<end:
+            self.pump()
+            for seq,line in self.history:
+                if seq<=after: continue
+                p=position(line)
+                if p and p['state']==1 and p['valid']:
+                    if first and p['tick']>first['tick']: return dict(ns=time.monotonic_ns(),position=p)
+                    first=p; after=seq
+        raise Failure('no advancing fresh telemetry after STATUS')
+    def close(self):
+        # Preserve any trailing fragment explicitly; do not parse/repair it.
+        if self.pending: self.event('serial_trailing_fragment',hex=bytes(self.pending).hex())
+        for f in [self.rx,self.txfile]:
+            if f: f.close()
+        self.rx=self.txfile=None
+        if self.fd is not None: os.close(self.fd); self.fd=None
+
+def terminate_owned(child,force=False):
+    if child is None: return None
+    if child.poll() is None: child.kill() if force else child.terminate()
+    try: return child.wait(timeout=8)
+    except subprocess.TimeoutExpired:
+        child.kill(); child.wait(timeout=3)
+        raise Failure('owned process needed forced shutdown; attempt failed')
+
+class Experiment:
+    def __init__(self,repo,workload):
+        self.repo=Path(repo).resolve(); self.package=self.repo/'deploy/arkos'
+        base=self.repo/'assets/hardware_diagnostics/bridge_clicks'; base.mkdir(parents=True,exist_ok=True)
+        self.root=Path(tempfile.mkdtemp(prefix=time.strftime('%Y%m%dT%H%M%SZ-',time.gmtime())+'offline-',dir=base))
+        self.events=(self.root/'events.jsonl').open('x',encoding='utf-8'); self.status_path=self.root/'STATUS.txt'
+        self.bridge=self.btx=self.viewer=self.session=None
+        self.playback_owned=False; self.workload=Path(workload); self.results=[]; self.config_path=None
+        self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
+        self.release_ns=None; self.active_dir=None; self.cleanup_done=False
+    def event(self,kind,**details):
+        try:
+            record=dict(ns=time.monotonic_ns(),event=kind); record.update(details)
+            self.events.write(json.dumps(record)+'\n'); self.events.flush()
+        except OSError: self.recording_error=True
+    def status(self,text):
+        atomic(self.status_path,'BroTracker offline diagnostics\n'+text+'\nResults: '+str(self.root)+'\n')
+        print(text,flush=True); self.event('status',text=text)
+    def launch(self,command,log,**kwargs):
+        f=log.open('xb'); self.owned_logs.append(f)
+        child=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,**kwargs)
+        self.event('owned_process_started',pid=child.pid,command=list(map(str,command))); return child
+    def show(self):
+        if self.viewer is None:
+            self.viewer=self.launch([str(self.terminal),'--diagnostic-status',str(self.status_path)],self.root/('display-'+str(time.monotonic_ns())+'.log'),cwd=self.package)
+    def hide(self): terminate_owned(self.viewer); self.viewer=None
+    def open_serial(self,prefix):
+        if self.btx is not None and self.btx.poll() is None: raise Failure('refusing competing BTX serial reader')
+        if self.session is not None: raise Failure('serial session already open')
+        owners=subprocess.run(['fuser',self.port],capture_output=True,timeout=3)
+        if owners.returncode!=1: raise Failure('serial busy or ownership uncertain; no process killed')
+        self.session=SerialSession(self.port,prefix,self.event); self.event('runner_serial_open'); return self.session
+    def close_serial(self):
+        if self.session: self.session.close(); self.session=None; self.event('runner_serial_closed')
+    def preflight(self):
+        self.status('PREPARING: validating offline artifacts and existing sessions')
+        self.lock=(self.repo/'assets/hardware_diagnostics/bridge_clicks/.runner.lock').open('a')
+        fcntl.flock(self.lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        manifest=json.loads((self.package/'bridge-clicks-artifacts.json').read_text())
+        self.terminal=self.package/'BroTrackerTerminal'; self.binary=self.package/'BroTrackerAlsaBridge'
+        for name,flag,expected in [('BroTrackerAlsaBridge','--diagnostic-info','bridge-clicks-offline-v2'),
+                                   ('BroTrackerTerminal','--offline-diagnostic-info','btx-offline-clicks-v2')]:
+            path=self.package/name
+            if sha(path)!=manifest['sha256'][name]: raise Failure('artifact hash mismatch: '+name)
+            if not os.access(path,os.X_OK): raise Failure('binary not executable: '+name)
+            data=path.read_bytes()[:20]
+            if data[:4]!=b'\x7fELF' or struct.unpack_from('<H',data,18)[0]!=183:
+                raise Failure('not an ARM64 ELF: '+name)
+            result=subprocess.run([str(path),flag],capture_output=True,timeout=10,check=True)
+            if json.loads(result.stdout)['id']!=expected: raise Failure('stale diagnostic binary: '+name)
+            deps=subprocess.run(['ldd','-r',str(path)],capture_output=True,timeout=15)
+            (self.root/(name+'-dependencies.txt')).write_bytes(deps.stdout+deps.stderr)
+            if deps.returncode or b'not found' in deps.stdout+deps.stderr or b'undefined symbol' in deps.stdout+deps.stderr:
+                raise Failure('missing binary dependency: '+name)
+        for name in ['assets/fonts/brotracker.btf','assets/fonts/brotracker.bfm','assets/dummy_my_tune.json']:
+            data=(self.package/name).read_bytes()
+            if Path(name).suffix in ['.json','.btf']: data=data.replace(b'\r\n',b'\n')
+            if hashlib.sha256(data).hexdigest()!=manifest['assets_sha256'][name]: raise Failure('package asset hash mismatch: '+name)
+        self.display_verified=True
+        for path,digest in manifest.get('source_sha256',{}).items():
+            resolved=(self.repo/path).resolve()
+            if self.repo not in resolved.parents or hashlib.sha256(resolved.read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=digest:
+                raise Failure('artifact/source fingerprint mismatch: '+path)
+        save(self.root/'artifacts.json',manifest)
+        # Do not replace an existing bridge/BTX session, even if it is idle.
+        for proc in Path('/proc').glob('[0-9]*'):
+            try: name=(proc/'comm').read_text().strip()
+            except (PermissionError,FileNotFoundError,ProcessLookupError): continue
+            if name.startswith(('BroTrackerTerm','BroTrackerAlsa','offline_runner')):
+                raise Failure('existing user audio/UI session: '+str(proc)+' '+name)
+        if shutil.disk_usage(self.root).free<512*1024*1024:
+            raise Failure('need at least 512 MiB free storage')
+        if self.workload.stat().st_size>16384: raise Failure('workload manifest too large')
+        workload=json.loads(self.workload.read_text())
+        for key in ['topology','workload','tempo','gains','sample_bindings','firmware','os_variant']:
+            if not workload.get(key) or 'FILL' in str(workload[key]): raise Failure('fill workload field: '+key)
+        save(self.root/'workload.json',workload)
+        for name in ['os-release']:
+            (self.root/name).write_bytes((Path('/etc')/name).read_bytes())
+        (self.root/'system.txt').write_text(str(os.uname())+'\n'+Path('/proc/asound/cards').read_text())
+        topology=subprocess.run(['lsusb','-t'],capture_output=True,timeout=3) if shutil.which('lsusb') else None
+        (self.root/'usb-topology.txt').write_bytes(topology.stdout+topology.stderr if topology else b'lsusb unavailable; see manual topology label\n')
+        cfg=subprocess.run([str(self.terminal),'--offline-diagnostic-config'],cwd=self.package,capture_output=True,timeout=10)
+        (self.root/'config-preflight.txt').write_bytes(cfg.stdout+cfg.stderr)
+        if cfg.returncode: raise Failure('persistent configuration incompatible; choose bridge or leave output absent; no config changed')
+        values=dict(line.split('=',1) for line in cfg.stdout.decode().splitlines() if '=' in line)
+        self.config_path=Path(values['path']); self.config_before=sha(self.config_path) if self.config_path.exists() else None
+        if self.config_before: (self.root/'config-original.ini').write_bytes(self.config_path.read_bytes())
+        self.show()
+        ports=[]
+        for item in Path('/sys/class/tty').glob('ttyACM*'):
+            for parent in (item/'device').resolve().parents:
+                if (parent/'idVendor').exists():
+                    if (parent/'idVendor').read_text().strip()=='16c0' and (parent/'idProduct').read_text().strip()=='048a':
+                        ports.append('/dev/'+item.name)
+                    break
+        if len(ports)!=1: raise Failure('need exactly one Teensy CDC 16c0:048a: '+repr(ports))
+        self.port=ports[0]
+        # Check existing owners before exclusive open. No arbitrary process kills.
+        owners=subprocess.run(['fuser',self.port],capture_output=True,timeout=5)
+        if owners.returncode!=1: raise Failure('serial device busy or ownership uncertain: '+owners.stdout.decode(errors='replace'))
+        session=self.open_serial(self.root/'preflight')
+        try:
+            state=session.request('BTTEST1 HELLO',lambda s:s.startswith('BTTEST1 STATE '))
+            if state not in ['BTTEST1 STATE IDLE','BTTEST1 STATE DONE']:
+                raise Failure('preexisting playback is not idle; left untouched: '+state)
+        finally: self.close_serial()
+        check=subprocess.run([str(self.binary),'--preflight'],capture_output=True,timeout=15)
+        (self.root/'alsa-preflight.log').write_bytes(check.stdout+check.stderr)
+        if check.returncode: raise Failure('ALSA device access/negotiation failed (no competing owners were killed)')
+
+    def readback(self,prefix,identity):
+        session=self.session or self.open_serial(prefix)
+        state=session.request('BTTEST1 HELLO',lambda s:s.startswith('BTTEST1 STATE '))
+        if state not in ['BTTEST1 STATE IDLE','BTTEST1 STATE DONE'] and not self.playback_owned:
+            raise Failure('existing playback must be idle; not replaced: '+state)
+        baseline_after=session.seq
+        session.request('BTPATTERN1 GET 2 '+str(identity),lambda s:s.startswith('BTPATTERN1 END 2 '+str(identity)+' '))
+        baseline=snapshot_content([line for seq,line in session.history if seq>baseline_after],'BTPATTERN1',identity)
+        working_after=session.seq
+        session.request('BTPREVIEW1 GET 1 '+str(identity+1)+' 0',lambda s:s.startswith('BTPREVIEW1 END 2 '+str(identity+1)+' '))
+        working=snapshot_content([line for seq,line in session.history if seq>working_after],'BTPREVIEW1',identity+1)
+        if baseline!=working: raise Failure('volatile working pattern differs from published readback; not overwritten')
+        gain_line=session.request('BTGAIN1 GET 1',lambda s:s.startswith('BTGAIN1 STATE 1 '))
+        values=list(map(int,gain_line.split()[3:]))
+        if len(values)!=10 or any(n<0 or n>65536 for n in values[2:]): raise Failure('malformed channel gains')
+        baseline['gains']=values[2:]
+        # Drain a bounded tail of already offered device metadata, never a recording callback.
+        until=time.monotonic()+.3
+        while time.monotonic()<until: session.pump(.02)
+        metadata=sorted(set(line for _,line in session.history if line.startswith(('BTPATTERN1 WAVHASH ','BTPATTERN1 WAVMETA '))))
+        hashes={}
+        for line in metadata:
+            fields=line.split()
+            if fields[:3]==['BTPATTERN1','WAVHASH','1'] and len(fields)==7 and fields[4]=='1':
+                hashes[fields[3]]=dict(frames=int(fields[5]),pcm_fnv1a=int(fields[6]))
+        result=dict(pattern=baseline,sample_metadata=metadata,available_device_pcm_hashes=hashes,
+                    sample_identity='Available device WAVHASH/WAVMETA retained; built-in/other sample bytes and complete slot-to-file mapping are not verified by this protocol.')
+        save(Path(str(prefix)+'.readback.json'),result)
+        return result
+    def ensure_bridge(self):
+        if self.recording_error: raise Failure('runner timeline write failed')
+        if self.bridge is None or self.bridge.poll() is not None: raise Failure('owned bridge exited prematurely')
+        if shutil.disk_usage(self.root).free<64*1024*1024: raise Failure('storage reserve exhausted')
+    def btx_status(self,directory):
+        path=directory/'status.json'
+        if not path.exists(): return None
+        if path.stat().st_size>2048: raise Failure('oversized BTX status')
+        value=json.loads(path.read_text())
+        now=time.monotonic_ns()
+        if value.get('schema')!=1 or not 0<=now-value['ns']<=2000000000: raise Failure('stale/incompatible BTX status')
+        if value.get('error') or value['phase']=='failed': raise Failure('BTX diagnostic failure: '+str(value))
+        self.event('btx_status',status=value)
+        return value
+    def wait_status(self,directory,predicate,deadline):
+        while time.monotonic()<deadline:
+            self.ensure_bridge()
+            if self.btx.poll() is not None: raise Failure('BTX exited before required status')
+            value=self.btx_status(directory)
+            if value and predicate(value): return value
+            time.sleep(.1)
+        raise Failure('BTX setup/status timeout')
+    def check_workload(self,directory,expected):
+        value=json.loads((directory/'workload.json').read_text())
+        if value!=expected['pattern']: raise Failure('BTX readback differs from verified pattern/tempo/gains')
+    def active_phase(self,directory,initial):
+        start=time.monotonic_ns(); deadline=time.monotonic()+PHASE_SECONDS
+        previous=initial['tick']; last=initial; progress_ns=start
+        self.event('phase_begin',phase='BTX-active',start_ns=start,position=initial)
+        while time.monotonic()<deadline:
+            self.ensure_bridge()
+            if self.btx.poll() is not None: raise Failure('BTX exited during active phase')
+            value=self.btx_status(directory)
+            if not value or value['phase']!='running' or not value['running'] or not value['valid'] or value['tick']<previous:
+                raise Failure('active playback coverage missing/reset/not confirmed')
+            if (value['pattern_hash'],value['tempo_hundredths'],value['gains'])!=(initial['pattern_hash'],initial['tempo_hundredths'],initial['gains']):
+                raise Failure('active workload mismatch')
+            now=time.monotonic_ns()
+            if value['tick']>previous: progress_ns=now
+            elif now-progress_ns>2000000000: raise Failure('active playback ticks stopped advancing')
+            previous=value['tick']; last=value
+            self.status('RUNNING BTX-active: '+str(max(0,int(deadline-time.monotonic())))+'s')
+            time.sleep(.5)
+        self.ensure_bridge()
+        if self.btx.poll() is not None: raise Failure('BTX exited before full active coverage')
+        if last['tick']<=initial['tick']: raise Failure('no active playback progress')
+        end=time.monotonic_ns(); self.event('phase_end',phase='BTX-active',end_ns=end,position=last)
+        return dict(start_ns=start,end_ns=end,initial=initial,final=last)
+    def release_btx(self,directory):
+        self.event('btx_release_requested',pid=self.btx.pid)
+        atomic(directory/'command.txt','RELEASE\n')
+        code=self.btx.wait(timeout=HANDOFF_SECONDS)
+        exited=time.monotonic_ns(); self.event('btx_exit_observed',pid=self.btx.pid,code=code,exit_observed_ns=exited)
+        value=self.btx_status(directory)
+        if code!=0 or not value or value['phase']!='released': raise Failure('BTX did not report clean diagnostic serial release')
+        self.release_ns=value['ns']
+        if self.release_ns>exited: raise Failure('invalid serial release ordering')
+        self.event('serial_release_report',serial_release_ns=self.release_ns,btx_exit_observed_ns=exited)
+        self.btx=None
+        return value,exited
+    def off_phase(self,prefix,previous):
+        session=self.open_serial(prefix)
+        first=session.observe()
+        self.event('first_btx_off_observation',**first)
+        if first['position']['tick']<previous['tick']: raise Failure('timeline reset across BTX serial handoff')
+        # No polling worker between three scheduled bursts; keep FD exclusively
+        # owned. Each STATUS + two fresh POS burst is bounded to <=6 seconds.
+        start=time.monotonic_ns(); deadline=start+PHASE_SECONDS*1000000000
+        observations=[first]
+        self.event('phase_begin',phase='BTX-off',start_ns=start,position=first)
+        for offset in [PHASE_SECONDS/2,PHASE_SECONDS]:
+            target=start+int(offset*1e9)
+            while time.monotonic_ns()<target:
+                self.ensure_bridge(); time.sleep(min(.5,max(0,(target-time.monotonic_ns())/1e9)))
+            self.ensure_bridge(); value=session.observe(); self.ensure_bridge()
+            if value['position']['tick']<=observations[-1]['position']['tick']: raise Failure('off-phase timeline stalled/reset')
+            observations.append(value); self.event('off_observation',**value)
+        end=time.monotonic_ns()
+        if end<deadline: raise Failure('incomplete off-phase coverage')
+        self.event('phase_end',phase='BTX-off',end_ns=end)
+        return dict(start_ns=start,end_ns=end,observations=observations,
+                    limitation='Sparse serial checks at begin/mid/end add load identically in on/off. Continuity between observations and physical sound are unverified.')
+    def stop_playback(self):
+        if not self.playback_owned: return
+        if self.btx is not None and self.btx.poll() is None: raise Failure('cannot STOP while BTX still owns serial')
+        session=self.session or self.open_serial(self.root/('cleanup-'+str(time.monotonic_ns())))
+        session.request('BTTEST1 STOP',lambda s:s=='BTTEST1 STOPPED')
+        state=session.request('BTTEST1 STATUS',lambda s:s.startswith('BTTEST1 STATE '))
+        if state!='BTTEST1 STATE IDLE': raise Failure('STOP/idle not confirmed: '+state)
+        self.playback_owned=False; self.event('playback_stop_confirmed')
+    def condition(self,mode,identity):
+        directory=self.root/mode; directory.mkdir(); self.active_dir=directory
+        result=dict(mode=mode,success=False); self.results.append(result)
+        self.status('PREPARING '+mode+': verifying existing working/published pattern and gains')
+        before=self.readback(directory/'before',identity); self.close_serial()
+        result['workload_before']=before
+        if len(self.results)>1 and before!=self.results[0]['workload_before']: raise Failure('matched workload/sample metadata differs between runs')
+        self.hide()
+        env=os.environ.copy()
+        for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE']:
+            env.pop(key,None)
+        env['BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS']=str(RECORD_SECONDS)
+        if mode=='on': env['BROTRACKER_BRIDGE_CLICKS_DIR']=str(directory)
+        setup_deadline=time.monotonic()+SETUP_SECONDS
+        self.bridge=self.launch([str(self.binary),'--auto'],directory/'bridge.log',env=env,cwd=self.package)
+        self.event('recording_setup_deadline',deadline_ns=time.monotonic_ns()+SETUP_SECONDS*1000000000)
+        while time.monotonic()<setup_deadline:
+            self.ensure_bridge()
+            if b'Queue capacity:' in (directory/'bridge.log').read_bytes(): break
+            time.sleep(.1)
+        else: raise Failure('bridge setup timeout')
+        diagnostic=directory/'btx'; diagnostic.mkdir()
+        env['BROTRACKER_DIAGNOSTIC_STATUS_FILE']=str(self.status_path)
+        if Path('/tmp/brotracker-arkos.log').exists():
+            shutil.copyfile('/tmp/brotracker-arkos.log',directory/'btx-log-before-launch.log')
+        self.btx=self.launch([str(self.terminal),'--offline-click-diagnostic',str(diagnostic)],directory/'btx.log',env=env,cwd=self.package)
+        prepared=self.wait_status(diagnostic,lambda v:v['phase']=='prepared',setup_deadline)
+        self.check_workload(diagnostic,before)
+        if mode=='on':
+            traces=list(directory.glob('bridge-*'))
+            if len(traces)!=1: raise Failure('paired trace missing/ambiguous')
+            meta=json.loads((traces[0]/'run.json').read_text())
+            if meta['limit_seconds']!=RECORD_SECONDS: raise Failure('wrong recording cap/stale binary')
+        # Mark ownership before START publication: failure can leave its outcome unknown.
+        self.playback_owned=True; atomic(diagnostic/'command.txt','START\n')
+        running=self.wait_status(diagnostic,lambda v:v['phase']=='running' and v['valid'] and v['running'],setup_deadline)
+        result['active']=self.active_phase(diagnostic,running)
+        released,exited=self.release_btx(diagnostic)
+        result['serial_release_ns']=released['ns']; result['btx_exit_observed_ns']=exited
+        if Path('/tmp/brotracker-arkos.log').exists(): (directory/'btx-internal.log').write_bytes(Path('/tmp/brotracker-arkos.log').read_bytes())
+        self.show(); self.status('RUNNING BTX-off: sparse serial checks; no Wi-Fi')
+        result['off']=self.off_phase(directory/'off',released)
+        self.stop_playback()
+        after=self.readback(directory/'after',identity+2); self.close_serial()
+        result['workload_after']=after
+        if after!=before: raise Failure('workload changed across condition')
+        result['bridge_exit']=terminate_owned(self.bridge); self.bridge=None
+        if result['bridge_exit']!=0: raise Failure('bridge finalization failed')
+        if mode=='on':
+            report=analyze(traces[0]); save(directory/'analysis.json',report)
+            if not report['complete'] or not report['accepted_equals_mapped_received']: raise Failure('paired PCM incomplete/mismatched')
+            import csv
+            bounds={2:[],3:[]}
+            with (traces[0]/'transfers.tsv').open() as f:
+                for row in csv.DictReader(f,delimiter='\t'):
+                    if int(row['kind']) in bounds and int(row['result'])>0: bounds[int(row['kind'])].append(int(row['ns']))
+            verify_pcm_coverage(bounds,result['active']['start_ns'],result['off']['end_ns'])
+            result['pcm_phase_coverage']=True
+        else: result['pcm_phase_coverage']='not recorded by design; telemetry observations only'
+        result['success']=True; save(directory/'result.json',result)
+    def cleanup(self):
+        errors=[]
+        if self.btx:
+            try:
+                # On failure only, terminate our own UI; process wait proves release.
+                terminate_owned(self.btx,force=True); self.event('cleanup_btx_reaped',pid=self.btx.pid)
+            except Exception as e: errors.append(str(e))
+            if self.btx.poll() is not None: self.btx=None
+        try: self.stop_playback()
+        except Exception as e: errors.append('STOP/idle unconfirmed: '+str(e))
+        try: self.close_serial()
+        except Exception as e: errors.append('serial finalization: '+str(e))
+        if self.bridge:
+            try: terminate_owned(self.bridge)
+            except Exception as e: errors.append(str(e))
+            self.bridge=None
+        return errors
+    def run(self):
+        failure=None
+        try:
+            self.preflight()
+            for i,mode in enumerate(['on','off']): self.condition(mode,4000000000+i*4)
+        except Exception as e: failure=type(e).__name__+': '+str(e); self.event('failure',reason=failure)
+        errors=self.cleanup(); self.cleanup_done=True
+        if self.active_dir and not (self.active_dir/'btx-internal.log').exists() and Path('/tmp/brotracker-arkos.log').exists():
+            shutil.copyfile('/tmp/brotracker-arkos.log',self.active_dir/'btx-internal.log')
+        if self.recording_error: errors.append('runner timeline evidence incomplete')
+        if self.config_path is not None and (sha(self.config_path) if self.config_path.exists() else None)!=self.config_before:
+            errors.append('persistent user config changed; original retained, not overwritten')
+        for trace in self.root.glob('*/bridge-*'):
+            if not trace.is_dir(): continue
+            output=trace.parent/'analysis.json'
+            if not output.exists():
+                try: report=analyze(trace)
+                except Exception as e: report=dict(complete=False,errors=[str(e)])
+                save(output,report)
+        summary=dict(success=not failure and not errors,failure=failure,cleanup_errors=errors,conditions=self.results,
+            limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
+            'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.')
+        save(self.root/'summary.json',summary)
+        text=('COMPLETED' if summary['success'] else 'FAILED')+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nListening/sample-binding limitations: see summary.json'
+        (self.root/'SUMMARY.txt').write_text(text+'\n'+str(self.root)+'\n')
+        self.status(text); return summary['success']
+    def close_files(self):
+        if hasattr(self,'lock'): self.lock.close()
+        for log in self.owned_logs: log.close()
+        self.events.close()
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]); p.add_argument('--workload',type=Path)
+    p.add_argument('--no-display',action='store_true',help='shell/device-free tests only; Ports uses SDL status')
+    args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json')
+    if args.no_display: e.show=lambda:None
+    def interrupted(signum,frame): raise Failure('runner interrupted by signal '+str(signum))
+    for sig in [signal.SIGTERM,signal.SIGINT,signal.SIGHUP]: signal.signal(sig,interrupted)
+    try:
+        success=e.run()
+        if not args.no_display and e.display_verified:
+            try: e.show(); e.viewer.wait(timeout=300)
+            except Exception: pass
+        return 0 if success else 1
+    finally:
+        # Even a report/storage exception must not bypass bounded STOP cleanup.
+        if not e.cleanup_done: e.cleanup()
+        e.hide(); e.close_files()
+if __name__=='__main__': raise SystemExit(main())

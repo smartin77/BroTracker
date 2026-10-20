@@ -44,6 +44,11 @@ public:
     // Set once at host startup, before the first Tick. Default sends no override.
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    // Diagnostic-only read: close only at a complete-line, command-idle boundary.
+    bool DiagnosticReleaseReady() const {
+        return tx_offset_==tx_size_ && pending_==Command::None && !TransportPending()
+            && !PublicationBusy() && !pattern_assembler_.Active();
+    }
     const char* ActiveAudioOutput() const { return audio_active_; }
     bool Start();
     bool Stop();

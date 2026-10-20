@@ -1140,9 +1140,29 @@ design remains unchanged.
 
 * [x] Resolve recurring Teensy USB audio cold-boot corruption; hardware validation
   run `20261006-220244.Ph7ox3` passed. See the [validation record](../tools/teensy_usb_audio/README.md#hardware-validation-20261006-220244ph7ox3).
-* [ ] Investigate intermittent ArkOS audio clicks/pauses and ALSA capture/playback
-  xruns as a separate issue. Do not reopen the resolved cold-boot corruption
-  without new evidence; see the same validation record for remaining observations.
+* [x] Implement opt-in ALSA bridge paired capture/playback-accepted PCM diagnostics:
+  bounded asynchronous evidence queue, transfer/source frame accounting, monotonic
+  service gaps, ALSA status/actual parameters, recovery/discard records and explicit
+  diagnostic loss. Add offline completeness/byte comparison and synthetic tests.
+  See `tools/alsa_bridge/README.md` for the looping-pattern console procedure.
+  No click suppression, buffer tuning or Teensy/Windows audio changes.
+* [x] Prepare an explicitly opt-in, offline unattended bridge-click runner and
+  Ports entry: normal BTX serial ownership/negotiation and START, bounded status
+  channel, runner-owned active/off timers, graceful diagnostic exit without STOP
+  only on explicit release, then sparse serial checks and supported STOP/idle.
+  No production serial proxy. Verify published/working pattern, tempo and gains;
+  retain available WAV hashes/metadata and explicitly unverified sample bindings.
+  Preflight matching checked ARM64 deployment artifacts, preserve config/attempts,
+  reject missing status, timeout, early exit, mismatched or incomplete coverage.
+  Recording cap 240 seconds with a separate 60-second setup deadline; no tuning.
+* [ ] Physically investigate intermittent ArkOS clicks using the unchanged looping
+  pattern: matched BTX-active/diagnostically-released runs with an independent bridge,
+  diagnostics off/on and optional aligned headphone recording. Preserve every run
+  under `assets/hardware_diagnostics/bridge_clicks/`; validate PCM accounting before
+  interpreting transients, gaps, recovery or occupancy trends. ArkOS and dArkOS
+  physical validation remain separate and pending; neither bridge fault nor
+  hardware limitation is established. Do not reopen resolved cold-boot corruption
+  without new evidence; see the earlier validation record.
 
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 

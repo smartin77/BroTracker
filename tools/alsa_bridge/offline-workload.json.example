@@ -1,0 +1,9 @@
+{
+  "os_variant": "FILL ArkOS or dArkOS version",
+  "topology": "FILL direct USB, no Wi-Fi and no hub; power/headphones",
+  "workload": "FILL known existing looping pattern identity",
+  "tempo": "FILL unchanged existing tempo",
+  "gains": "FILL unchanged tracker/host/headphone gains",
+  "sample_bindings": "FILL unchanged sample slots, paths and hashes",
+  "firmware": "FILL existing firmware version"
+}

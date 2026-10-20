@@ -160,3 +160,280 @@ A capture-start failure produces `capture_start_failure` and
 presented as a completed capture. Completion rechecks the published queue after
 observing the completion flag, so normal end, limit and overflow drain all
 accepted bytes even if the initial empty observation was stale.
+
+## Opt-in pattern-click investigation (paired PCM)
+
+This experiment measures the existing USB-capture -> playback path. It does not
+change PCM, queue sizes, ALSA settings, clock correction or recovery policy, and
+does not diagnose a bridge bug or hardware limit by itself. The looping production
+pattern is the primary workload; a continuous tone is only a secondary control.
+Physical ArkOS and dArkOS runs remain pending and must be labelled separately.
+
+Local validation (2026-10-20): the bridge and focused test targets build in the
+existing Eoan ARM64/QEMU environment. All 11 selected CTest suites pass, including
+existing host/serial/input regressions, BTX lifecycle/configuration/display tests,
+15 synthetic runner tests, nine Python analysis tests and 9001-frame ALSA file/null
+comparisons. Both generated deployment artifacts pass the Eoan ABI/dependency and
+capability checks. These tests do not open physical audio hardware or establish
+click-free playback.
+
+Set `BROTRACKER_BRIDGE_CLICKS_DIR` to an existing writable evidence base to enable
+paired diagnostics. Each process creates a new `bridge-XXXXXX` child without
+reusing or overwriting files. When unset/empty, the new worker, files, status
+sampling and event/PCM copies are disabled. The older capture-only WAV mode is
+independent; the run helper disables it in both baseline and paired runs to avoid
+adding a second recording worker.
+
+### Evidence and bounded service work
+
+- `received.s16le`: exactly the positive frame counts returned by `snd_pcm_readi`.
+- `accepted.s16le`: exactly the positive frame counts accepted by each
+  `snd_pcm_writei`, including partial writes. These are application-format stereo
+  S16_LE 44100 Hz bytes, before any playback plugin/slave conversion, not proof of
+  DAC output. No silence is deliberately inserted by this bridge.
+- `transfers.tsv`: consecutive sequence, CLOCK_MONOTONIC timestamp at observation,
+  kind, requested/result frames, absolute source frame, cumulative captured,
+  accepted and discarded frames, application queue occupancy, ALSA avail/delay,
+  state and recovery step. Counters/occupancy describe the state **before** the
+  event is applied; write source = accepted + discarded. Negative/zero/short
+  transfers are retained. Times are process observations, not USB packet or
+  hardware sample timestamps. Events are not independent clock measurements.
+- Kinds: 1 service entry; 2 read; 3 write; 4 capture status; 5 playback status;
+  6 recovery operation; 7 application discard; 8 capture start; 9 service end.
+  Recovery step 0 contains the original errno and initiating side (`state=1`
+  capture, `0` playback), with pre-recovery capture/playback states in avail/delay;
+  steps 1/2 drop capture/playback, 3/4 prepare them,
+  5 restarts capture. Every operation's actual return value is recorded.
+  Drops can also discard already accepted kernel PCM; its exact extent and
+  missing upstream USB samples cannot be reconstructed. End result -1 means
+  aborted service; zero means orderly signal shutdown. Remaining queued frames
+  at shutdown are counted, not pretended to have reached playback.
+- `alsa-parameters.txt`: actual PCM names, full application/slave ALSA dumps,
+  format/rate/channels, period/buffer, actual software avail_min, start/stop
+  thresholds and boundary, obtained before capture starts. `run.json` records
+  schema, ALSA version, fixed capacities and a wall/monotonic alignment anchor.
+- `completion.json`: record counts, first lost sequence, lost-record count,
+  writer failure and explicit incompleteness. Loss reasons: 1 full diagnostic
+  queue, 2 diagnostic duration limit, 3 writer failure. Limit/overflow stops
+  accepting evidence at the first lost event; audio continues. Later evidence
+  is never spliced across that gap. A missing completion file is incomplete.
+
+The audio producer uses a preallocated 4096-slot SPSC queue (about 4.4 MiB),
+fixed-size copies and lock-free atomics. Each record holds at most 256 PCM frames.
+No new diagnostic formatting, disk I/O, locks, allocation or waits occur in the
+service loop. A separate writer formats events and writes both PCM files. In this
+mode recovery console logging is replaced by queued records; fatal reporting
+occurs after leaving service. ALSA calls remain nonblocking; the existing bounded
+1 ms idle poll is unchanged. Allocation/files/thread creation finish before
+capture start. Setup failure is reported before service and audio continues.
+
+Service timestamps measure loop gaps; queue occupancy is recorded each iteration.
+At most once per 20 ms, both PCMs are sampled with `snd_pcm_avail_delay` and state;
+there is no catch-up sampling loop. These samples plus cumulative frames can
+expose occupancy trends and scheduling stalls, but ALSA plugins, resets and
+scheduling also affect them. No adaptive drift correction or buffer tuning is
+introduced. Status-query overhead and asynchronous storage traffic may perturb
+the system; matched diagnostics-off runs are required.
+
+Writer failure, overflow, duration limit, malformed/missing/duplicated events,
+partial PCM frames, counter disagreement and interrupted finalization must not
+pass completeness validation. Files and failed runs are retained. Finalization
+joins the writer outside the audio loop; a stalled filesystem can delay process
+shutdown. SIGKILL or power loss can prevent finalization. There is no guarantee
+that diagnostic evidence survives abrupt storage failure. This mode does not
+measure service stalls after the first diagnostic loss.
+
+### Offline unattended Ports procedure
+
+The console needs no network, SSH, extra controller, or powered hub during a run.
+The runner is deliberately specific to this experiment; its owned-process,
+preflight, evidence and result workflow is the pattern to reuse for later
+standalone diagnostics, not a new framework.
+
+#### Delivery and preparation while Wi-Fi is available
+
+The existing Linux policy tracks checked ARM64 deployment artifacts under
+`deploy/arkos/` alongside source. Temporary builds and review exports stay under
+ignored `build/`. Do not substitute an installed `/roms/ports/brotracker` bridge:
+the runner uses only the binaries in this exact checkout and verifies both ELF
+hashes, dependencies and executable capability IDs against
+`deploy/arkos/bridge-clicks-artifacts.json`. Source and textual package-asset fingerprints normalize CRLF to
+LF so Git text conversion cannot invalidate them; ELF/bitmap/evidence hashes use
+raw bytes. Windows deployment policy is unchanged.
+
+For developer preparation, build the matching BTX and bridge in the existing
+Eoan ARM64 root, run the focused tests, then run:
+
+```sh
+# Inside Eoan, with the same build directory used for both binaries:
+bash /workspace/tools/alsa_bridge/check-offline-build.sh /build/bridge-clicks
+# From the repository root on the development machine, after those checks:
+python3 -B tools/alsa_bridge/prepare_offline_artifacts.py \
+  --build-dir build/bridge-clicks --package-dir deploy/arkos
+```
+
+The preparation helper checks hashes from the ABI report before replacing the
+known generated Linux executables and writing their manifest. It performs no
+Git operations. The owner reviews and commits/pushes the source, both binaries
+and manifest together using the existing repository workflow. Executable modes
+must be recorded for the two ELF files when committing from Windows; no bundled
+ALSA/SDL library is added. An older bridge/BTX or mixed source/artifact checkout
+fails preflight rather than silently running another deployed version.
+
+On the console, in the reviewed branch checkout while Wi-Fi is connected:
+
+```sh
+cd /path/to/BroTracker
+repo=$PWD
+git pull --ff-only
+python3 --version                    # 3.7 or newer
+command -v fuser                     # psmisc; install during online preparation if missing
+ldd -r deploy/arkos/BroTrackerTerminal
+ldd -r deploy/arkos/BroTrackerAlsaBridge
+./deploy/arkos/BroTrackerAlsaBridge --diagnostic-info
+./deploy/arkos/BroTrackerTerminal --offline-diagnostic-info
+./deploy/arkos/BroTrackerTerminal --offline-diagnostic-config
+```
+
+The last command uses the actual shared INI parser and prints the persistent
+SDL config path. `[audio] output=bridge` or an absent/empty output is accepted;
+PT8211, invalid output or an invalid INI fails the experiment. Set bridge yourself
+before testing if necessary, preserving all other sections/settings. The runner
+never rewrites your config. It retains the original bytes/hash and checks the
+file again at the end. There is no new INI value.
+
+Prepare a persistent workload description and a single Ports entry once:
+
+```sh
+mkdir -p "$HOME/BroTracker"
+cp -n tools/alsa_bridge/offline-workload.json.example \
+  "$HOME/BroTracker/bridge-click-workload.json"
+# Fill every FILL value with actual OS, firmware, unchanged loop/tempo/gains,
+# sample bindings/hashes where known, and direct USB topology without Wi-Fi/hub.
+nano "$HOME/BroTracker/bridge-click-workload.json"
+cp -n "tools/arkos/port/BroTracker Bridge Clicks.sh" "/roms/ports/BroTracker Bridge Clicks.sh"
+printf '%s\n' "$repo" > "/roms/ports/BroTracker Bridge Clicks.repo.path"
+chmod +x "/roms/ports/BroTracker Bridge Clicks.sh"
+```
+
+`cp -n` preserves an existing entry; if updating an earlier launcher, explicitly
+review/update it during online preparation. The path file contains the absolute
+checkout path, not the normal installed application root. Dependencies are
+Python 3.7+ standard library, `fuser`, `ldd`, system ALSA/SDL libraries and the
+usual PortMaster runtime. No pyserial, network service or on-console compiler
+is needed. Stop any existing BTX/bridge session normally before launching.
+A busy device/session is reported; unrelated processes are never killed.
+
+#### One unattended console launch
+
+1. Finish Git transfer and preparation. Disconnect Wi-Fi and connect Teensy
+   directly using the intended unchanged test topology. Do not add the unstable
+   hub. Keep headphones, power, gains and sample bindings unchanged.
+2. From Ports, launch **BroTracker Bridge Clicks**. No controller START presses
+   or live edits are required. Preparation, active-phase countdown, BTX-off and
+   completed/failed status are displayed using the matching BTX SDL status view.
+3. Leave it running for both conditions. The fixed order is diagnostics **on**,
+   then **off**. Each has 60 seconds BTX-active and at least 60 seconds BTX-off.
+   Setup, serial handoff, observations and finalization are separately timestamped.
+4. Read the completed/failed result. It remains displayed until a button/key,
+   window close or the bounded five-minute final display timeout. Results stay
+   on disk after returning to Ports. Disconnect Teensy before reconnecting Wi-Fi
+   for retrieval; keep every successful and failed attempt.
+
+Each attempt uses a unique
+`assets/hardware_diagnostics/bridge_clicks/<UTC>-offline-XXXXXX/` directory.
+`SUMMARY.txt` and `summary.json` name failures, cleanup results, both conditions
+and limitations. `STATUS.txt`, `events.jsonl`, per-condition BTX logs/status and
+workload files, direct serial RX/TX/readbacks, actual ALSA parameters, hashes and
+on-condition paired PCM/analysis remain together. No rerun replaces an attempt.
+If a binary/dependency is unusable before SDL can start, the launcher also prints
+the failure to the console; the saved result remains the authoritative evidence.
+Physical visibility/input behavior still requires separate ArkOS and dArkOS tests.
+
+### Ownership, workload verification and finite phase coverage
+
+There is **no production serial proxy or PTY handoff**. During BTX-active, only
+BTX owns CDC and uses its existing audio negotiation, `Start()` and telemetry
+parser. Diagnostic behavior is explicitly selected by
+`--offline-click-diagnostic <private-directory>`; ordinary startup/controller
+behavior and STOP-on-exit remain unchanged. The experiment disables live edits
+in that mode. A bounded atomic command file carries only START/RELEASE from the
+runner. BTX polls it at most 10 Hz and emits <=2 KiB status snapshots at most
+2 Hz plus transitions, on the host main loop, never the Teensy audio callback.
+
+The runner starts each measured phase. It requires bridge readiness, verified
+BTX readback, matching bridge acknowledgment, START completion and fresh coherent
+advancing telemetry before beginning the 60-second active timer. It requests
+release afterwards. BTX waits for a complete-line, command-idle boundary, exits
+without STOP only on this explicit diagnostic release, destroys its serial
+transport synchronously, and only then publishes released status. The runner
+waits for process exit before opening serial. There is no Linux serial worker
+to join. Release-report time, observed process-exit time and the first BTX-off
+observation are distinct; the handoff gap is not counted as measured coverage.
+
+At BTX-off start, midpoint and end, the runner performs bounded STATUS plus fresh
+advancing-position observations. These sparse serial checks are **additional
+load**, identical in both on/off conditions, and are not evidence of uninterrupted
+playback between observations. The serial FD remains owned but is not serviced
+by a background polling worker between bursts; buffered/stale POS lines cannot
+satisfy an observation before the STATUS freshness barrier. The independent
+bridge remains alive throughout both phases. A separate lightweight SDL status
+view renders at 10 Hz during BTX-off; it has no tracker/serial ownership but adds
+observer load, identically in both conditions. Off mode intentionally has no PCM
+recording, so its evidence is telemetry/normal logs, not a PCM-completeness pass.
+
+Before and after each condition, existing protocol readbacks verify FNV-checked
+version-2 published and working pattern cells, tempo and eight channel gains.
+Working content must equal published content, and content/gains must match across
+all readbacks and BTX's own snapshot. Otherwise the attempt fails before replacing
+anything. This does **not** preserve or restore a user-edited volatile working
+pattern across BTX restarts; use an identified reproducible existing firmware
+fixture. No pattern upload, publication, preview edit or gain SET is sent.
+Available WAVHASH/WAVMETA device reports are retained and compared, including
+valid reported PCM hashes/frame counts. Missing sample hashes, built-in sample
+bytes and a complete runtime slot-to-file map are explicitly unverified; the
+manual workload description does not substitute for device verification.
+
+The old 180-second recording default remains for standalone use. The unattended
+runner explicitly requests **240 seconds**, within a hard supported maximum of
+300, and verifies the actual binary/metadata. Bridge/BTX setup and confirmation
+have a separate **60-second deadline**; release/process wait is bounded, as are
+serial requests and cleanup. BTX has its own 210-second abandoned-run watchdog.
+A larger recording limit never grants unlimited setup. Paired analysis requires
+successful read and accepted-write timestamps to span both complete measured
+phases, along with normal sequence/count/PCM validation. Timeout, missing/stale
+status, early exit, workload mismatch, overflow/limit loss or insufficient phase
+coverage fails the attempt. No threshold or completeness check is weakened.
+
+Cleanup first stops/reaps only an owned BTX if needed, then makes bounded
+supported STOP/STATUS requests after serial release, finalizes the owned bridge,
+and reports STOP/idle uncertainty explicitly. It does not kill other sessions
+or reset/program Teensy. A device or storage failure can prevent confirmation;
+this remains a failed attempt with whatever evidence survived.
+
+### Offline interpretation and optional external recording
+
+Analysis is automatic after finalization, including partial failed on-condition
+traces. To independently recheck a retained original, choose its exact child:
+
+```sh
+python3 -B tools/alsa_bridge/analyze_clicks.py \
+  assets/hardware_diagnostics/bridge_clicks/ATTEMPT/on/bridge-XXXXXX \
+  --output assets/hardware_diagnostics/bridge_clicks/ATTEMPT/reanalysis.json
+```
+
+The analyzer refuses to overwrite reports. It checks sequences, timestamps,
+completion flags, frame counts, raw hashes and byte equality mapped through
+partial writes/application discards. It reports service gaps, occupancy,
+shorts/errors, XRUN/recovery results and musical edge statistics separately.
+A sharp musical transient alone is not a fault. Accepted PCM is not headphone
+output, and clean PCM/no XRUN cannot establish a hardware limitation.
+
+An optional independent headphone recorder must already be running before the
+unattended launch. Record its rate/format, gain, cabling and topology/load changes
+in the workload description, preserve its original file, and align the known
+pattern onset plus later events offline, allowing latency and independent clock
+drift. Optional console-clock user markers are approximate observations with
+reaction/command delay, never sample-accurate click timestamps. They are not
+required for the unattended workflow. Physical ArkOS/dArkOS audio validation and
+identification of the intermittent click cause remain pending.

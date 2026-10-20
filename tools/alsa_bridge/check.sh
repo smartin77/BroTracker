@@ -96,3 +96,59 @@ child=
 grep -q 'Recording disabled:' "$work/open-fail.log"
 cmp "$work/input.raw" "$work/output.raw"
 echo 'PCM recording integration checks passed (INT/TERM finalization and open failure audio continuation).'
+
+# Paired diagnostic integration: real ALSA file/null reads and partial final
+# block; compare byte-exact capture and accepted streams with the offline tool.
+mkdir "$work/clicks"
+BROTRACKER_BRIDGE_CLICKS_DIR="$work/clicks" BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS=240 ALSA_CONFIG_PATH="$work/alsa.conf" "$binary" test_capture test_playback > "$work/clicks.log" 2>&1 &
+child=$!
+for ((i=0; i<150; ++i)); do
+    if grep -q 'Click evidence:' "$work/clicks.log"; then break; fi
+    sleep 0.02
+done
+sleep 0.2
+kill -INT "$child"
+wait "$child"
+child=
+runs=("$work/clicks/"bridge-*)
+[[ ${#runs[@]} == 1 ]]
+grep -q '"limit_seconds":240' "${runs[0]}/run.json"
+cmp "$work/input.raw" "${runs[0]}/received.s16le"
+cmp "$work/input.raw" "${runs[0]}/accepted.s16le"
+python3 -B "$(dirname -- "${BASH_SOURCE[0]}")/analyze_clicks.py" "${runs[0]}" --output "$work/analysis.json"
+grep -q '"complete": true' "$work/analysis.json"
+grep -q '"accepted_equals_mapped_received": true' "$work/analysis.json"
+echo 'Paired click diagnostics ALSA file/null integration passed (not physical evidence).'
+
+# Standalone run helper: on/off conditions must be unique, capture metadata,
+# keep the bridge independent, and preserve a failed startup instead of deleting it.
+mkdir "$work/sessions"
+printf '{"workload":"synthetic ALSA file fixture"}\n' > "$work/workload.json"
+for mode in on off; do
+    ALSA_CONFIG_PATH="$work/alsa.conf" bash "$(dirname -- "${BASH_SOURCE[0]}")/run-clicks.sh" "$mode" "$binary" "$work/sessions" "$work/workload.json" test_capture test_playback > "$work/helper-$mode.log" 2>&1 &
+    child=$!
+    for ((i=0; i<150; ++i)); do
+        sessions=("$work/sessions/"*"-$mode-"*)
+        if [[ -f "${sessions[0]}/bridge.pid" ]]; then break; fi
+        sleep 0.02
+    done
+    sleep 0.2
+    kill -TERM "$child"
+    code=0; wait "$child" || code=$?
+    child=
+    [[ $code == 143 ]]
+    [[ -f "${sessions[0]}/exit-status" && -f "${sessions[0]}/system.txt" ]]
+    [[ -f "${sessions[0]}/workload.json" ]]
+    if [[ $mode == on ]]; then
+        traces=("${sessions[0]}/"bridge-*)
+        [[ ${#traces[@]} == 1 ]]
+        python3 -B "$(dirname -- "${BASH_SOURCE[0]}")/analyze_clicks.py" "${traces[0]}" --output "${sessions[0]}/analysis.json"
+    else
+        [[ $(find "${sessions[0]}" -name received.s16le | wc -l) == 0 ]]
+    fi
+done
+if bash "$(dirname -- "${BASH_SOURCE[0]}")/run-clicks.sh" on "$binary" "$work/sessions" "$work/workload.json" null brotracker_nonexistent_device > "$work/helper-failed.log" 2>&1; then
+    echo 'Run helper hid failed bridge startup' >&2; exit 1
+fi
+[[ $(find "$work/sessions" -name exit-status | wc -l) == 3 ]]
+echo 'Standalone on/off run helper checks passed; failed startup preserved.'

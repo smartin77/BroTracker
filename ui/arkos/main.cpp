@@ -27,6 +27,8 @@
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
+#include "ui/arkos/diagnostic_status.h"
+#include "ui/arkos/offline_click_mode.h"
 
 namespace
 {
@@ -67,10 +69,28 @@ void WriteSdlFailure(
 
 int main(int argc, char* argv[])
 {
+    if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-info")) {
+        std::puts("{\"id\":\"btx-offline-clicks-v2\"}"); return 0;
+    }
+    if(argc==3 && !std::strcmp(argv[1],"--diagnostic-status")) return RunDiagnosticStatus(argv[2]);
+    const char* diagnostic_directory=argc==3 && !std::strcmp(argv[1],"--offline-click-diagnostic") ? argv[2]:nullptr;
+    OfflineClickMode diagnostic(diagnostic_directory);
+    const char* diagnostic_status=diagnostic.Enabled()?std::getenv("BROTRACKER_DIAGNOSTIC_STATUS_FILE"):nullptr;
     char* config_directory=SDL_GetPrefPath("BroTracker","BroTracker Terminal");
     const auto config_path=config_directory ? std::filesystem::u8path(config_directory)/"config.ini" : std::filesystem::path{};
     SDL_free(config_directory);
     const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
+    if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-config")) {
+        std::printf("path=%s\nroute=%s\ninvalid=%u\nstatus=%s\n",config_path.string().c_str(),
+            BroTracker::AudioOutputName(host_config.config.audio_output),unsigned(host_config.config.audio_output_invalid),
+            BroTracker::HostConfigDiagnostic(host_config.status));
+        return (host_config.status==BroTracker::HostConfigStatus::Loaded || host_config.status==BroTracker::HostConfigStatus::Missing)
+            && !host_config.config.audio_output_invalid && host_config.config.audio_output!=BroTracker::AudioOutputChoice::Pt8211 ? 0:2;
+    }
+    if(diagnostic.Enabled() && ((host_config.status!=BroTracker::HostConfigStatus::Loaded && host_config.status!=BroTracker::HostConfigStatus::Missing)
+        || host_config.config.audio_output_invalid || host_config.config.audio_output==BroTracker::AudioOutputChoice::Pt8211)) {
+        diagnostic.Fail("configuration-not-compatible-with-bridge"); diagnostic.SerialReleased(); return 2;
+    }
     BroTracker::ConfigureHostLogging(host_config.config.logging_mode);
     const char* append=std::getenv("BROTRACKER_APPEND_LOG");
     const auto plan=BroTracker::PrepareHostLog(kBringUpLogPath,host_config.config,append && std::strcmp(append,"1")==0);
@@ -255,8 +275,9 @@ int main(int argc, char* argv[])
     select_controller();
     WriteBringUpDiagnostic(bring_up_log,kArkOSEditorHints);
     LogSdlHostDiagnostics(bring_up_log);
+    { // Serial is closed before diagnostic serial-release status is published.
     BringUpSerial serial(bring_up_log);
-    serial.SetAudioOutputPreference(host_config.config.audio_output);
+    serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 
@@ -264,10 +285,12 @@ int main(int argc, char* argv[])
         bring_up_log,
         "entering event loop");
 
-    while (!controls.Quit())
+    while (!controls.Quit() && !diagnostic.Exit())
     {
         controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
+        diagnostic.Tick(serial,SDL_GetTicks());
+        if(diagnostic.Exit()) break;
         SDL_Event event;
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
@@ -278,6 +301,7 @@ int main(int argc, char* argv[])
                 controls.Request(BringUpAction::Exit, "SDL_QUIT/display error", SDL_GetTicks());
                 break;
             }
+            if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
             const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
             if (game_controller && editor_input.Device()<0) {
                 SDL_GameControllerClose(game_controller); game_controller=nullptr;
@@ -302,6 +326,8 @@ int main(int argc, char* argv[])
             serial.PublicationStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
+        if(diagnostic_status) DrawWrappedFixedText(framebuffer,4,4,framebuffer.Width()-8,40,
+            DiagnosticStatusText(diagnostic_status),Color{255,255,255});
         if (!controls.Quit() && !display.Present(framebuffer))
         {
             WriteSdlFailure(
@@ -313,6 +339,8 @@ int main(int argc, char* argv[])
         SDL_Delay(16);
     }
 
+    } // BringUpControls and BringUpSerial destroyed: Linux Close() is synchronous.
+    diagnostic.SerialReleased();
     if (game_controller != nullptr)
         SDL_GameControllerClose(game_controller);
 
@@ -331,5 +359,5 @@ int main(int argc, char* argv[])
     if (owns_log)
         std::fclose(bring_up_log);
 
-    return 0;
+    return diagnostic.Failed()?2:0;
 }
