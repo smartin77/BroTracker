@@ -163,7 +163,7 @@ class Experiment:
         self.bridge=self.btx=self.viewer=self.session=None
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
-        self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False
+        self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False; self.cancel_producers={}; self.cancel_records=set(); self.current_phase="initializing"
     def retain_traceback(self):
         try:
             with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
@@ -176,16 +176,23 @@ class Experiment:
             self.events.write(json.dumps(record)+'\n'); self.events.flush()
         except OSError: self.recording_error=True
     def status(self,text):
+        self.current_phase=text.splitlines()[0] if text else "unknown"
         atomic(self.status_path,text+'\n')
         print(text,flush=True); self.event('status',text=text)
     def launch(self,command,log,**kwargs):
         f=log.open('xb'); self.owned_logs.append(f)
         child=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,**kwargs)
+        if '--diagnostic-status' in command or '--offline-click-diagnostic' in command:
+            self.cancel_producers[child.pid]='status' if '--diagnostic-status' in command else 'btx'
         self.event('owned_process_started',pid=child.pid,command=list(map(str,command))); return child
     def show(self):
         if self.viewer is None:
-            self.viewer=self.launch([str(self.terminal),'--diagnostic-status',str(self.status_path)],self.root/('display-'+str(time.monotonic_ns())+'.log'),cwd=self.package,env=dict(os.environ,BROTRACKER_DIAGNOSTIC_RUNNER_PID=str(os.getpid())))
-    def hide(self): terminate_owned(self.viewer); self.viewer=None
+            self.viewer=self.launch([str(self.terminal),'--diagnostic-status',str(self.status_path)],self.root/('display-'+str(time.monotonic_ns())+'.log'),cwd=self.package,env=dict(os.environ,BROTRACKER_DIAGNOSTIC_RUNNER_PID=str(os.getpid()),BROTRACKER_DIAGNOSTIC_CANCEL_DIR=str(self.root)))
+    def hide(self):
+        if self.viewer:
+            self.event('owned_view_shutdown_requested',pid=self.viewer.pid,view='status',phase=self.current_phase)
+            terminate_owned(self.viewer)
+        self.viewer=None
     def open_serial(self,prefix):
         if self.btx is not None and self.btx.poll() is None: raise Failure('refusing competing BTX serial reader')
         if self.session is not None: raise Failure('serial session already open')
@@ -262,6 +269,7 @@ class Experiment:
         check=subprocess.run([str(self.binary),'--preflight'],capture_output=True,timeout=15)
         (self.root/'alsa-preflight.log').write_bytes(check.stdout+check.stderr)
         if check.returncode: raise Failure('ALSA device access/negotiation failed (no competing owners were killed)')
+        self.check_view()
 
     def readback(self,prefix,identity):
         session=self.session or self.open_serial(prefix)
@@ -298,7 +306,11 @@ class Experiment:
                 exact_firmware_build=dict(status='unknown',reason='Existing protocol does not advertise a unique firmware build identity')))
 
         return result
+    def check_view(self):
+        if self.viewer is not None and self.viewer.poll() is not None:
+            raise Failure('Diagnostic status view exited unexpectedly: '+str(self.viewer.returncode))
     def ensure_bridge(self):
+        self.check_view()
         if self.recording_error: raise Failure('runner timeline write failed')
         if self.bridge is None or self.bridge.poll() is not None: raise Failure('owned bridge exited prematurely')
         if shutil.disk_usage(self.root).free<64*1024*1024: raise Failure('storage reserve exhausted')
@@ -411,6 +423,7 @@ class Experiment:
         diagnostic=directory/'btx'; diagnostic.mkdir()
         env['BROTRACKER_DIAGNOSTIC_STATUS_FILE']=str(self.status_path)
         env['BROTRACKER_DIAGNOSTIC_RUNNER_PID']=str(os.getpid())
+        env['BROTRACKER_DIAGNOSTIC_CANCEL_DIR']=str(self.root)
         if Path('/tmp/brotracker-arkos.log').exists():
             shutil.copyfile('/tmp/brotracker-arkos.log',directory/'btx-log-before-launch.log')
         self.hide()
@@ -505,10 +518,30 @@ class Experiment:
         self.status(summary['outcome']+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+
                     '/2\n'+short_error+'\nAudible clicks:\nNOT YET CONFIRMED\nDetails saved in run logs.')
         return summary['success']
-    def cancel(self):
+    def cancel_from_view(self):
+        source=None
+        for pid,view in self.cancel_producers.items():
+            path=self.root/('cancel-'+str(pid)+'.json')
+            if path.name in self.cancel_records or not path.exists(): continue
+            try:
+                if path.stat().st_size>2048: raise ValueError('oversized source record')
+                value=json.loads(path.read_text())
+                if value['producer_pid']!=pid or value['view']!=view: raise ValueError('source ownership mismatch')
+                source=value;self.cancel_records.add(path.name)
+                self.event('cancellation_requested',source=source,observed_phase=self.current_phase)
+            except (OSError,ValueError,KeyError) as error:
+                self.event('cancellation_source_error',path=path.name,reason=str(error))
+        if source:
+            reason=(source['view']+': '+source['reason']+' (SDL event '+str(source['sdl_event_type'])+
+                    ', '+source['input_kind']+'='+str(source['input_id'])+')')
+        else:
+            reason='Unattributed cancellation signal: source record unavailable'
+            self.event('cancellation_requested',source=None,observed_phase=self.current_phase,reason=reason)
+        self.cancel(reason)
+    def cancel(self,reason='Cancellation requested by runner'):
         if self.cancelled: return
         self.cancelled=True
-        if not self.finishing: raise Cancelled('Cancelled by B/Back/Escape or window close')
+        if not self.finishing: raise Cancelled(reason)
     def wait_results(self,success):
         # Cancelled attempts return immediately after cleanup; other outcomes are timed.
         if self.cancelled: return
@@ -530,7 +563,7 @@ def main():
     if args.no_display: e.show=lambda:None
     def interrupted(signum,frame): raise Failure('runner interrupted by signal '+str(signum))
     for sig in [signal.SIGTERM,signal.SIGINT,signal.SIGHUP]: signal.signal(sig,interrupted)
-    signal.signal(signal.SIGUSR1,lambda signum,frame:e.cancel())
+    signal.signal(signal.SIGUSR1,lambda signum,frame:e.cancel_from_view())
     try:
         success=e.run()
         if not args.no_display and e.display_verified:

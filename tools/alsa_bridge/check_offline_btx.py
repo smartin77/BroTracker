@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import signal
 import sys
 import tempfile
 import time
@@ -29,9 +30,15 @@ with tempfile.TemporaryDirectory(prefix='synthetic-btx-',dir=base) as tmp:
     config.write_text('[btx]\nschema_version=1\nnew_pattern_length=32\n[audio]\noutput=bridge\n')
     original=config.read_bytes()
     status=work/'STATUS.txt'; status.write_text('PREPARING synthetic offline diagnostic\n')
+    cancel_signals=[]
+    previous=signal.signal(signal.SIGUSR1,lambda *args:cancel_signals.append(True))
+    env.update(BROTRACKER_DIAGNOSTIC_RUNNER_PID=str(os.getpid()),BROTRACKER_DIAGNOSTIC_CANCEL_DIR=str(work))
     viewer=subprocess.Popen([str(binary),'--diagnostic-status',str(status)],env=env,cwd=repo/'deploy/arkos',stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         time.sleep(.3); assert viewer.poll() is None,'headless status display failed'
     finally:
         viewer.terminate(); viewer.wait(timeout=5)
+        signal.signal(signal.SIGUSR1,previous)
+    assert not cancel_signals,'intentional view transition incorrectly cancelled runner'
+    assert not list(work.glob('cancel-*.json')),'intentional transition fabricated cancellation source'
 print('Actual BTX shared configuration and headless SDL status checks passed; no hardware.')

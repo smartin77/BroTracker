@@ -151,6 +151,23 @@ class RunnerTests(unittest.TestCase):
             with patch.object(r.time,'monotonic',side_effect=lambda:clock[0]),patch.object(r.time,'sleep',side_effect=lambda n:e.cancel()):
                 e.wait_results(success)
             self.assertTrue(e.cancelled);self.assertEqual(clock[0],0)
+    def test_precise_cancellation_source_is_retained_in_timeline_and_reason(self):
+        e=self.experiment();e.cancel_producers[123]='btx'
+        source=dict(producer_pid=123,view='btx',phase='RUNNING BTX-active',reason='controller_back',
+                    sdl_event_type=1617,input_kind='button',input_id=4,controller_instance=0)
+        (e.root/'cancel-123.json').write_text(json.dumps(source))
+        with self.assertRaisesRegex(r.Cancelled,'btx: controller_back .*button=4'):
+            e.cancel_from_view()
+        records=[json.loads(line) for line in (e.root/'events.jsonl').read_text().splitlines()]
+        record=next(v for v in records if v['event']=='cancellation_requested')
+        self.assertEqual(record['source'],source)
+    def test_intentional_view_shutdown_records_transition_without_cancel(self):
+        e=self.experiment();e.viewer=Mock();e.viewer.pid=123;e.viewer.poll.return_value=None
+        e.viewer.wait.return_value=0
+        e.hide()
+        self.assertIsNone(e.viewer);self.assertFalse(e.cancelled)
+        records=[json.loads(line) for line in (e.root/'events.jsonl').read_text().splitlines()]
+        self.assertEqual(records[-1]['event'],'owned_view_shutdown_requested')
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff

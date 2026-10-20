@@ -336,6 +336,15 @@ Failures show a short error and return to Ports after 15 seconds; completed resu
 return after 30 seconds. B/Back/Escape returns immediately (after bounded cleanup
 when cancelling a live run). Full paths, errors and tracebacks remain in saved logs.
 Normal BTX input and STOP-on-exit behavior outside diagnostic mode are unchanged.
+Controller B/Back cancellation arms only after all initial held inputs have been
+released for 250 ms; launch events, unknown controller instances, other buttons
+and device notifications do not cancel. Escape (non-repeat) and user window-close
+remain available. Intentional status-view SIGTERM shutdown is handled separately
+from SDL quit, including early initialization. Cancellation source records and
+`events.jsonl` retain the producing PID/view, phase, SDL event type and input ID;
+the saved reason names the actual trigger. Display failures are reported as
+failures rather than user cancellation.
+
 
 #### One unattended console launch
 

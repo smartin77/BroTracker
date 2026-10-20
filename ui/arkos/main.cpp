@@ -285,6 +285,7 @@ int main(int argc, char* argv[])
         bring_up_log,
         "entering event loop");
 
+    DiagnosticCancelInput diagnostic_cancel;
     while (!controls.Quit() && !diagnostic.Exit())
     {
         controls.Tick(SDL_GetTicks());
@@ -295,8 +296,9 @@ int main(int argc, char* argv[])
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
         {
-            if(diagnostic.Enabled() && DiagnosticExitEvent(event)) {
-                RequestDiagnosticCancel(); diagnostic.Fail("cancelled"); break;
+            if(diagnostic.Enabled() && diagnostic_cancel.Accept(event,
+                event.type==SDL_CONTROLLERBUTTONDOWN && SDL_GameControllerFromInstanceID(event.cbutton.which))) {
+                RequestDiagnosticCancel("btx",event,diagnostic_status); diagnostic.Fail("cancelled"); break;
             }
             if (event.type == SDL_QUIT)
             {
@@ -318,6 +320,7 @@ int main(int argc, char* argv[])
             if(result.transport!=BringUpAction::None)
                 controls.Request(result.transport,"ArkOS mapped input",SDL_GetTicks());
         }
+        if(diagnostic.Enabled()) diagnostic_cancel.ObserveReleased(DiagnosticButtonsReleased(),SDL_GetTicks());
         editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
