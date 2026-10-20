@@ -1155,6 +1155,11 @@ design remains unchanged.
   Preflight matching checked ARM64 deployment artifacts, preserve config/attempts,
   reject missing status, timeout, early exit, mismatched or incomplete coverage.
   Recording cap 240 seconds with a separate 60-second setup deadline; no tuning.
+* [x] Automate offline Ports preparation and read-only metadata/workload discovery.
+  No required manual manifest or editing; preserve optional descriptions separately.
+  Retain strict compatibility, ownership, matching readback and phase coverage checks.
+  Automatic phase boundaries support later listening reports; audible-click status
+  remains NOT YET CONFIRMED until user feedback, separate from technical completion.
 * [ ] Physically investigate intermittent ArkOS clicks using the unchanged looping
   pattern: matched BTX-active/diagnostically-released runs with an independent bridge,
   diagnostics off/on and optional aligned headphone recording. Preserve every run

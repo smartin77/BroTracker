@@ -21,6 +21,8 @@ if ! command -v python3 >/dev/null; then
 fi
 export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 # Use the same PortMaster platform/controller setup as the normal launcher.
+# PortMaster initialization and helpers may read unset variables; keep nounset off.
+set +u
 for controlfolder in /opt/system/Tools/PortMaster /opt/tools/PortMaster "$XDG_DATA_HOME/PortMaster" /roms/ports/PortMaster; do
     if [[ -f "$controlfolder/control.txt" ]]; then
         source "$controlfolder/control.txt"

@@ -280,49 +280,51 @@ must be recorded for the two ELF files when committing from Windows; no bundled
 ALSA/SDL library is added. An older bridge/BTX or mixed source/artifact checkout
 fails preflight rather than silently running another deployed version.
 
-On the console, in the reviewed branch checkout while Wi-Fi is connected:
+On the console, update the reviewed checkout using Git while Wi-Fi is connected.
+From that checkout, run the single preparation command:
 
 ```sh
-cd /path/to/BroTracker
-repo=$PWD
-git pull --ff-only
-python3 --version                    # 3.7 or newer
-command -v fuser                     # psmisc; install during online preparation if missing
-ldd -r deploy/arkos/BroTrackerTerminal
-ldd -r deploy/arkos/BroTrackerAlsaBridge
-./deploy/arkos/BroTrackerAlsaBridge --diagnostic-info
-./deploy/arkos/BroTrackerTerminal --offline-diagnostic-info
-./deploy/arkos/BroTrackerTerminal --offline-diagnostic-config
+python3 -B tools/alsa_bridge/prepare_offline.py
 ```
 
-The last command uses the actual shared INI parser and prints the persistent
-SDL config path. `[audio] output=bridge` or an absent/empty output is accepted;
-PT8211, invalid output or an invalid INI fails the experiment. Set bridge yourself
-before testing if necessary, preserving all other sections/settings. The runner
-never rewrites your config. It retains the original bytes/hash and checks the
-file again at the end. There is no new INI value.
+This idempotently installs/updates only **BroTracker Bridge Clicks** in
+`/roms/ports` and records the absolute checkout path. Unchanged entries are not
+rewritten; replaced diagnostic entries receive unique byte-preserving backups.
+Unrelated Ports entries, persistent INI settings and manual descriptions are
+untouched. Python 3.7+, `fuser` (psmisc), `ldd`, system ALSA/SDL libraries and the
+usual PortMaster runtime must already be installed during online preparation.
+No device queries or network access are required by preparation.
 
-Prepare a persistent workload description and a single Ports entry once:
+Disconnect Wi-Fi, connect Teensy, then select **Ports > BroTracker Bridge Clicks**.
+No manifest, editor, questionnaire, controller START presses or typed workload
+identity is required. Offline preflight verifies exact artifact/source fingerprints,
+dependencies, device ownership, available space and the actual shared INI parser.
+Bridge or absent/empty output is compatible; incompatible selection fails clearly
+without rewriting config. Stop existing BTX/bridge sessions normally first.
 
-```sh
-mkdir -p "$HOME/BroTracker"
-cp -n tools/alsa_bridge/offline-workload.json.example \
-  "$HOME/BroTracker/bridge-click-workload.json"
-# Fill every FILL value with actual OS, firmware, unchanged loop/tempo/gains,
-# sample bindings/hashes where known, and direct USB topology without Wi-Fi/hub.
-nano "$HOME/BroTracker/bridge-click-workload.json"
-cp -n "tools/arkos/port/BroTracker Bridge Clicks.sh" "/roms/ports/BroTracker Bridge Clicks.sh"
-printf '%s\n' "$repo" > "/roms/ports/BroTracker Bridge Clicks.repo.path"
-chmod +x "/roms/ports/BroTracker Bridge Clicks.sh"
-```
+Read-only preflight automatically saves OS/kernel, available device-tree identity,
+USB topology/ancestry, ALSA devices and negotiated parameters, binary/source
+fingerprints, available firmware protocol evidence and persistent configuration.
+`automatic-workload.json` uses the device's current pattern cells, tempo, gains,
+and available sample metadata/checksums; condition readbacks must match. Published
+and volatile working patterns must match; nothing replaces a user's working pattern.
+Exact firmware build identity and complete sample bindings are unknown where the
+existing protocol cannot establish them. Physical wiring, headphones and analog
+volume are explicitly unknown; unavailable descriptive facts include reasons and
+never gate a run. Compatibility, ownership, workload consistency and evidence
+completeness remain strict.
 
-`cp -n` preserves an existing entry; if updating an earlier launcher, explicitly
-review/update it during online preparation. The path file contains the absolute
-checkout path, not the normal installed application root. Dependencies are
-Python 3.7+ standard library, `fuser`, `ldd`, system ALSA/SDL libraries and the
-usual PortMaster runtime. No pyserial, network service or on-console compiler
-is needed. Stop any existing BTX/bridge session normally before launching.
-A busy device/session is reported; unrelated processes are never killed.
+An existing `$HOME/BroTracker/bridge-click-workload.json` (or optional `--workload`
+path) is supplementary **unverified user context only**. Its original bytes are
+preserved separately up to 16 KiB, including `FILL` or malformed content; missing,
+unreadable or oversized context is recorded without blocking. It is never overwritten.
+Automatic facts are separate from these descriptions.
+
+Technical success is distinct from listening confirmation. Every summary states
+**Audible clicks: NOT YET CONFIRMED** until the user reports back. Listen normally;
+a later report of clicks and, if remembered, the phase can be associated with the
+unique run directory and automatic monotonic phase boundaries. No live marker,
+typed timestamp, questionnaire or external recording is required to complete a run.
 
 #### One unattended console launch
 
@@ -387,8 +389,8 @@ version-2 published and working pattern cells, tempo and eight channel gains.
 Working content must equal published content, and content/gains must match across
 all readbacks and BTX's own snapshot. Otherwise the attempt fails before replacing
 anything. This does **not** preserve or restore a user-edited volatile working
-pattern across BTX restarts; use an identified reproducible existing firmware
-fixture. No pattern upload, publication, preview edit or gain SET is sent.
+pattern across BTX restarts. The current readback is the workload; any
+change across restarts fails the attempt rather than being replaced. No pattern upload, publication, preview edit or gain SET is sent.
 Available WAVHASH/WAVMETA device reports are retained and compared, including
 valid reported PCM hashes/frame counts. Missing sample hashes, built-in sample
 bytes and a complete runtime slot-to-file map are explicitly unverified; the
@@ -429,11 +431,10 @@ shorts/errors, XRUN/recovery results and musical edge statistics separately.
 A sharp musical transient alone is not a fault. Accepted PCM is not headphone
 output, and clean PCM/no XRUN cannot establish a hardware limitation.
 
-An optional independent headphone recorder must already be running before the
-unattended launch. Record its rate/format, gain, cabling and topology/load changes
-in the workload description, preserve its original file, and align the known
-pattern onset plus later events offline, allowing latency and independent clock
-drift. Optional console-clock user markers are approximate observations with
-reaction/command delay, never sample-accurate click timestamps. They are not
-required for the unattended workflow. Physical ArkOS/dArkOS audio validation and
-identification of the intermittent click cause remain pending.
+Listening during normal playback is sufficient for the subjective follow-up.
+Report afterward whether clicks were audible and, if remembered, during which
+phase. An external headphone recording is optional; if one is independently
+available, align pattern onset and later events allowing latency/clock drift.
+Neither recording nor live markers are required. Technical completion is not a
+listening pass. Physical ArkOS/dArkOS validation and click-cause identification
+remain pending.

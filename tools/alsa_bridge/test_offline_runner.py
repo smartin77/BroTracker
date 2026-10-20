@@ -9,6 +9,8 @@ import tty
 import unittest
 from unittest.mock import Mock, patch
 import offline_runner as r
+import offline_metadata as metadata
+import prepare_offline as preparation
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
@@ -17,6 +19,71 @@ class RunnerTests(unittest.TestCase):
         self.root=Path(self.tmp.name)
     def experiment(self):
         e=r.Experiment(self.root,self.root/'workload');self.addCleanup(e.close_files);return e
+    def test_optional_context_missing_fill_and_malformed_never_gate(self):
+        missing=self.root/'missing'
+        self.assertEqual(metadata.supplementary(missing,self.root)['status'],'unknown')
+        for i,data in enumerate([b'{"topology":"FILL"}',b'not json',b'x'*16385]):
+            d=self.root/str(i);d.mkdir();p=d/'manual';p.write_bytes(data)
+            result=metadata.supplementary(p,d)
+            self.assertFalse(result['verified']);self.assertEqual(p.read_bytes(),data)
+            if len(data)<=16384:self.assertEqual((d/'supplementary-user-manifest.original').read_bytes(),data)
+    def test_unknown_metadata_is_descriptive_and_bounded(self):
+        self.assertEqual(metadata.read_fact(self.root/'absent')['status'],'unknown')
+        p=self.root/'large';p.write_bytes(b'x'*65537)
+        self.assertEqual(metadata.read_fact(p)['status'],'unknown')
+        with patch.object(metadata,'command_fact',return_value={'status':'unknown','reason':'synthetic unavailable'}):
+            value=metadata.collect(self.root)
+        self.assertEqual(value['audible_click_status'],'NOT YET CONFIRMED')
+        self.assertEqual(value['physical_wiring']['status'],'unknown')
+    def test_preparation_idempotent_preserves_unrelated_and_old_entry(self):
+        repo=self.root/'checkout';ports=self.root/'ports'
+        (repo/'tools/arkos/port').mkdir(parents=True);(repo/'tools/alsa_bridge').mkdir(parents=True)
+        (repo/'deploy/arkos').mkdir(parents=True)
+        (repo/'deploy/arkos/bridge-clicks-artifacts.json').write_text('{}')
+        (repo/'tools/alsa_bridge/offline_runner.py').write_text('# synthetic')
+        source=repo/'tools/arkos/port/BroTracker Bridge Clicks.sh';source.write_bytes(b'#!/bin/sh\n')
+        ports.mkdir();unrelated=ports/'User.sh';unrelated.write_bytes(b'keep')
+        preparation.install(repo,ports);before={p.name:p.read_bytes() for p in ports.iterdir()}
+        preparation.install(repo,ports);self.assertEqual(before,{p.name:p.read_bytes() for p in ports.iterdir()})
+        source.write_bytes(b'#!/bin/sh\necho updated\n');preparation.install(repo,ports)
+        self.assertEqual(unrelated.read_bytes(),b'keep')
+        self.assertEqual(list(ports.glob('*.previous-*'))[0].read_bytes(),b'#!/bin/sh\n')
+        link=self.root/'linked';link.symlink_to(ports,target_is_directory=True)
+        with self.assertRaises(RuntimeError):preparation.install(repo,link)
+    def test_installed_launcher_allows_unset_portmaster_variables(self):
+        import subprocess
+        repo=self.root/'checkout';ports=self.root/'ports';xdg=self.root/'xdg'
+        (repo/'tools/arkos/port').mkdir(parents=True)
+        (repo/'tools/alsa_bridge').mkdir(parents=True)
+        (repo/'deploy/arkos').mkdir(parents=True)
+        launcher=Path(__file__).resolve().parents[1]/'arkos/port/BroTracker Bridge Clicks.sh'
+        original=launcher.read_bytes().replace(b'\r\n',b'\n')
+        (repo/'tools/arkos/port'/launcher.name).write_bytes(original)
+        (repo/'deploy/arkos/bridge-clicks-artifacts.json').write_text('{}')
+        (repo/'tools/alsa_bridge/offline_runner.py').write_text('print("synthetic runner reached")\n')
+        preparation.install(repo,ports)
+        installed=ports/launcher.name
+        self.assertEqual(installed.read_bytes(),original)
+        control=xdg/'PortMaster';control.mkdir(parents=True)
+        (control/'device_info.txt').write_text('echo "device_info:${DEVICE_INFO_VERSION}"\n')
+        (control/'control.txt').write_text(
+            'source "$controlfolder/device_info.txt"\n'
+            'get_controls() { echo "controls:${UNSET_CONTROLS}"; }\n'
+            'pm_platform_helper() { echo "helper:${UNSET_HELPER}"; }\n'
+            'pm_finish() { echo "finish:${UNSET_FINISH}"; }\n')
+        env=dict(os.environ,XDG_DATA_HOME=str(xdg))
+        for key in ['DEVICE_INFO_VERSION','UNSET_CONTROLS','UNSET_HELPER','UNSET_FINISH']:
+            env.pop(key,None)
+        # Reproduce the confirmed failure independently, then exercise the installed entry.
+        failing=subprocess.run(['bash','-uc','source "$1"','fixture',str(control/'device_info.txt')],
+                               env=env,capture_output=True,text=True,timeout=5)
+        self.assertNotEqual(failing.returncode,0)
+        self.assertIn('DEVICE_INFO_VERSION: unbound variable',failing.stderr)
+        result=subprocess.run(['bash',str(installed)],env=env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        for marker in ['device_info:','controls:','helper:','synthetic runner reached','finish:']:
+            self.assertIn(marker,result.stdout)
+        self.assertNotIn('unbound variable',result.stderr)
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff
@@ -109,6 +176,7 @@ class RunnerTests(unittest.TestCase):
         with patch.object(r.subprocess,'Popen') as spawn:
             self.assertFalse(e.run());spawn.assert_not_called()
         value=json.loads((e.root/'summary.json').read_text());self.assertIn('artifact hash mismatch',value['failure'])
+        self.assertFalse(value['technical_success']);self.assertEqual(value['audible_click_status'],'NOT YET CONFIRMED')
         self.assertTrue((e.root/'SUMMARY.txt').exists());self.assertTrue((e.root/'events.jsonl').exists())
     def test_matched_condition_orchestration_uses_btx_and_no_proxy(self):
         e=self.experiment();e.package=self.root;e.binary=self.root/'bridge';e.terminal=self.root/'btx'

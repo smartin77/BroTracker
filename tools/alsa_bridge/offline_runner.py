@@ -18,6 +18,7 @@ import termios
 import time
 import tty
 from analyze_clicks import analyze
+from offline_metadata import collect, supplementary
 
 PHASE_SECONDS=60
 SETUP_SECONDS=60
@@ -149,7 +150,7 @@ class Experiment:
         self.root=Path(tempfile.mkdtemp(prefix=time.strftime('%Y%m%dT%H%M%SZ-',time.gmtime())+'offline-',dir=base))
         self.events=(self.root/'events.jsonl').open('x',encoding='utf-8'); self.status_path=self.root/'STATUS.txt'
         self.bridge=self.btx=self.viewer=self.session=None
-        self.playback_owned=False; self.workload=Path(workload); self.results=[]; self.config_path=None
+        self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
         self.release_ns=None; self.active_dir=None; self.cleanup_done=False
     def event(self,kind,**details):
@@ -214,16 +215,8 @@ class Experiment:
                 raise Failure('existing user audio/UI session: '+str(proc)+' '+name)
         if shutil.disk_usage(self.root).free<512*1024*1024:
             raise Failure('need at least 512 MiB free storage')
-        if self.workload.stat().st_size>16384: raise Failure('workload manifest too large')
-        workload=json.loads(self.workload.read_text())
-        for key in ['topology','workload','tempo','gains','sample_bindings','firmware','os_variant']:
-            if not workload.get(key) or 'FILL' in str(workload[key]): raise Failure('fill workload field: '+key)
-        save(self.root/'workload.json',workload)
-        for name in ['os-release']:
-            (self.root/name).write_bytes((Path('/etc')/name).read_bytes())
-        (self.root/'system.txt').write_text(str(os.uname())+'\n'+Path('/proc/asound/cards').read_text())
-        topology=subprocess.run(['lsusb','-t'],capture_output=True,timeout=3) if shutil.which('lsusb') else None
-        (self.root/'usb-topology.txt').write_bytes(topology.stdout+topology.stderr if topology else b'lsusb unavailable; see manual topology label\n')
+        save(self.root/'supplementary-context.json',supplementary(self.workload,self.root))
+        save(self.root/'automatic-metadata.json',collect(self.repo))
         cfg=subprocess.run([str(self.terminal),'--offline-diagnostic-config'],cwd=self.package,capture_output=True,timeout=10)
         (self.root/'config-preflight.txt').write_bytes(cfg.stdout+cfg.stderr)
         if cfg.returncode: raise Failure('persistent configuration incompatible; choose bridge or leave output absent; no config changed')
@@ -240,6 +233,7 @@ class Experiment:
                     break
         if len(ports)!=1: raise Failure('need exactly one Teensy CDC 16c0:048a: '+repr(ports))
         self.port=ports[0]
+        save(self.root/'connected-device.json',collect(self.repo,self.port))
         # Check existing owners before exclusive open. No arbitrary process kills.
         owners=subprocess.run(['fuser',self.port],capture_output=True,timeout=5)
         if owners.returncode!=1: raise Failure('serial device busy or ownership uncertain: '+owners.stdout.decode(errors='replace'))
@@ -281,6 +275,12 @@ class Experiment:
         result=dict(pattern=baseline,sample_metadata=metadata,available_device_pcm_hashes=hashes,
                     sample_identity='Available device WAVHASH/WAVMETA retained; built-in/other sample bytes and complete slot-to-file mapping are not verified by this protocol.')
         save(Path(str(prefix)+'.readback.json'),result)
+        if not (self.root/'automatic-workload.json').exists():
+            save(self.root/'automatic-workload.json',dict(source='Read-only device pattern, tempo and gain queries; no user description',
+                verified=result,firmware_protocol_evidence=[line for _,line in session.history
+                    if line.startswith(('BTTEST1 ', 'BTPATTERN1 CAP', 'BTAUDIO1 '))],
+                exact_firmware_build=dict(status='unknown',reason='Existing protocol does not advertise a unique firmware build identity')))
+
         return result
     def ensure_bridge(self):
         if self.recording_error: raise Failure('runner timeline write failed')
@@ -468,11 +468,12 @@ class Experiment:
                 try: report=analyze(trace)
                 except Exception as e: report=dict(complete=False,errors=[str(e)])
                 save(output,report)
-        summary=dict(success=not failure and not errors,failure=failure,cleanup_errors=errors,conditions=self.results,
+        summary=dict(success=not failure and not errors,technical_success=not failure and not errors,
+            audible_click_status='NOT YET CONFIRMED',listening_report='User may report clicks and phase afterward; no event markers or external recording required',failure=failure,cleanup_errors=errors,conditions=self.results,
             limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
             'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.')
         save(self.root/'summary.json',summary)
-        text=('COMPLETED' if summary['success'] else 'FAILED')+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nListening/sample-binding limitations: see summary.json'
+        text=('COMPLETED' if summary['success'] else 'FAILED')+'\nMatched on/off: '+str(sum(v.get('success',False) for v in self.results))+'/2\n'+(failure or '')+'\n'+'\n'.join(errors)+'\nAudible clicks: NOT YET CONFIRMED. Phase times retained for later listening report. See summary.json'
         (self.root/'SUMMARY.txt').write_text(text+'\n'+str(self.root)+'\n')
         self.status(text); return summary['success']
     def close_files(self):
@@ -482,7 +483,7 @@ class Experiment:
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]); p.add_argument('--workload',type=Path)
+    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]); p.add_argument('--workload',type=Path,help='optional unverified supplementary description; never required')
     p.add_argument('--no-display',action='store_true',help='shell/device-free tests only; Ports uses SDL status')
     args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json')
     if args.no_display: e.show=lambda:None
