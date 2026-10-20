@@ -17,6 +17,7 @@ import tempfile
 import termios
 import time
 import tty
+import traceback
 from analyze_clicks import analyze
 from offline_metadata import collect, supplementary
 
@@ -70,6 +71,14 @@ def snapshot_content(lines,namespace,identity):
         for n in values: byte(n)
     if int(last[4])!=count or int(last[5])!=h: raise Failure('pattern readback checksum mismatch')
     return dict(version=2,rows=rows,channels=channels,tempo_hundredths=tempo,cells=cells,pattern_hash=h)
+
+def refuse_existing_sessions(proc_root=Path('/proc')):
+    for proc in proc_root.glob('[0-9]*'):
+        try: name=(proc/'comm').read_bytes().strip()
+        except (PermissionError,FileNotFoundError,ProcessLookupError): continue
+        if name.startswith((b'BroTrackerTerm',b'BroTrackerAlsa',b'offline_runner')):
+            raise Failure('existing user audio/UI session: '+str(proc)+' '+repr(name))
+
 
 class SerialSession:
     """Bounded nonblocking requests, used only when BTX has no serial ownership."""
@@ -153,6 +162,12 @@ class Experiment:
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
         self.release_ns=None; self.active_dir=None; self.cleanup_done=False
+    def retain_traceback(self):
+        try:
+            with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
+                traceback.print_exc(file=f)
+        except OSError:
+            self.recording_error=True  # Still proceed to owned-process/serial cleanup.
     def event(self,kind,**details):
         try:
             record=dict(ns=time.monotonic_ns(),event=kind); record.update(details)
@@ -208,11 +223,7 @@ class Experiment:
                 raise Failure('artifact/source fingerprint mismatch: '+path)
         save(self.root/'artifacts.json',manifest)
         # Do not replace an existing bridge/BTX session, even if it is idle.
-        for proc in Path('/proc').glob('[0-9]*'):
-            try: name=(proc/'comm').read_text().strip()
-            except (PermissionError,FileNotFoundError,ProcessLookupError): continue
-            if name.startswith(('BroTrackerTerm','BroTrackerAlsa','offline_runner')):
-                raise Failure('existing user audio/UI session: '+str(proc)+' '+name)
+        refuse_existing_sessions()
         if shutil.disk_usage(self.root).free<512*1024*1024:
             raise Failure('need at least 512 MiB free storage')
         save(self.root/'supplementary-context.json',supplementary(self.workload,self.root))
@@ -454,7 +465,9 @@ class Experiment:
         try:
             self.preflight()
             for i,mode in enumerate(['on','off']): self.condition(mode,4000000000+i*4)
-        except Exception as e: failure=type(e).__name__+': '+str(e); self.event('failure',reason=failure)
+        except Exception as e:
+            self.retain_traceback()
+            failure=type(e).__name__+': '+str(e); self.event('failure',reason=failure)
         errors=self.cleanup(); self.cleanup_done=True
         if self.active_dir and not (self.active_dir/'btx-internal.log').exists() and Path('/tmp/brotracker-arkos.log').exists():
             shutil.copyfile('/tmp/brotracker-arkos.log',self.active_dir/'btx-internal.log')
@@ -495,6 +508,9 @@ def main():
             try: e.show(); e.viewer.wait(timeout=300)
             except Exception: pass
         return 0 if success else 1
+    except Exception:
+        e.retain_traceback()
+        raise
     finally:
         # Even a report/storage exception must not bypass bounded STOP cleanup.
         if not e.cleanup_done: e.cleanup()

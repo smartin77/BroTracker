@@ -84,6 +84,27 @@ class RunnerTests(unittest.TestCase):
         for marker in ['device_info:','controls:','helper:','synthetic runner reached','finish:']:
             self.assertIn(marker,result.stdout)
         self.assertNotIn('unbound variable',result.stderr)
+    def test_non_utf8_process_names_preserve_ownership_refusal(self):
+        proc=self.root/'proc';proc.mkdir()
+        for pid,data in [('118',b'irq/45-\xc8\n'),('120',b'irq/152-\xc8\n')]:
+            d=proc/pid;d.mkdir();(d/'comm').write_bytes(data)
+        (proc/'121').mkdir()  # Process disappeared before comm could be read.
+        r.refuse_existing_sessions(proc)
+        owner=proc/'122';owner.mkdir()
+        for name in [b'BroTrackerTerm',b'BroTrackerAlsa',b'offline_runner']:
+            (owner/'comm').write_bytes(name+b'\n')
+            with self.assertRaisesRegex(r.Failure,'existing user audio/UI session'):
+                r.refuse_existing_sessions(proc)
+    def test_unexpected_exception_retains_traceback_and_cleans_up(self):
+        e=self.experiment();e.preflight=Mock(side_effect=RuntimeError('synthetic unexpected crash'))
+        e.cleanup=Mock(return_value=[])
+        self.assertFalse(e.run());e.cleanup.assert_called_once();self.assertTrue(e.cleanup_done)
+        trace=(e.root/'runner-traceback.txt').read_text()
+        self.assertIn('Traceback (most recent call last)',trace)
+        self.assertIn('RuntimeError: synthetic unexpected crash',trace)
+        summary=json.loads((e.root/'summary.json').read_text())
+        self.assertEqual(summary['failure'],'RuntimeError: synthetic unexpected crash')
+        self.assertTrue((e.root/'SUMMARY.txt').exists())
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff
