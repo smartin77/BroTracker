@@ -57,8 +57,6 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   runs, additional cold starts and supply/temperature/wiring variation. Assess
   UNKNOWN behavior and false signatures from other loads before accepting
   firmware-side use. Keep incompatible firmware profiles separate.
-* [ ] Implement and validate Audio Shield diagnostics when physical hardware is
-  available. Recognition remains pending, neither passed nor evidence of absence.
 * [x] Add manual production output selection through existing host `config.ini`:
   `[audio] output=bridge` or `pt8211`; template explicitly selects bridge.
   Explicit preference outranks firmware fallback (USB_BRIDGE). Empty/absent or
@@ -96,11 +94,20 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
 * [ ] Complete remaining detailed INI-driven hardware regression checks in TEENSY_AUDIO_ARCHITECTURE:
   PT8211 L/R mono and silent USB, bridge PCM/MQS cadence, SD samples, controls,
   acknowledgment, reconnect and explicit rejection/restart behavior.
-* [ ] Review future platform-only automatic boot detection/selection and update the
-  audio architecture for intended priority Audio Shield > PT8211 > USB Audio
-  bridge, with an explicit manual override and visible UNKNOWN diagnostics.
-  Preserve Teensy update/clock ownership, static storage and bounded realtime
-  execution. Current routing is manual only; no probing or automatic fallback.
+* [ ] Implement and validate Audio Shield diagnostics on physical hardware when
+  available. Recognition remains pending, neither passed nor evidence of absence.
+* [ ] Establish reliable recognition and safe handling of absent, uncertain or
+  conflicting evidence for mutually exclusive hardware configurations: at most
+  one Audio Shield or PT8211 may be attached, with no priority between them.
+  PT8211_LIKE remains experimental loading evidence, not approved detection.
+* [ ] Implement future boot-time output selection: explicit user configuration
+  takes precedence, choosing installed hardware output or USB bridge even when
+  hardware is attached. Without an override, use a reliably recognized supported
+  module; absent, uncertain or conflicting evidence falls back to USB bridge.
+  Preserve static allocation, bounded realtime execution and Teensy audio
+  clock/update ownership. Automatic selection policy and production detection
+  integration are deferred until Audio Shield hardware is available. Current
+  manual INI selection and USB_BRIDGE default remain unchanged.
 
 ### Musical Scheduler Timing
 

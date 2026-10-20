@@ -147,8 +147,9 @@ path on pins 10/12 and mono PCM to both USB channels. USB enumeration, serial,
 MIDI, telemetry and existing core fixes remain enabled. Disconnect all power for
 hardware wiring changes. Selection indicates a driver, never attachment or DAC
 health. The isolated diagnostics, experimental host-only classifier and historical
-evidence are unchanged. Future automatic priority remains Audio Shield > PT8211 >
-USB Audio bridge with manual override; Shield recognition awaits physical hardware.
+evidence are unchanged. Future automatic selection follows the mutually exclusive
+module model below, with explicit configuration precedence and USB bridge fallback.
+Audio Shield diagnostics and production detection integration await physical hardware.
 
 ### Offline validation
 
@@ -436,36 +437,29 @@ This modularity is an architectural requirement, not merely an implementation pr
 
 ### Audio Output Selection
 
-Audio output selection is exposed through the UI `OPT` section.
+Current production selection uses the existing `config.ini` values documented
+above: `bridge` and `pt8211`, with USB_BRIDGE as the development default. This
+section describes the future model; it adds no INI values or implemented UI modes.
 
-The UI configures audio output selection but does not implement audio processing or hardware output.
+At most one hardware audio module may be attached to Teensy 4.1: either Audio
+Shield or PT8211. There is no priority between these mutually exclusive modules.
 
-The output selection model is:
+An explicit user configuration takes precedence: select the installed hardware
+output or USB bridge, including USB bridge while a hardware module is attached.
+Without an explicit override, future boot-time selection uses a reliably
+recognized supported module. Absent, uncertain or conflicting evidence falls
+back to USB bridge; it must not select a hardware output by guessing.
 
-    OPT
-    └── Audio Output
-         ├── Auto
-         ├── Teensy PT8211
-         ├── USB Audio
-         └── future devices
+PT8211_LIKE remains experimental host-only loading evidence, not approved module
+detection, chip identification or DAC-health validation. Audio Shield recognition
+requires diagnostics validated on physical hardware. Automatic selection policy
+and production detection integration are deferred until that hardware is available.
+Current manual INI selection and the USB_BRIDGE default remain unchanged.
 
-`Auto` is the preferred default selection mode.
-
-When `Auto` is selected, available output backends are evaluated according to their defined priority.
-
-The initial automatic priority is:
-
-1. Teensy PT8211 Audio Kit, when detected and available;
-2. USB Audio;
-3. future available audio backends according to their defined priority.
-
-The priority system must remain extensible so that additional output devices can be introduced later without restructuring the Audio Engine.
-
-The user may explicitly select an output backend in `OPT` instead of using `Auto`.
-
-Explicit output selection must not alter the realtime authority of the Teensy scheduler or audio timeline.
-
-PT8211 therefore becomes the preferred/default native output path when available, but USB Audio remains a supported output backend and is not deprecated or deferred.
+Future selection must preserve static allocation, bounded realtime execution and
+one intended hardware owner of audio clocks and updates. User configuration may
+be exposed through a future UI, but host controls do not implement audio processing
+or alter Teensy scheduler/timeline authority. No live switching is implied.
 
 ## Instrument Architecture
 

@@ -58,8 +58,14 @@ not that capacity request. No installed core or pyserial package is modified.
 
 ### Pending future scope
 
-- Intended automatic output priority: Audio Shield > PT8211 > USB Audio bridge.
-- A manual configuration override remains required.
+- At most one Audio Shield or PT8211 may be attached; neither has priority.
+- Future selection honors explicit user configuration for installed hardware or
+  USB bridge, even with hardware attached. Without an override, use a reliably
+  recognized supported module; absent, uncertain or conflicting evidence uses
+  USB bridge. PT8211_LIKE is experimental loading evidence, not approved detection.
+- Automatic selection policy and production detection integration are deferred
+  until Audio Shield hardware is available. Current manual INI selection and
+  USB_BRIDGE default remain unchanged.
 - Audio Shield diagnostics are pending hardware availability and validation;
   they are neither passed nor evidence of absence.
 - Later validation requires repeated attached/detached passes and matched runs
@@ -348,9 +354,13 @@ direct verification from historical reported evidence. Archives and existing
 captures remain preserved. Git marks this evidence directory `-text` to avoid
 newline conversion invalidating hashes; do not renormalize it.
 
-Production routing/configuration remains unchanged. Future automatic output
-priority remains **Audio Shield > PT8211 > USB Audio bridge**, with a required
-manual override and visible UNKNOWN state. Shield recognition remains pending
-physical hardware; further matched attached/detached passes, topology/cold-start
-and environmental validation precede integration. Loading signatures establish
-neither verified chip identity nor DAC health.
+These diagnostics do not change production routing/configuration. Future selection
+supports at most one attached Audio Shield or PT8211, with no priority between
+them. Explicit user configuration takes precedence over recognition and may select
+USB bridge even with hardware attached. Without an override, a reliably recognized
+supported module may be selected; absent, uncertain or conflicting evidence falls
+back to USB bridge. Automatic selection policy and production detection integration
+await Audio Shield hardware. Current manual INI selection and USB_BRIDGE default
+remain unchanged. Further matched attached/detached passes, topology/cold-start
+and environmental validation precede integration. PT8211_LIKE remains experimental
+loading evidence, establishing neither verified chip identity nor DAC health.
