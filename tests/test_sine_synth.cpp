@@ -18,7 +18,10 @@ struct Harness {
     VariableRateVoiceOutputs outputs;
     Harness() { CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
         for(unsigned c=0;c<8;++c) outputs.channels[c]=pcm[c]; }
-    void Render(unsigned frames,VariableRateVoiceCommandBatch batch={}) {
+    void Render(unsigned frames) {
+        Render(frames,VariableRateVoiceCommandBatch{});
+    }
+    void Render(unsigned frames,VariableRateVoiceCommandBatch batch) {
         CHECK_EQ(renderer.Render(outputs,frames,batch),VariableRateBlockStatus::Success);
     }
 };
@@ -65,7 +68,7 @@ TEST_CASE(SynthExactOffsetsAllChannelsAndIndependentOff) {
         for(unsigned i=0;i<2048;++i) CHECK_EQ(h.pcm[c][i],h.pcm[0][i]);
     }
     VariableRateVoiceCommand stop; stop.channel=3; stop.sample_offset=17; stop.action=VariableRateVoiceAction::Stop;
-    batch={}; batch.commands[batch.count++]=stop; h.Render(2048,batch);
+    batch=VariableRateVoiceCommandBatch(); batch.commands[batch.count++]=stop; h.Render(2048,batch);
     for(unsigned i=0;i<17;++i) CHECK_EQ(h.pcm[3][i],h.pcm[2][i]);
     for(unsigned i=17+662;i<2048;++i) CHECK_EQ(h.pcm[3][i],0);
     CHECK(h.pcm[2][900]!=0); CHECK_EQ(h.pcm[2][900],h.pcm[7][900]);
@@ -73,12 +76,12 @@ TEST_CASE(SynthExactOffsetsAllChannelsAndIndependentOff) {
 TEST_CASE(SynthRetriggerReplacementAndRapidTransitionsAreContinuousAndBounded) {
     Harness h; VariableRateVoiceCommandBatch batch; batch.commands[batch.count++]=Synth(0,0,69); h.Render(1500,batch);
     const auto before=h.pcm[0][1499];
-    batch={}; batch.commands[batch.count++]=Synth(0,0,72); batch.commands[batch.count++]=Synth(0,1,24);
+    batch=VariableRateVoiceCommandBatch(); batch.commands[batch.count++]=Synth(0,0,72); batch.commands[batch.count++]=Synth(0,1,24);
     batch.commands[batch.count++]=Synth(0,2,127); h.Render(1000,batch);
     CHECK_EQ(h.pcm[0][0],before); CHECK_EQ(h.pcm[0][1],before); CHECK_EQ(h.pcm[0][2],before);
     for(unsigned i=0;i<1000;++i) CHECK(std::abs(int(h.pcm[0][i]))<=2048);
     const std::int16_t sample[]={10000,10000,10000,10000};
-    const auto last=h.pcm[0][999]; batch={}; batch.count=1;
+    const auto last=h.pcm[0][999]; batch=VariableRateVoiceCommandBatch(); batch.count=1;
     batch.commands[0]={0,0,VariableRateVoiceAction::Trigger,{sample,4,44100}};
     h.Render(128,batch); CHECK_EQ(h.pcm[0][0],last); CHECK_EQ(h.pcm[0][127],0);
     h.renderer.Reset(); batch.commands[0]={0,0,VariableRateVoiceAction::Trigger,{sample,4,44100}};
