@@ -245,6 +245,46 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     add_test(NAME BroTrackerRecordingTests COMMAND BroTrackerRecordingTests)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
+    add_executable(BroTrackerClickDiagnosticsTests tools/alsa_bridge/click_diagnostics_test.cpp)
+    add_executable(BroTrackerReadIntegrityTests tools/alsa_bridge/read_integrity_test.cpp)
+    add_executable(BroTrackerCaptureHoldbackTests tools/alsa_bridge/capture_holdback_test.cpp)
+    add_test(NAME BroTrackerCaptureHoldbackTests COMMAND BroTrackerCaptureHoldbackTests)
+    target_link_libraries(BroTrackerReadIntegrityTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerReadIntegrityTests COMMAND BroTrackerReadIntegrityTests ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(BroTrackerClickDiagnosticsTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerClickDiagnosticsTests
+        COMMAND BroTrackerClickDiagnosticsTests ${CMAKE_CURRENT_BINARY_DIR})
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME BroTrackerReadIntegrityAnalysisTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_read_integrity.py)
+    set_tests_properties(BroTrackerReadIntegrityAnalysisTests PROPERTIES ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-read-integrity-tests" TIMEOUT 30)
+    add_test(NAME BroTrackerClickAnalysisTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_analyze_clicks.py)
+    set_tests_properties(BroTrackerClickAnalysisTests PROPERTIES
+        ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-click-tests")
+    add_test(NAME BroTrackerOfflineRunnerTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_offline_runner.py)
+    set_tests_properties(BroTrackerOfflineRunnerTests PROPERTIES
+        TIMEOUT 30 ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-tests")
+    add_test(NAME BroTrackerUsbmonTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_usbmon.py)
+    set_tests_properties(BroTrackerUsbmonTests PROPERTIES
+        TIMEOUT 30 ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-usbmon-tests")
+    add_executable(BroTrackerOfflineModeTests tools/alsa_bridge/offline_mode_test.cpp)
+    target_include_directories(BroTrackerOfflineModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/libraries/scheduler/src)
+    add_test(NAME BroTrackerOfflineModeTests COMMAND BroTrackerOfflineModeTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-mode)
+    if(BROTRACKER_BUILD_ARKOS_UI)
+        add_executable(BroTrackerDiagnosticStatusTests tools/alsa_bridge/diagnostic_status_test.cpp
+            ui/sdl/sdl_display_backend.cpp src/ui/font.cpp src/ui/text_renderer.cpp src/renderer/framebuffer.cpp)
+        target_include_directories(BroTrackerDiagnosticStatusTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} src)
+        target_link_libraries(BroTrackerDiagnosticStatusTests PRIVATE ${BROTRACKER_SDL2_TARGET} pthread)
+        target_compile_options(BroTrackerDiagnosticStatusTests PRIVATE -UNDEBUG)
+        add_test(NAME BroTrackerDiagnosticStatusTests COMMAND BroTrackerDiagnosticStatusTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-status.txt)
+        set_tests_properties(BroTrackerDiagnosticStatusTests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} TIMEOUT 10)
+        add_test(NAME BroTrackerOfflineBTXChecks
+            COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check_offline_btx.py
+                $<TARGET_FILE:BroTrackerTerminal> ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-btx)
+        set_tests_properties(BroTrackerOfflineBTXChecks PROPERTIES TIMEOUT 30)
+    endif()
 endif()
 
 # Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,

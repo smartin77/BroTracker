@@ -1140,9 +1140,67 @@ design remains unchanged.
 
 * [x] Resolve recurring Teensy USB audio cold-boot corruption; hardware validation
   run `20261006-220244.Ph7ox3` passed. See the [validation record](../tools/teensy_usb_audio/README.md#hardware-validation-20261006-220244ph7ox3).
-* [ ] Investigate intermittent ArkOS audio clicks/pauses and ALSA capture/playback
-  xruns as a separate issue. Do not reopen the resolved cold-boot corruption
-  without new evidence; see the same validation record for remaining observations.
+* [x] Implement opt-in ALSA bridge paired capture/playback-accepted PCM diagnostics:
+  bounded asynchronous evidence queue, transfer/source frame accounting, monotonic
+  service gaps, ALSA status/actual parameters, recovery/discard records and explicit
+  diagnostic loss. Add offline completeness/byte comparison and synthetic tests.
+  See `tools/alsa_bridge/README.md` for the looping-pattern console procedure.
+  No click suppression, buffer tuning or Teensy/Windows audio changes.
+* [x] Prepare an explicitly opt-in, offline unattended bridge-click runner and
+  Ports entry: normal BTX serial ownership/negotiation and START, bounded status
+  channel, runner-owned active/off timers, graceful diagnostic exit without STOP
+  only on explicit release, then sparse serial checks and supported STOP/idle.
+  No production serial proxy. Verify published/working pattern, tempo and gains;
+  retain available WAV hashes/metadata and explicitly unverified sample bindings.
+  Preflight matching checked ARM64 deployment artifacts, preserve config/attempts,
+  reject missing status, timeout, early exit, mismatched or incomplete coverage.
+  Recording cap 240 seconds with a separate 60-second setup deadline; no tuning.
+* [x] Automate offline Ports preparation and read-only metadata/workload discovery.
+  No required manual manifest or editing; preserve optional descriptions separately.
+  Retain strict compatibility, ownership, matching readback and phase coverage checks.
+  Automatic phase boundaries support later listening reports; audible-click status
+  remains NOT YET CONFIRMED until user feedback, separate from technical completion.
+  Diagnostic B/Back/Escape/window-close cancellation includes preflight and owned
+  cleanup; fixed 3x status text and automatic 3-second final-outcome return.
+  Final outcomes are immutable on dismissal. Analysis is an owned cancellable
+  worker (180-second limit); emergency exits defer partial analysis and retain raw
+  evidence. Diagnostic return bypasses external pm_finish; no network is required.
+  ArkOS attempt 20261020T204220Z remains CANCELLED, 0/2 conditions; its retained
+  80.21-second PCM validates. User heard irregular dull pops (separate listening
+  confirmation, cause/phase alignment unknown). Later completed ArkOS A/B is indexed
+  below; this historical cancelled attempt remains incomplete.
+* [x] Add optional bounded USB/HCD ISO capture to the existing offline runner's
+  diagnostics-on condition. Preparation checks noninteractive helper permissions,
+  installed tcpdump/libpcap identity, mmap link type and sparse offline fixture.
+  Runtime discovers the Teensy bus/device/audio IN endpoint, retains submissions,
+  completions, ISO descriptor ranges/status and loss statistics, and validates
+  retention before content alignment with received PCM (including 2048-frame stale
+  comparisons). USB loss/truncation/ambiguous alignment invalidate USB comparison
+  without discarding PCM evidence. No audio tuning, firmware or normal-mode changes.
+  Observer load is explicit; usbmon is HCD evidence, not guaranteed on-wire truth.
+* [x] Record one completed physical ArkOS bridge-pop A/B and verified preservation:
+  baseline `20261021T160940Z-offline-nsulhgyp` has 991 USB/PCM differing stereo
+  frames in 68 groups, all matching 2048-frame history; 45-frame holdback
+  `20261021T162057Z-offline-f49vr6z6` has zero differences over its captured range.
+  Both pass USB integrity and immediate read-digest checks, with identical
+  received/accepted PCM, identical binaries and matching workload readbacks.
+  `20261021T155911Z-offline-fga4lt6d` remains FAILED on analysis timeout and is
+  excluded from completed A/B. See [closeout and backup hashes](BRIDGE_POP_CLOSEOUT_20261021.md).
+  Listening separately: baseline dull pops, more noticeable in the second reported
+  segment; holdback substantially cleaner with a larger pop near the end of the
+  second reported segment. No precise timestamp or unambiguous phase was supplied.
+* [ ] **Paused:** further bridge diagnostics and playback-underrun investigation.
+  Holdback diagnostics-off records one playback underrun and 256 discarded frames;
+  do not identify it as the cause of the reported larger pop. One completed A/B
+  supports experimental holdback, not a universal fix. Holdback remains opt-in;
+  normal production defaults are unchanged. The kernel publication/copy race and
+  exact running-kernel source match remain unconfirmed; dArkOS physical validation
+  remains pending. Preserve all original/failed evidence; no further tests during
+  this pause. Resolved historical cold-boot corruption is not reopened.
+* [ ] **Next planned task (not implemented):** replace the current beeper with a
+  minimal sine synth foundation: 440 Hz reference note, gentle attack around
+  10–20 ms, smooth decay to zero and approximately one-second total duration.
+  Resolve the project's octave naming before applying an octave label.
 
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 
