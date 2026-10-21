@@ -26,6 +26,7 @@ namespace
 {
     static_assert(AUDIO_BLOCK_SAMPLES == kSelectedPatternFrameCapacity,
         "Pattern bring-up requires the current 128-frame Teensy audio blocks");
+    #ifndef BROTRACKER_PATTERN_VARIABLE_RATE
     // Short, low-amplitude, immutable diagnostic PCM fixtures, not a synth engine.
     // Integer compile-time square/triangle bursts taper to zero; no audio-time synthesis.
     constexpr auto MakeSample(bool triangle)
@@ -46,6 +47,11 @@ namespace
         bindings.bindings[1] = {1,62,{kSampleB.data(),kSampleB.size(),44100}};
         return bindings;
     }();
+    #else
+    constexpr std::uint32_t kTempoHundredths = 12753;
+    const RealtimePattern kPattern = MakeDevelopmentPattern();
+    const SelectedPatternBindings kBindings = SelectDevelopmentFixture({}).bindings;
+    #endif
     SelectedPatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
@@ -600,8 +606,8 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         // Eight-channel development fixture; pitched sequences need variable-rate mapping.
-        // Contiguous WAV IDs: test2.wav 2/display 03, test3.wav 3/display 04.
-        const auto development=SelectDevelopmentFixture(kBindings,g_preparation.view,g_preparation3.view);
+        // Sample 01=test2.wav; unsupported MIDI 02; Synth 03; Sample 04=test3.wav.
+        const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif
         g_working.working=g_active_pattern;

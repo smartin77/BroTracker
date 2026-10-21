@@ -220,3 +220,21 @@ External / Internal Clock Source
 The Clock / Sync subsystem and the Realtime Scheduler should remain independently replaceable.
 
 Changing the clock source or its implementation must not require changes to tracker pattern data, playback semantics or UI rendering.
+
+## Minimal Synth foundation (2026-10-21)
+
+Instrument categories are **Sample, MIDI and Synth**. IDs identify instances, not
+categories: future projects may have multiple instances of each type. The existing
+fixed binding table now carries a type; no registry, editor, loader, plugin ABI or
+persistence format is introduced. MIDI remains an explicitly unsupported silent
+placeholder and produces no MIDI events. See [Synth foundation](SYNTH_FOUNDATION.md)
+for current fixture identities, DSP contracts and validation.
+
+The production variable-rate player retains the existing scheduler, event offsets,
+eight monophonic channels, gains, mixer and sample interpolation. `SineOscillator`,
+`SynthEnvelope` and `SineSynthVoice` keep tuning/phase, amplitude and voice concerns
+separate. Channel orchestration owns the bounded replacement transition. Rendering
+uses only fixed storage and sample counts; no allocation, file access, logging,
+locks or host timing. Future Synth waveform selection/combinations build on this
+foundation; modular **Synth2** is separate future work. The planned three-oscillator
+editor in the [UI screen map](UI_SCREEN_MAP.md) is not implemented by this milestone.

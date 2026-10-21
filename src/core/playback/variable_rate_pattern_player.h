@@ -30,7 +30,7 @@ namespace BroTracker
     };
     enum class VariableRatePatternTransportState { Stopped, Playing, Paused };
 
-    // Single-owner variable-rate, looping-pattern audio consumer. Reuses logical
+    // Single-owner Sample/Synth, looping-pattern audio consumer. Reuses logical
     // scheduling positions; no wall/CPU clock, USB authority, physical clock
     // selection, synchronization, tempo correction or MIDI scheduling policy.
     // Explicit reference-note mapping, matching source/output rates only. No finetune,
@@ -445,6 +445,7 @@ namespace BroTracker
         {
             switch (status)
             {
+            case VariableSampleCommandStatus::InvalidSampleRate: return VariableRatePatternPlayerStatus::InvalidSampleRate;
             case VariableSampleCommandStatus::InvalidBindingCount: return VariableRatePatternPlayerStatus::InvalidBindingCount;
             case VariableSampleCommandStatus::ReservedInstrument: return VariableRatePatternPlayerStatus::ReservedInstrument;
             case VariableSampleCommandStatus::DuplicateInstrument: return VariableRatePatternPlayerStatus::DuplicateInstrument;

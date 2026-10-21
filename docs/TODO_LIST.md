@@ -1201,10 +1201,33 @@ design remains unchanged.
   exact running-kernel source match remain unconfirmed; dArkOS physical validation
   remains pending. Preserve all original/failed evidence; no further tests during
   this pause. Resolved historical cold-boot corruption is not reopened.
-* [ ] **Next planned task (not implemented):** replace the current beeper with a
-  minimal sine synth foundation: 440 Hz reference note, gentle attack around
-  10–20 ms, smooth decay to zero and approximately one-second total duration.
-  Resolve the project's octave naming before applying an octave label.
+* [x] Implement the [minimal sine Synth foundation](SYNTH_FOUNDATION.md) for the
+  current eight-channel development player. Displayed IDs: 01 Sample/test2.wav,
+  02 unsupported silent MIDI, 03 sine Synth; retain test3.wav as Sample 04 and
+  existing test.wav inspection. Both default note sequences now select Synth 03.
+  Preserve raw IDs, note encoding, gains, sample rendering and output routing.
+  15 ms attack, smooth decay to exact zero at one second, 15 ms NOTE OFF;
+  fixed 2 ms retrigger/replacement transition. Stop/reset remain immediate.
+* [x] Synth automated validation (2026-10-21): all five native suites, reference
+  WAV tuning/peak/endpoints/retrigger/OFF checks, output-selection regression,
+  all six pattern firmware builds and `git diff --check` passed. Development
+  firmware uploaded to rediscovered COM3 / Teensy 17681760; IDLE, default bridge
+  negotiation, START, advancing telemetry (2 -> 2485), STOP/final IDLE passed.
+  Both retained development WAVs loaded; playback stopped and serial closed.
+  See the linked foundation note/report for memory figures and exact scope.
+* [x] User Windows BTX listening confirmation (2026-10-21): Synth 03 plays the
+  CH1/CH2 note sequences correctly, and its level is appropriate alongside the
+  existing project test WAV samples used as drum loops. These are the project's
+  existing test WAV assets, not newly added resources.
+* [x] User Windows BTX confirmation (2026-10-21): Synth NOTE OFF works.
+* [ ] Further sound exploration and remaining manual listening/UX checks:
+  attack/decay, rapid retrigger/replacement, independent Sample 01 / Synth 03
+  selection and transport behavior remain unconfirmed. The confirmations above
+  do not establish a solved console-pop issue.
+* [ ] Later Synth: selectable primitive waveforms and combinations, then agreed
+  oscillator/envelope/filter controls. No editor is implemented by this step.
+* [ ] Separate later modular Synth2 work; MIDI playback/backend remains unimplemented.
+
 
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 

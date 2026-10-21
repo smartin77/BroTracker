@@ -1,13 +1,14 @@
 #pragma once
 
 #include "variable_rate_sample_voice.h"
+#include "sine_synth_voice.h"
 #include "core/playback/row_events.h"
 
 namespace BroTracker
 {
     // Initial command implementation capacity, not a permanent pattern-format limit.
     constexpr std::size_t kVariableRateVoiceCommandCapacity = 16;
-    enum class VariableRateVoiceAction { Trigger, Stop };
+    enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, UnsupportedMIDI };
     struct VariableRateVoiceCommand
     {
         std::uint32_t channel = 0;
@@ -15,6 +16,7 @@ namespace BroTracker
         VariableRateVoiceAction action = VariableRateVoiceAction::Stop;
         Pcm16MonoView sample;
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
+        Note synth_note = 69;
     };
     struct VariableRateVoiceCommandBatch
     {
@@ -29,12 +31,13 @@ namespace BroTracker
     {
         Success, NotConfigured, InvalidSampleRate, InvalidCommandCount,
         InvalidChannel, InvalidAction, InvalidOffset, UnorderedOffsets,
-        InvalidDestination, RangeOverflow, InvalidSample, SampleRateMismatch, InvalidStep
+        InvalidDestination, RangeOverflow, InvalidSample, SampleRateMismatch, InvalidStep, InvalidNote
     };
 
-    // Single-owner audio consumer of prepared positions, no note interpretation,
+    // Single-owner audio consumer of prepared sample/Synth commands; no scheduling,
     // clock selection, synchronization, tempo correction or independent timeline.
-    // Explicit positive Q32.32 steps only; matching source/output rates are required.
+    // Sample: explicit positive Q32.32 steps; matching source/output rates required.
+    // Synth: MIDI-compatible note tuning, independent one-shot envelope per channel.
     // Linear interpolation may alias and changes pitch AND duration; no note mapping.
     // MIDI scheduling is separate and need not wait for audio block boundaries.
     class VariableRateVoiceBlockRenderer
@@ -45,10 +48,16 @@ namespace BroTracker
         {
             if (sample_rate_hz == 0) return VariableRateBlockStatus::InvalidSampleRate;
             for (auto& voice : voices_) (void)voice.Configure(sample_rate_hz);
+            for (auto& synth : synths_) (void)synth.Configure(sample_rate_hz);
+            Reset();
             sample_rate_hz_ = sample_rate_hz;
             return VariableRateBlockStatus::Success;
         }
-        void Reset() noexcept { for (auto& voice : voices_) voice.Reset(); }
+        void Reset() noexcept {
+            for (auto& voice : voices_) voice.Reset();
+            for (auto& synth : synths_) synth.Reset();
+            for (auto& channel : channels_) channel = {};
+        }
         // Read-only snapshot; nullptr for out-of-range channels. No mutable access.
         const VariableRateSampleVoice* GetVoice(std::uint32_t channel) const noexcept
         {
@@ -60,7 +69,9 @@ namespace BroTracker
         // strictly below frame_count. Equal-offset commands retain input order.
         // An end-boundary command belongs to the next block at offset zero.
         // Configured zero-frame blocks accept only empty batches and permit null
-        // outputs. Stop ignores its sample and step fields. Voices persist between blocks.
+        // outputs. Stop ignores its sample/step fields: Sample stops immediately; Synth
+        // releases over 15 ms. Reset clears all voices and transitions immediately.
+        // UnsupportedMIDI explicitly clears this channel and emits no MIDI events.
         // Caller guarantees eight writable, mutually non-overlapping output spans,
         // each of frame_count frames, disjoint from ALL retained/triggered immutable
         // sample data, this object and request metadata. Sample extents/lifetimes
@@ -86,11 +97,16 @@ namespace BroTracker
             {
                 const auto& command = batch.commands[i];
                 if (command.channel >= kRealtimePatternChannelCapacity) return VariableRateBlockStatus::InvalidChannel;
-                if (command.action != VariableRateVoiceAction::Trigger && command.action != VariableRateVoiceAction::Stop)
+                if (command.action != VariableRateVoiceAction::Trigger && command.action != VariableRateVoiceAction::Stop &&
+                    command.action != VariableRateVoiceAction::TriggerSynth && command.action != VariableRateVoiceAction::UnsupportedMIDI)
                     return VariableRateBlockStatus::InvalidAction;
                 if (command.sample_offset >= frame_count) return VariableRateBlockStatus::InvalidOffset;
                 if (i != 0 && command.sample_offset < batch.commands[i - 1].sample_offset)
                     return VariableRateBlockStatus::UnorderedOffsets;
+                if (command.action == VariableRateVoiceAction::TriggerSynth) {
+                    if(sample_rate_hz_<32000 || sample_rate_hz_>192000) return VariableRateBlockStatus::InvalidSampleRate;
+                    if(!IsPitchedPatternNote(command.synth_note)) return VariableRateBlockStatus::InvalidNote;
+                }
                 if (command.action == VariableRateVoiceAction::Trigger)
                 {
                     const auto status = probe.Trigger(command.sample, command.step_q32_32);
@@ -108,8 +124,25 @@ namespace BroTracker
                 const auto offset = static_cast<std::size_t>(command.sample_offset);
                 RenderSpan(output, position, offset - position);
                 auto& voice = voices_[command.channel];
-                if (command.action == VariableRateVoiceAction::Trigger) (void)voice.Trigger(command.sample, command.step_q32_32);
-                else voice.Stop();
+                auto& channel = channels_[command.channel];
+                auto& synth = synths_[command.channel];
+                if(command.action == VariableRateVoiceAction::UnsupportedMIDI) {
+                    voice.Reset(); synth.Reset(); channel={}; // Explicit unsupported destination: no fallback/events.
+                } else if(command.action == VariableRateVoiceAction::Stop) {
+                    if(channel.synth) synth.Release(); else voice.Stop();
+                } else {
+                    // Fixed 2 ms smoothstep crossfade from the last emitted value.
+                    // A repeated trigger captures the current mixed value; no tail stack.
+                    // Sample-to-sample replacement keeps its established semantics.
+                    if(channel.synth || channel.transition<channel.length || command.action == VariableRateVoiceAction::TriggerSynth) {
+                        channel.from=channel.last; channel.transition=0;
+                        channel.length=static_cast<std::uint32_t>((std::uint64_t(sample_rate_hz_)*2+500)/1000);
+                        if(channel.length<2) channel.length=2;
+                    }
+                    channel.synth=command.action == VariableRateVoiceAction::TriggerSynth;
+                    if(channel.synth) { voice.Reset(); (void)synth.Trigger(command.synth_note); }
+                    else { synth.Reset(); (void)voice.Trigger(command.sample,command.step_q32_32); }
+                }
                 position = offset;
             }
             RenderSpan(output, position, static_cast<std::size_t>(frame_count) - position);
@@ -121,8 +154,30 @@ namespace BroTracker
             if (count == 0) return;
             // All arguments and triggers were validated; these calls cannot fail.
             for (std::size_t channel = 0; channel < kRealtimePatternChannelCapacity; ++channel)
-                (void)voices_[channel].Render(output.channels[channel] + start, count);
+            {
+                auto& state=channels_[channel];
+                auto* destination=output.channels[channel]+start;
+                if(!state.synth) {
+                    (void)voices_[channel].Render(destination,count);
+                    if(state.transition>=state.length) { state.last=destination[count-1]; continue; }
+                }
+                for(std::size_t i=0;i<count;++i) {
+                    float value=state.synth ? synths_[channel].Next() : float(destination[i]);
+                    if(state.transition<state.length) {
+                        const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
+                        value=state.from*(1.0f-weight)+value*weight;
+                    }
+                    destination[i]=static_cast<std::int16_t>(std::lround(value));
+                    state.last=destination[i];
+                }
+            }
         }
+        struct ChannelTransition {
+            bool synth=false;
+            std::uint32_t transition=0,length=0;
+            float from=0,last=0;
+        } channels_[kRealtimePatternChannelCapacity]{};
+        SineSynthVoice synths_[kRealtimePatternChannelCapacity]{};
         VariableRateSampleVoice voices_[kRealtimePatternChannelCapacity]{};
         std::uint32_t sample_rate_hz_ = 0;
     };

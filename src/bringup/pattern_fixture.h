@@ -1,5 +1,6 @@
 #pragma once
 #include "core/playback/native_rate_sample_commands.h"
+#include "core/playback/variable_rate_sample_commands.h"
 
 #ifndef BROTRACKER_PATTERN_FIXTURE_ROWS
 #define BROTRACKER_PATTERN_FIXTURE_ROWS 32
@@ -35,9 +36,9 @@ inline RealtimePattern MakeDevelopmentPattern(std::uint8_t rows=kPatternBringUpF
     constexpr Entry second[]={{0,48},{8,55},{12,59},{16,53},{24,60},{28,55}};
     for(unsigned base=0;base<rows && base<kRealtimePatternRowCapacity;base+=32) {
         for(const auto entry:first) if(base+entry.row<rows && base+entry.row<kRealtimePatternRowCapacity)
-            pattern.cells[base+entry.row][0]={entry.note,0};
+            pattern.cells[base+entry.row][0]={entry.note,2};
         for(const auto entry:second) if(base+entry.row<rows && base+entry.row<kRealtimePatternRowCapacity)
-            pattern.cells[base+entry.row][1]={entry.note,1};
+            pattern.cells[base+entry.row][1]={entry.note,2};
     }
     return pattern;
 }
@@ -64,18 +65,20 @@ inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
     }
     return fixture;
 }
-// Contiguous IDs: beepers 0/1, test2.wav 2, test3.wav 3. test.wav stays deferred.
-template<class Bindings>
-inline BasicPatternBringUpFixture<Bindings> SelectDevelopmentFixture(
-    const Bindings& beepers,Pcm16MonoView test2,Pcm16MonoView test3={}) noexcept {
-    BasicPatternBringUpFixture<Bindings> result{MakeDevelopmentPattern(),beepers};
+// UI IDs are one-based; raw bytes remain unchanged: 0=Sample 01,
+// 1=MIDI 02 (unsupported), 2=Synth 03, 3=Sample 04 (test3.wav).
+// Sample 01 uses the existing test2.wav preparation; test.wav remains inspected/deferred.
+inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentFixture(
+    Pcm16MonoView test2, Pcm16MonoView test3={}) noexcept {
+    BasicPatternBringUpFixture<VariableRateSampleBindings> result{MakeDevelopmentPattern(),{}};
+    auto& bindings=result.bindings;
+    bindings.bindings[bindings.count++]={1,0,{},InstrumentType::MIDI};
+    bindings.bindings[bindings.count++]={2,0,{},InstrumentType::Synth};
     RamSampleVoice validator; (void)validator.Configure(44100);
-    if(validator.Trigger(test2)==RamVoiceStatus::Success) {
-        result.bindings.count=3; result.bindings.bindings[2]={2,60,test2};
-    }
-    if(validator.Trigger(test3)==RamVoiceStatus::Success) {
-        result.bindings.bindings[result.bindings.count++]={3,60,test3};
-    }
+    if(validator.Trigger(test2)==RamVoiceStatus::Success)
+        bindings.bindings[bindings.count++]={0,60,test2,InstrumentType::Sample};
+    if(validator.Trigger(test3)==RamVoiceStatus::Success)
+        bindings.bindings[bindings.count++]={3,60,test3,InstrumentType::Sample};
     return result;
 }
 
