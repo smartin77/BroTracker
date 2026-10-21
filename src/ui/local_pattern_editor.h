@@ -42,8 +42,8 @@ public:
     bool Locked() const noexcept { return locked_; }
     const BroTracker::DevicePatternSnapshot* Baseline() const noexcept { return ready_ ? &baseline_ : nullptr; }
     // Called only after exact publication readback. Cursor remains independent.
-    bool Rebase(const BroTracker::DevicePatternSnapshot& snapshot) noexcept {
-        if(!ready_ || snapshot.version!=2 || snapshot.tempo_hundredths!=baseline_.tempo_hundredths ||
+    bool Rebase(const BroTracker::DevicePatternSnapshot& snapshot,std::uint32_t expected_tempo=0) noexcept {
+        if(!ready_ || snapshot.version!=2 || snapshot.tempo_hundredths!=(expected_tempo?expected_tempo:baseline_.tempo_hundredths) ||
             !BroTracker::SamePattern(snapshot.pattern,draft_)) return false;
         baseline_=snapshot; draft_=snapshot.pattern; instrument_cycle_empty_=false; return true;
     }

@@ -308,6 +308,8 @@ int main(int argc, char* argv[])
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
             const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
+            if(result.restore) (void)serial.RestoreTempo();
+            if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
             if (game_controller && editor_input.Device()<0) {
                 SDL_GameControllerClose(game_controller); game_controller=nullptr;
                 WriteBringUpDiagnostic(bring_up_log,"selected controller removed; held edits cancelled");
@@ -322,6 +324,7 @@ int main(int argc, char* argv[])
         }
         if(diagnostic.Enabled()) diagnostic_cancel.ObserveReleased(DiagnosticButtonsReleased(),SDL_GetTicks());
         editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
+        if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
         serial.SyncEditor(editor,SDL_GetTicks());

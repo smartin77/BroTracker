@@ -24,17 +24,19 @@ namespace BroTracker {
         bool NeedsReadback() const noexcept { return phase_==HostPublicationPhase::Verifying || phase_==HostPublicationPhase::Uncertain; }
         const char* Status() const noexcept { return status_; }
         bool TakeConfirmed() noexcept { const bool result=confirmed_; confirmed_=false; return result; }
+        std::uint32_t FrozenTempo() const noexcept { return tempo_; }
         const RealtimePattern& Frozen() const noexcept { return pattern_; }
-        bool Begin(std::uint32_t id, const DevicePatternSnapshot& baseline, const RealtimePattern& draft, std::uint32_t now) noexcept {
+        bool Begin(std::uint32_t id, const DevicePatternSnapshot& baseline, const RealtimePattern& draft, std::uint32_t now, std::uint32_t tempo=0) noexcept {
+            if(tempo && !ValidInteractiveTempo(tempo)) return false;
             if (!id || id<=last_id_ || Blocking() || baseline.version != 2 || !draft.active_rows || draft.active_rows>kRealtimePatternRowCapacity ||
                 !draft.active_channels || draft.active_channels>kRealtimePatternChannelCapacity) return false;
-            auto hash=PublicationHeaderHash(draft.active_rows,draft.active_channels);
+            auto hash=tempo?SnapshotHeaderHash(draft.active_rows,draft.active_channels,tempo):PublicationHeaderHash(draft.active_rows,draft.active_channels);
             for(unsigned r=0;r<draft.active_rows;++r) for(unsigned c=0;c<draft.active_channels;++c) {
                 const auto cell=draft.cells[r][c]; const auto timing=draft.note_off_timing[r][c];
                 if (!IsPatternNote(cell.note) || !ValidNoteOffTiming(timing)) return false;
                 hash=SnapshotHashByte(SnapshotHashByte(SnapshotHashByte(hash,cell.note),cell.instrument),static_cast<std::uint8_t>(timing));
             }
-            last_id_=id; pattern_=draft; tempo_=baseline.tempo_hundredths; id_=id; hash_=hash; line_index_=0; started_=now;
+            last_id_=id; pattern_=draft; tempo_=tempo?tempo:baseline.tempo_hundredths; extended_=tempo!=0; id_=id; hash_=hash; line_index_=0; started_=now;
             commit_possible_=submitted_=confirmed_=availability_=false; phase_=HostPublicationPhase::Sending;
             Set("Publication sending"); return true;
         }
@@ -42,7 +44,8 @@ namespace BroTracker {
         bool FormatLine(char* output,std::size_t capacity,std::size_t& length, bool preview=false) const noexcept {
             if (phase_!=HostPublicationPhase::Sending || !output || !capacity) return false;
             int written;
-            if (!line_index_) written=std::snprintf(output,capacity,"%s BEGIN 1 %" PRIu32 " %u %u %u\n",
+            if(!line_index_ && extended_ && !preview) written=std::snprintf(output,capacity,"BTPUBLISH1 BEGIN 2 %" PRIu32 " %u %u %u %" PRIu32 "\n",id_,unsigned(pattern_.active_rows),unsigned(pattern_.active_channels),Count(),tempo_);
+            else if (!line_index_) written=std::snprintf(output,capacity,"%s BEGIN 1 %" PRIu32 " %u %u %u\n",
                 preview ? "BTPREVIEW1" : "BTPUBLISH1",id_,unsigned(pattern_.active_rows),unsigned(pattern_.active_channels),Count());
             else if (CommitLine()) written=std::snprintf(output,capacity,"%s COMMIT 1 %" PRIu32 " %u %" PRIu32 "\n",preview ? "BTPREVIEW1" : "BTPUBLISH1",id_,Count(),hash_);
             else {
@@ -129,7 +132,7 @@ namespace BroTracker {
         RealtimePattern pattern_;
         std::uint32_t id_=0,last_id_=0,hash_=0,tempo_=0,started_=0;
         unsigned line_index_=0;
-        bool commit_possible_=false,submitted_=false,confirmed_=false,availability_=false;
+        bool extended_=false,commit_possible_=false,submitted_=false,confirmed_=false,availability_=false;
         HostPublicationPhase phase_=HostPublicationPhase::Idle;
         char status_[96]{};
     };

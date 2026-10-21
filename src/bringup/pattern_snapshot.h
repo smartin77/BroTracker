@@ -200,6 +200,9 @@ namespace BroTracker
             hash_ = SnapshotHeaderHash(pattern_.active_rows, pattern_.active_channels, tempo_hundredths_);
             return true;
         }
+        bool SetTempo(std::uint32_t value) noexcept {
+            if(HasData() || !value) return false; tempo_hundredths_=value; return true;
+        }
         bool SetWorkingNamespace(bool working) noexcept {
             if (HasData()) return false;
             working_ = working; return true;

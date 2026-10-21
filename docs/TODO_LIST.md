@@ -8,6 +8,42 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Live tempo control (2026-10-21)
+
+* [x] Implement [session-only live tempo control](LIVE_TEMPO_CONTROL.md): integer
+  hundredths, 125.00 development default, 0.05 taps, 32.00-300.00 clamp and integer
+  one-decimal display rounding. Retain intentional fractional test fixtures.
+* [x] Add keypad-only Windows +/- and consumed R1+Left/Right handheld controls,
+  shared controller/raw handling and bounded application repeat/acceleration.
+* [x] Anchor playback changes at the next unconsumed row boundary, preserving
+  position/voices and deferred NOTE OFF musical targets. Retain 96 ticks per row,
+  four rows per quarter and 384 ticks per quarter, as confirmed by the user.
+* [x] Add authoritative/coalesced tempo request/readback, coherent tempo-aware
+  Publish and published-baseline Restore. STOP/START and BTX reconnect retain
+  applied tempo; STOP cancels pending work. Reboot ends this session-only state.
+  No SD persistence, config rewrite, MIDI clock or sample stretching is added.
+* [x] Validate Windows BTX package and all eight Windows suites; clean Ubuntu
+  GCC 13 Release configure/build and all six CI suites. Build all six affected
+  Teensy environments and upload development firmware to discovered COM3 / Teensy
+  17681760. Bounded physical checks passed live/stopped/paused tempo, publication,
+  readback, Restore and reconnect/transport retention; 47 playing telemetry updates
+  advanced from tick 2 to 1855. Final applied/published tempo 125.00, playback
+  stopped, serial closed. See [actual validation evidence](../build/live-tempo/validation.md).
+* [x] Build/check the ARM64 application in the existing Eoan workflow: all seven
+  suites and application ABI/dependency checks pass. No SSH or handheld deployment.
+* [x] User confirmed all supplied Windows manual tempo checks: taps/rounding,
+  hold/release acceleration, live changes without restart, unchanged Synth pitch,
+  Pause/Continue, STOP/START, Publish/Restore and reconnect retention.
+* [ ] Teensy reboot/default-tempo restoration remains unconfirmed.
+* [ ] Physical handheld control/UX checks remain pending; ARM64 builds are not a
+  handheld pass.
+* [x] Replace the BPM pending asterisk with the editing frame orange on the
+  number only; preserve the existing pending indication lifecycle, with white
+  otherwise and no additional timer. User confirmed the Windows BPM pending
+  color indication works exactly as requested.
+
+
+
 * [ ] Review the proposed [UI screen map and staged direction](UI_SCREEN_MAP.md),
   resolve its pending design questions and backend dependencies before scheduling
   UI implementation. Planning only; no proposed screen is marked complete.

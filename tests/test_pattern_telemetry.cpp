@@ -251,7 +251,7 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
     CHECK_EQ(display.row, 1); CHECK_EQ(display.rows, 16); CHECK_EQ(display.channels, 2);
     RenderMainScreen(framebuffer, tune, preview, live);
     const std::vector<Color> device(framebuffer.PixelData(), framebuffer.PixelData() + 640 * 480);
-    Tune other_tune; other_tune.title = "DIFFERENT HOST TUNE"; other_tune.tempo = 99;
+    Tune other_tune; other_tune.title = "DIFFERENT HOST TUNE"; other_tune.tempo_hundredths = 9900;
     Pattern other_preview; other_preview.number = 9; other_preview.length = 32;
     other_preview.channels.resize(8);
     for (auto& channel : other_preview.channels)

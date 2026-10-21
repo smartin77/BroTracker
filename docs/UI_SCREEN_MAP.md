@@ -14,6 +14,13 @@ Read together with [UI/UX Architecture](UI_UX_ARCHITECTURE.md),
 [Effect Event Architecture](EFFECT_EVENT_ARCHITECTURE.md). The TODO records
 implementation and validation separately; this map does not upgrade either.
 
+Implemented [live tempo control](LIVE_TEMPO_CONTROL.md) uses the existing PAT
+header and transport: integer hundredths, one-decimal applied display, bounded
+keypad/R1 input and session-only pattern-plus-tempo Publish/Restore. STOP/START
+and reconnect retain applied tempo; Restore uses the published baseline. This
+adds no settings/project screen or persistence UI; proposed screens below remain
+proposals.
+
 Implemented foundations include the shared bitmap pattern renderer, note/instrument
 editing, independent edit and reported playback positions, transport coordination,
 volatile working-pattern preview and separate published-pattern readback. Bounded

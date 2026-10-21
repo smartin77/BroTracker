@@ -244,3 +244,21 @@ Windows endpoint label, not an old product name in the running firmware; it
 does not establish that every byte of the flashed firmware equals the local
 artifact. No registry, driver, serial, VID/PID or firmware change is needed to
 make bridge discovery work, because discovery uses USB/container identity.
+
+## Live tempo controls
+
+Numeric keypad + / - (SDLK_KP_PLUS / SDLK_KP_MINUS) changes tempo independently of
+Num Lock. Main-keyboard +/- remain unbound. Tap 0.05 BPM; bounded held repeat at
+400 ms / 100 ms intervals accelerates after 1.5 s and 3 s. BPM shows the applied
+value rounded to one decimal; pending desired hundredths remain visible in status.
+F5 Publish freezes pattern plus applied tempo while stopped/paused; F4 Restore
+returns to the published pattern and tempo baseline. STOP/START and reconnect
+retain acknowledged tempo; reboot starts a new session at 125.00. No config.ini
+or SD persistence write occurs. See [full contract/checklist](../../docs/LIVE_TEMPO_CONTROL.md).
+
+Build/start from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin
+.\deploy\windows\BroTrackerTerminal.exe
+```

@@ -28,7 +28,7 @@ void BringUpSerial::Disconnect(const char* reason)
     Log("disconnected/error:", reason);
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
-    gains_.Disconnect(); tx_gains_=false;
+    gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
     publication_.Disconnect();
     preview_.Disconnect(); tx_preview_=false;
     if(publish_queued_) { publish_queued_=false; preview_.Suspend(false); }
@@ -92,19 +92,21 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     if(preview_.Supported()) preview_session_=true;
     if(preview_.Supported() && editor.Ready()) {
         preview_.SetBaseline(*editor.Baseline());
+        if(tempo_.Available()) preview_.SetWorkingTempo(tempo_.State().tempo);
         if(const auto* recovered=preview_.RecoveredDraft()) {
             if(publish_queued_ || editor.RecoverDraft(*recovered)) preview_.RecoveredInstalled();
         }
         if(!preview_.Recovering() && !publish_queued_ && !publication_.Blocking()) preview_.Observe(*editor.Draft(),now);
     }
     if(publication_.TakeConfirmed()) {
+        if(tempo_.Supported()) tempo_.Refresh();
         if(const auto* snapshot=pattern_assembler_.Snapshot()) {
-            if(editor.Rebase(*snapshot) && preview_.Supported()) preview_.Published(snapshot->pattern);
+            if(editor.Rebase(*snapshot,publication_.FrozenTempo()) && preview_.Supported()) preview_.Published(snapshot->pattern);
         }
     }
     if(publish_queued_ && connected_ && !Playing() && preview_.CanPublish() && pending_==Command::None &&
         !TransportPending() && !pattern_assembler_.Active() && next_fresh_ && next_publication_id_ && tx_offset_==tx_size_) {
-        if(publication_.Begin(next_publication_id_,queued_baseline_,queued_publication_,now)) {
+        if(publication_.Begin(next_publication_id_,queued_baseline_,queued_publication_,now,tempo_publication_?queued_baseline_.tempo_hundredths:0)) {
             publish_queued_=false; next_publication_id_=0; next_fresh_=false;
             next_refresh_=true; publication_readback_requested_=false;
         }
@@ -132,6 +134,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& editor) const {
     if(!connected_) return "Connect Teensy to publish";
     if(!publication_supported_) return "Firmware does not support publication";
+    if(tempo_.Supported() && !tempo_publication_) return "Tempo-aware publication unsupported";
     if(PublicationBusy()) return "Publication already in progress";
     if(Playing()) return "Pause or stop playback to publish";
     if(Paused() && !paused_publication_supported_) return "Stop playback: paused publication unsupported";
@@ -139,7 +142,8 @@ const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& edit
     if(TransportPending() || pending_!=Command::None) return "Wait for transport reply";
     if(pattern_assembler_.Active() || !snapshot_requested_) return "Wait for device pattern";
     if(!editor.Baseline() || editor.Baseline()->version!=2 || snapshot_version_!=2) return "Timing-aware device pattern required";
-    if(!editor.Dirty()) return "No changes to publish";
+    if(tempo_publication_ && !tempo_.Synchronized()) return "Wait for authoritative tempo";
+    if(!editor.Dirty() && (!tempo_publication_ || tempo_.State().tempo==tempo_.State().published)) return "No changes to publish";
     if(!next_fresh_) return "Wait for publication identity refresh";
     if(!next_publication_id_) return "Publication identities exhausted";
     if(tx_offset_!=tx_size_) return "Wait for serial transmission";
@@ -148,21 +152,23 @@ const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& edit
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
+    if(tempo_.Supported() && !tempo_publication_) {publication_.Unavailable("Tempo-aware publication unsupported");return false;}
     // F5 may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
         if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
+    if(tempo_publication_ && !tempo_.Synchronized()) return false;
     if(preview_.Supported() && editor.Ready() && editor.Dirty() && connected_ && publication_supported_ &&
         !Playing() && (Stopped() || !std::strcmp(state_,"IDLE") || (Paused() && paused_publication_supported_)) &&
         !PublicationBusy() && !TransportPending() && editor.Baseline()->version==2 && next_fresh_ && next_publication_id_) {
-        queued_baseline_=*editor.Baseline(); queued_publication_=*editor.Draft(); publish_queued_=true;
+        queued_baseline_=*editor.Baseline(); if(tempo_publication_) queued_baseline_.tempo_hundredths=tempo_.State().tempo; queued_publication_=*editor.Draft(); publish_queued_=true;
         preview_.Observe(queued_publication_,now); preview_.Suspend(true); editor.SetLocked(true); next_refresh_=true;
         return true;
     }
     if(const auto* reason=PublicationUnavailable(editor)) { publication_.Unavailable(reason); return false; }
     const auto* baseline=editor.Baseline();
-    if(!publication_.Begin(next_publication_id_,*baseline,*editor.Draft(),now)) return false;
+    if(!publication_.Begin(next_publication_id_,*baseline,*editor.Draft(),now,tempo_publication_?tempo_.State().tempo:0)) return false;
     next_publication_id_=0; next_fresh_=false; next_discovery_expected_=false;
     next_refresh_=true; publication_readback_requested_=false;
     editor.SetLocked(true); Log("publication frozen; explicit request"); return true;
@@ -182,6 +188,7 @@ bool BringUpSerial::Start()
 
 bool BringUpSerial::Stop()
 {
+    tempo_.StopRequested();
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
     publication_.StopRequested();
     if(tx_publication_ && tx_offset_==0 && !tx_write_attempted_ && publication_.Phase()==BroTracker::HostPublicationPhase::Rejected) {
@@ -273,6 +280,10 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
     if(now-performance_at_>=kCallbackPerformanceStaleMs) view.callback_performance.reset();
     if (const auto* snapshot = pattern_assembler_.Snapshot()) view.device_pattern = *snapshot;
     view.preview_supported=preview_.Supported();
+    if(tempo_.Supported() && tempo_.Phase()!=BroTracker::HostTempoPhase::Unavailable) {
+        view.tempo_hundredths=tempo_.State().tempo; view.desired_tempo=tempo_.Desired();
+        view.tempo_pending=!tempo_.Synchronized();
+    }
     view.gains_supported=gains_.Supported();
     view.gain_status=gains_.Status();
     if(const auto* applied=gains_.Authoritative()) view.channel_gains=*applied;
@@ -319,6 +330,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
     else if (!std::strncmp(line_,"BTPREVIEW1",10)) {
         if(connected_) (void)preview_.Response(line_,used_,now);
     }
+    else if(!std::strncmp(line_,"BTTEMPO1",8)) { if(connected_) (void)tempo_.Response(line_,used_); }
+    else if(!std::strcmp(line_,"BTPUBLISH1 TEMPOCAP 2")) {if(connected_) tempo_publication_=true;}
     else if (!std::strcmp(line_,BroTracker::kPausedPatternPublicationCapability))
     { if(connected_) paused_publication_supported_=true; }
     else if (!std::strcmp(line_,BroTracker::kPatternPublicationCapability))
@@ -447,6 +460,7 @@ void BringUpSerial::Tick(std::uint32_t now)
 
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
+    tempo_.Tick(now);
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -469,6 +483,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         tx_size_=0; tx_publication_=false;
     }
     if(tx_preview_ && tx_offset_==0 && !tx_write_attempted_ && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
+    if(tx_tempo_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_tempo_=false; }
     if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if (tx_offset_ < tx_size_)
     {
@@ -478,6 +493,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_gains_) gains_.BeforeWrite(now);
+        if(tx_tempo_) tempo_.BeforeWrite(now);
         tx_write_attempted_=true;
         const auto count = transport_->Write(tx_ + tx_offset_, tx_size_ - tx_offset_);
         write_backpressure_=count >= 0 && static_cast<unsigned>(count) < tx_size_ - tx_offset_;
@@ -490,6 +506,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
                 if(tx_gains_) { gains_.LineComplete(); tx_gains_=false; }
+                if(tx_tempo_) { tempo_.LineComplete(); tx_tempo_=false; }
             }
         }
         else if (count < 0)
@@ -583,6 +600,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 { pattern_assembler_.Cancel(); snapshot_failed_ = true; tx_size_ = 0; }
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
+            }
+        }
+        else if(connected_ && tempo_.Supported() && !PublicationBusy() && !pattern_assembler_.Active() &&
+            (tempo_.NeedsRead(now) || tempo_.Sending() || tempo_.Begin())) {
+            if(tempo_.NeedsRead(now) && !tempo_.Sending()) {
+                std::strcpy(tx_,"BTTEMPO1 GET 1\n"); tx_size_=static_cast<unsigned>(std::strlen(tx_)); tx_offset_=0; tempo_.ReadSent(now);
+            } else {
+                std::size_t size=0; if(tempo_.FormatLine(tx_,sizeof(tx_),size)) {tx_size_=size;tx_offset_=0;tx_tempo_=true;}
             }
         }
         else if (connected_ && gains_.Supported() && !PublicationBusy() &&

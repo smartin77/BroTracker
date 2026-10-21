@@ -14,6 +14,7 @@ public:
             tempo_=baseline.tempo_hundredths; rows_=baseline.pattern.active_rows; channels_=baseline.pattern.active_channels;
         }
     }
+    void SetWorkingTempo(std::uint32_t value) noexcept { if(value) tempo_=value; }
     bool Supported() const noexcept { return supported_; }
     HostPreviewPhase Phase() const noexcept { return phase_; }
     const char* Status() const noexcept { return status_; }

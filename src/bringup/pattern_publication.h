@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pattern_snapshot.h"
+#include "core/tempo.h"
 
 namespace BroTracker
 {
@@ -9,9 +10,9 @@ namespace BroTracker
         "Publication parser/line storage must fit uint32 fields plus LF/NUL");
     constexpr char kPatternPublicationCapability[] = "BTPUBLISH1 CAP 1";
     constexpr char kPausedPatternPublicationCapability[] = "BTPUBLISH1 PAUSEDCAP 1";
-    constexpr unsigned kPatternDiscoveryReplyCount = 13; // Existing discovery + gain CAP/STATE.
+    constexpr unsigned kPatternDiscoveryReplyCount = 16; // Existing discovery + gain CAP/STATE.
     enum class PublicationKind { Begin, Cell, Commit };
-    struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; };
+    struct PublicationMessage { PublicationKind kind; std::uint32_t fields[5]{}; unsigned version=1; };
     enum class PublicationStatus : unsigned
     {
         Receiving = 0, Ready = 1, Malformed = 2, Busy = 3, Identity = 4,
@@ -21,6 +22,12 @@ namespace BroTracker
     inline bool ParsePublication(const char* line, std::size_t length,
         PublicationMessage& output, bool preview = false) noexcept
     {
+        if(!preview) {
+            PublicationMessage value{PublicationKind::Begin,{}};
+            if(SnapshotFields(line,length,"BTPUBLISH1 BEGIN 2 ",value.fields,5)) {
+                value.version=2; output=value; return true;
+            }
+        }
         struct Definition { const char* prefix; PublicationKind kind; unsigned count; };
         const Definition definitions[] = {
             {preview ? "BTPREVIEW1 BEGIN 1 " : "BTPUBLISH1 BEGIN 1 ", PublicationKind::Begin, 4},
@@ -91,6 +98,7 @@ namespace BroTracker
             const auto written = std::snprintf(output,capacity,"BTPUBLISH1 NEXT 1 %" PRIu32 "\n",NextIdentity());
             return written >= 0 && static_cast<std::size_t>(written) < capacity;
         }
+        std::uint32_t Tempo() const noexcept { return tempo_; }
         const RealtimePattern* Frozen() const noexcept { return submitted_ ? &staging_ : nullptr; }
         void NewSession() noexcept { if (!submitted_) Cancel(); }
         bool Tick(std::uint32_t now) noexcept {
@@ -125,10 +133,12 @@ namespace BroTracker
                 if (!f[1] || f[1] > kRealtimePatternRowCapacity || !f[2] ||
                     f[2] > kRealtimePatternChannelCapacity || f[3] != f[1] * f[2])
                     return PublicationStatus::Dimensions;
+                if(message.version==2 && !ValidInteractiveTempo(f[4])) return PublicationStatus::Dimensions;
+                tempo_=message.version==2?f[4]:0;
                 delta_=false; staging_ = {}; staging_.active_rows = static_cast<std::uint8_t>(f[1]);
                 staging_.active_channels = static_cast<std::uint8_t>(f[2]);
                 id_ = last_id_ = f[0]; count_ = f[3]; next_ = 0; started_ = now;
-                hash_ = PublicationHeaderHash(f[1],f[2]); receiving_ = true;
+                hash_ = tempo_?SnapshotHeaderHash(f[1],f[2],tempo_):PublicationHeaderHash(f[1],f[2]); receiving_ = true;
                 return PublicationStatus::Receiving;
             }
             if (!receiving_ || f[0] != id_) { Cancel(); return PublicationStatus::Identity; }
@@ -187,7 +197,7 @@ namespace BroTracker
         }
     private:
         bool delta_=false;
-        std::uint32_t base_id_=0,last_coordinate_=0;
+        std::uint32_t base_id_=0,last_coordinate_=0,tempo_=0;
         RealtimePattern staging_;
         bool receiving_ = false, ready_ = false, submitted_ = false;
         std::uint32_t id_ = 0, last_id_ = 0, started_ = 0, count_ = 0, next_ = 0, hash_ = 0;

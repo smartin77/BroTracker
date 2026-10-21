@@ -113,3 +113,16 @@ and RetroArch/EmulationStation settings do not establish a BTX mapping.
 These bindings are temporary. Configurable profiles, calibration, final controls
 and broader device/OS-hotkey validation remain future work. See the
 [bring-up notes](TEENSY_PATTERN_BRINGUP.md) for implementation and protocol details.
+
+## Live tempo control
+
+R1 + D-pad LEFT/RIGHT decreases/increases tempo, independent of value-step direction.
+Both mapped controller and verified raw button/hat paths consume the chord.
+Each press is 0.05 BPM; held repeat starts at 400 ms, every 100 ms, accelerates to
+0.25 after 1.5 s and 1.00 after 3 s. R1 release cancels repeat and blocks held
+directions until physical release, preventing navigation leakage. Focus loss,
+controller removal, release or opposite directions cancel repeat.
+L1 editing and transport remain unchanged. L1+Y Restore restores the published
+pattern and tempo baseline; A Publish freezes pattern plus applied tempo while
+stopped/paused. See [retention and manual checks](LIVE_TEMPO_CONTROL.md).
+Automated input/ARM64 checks do not establish physical handheld UX approval.

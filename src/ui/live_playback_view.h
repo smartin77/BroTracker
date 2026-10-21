@@ -22,6 +22,7 @@ struct LivePlaybackView
     std::optional<BroTracker::Pcm16ChannelGains> desired_gains;
     std::string gain_status;
     std::optional<BroTracker::PatternPerformance> callback_performance;
+    std::uint32_t tempo_hundredths=0,desired_tempo=0; bool tempo_pending=false;
 };
 constexpr std::uint32_t kLivePositionStaleMs = 500;
 constexpr std::uint32_t kCallbackPerformanceStaleMs = 3000;

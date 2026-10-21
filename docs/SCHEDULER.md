@@ -193,3 +193,13 @@ The realtime playback system assumes a stable CPU clock during active playback.
 Dynamic CPU frequency changes must not be used as an emergency mechanism for realtime overload recovery.
 
 Performance scaling, if supported by the platform, must be configured before realtime playback begins and must not change the timing model during active playback.
+
+## Live tempo segments
+
+The [session-only live tempo milestone](LIVE_TEMPO_CONTROL.md) adds segment
+anchoring to MusicalTickCursor while preserving constant-tempo APIs and fixtures.
+It retains 96 ticks per row and 384 ticks per quarter. Changes locate the next row
+boundary with the old segment, then anchor the new segment at that actual sample;
+elapsed playback is never remapped. The same cursor supplies row events, telemetry
+and deferred OFF deadlines, which retain musical target ticks. See the linked
+contract for boundary ordering, transport and validation.

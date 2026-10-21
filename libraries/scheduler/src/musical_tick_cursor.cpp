@@ -18,6 +18,7 @@ namespace BroTracker
     {
         if (tempo_hundredths_ == 0)
             return TickCursorStatus::NotConfigured;
+        segment_tick_ = segment_sample_ = 0;
         next_tick_ = block_start_ = block_end_ = 0;
         has_block_ = false;
         drained_ = true;
@@ -46,12 +47,35 @@ namespace BroTracker
     {
         if (tempo_hundredths_ == 0) return TickCursorStatus::NotConfigured;
         std::uint64_t sample = 0;
-        if (TickToSamplePosition(tick_index, tempo_hundredths_, sample_rate_hz_, sample) !=
-            TickToSampleStatus::Success) return TickCursorStatus::RangeOverflow;
+        if (SampleAtTick(tick_index, sample) != TickCursorStatus::Success) return TickCursorStatus::RangeOverflow;
         next_tick_ = tick_index;
         block_start_ = block_end_ = sample;
         has_block_ = false; drained_ = true; exhausted_ = false;
         sample_position = sample;
+        return TickCursorStatus::Success;
+    }
+
+    TickCursorStatus MusicalTickCursor::SampleAtTick(std::uint64_t tick, std::uint64_t& sample) const noexcept {
+        if(!tempo_hundredths_) return TickCursorStatus::NotConfigured;
+        if(tick<segment_tick_) return TickCursorStatus::RangeOverflow;
+        std::uint64_t delta=0;
+        if(TickToSamplePosition(tick-segment_tick_,tempo_hundredths_,sample_rate_hz_,delta)!=TickToSampleStatus::Success ||
+            delta>UINT64_MAX-segment_sample_) return TickCursorStatus::RangeOverflow;
+        sample=segment_sample_+delta; return TickCursorStatus::Success;
+    }
+    TickCursorStatus MusicalTickCursor::BeginSegment(std::uint32_t tempo,std::uint32_t rate,
+        std::uint64_t tick,std::uint64_t sample) noexcept {
+        if(!tempo || !rate) return TickCursorStatus::InvalidConfiguration;
+        tempo_hundredths_=tempo; sample_rate_hz_=rate;
+        segment_tick_=next_tick_=tick; segment_sample_=block_start_=block_end_=sample;
+        has_block_=false; drained_=true; exhausted_=false; return TickCursorStatus::Success;
+    }
+    TickCursorStatus MusicalTickCursor::SetTempoAtTick(std::uint64_t tick,std::uint32_t tempo) noexcept {
+        if(!tempo || tick==UINT64_MAX || next_tick_!=tick+1 || tick%kTicksPerRow)
+            return TickCursorStatus::InvalidConfiguration;
+        std::uint64_t sample=0;
+        const auto status=SampleAtTick(tick,sample); if(status!=TickCursorStatus::Success) return status;
+        segment_tick_=tick; segment_sample_=sample; tempo_hundredths_=tempo;
         return TickCursorStatus::Success;
     }
 
@@ -68,8 +92,7 @@ namespace BroTracker
         }
 
         std::uint64_t sample_position = 0;
-        if (TickToSamplePosition(next_tick_, tempo_hundredths_, sample_rate_hz_,
-                                sample_position) != TickToSampleStatus::Success)
+        if (SampleAtTick(next_tick_, sample_position) != TickCursorStatus::Success)
         {
             exhausted_ = true;
             return TickCursorStatus::ArithmeticExhausted;

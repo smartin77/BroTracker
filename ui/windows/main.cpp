@@ -84,6 +84,7 @@ int main(int argc, char* argv[]) try {
     BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
+    WindowsTempoInput tempo_input;
     LocalPatternEditor editor;
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
@@ -100,6 +101,11 @@ int main(int argc, char* argv[]) try {
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
+                if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
+                continue;
+            }
+            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4) (void)serial.RestoreTempo();
             if (MapWindowsPublish(event)) {
                 (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
                 if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());
@@ -118,11 +124,12 @@ int main(int argc, char* argv[]) try {
         // Service freshly queued transport before rendering/presenting the UI.
         controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
+        if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status()};
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;

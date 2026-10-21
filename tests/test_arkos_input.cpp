@@ -306,3 +306,42 @@ TEST_CASE(ArkOSNavigationAndValueStreamReplacementPreservesValueSchedule) {
     f.input.Tick(900,true,f.editor); CHECK_EQ(f.editor.Draft()->cells[0][0].note,63);
     CHECK_EQ(f.editor.Cursor().channel,0);
 }
+
+TEST_CASE(ArkOSTempoChordBothModifierOrdersRepeatOppositesReleaseAndRemoval) {
+    for(auto direction:{ValueStepDirection::Normal,ValueStepDirection::Reversed}) {
+        InputFixture f(direction); const auto pattern=*f.editor.Draft(); const auto cursor=f.editor.Cursor();
+        f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+        CHECK_EQ(f.input.TakeTempoStep(),5);CHECK_EQ(f.editor.Cursor().channel,cursor.channel);CHECK_EQ(f.editor.Cursor().field,cursor.field);
+        CHECK(SamePattern(pattern,*f.editor.Draft()));
+        f.input.Tick(400,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),5);
+        f.input.Tick(1500,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),25);
+        f.input.Tick(3000,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),100);
+        f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT);CHECK_EQ(f.input.TakeTempoStep(),0);
+        f.input.Tick(4000,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),0);
+        f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT,false); f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);
+        f.input.Tick(5000,true,f.editor);CHECK_EQ(f.editor.Cursor().channel,cursor.channel);CHECK_EQ(f.editor.Cursor().field,cursor.field);
+        f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);
+        f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT);const auto before=f.editor.Cursor(); // navigation before the modifier is pressed
+        f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);CHECK_EQ(f.input.TakeTempoStep(),-5);
+        f.input.Tick(5400,true,f.editor);CHECK_EQ(f.editor.Cursor().channel,before.channel);CHECK_EQ(f.editor.Cursor().field,before.field);
+        SDL_Event removed{};removed.type=SDL_CONTROLLERDEVICEREMOVED;removed.cdevice.which=7;
+        f.input.Handle(removed,5500,true,f.editor);f.input.Tick(6000,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),0);
+    }
+}
+TEST_CASE(ArkOSTempoVerifiedRawButtonsAndHatConsumeChord) {
+    InputFixture f; SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+    bindings[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
+    bindings[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER].value.button=4;
+    for(auto b:{SDL_CONTROLLER_BUTTON_DPAD_LEFT,SDL_CONTROLLER_BUTTON_DPAD_RIGHT}) {
+        bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_HAT;bindings[b].value.hat.hat=0;
+        bindings[b].value.hat.hat_mask=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?SDL_HAT_LEFT:SDL_HAT_RIGHT;
+    }
+    f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);const auto before=f.editor.Cursor();
+    SDL_Event e{};e.type=SDL_JOYBUTTONDOWN;e.jbutton.which=7;e.jbutton.button=4;f.input.Handle(e,0,true,f.editor);
+    e={};e.type=SDL_JOYHATMOTION;e.jhat.which=7;e.jhat.hat=0;e.jhat.value=SDL_HAT_RIGHT;
+    f.input.Handle(e,1,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),5);
+    f.input.Tick(401,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),5);
+    CHECK_EQ(f.editor.Cursor().channel,before.channel);CHECK_EQ(f.editor.Cursor().field,before.field);
+    e={};e.type=SDL_JOYBUTTONUP;e.jbutton.which=7;e.jbutton.button=4;f.input.Handle(e,402,true,f.editor);
+    f.input.Tick(1000,true,f.editor);CHECK_EQ(f.input.TakeTempoStep(),0);CHECK_EQ(f.editor.Cursor().field,before.field);
+}

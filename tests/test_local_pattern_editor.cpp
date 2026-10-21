@@ -22,6 +22,35 @@ std::optional<LivePlaybackView> ConnectedDraft() {
     return live;
 }
 }
+TEST_CASE(BpmPendingIndicationChangesOnlyNumberColorAndClearsWithExistingState) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Framebuffer fb(640, 480); Tune tune; Pattern preview;
+    auto live = ConnectedDraft();
+    live->tempo_hundredths = 12505; // Keep hidden hundredths and nearest-tenth formatting.
+    RenderMainScreen(fb, tune, preview, live);
+    const Framebuffer white = fb;
+    Framebuffer expected = white;
+    // Existing fixed-cell centering: label at 242, five-character number at 266.
+    DrawFixedText(expected, 266, 9, "125.1", Color{255, 160, 64});
+    CHECK(std::memcmp(white.PixelData(), expected.PixelData(), 640 * 26 * sizeof(Color)) != 0);
+
+    for (int indication = 0; indication < 2; ++indication) {
+        live->tempo_pending = true;
+        RenderMainScreen(fb, tune, preview, live);
+        // Includes label, spacing and trailing area: no asterisk, no recentering,
+        // and no other header text changes color.
+        CHECK(std::memcmp(fb.PixelData(), expected.PixelData(), 640 * 26 * sizeof(Color)) == 0);
+        RenderMainScreen(fb, tune, preview, live);
+        CHECK(std::memcmp(fb.PixelData(), expected.PixelData(), 640 * 26 * sizeof(Color)) == 0);
+        live->tempo_pending = false; // Existing indication expiry; no new UI timer.
+        RenderMainScreen(fb, tune, preview, live);
+        CHECK(std::memcmp(fb.PixelData(), white.PixelData(), 640 * 26 * sizeof(Color)) == 0);
+    }
+    live = ConnectedDraft(); // Synchronization/reconnect without pending indication.
+    live->tempo_hundredths = 12505;
+    RenderMainScreen(fb, tune, preview, live);
+    CHECK(std::memcmp(fb.PixelData(), white.PixelData(), 640 * 26 * sizeof(Color)) == 0);
+}
 TEST_CASE(LocalEditorNavigationAndRawFields) {
     LocalPatternEditor editor;
     CHECK(!editor.Apply(EditorAction::Increment));

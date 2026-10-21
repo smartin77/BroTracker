@@ -65,12 +65,23 @@ namespace BroTracker
         // budget is not established. No allocation, I/O, callbacks or independent clock.
         [[nodiscard]] TickCursorStatus Pull(MusicalTick& tick) noexcept;
 
+        std::uint32_t GetTempo() const noexcept { return tempo_hundredths_; }
+        // Anchor a new segment to an actual musical/sample boundary. No voices or
+        // independent clock. The constant-tempo Configure/Reset API remains usable.
+        [[nodiscard]] TickCursorStatus BeginSegment(std::uint32_t tempo, std::uint32_t rate,
+            std::uint64_t tick, std::uint64_t sample) noexcept;
+        [[nodiscard]] TickCursorStatus SampleAtTick(std::uint64_t tick, std::uint64_t& sample) const noexcept;
+        // Called immediately after consuming the row-start tick; retain this block
+        // and its next unconsumed tick. Never remap elapsed ticks at the new tempo.
+        [[nodiscard]] TickCursorStatus SetTempoAtTick(std::uint64_t tick, std::uint32_t tempo) noexcept;
+
     private:
         // Test access permits otherwise impractical uint64_t exhaustion boundaries;
         // it can seed otherwise unreachable error states.
         friend struct MusicalTickCursorTestAccess;
         std::uint32_t tempo_hundredths_ = 0;
         std::uint32_t sample_rate_hz_ = 0;
+        std::uint64_t segment_tick_ = 0, segment_sample_ = 0;
         std::uint64_t next_tick_ = 0;
         std::uint64_t block_start_ = 0;
         std::uint64_t block_end_ = 0;
