@@ -507,15 +507,13 @@ TEST_CASE(VariableBringUp_TransposedPublicationPreviewAndExactReadback) {
 }
 
 TEST_CASE(VariableBringUpMissingLoadedWavRejectsPreviewWithoutChangingPlayback) {
-    const std::int16_t a[]={10,20},b[]={30,40},wav[]={-100,-200};
-    SelectedPatternBindings beepers; beepers.count=2;
-    beepers.bindings[0]={0,60,{a,2,44100}}; beepers.bindings[1]={1,62,{b,2,44100}};
-    // test2 failed to load; only test3 exists, still ID 3 (never renumbered to ID 2).
-    const auto fixture=SelectDevelopmentFixture(beepers,{},Pcm16MonoView{wav,2,44100});
+    const std::int16_t wav[]={-100,-200};
+    // test2 failed to load; only test3 exists, still raw 3/display 04 (never substituted for missing Sample 01).
+    const auto fixture=SelectDevelopmentFixture({},Pcm16MonoView{wav,2,44100});
     CHECK_EQ(fixture.bindings.bindings[2].instrument,3);
     SelectedPatternBringUpControl control;
     CHECK_EQ(control.InitializeAudio(12753,44100,fixture.pattern,fixture.bindings),PatternPlayerStatus::Success);
-    auto bad=fixture.pattern; bad.cells[0][2]={60,2};
+    auto bad=fixture.pattern; bad.cells[0][2]={60,0};
     PatternPublication transfer; PreviewStage(transfer,bad,1);
     PatternPreviewReadback metadata; metadata.working=fixture.pattern;
     CHECK_EQ(control.SubmitPreview(*transfer.Frozen(),1),PatternRequestStatus::Accepted);
@@ -523,7 +521,7 @@ TEST_CASE(VariableBringUpMissingLoadedWavRejectsPreviewWithoutChangingPlayback) 
     std::vector<PatternAppliedRequest> events; PreviewDrain(control,transfer,metadata,events);
     CHECK_EQ(events.size(),1); CHECK_EQ(events[0].result,PatternPlayerStatus::UnknownInstrument);
     CHECK_EQ(metadata.working_id,0); CHECK_EQ(metadata.pending_id,0); Same(metadata.working,fixture.pattern);
-    CHECK_EQ(bad.cells[0][2].note,60); CHECK_EQ(bad.cells[0][2].instrument,2); CHECK_EQ(out,777);
+    CHECK_EQ(bad.cells[0][2].note,60); CHECK_EQ(bad.cells[0][2].instrument,0); CHECK_EQ(out,777);
     CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
-    control.AudioBlock(&out,1,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack)); CHECK_EQ(out,40);
+    control.AudioBlock(&out,1,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack)); CHECK_EQ(out,0);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "channel_state.h"
+#include "core/instrument_type.h"
 #include "core/audio/variable_rate_voice_block_renderer.h"
 #include "core/audio/note_playback_step.h"
 
@@ -13,6 +14,7 @@ namespace BroTracker
         std::uint8_t instrument = kNoInstrumentUpdate;
         Note reference_note = 0;
         Pcm16MonoView sample;
+        InstrumentType type = InstrumentType::Sample;
     };
     struct VariableRateSampleBindings
     {
@@ -28,7 +30,8 @@ namespace BroTracker
         UnknownInstrument, InvalidNoteOffTiming
     };
 
-    // Narrow variable-rate sample adapter, not an instrument/plugin ABI. Single
+    // Bounded Sample/Synth command adapter with an explicit silent MIDI placeholder.
+    // Existing identity/binding table; not an instrument/plugin ABI. Single
     // owner, ordered consumption: apply each supplied row command exactly once.
     // Fixed storage, no allocation, rendering, I/O, callbacks or exceptions.
     // Equal-tempered transposition uses explicit reference notes, never BPM/duration.
@@ -45,7 +48,8 @@ namespace BroTracker
     public:
         // Validate count and every active binding before mutation (inactive slots
         // are not consumed). IDs 0..254 are unique;
-        // reference pattern notes are 24..127, samples must match the explicit output rate.
+        // Sample reference notes are 24..127; PCM must match the output rate.
+        // Synth has no PCM/reference-note dependency; MIDI is recognized but unsupported.
         // Zero bindings is valid (NOTE_OFF still works). Success copies metadata
         // and clears logical state; failure preserves bindings, rate and state.
         // Validation reuses VariableRateSampleVoice::Trigger at unity, without reading sample data.
@@ -63,11 +67,17 @@ namespace BroTracker
                 const auto& binding = bindings.bindings[i];
                 if (binding.instrument == kNoInstrumentUpdate)
                     return VariableSampleCommandStatus::ReservedInstrument;
-                if (!IsPitchedPatternNote(binding.reference_note))
+                if (binding.type == InstrumentType::Sample && !IsPitchedPatternNote(binding.reference_note))
                     return VariableSampleCommandStatus::InvalidReferenceNote;
                 for (std::size_t j = 0; j < i; ++j)
                     if (bindings.bindings[j].instrument == binding.instrument)
                         return VariableSampleCommandStatus::DuplicateInstrument;
+                if(binding.type == InstrumentType::MIDI) continue; // Recognized, explicitly unsupported.
+                if(binding.type == InstrumentType::Synth) {
+                    if(sample_rate_hz<32000 || sample_rate_hz>192000) return VariableSampleCommandStatus::InvalidSampleRate;
+                    continue;
+                }
+                if(binding.type != InstrumentType::Sample) return VariableSampleCommandStatus::InvalidSample;
                 const auto status = probe.Trigger(binding.sample, kSourceFrameStepUnity);
                 if (status == VariableVoiceStatus::InvalidSample) return VariableSampleCommandStatus::InvalidSample;
                 if (status == VariableVoiceStatus::SampleRateMismatch) return VariableSampleCommandStatus::SampleRateMismatch;
@@ -132,6 +142,14 @@ namespace BroTracker
                             break;
                         }
                     if (selected == nullptr) return VariableSampleCommandStatus::UnknownInstrument;
+                    if(selected->type == InstrumentType::MIDI) {
+                        command.action=VariableRateVoiceAction::UnsupportedMIDI;
+                        result.commands[result.count++]=command; continue;
+                    }
+                    if(selected->type == InstrumentType::Synth) {
+                        command.action=VariableRateVoiceAction::TriggerSynth; command.synth_note=event.note;
+                        result.commands[result.count++]=command; continue;
+                    }
                     const auto mapped = NoteToPlaybackStep(event.note, selected->reference_note,
                         command.step_q32_32);
                     if (mapped == NotePlaybackStepStatus::InvalidTargetNote)

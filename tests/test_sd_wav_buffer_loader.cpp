@@ -235,16 +235,14 @@ TEST_CASE(ExactSdPathsDecodedBuffersBindingsCommandsAndVoiceRouting) {
     std::int16_t pcm2[4]{},pcm3[4]{}; SdWavPreparation test2,test3;
     PrepareDevelopmentWavs(true,test2,pcm2,4,test3,pcm3,4);
     CHECK_EQ(FakeSd::paths[0],"Samples/test2.wav"); CHECK_EQ(FakeSd::paths[1],"Samples/test3.wav");
-    const std::int16_t beeper[]={1}; VariableRateSampleBindings beepers; beepers.count=2;
-    beepers.bindings[0]={0,60,{beeper,1,44100}}; beepers.bindings[1]={1,62,{beeper,1,44100}};
-    const auto fixture=SelectDevelopmentFixture(beepers,test2.view,test3.view);
+    const auto fixture=SelectDevelopmentFixture(test2.view,test3.view);
     VariableRateSampleCommandPreparer prepare; CHECK_EQ(prepare.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);
     RowEventBatch rows; rows.count=5;
-    rows.events[0]={0,0,0,0,0,0,60,2}; rows.events[1]={0,0,0,0,0,2,60,3};
-    rows.events[2]={0,0,0,0,0,4,60,3}; rows.events[3]={0,0,0,0,0,6,60,2}; rows.events[4]={1,0,0,0,0,6,60,3};
+    rows.events[0]={0,0,0,0,0,0,60,0}; rows.events[1]={0,0,0,0,0,2,60,3};
+    rows.events[2]={0,0,0,0,0,4,60,3}; rows.events[3]={0,0,0,0,0,6,60,0}; rows.events[4]={1,0,0,0,0,6,60,3};
     VariableRateVoiceCommandBatch commands; CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
     CHECK_EQ(commands.count,5);
-    for(unsigned i=0;i<5;++i) CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==2?pcm2:pcm3);
+    for(unsigned i=0;i<5;++i) CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==0?pcm2:pcm3);
     std::int16_t channels[8][12]{},mixed[12]{}; VariableRateVoiceOutputs outputs; Pcm16MixInputs inputs;
     for(unsigned c=0;c<8;++c) { outputs.channels[c]=channels[c]; inputs.channels[c]=channels[c]; }
     VariableRateVoiceBlockRenderer render; CHECK_EQ(render.Configure(44100),VariableRateBlockStatus::Success);

@@ -159,7 +159,7 @@ TEST_CASE(DevelopmentSparsePhraseExactNotesLengthsAndEmptyCells) {
             const int expected=channel==0?first[row%32]:channel==1?second[row%32]:-1;
             const bool event=row<unsigned(rows) && expected>=0;
             CHECK_EQ(p.cells[row][channel].note,event?expected:NOTE_EMPTY);
-            CHECK_EQ(p.cells[row][channel].instrument,event?channel:kNoInstrumentUpdate);
+            CHECK_EQ(p.cells[row][channel].instrument,event?2:kNoInstrumentUpdate);
             CHECK_EQ(p.note_off_timing[row][channel],NoteOffTiming::Arrival);
             CHECK(p.cells[row][channel].note!=NOTE_OFF);
         }
@@ -167,59 +167,34 @@ TEST_CASE(DevelopmentSparsePhraseExactNotesLengthsAndEmptyCells) {
     }
 }
 
-TEST_CASE(DevelopmentBindingsUseCellInstrumentIdsAndNeverSubstituteMissingSamples) {
-    const std::int16_t a[]={10,20},b[]={30,40},wav[]={100,200};
-    VariableRateSampleBindings bindings; bindings.count=2;
-    bindings.bindings[0]={0,60,{a,2,44100}}; bindings.bindings[1]={1,62,{b,2,44100}};
-    for(const auto view:{Pcm16MonoView{},Pcm16MonoView{wav,2,48000},Pcm16MonoView{wav,2,44100}}) {
-        auto fixture=SelectDevelopmentFixture(bindings,view);
-        const bool valid=view.sample_rate_hz==44100;
-        CHECK_EQ(fixture.pattern.active_channels,8); CHECK_EQ(fixture.bindings.count,valid?3:2);
-        if(valid) { CHECK_EQ(fixture.bindings.bindings[2].instrument,2); CHECK_EQ(fixture.bindings.bindings[2].reference_note,60); }
-        VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
-        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[2];
-        CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],40); CHECK_EQ(pcm[1],54);
-        // Explicit ID 2 can play on any channel; CH3 is not instrument-routed.
-        if(valid) {
-            player.Stop(); fixture.pattern.cells[0][0]={60,2}; fixture.pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
-            CHECK_EQ(player.Configure(12753,44100,fixture.pattern,fixture.bindings),VariableRatePatternPlayerStatus::Success);
-            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); CHECK_EQ(player.Render(pcm,2),VariableRatePatternPlayerStatus::Success); CHECK_EQ(pcm[0],100); CHECK_EQ(pcm[1],200);
-        }
-    }
-}
-
 TEST_CASE(DevelopmentTest2AndTest3BindingsIndependentAndChannelsEmpty) {
-    const std::int16_t a[]={10,20},b[]={30,40},sample2[]={100,200},sample3[]={300,400};
-    VariableRateSampleBindings beepers; beepers.count=2;
-    beepers.bindings[0]={0,60,{a,2,44100}}; beepers.bindings[1]={1,62,{b,2,44100}};
+    const std::int16_t sample2[]={100,200},sample3[]={300,400};
     for(unsigned mask=0;mask<4;++mask) {
-        auto f=SelectDevelopmentFixture(beepers,mask&1?Pcm16MonoView{sample2,2,44100}:Pcm16MonoView{},
+        auto f=SelectDevelopmentFixture(mask&1?Pcm16MonoView{sample2,2,44100}:Pcm16MonoView{},
             mask&2?Pcm16MonoView{sample3,2,44100}:Pcm16MonoView{});
         CHECK_EQ(f.bindings.count,2+unsigned(bool(mask&1))+unsigned(bool(mask&2)));
-        CHECK_EQ(f.bindings.bindings[0].reference_note,60); CHECK_EQ(f.bindings.bindings[1].reference_note,62);
+        CHECK_EQ(f.bindings.bindings[0].type,InstrumentType::MIDI); CHECK_EQ(f.bindings.bindings[1].type,InstrumentType::Synth);
         for(unsigned row=0;row<f.pattern.active_rows;++row) for(unsigned ch=2;ch<8;++ch) {
             CHECK_EQ(f.pattern.cells[row][ch].note,NOTE_EMPTY); CHECK_EQ(f.pattern.cells[row][ch].instrument,kNoInstrumentUpdate);
             CHECK_EQ(f.pattern.note_off_timing[row][ch],NoteOffTiming::Arrival);
         }
         for(unsigned i=2;i<f.bindings.count;++i) {
-            const auto& binding=f.bindings.bindings[i]; CHECK(binding.instrument==2 || binding.instrument==3);
-            CHECK_EQ(binding.reference_note,60); CHECK_EQ(binding.sample.data,binding.instrument==2?sample2:sample3);
+            const auto& binding=f.bindings.bindings[i]; CHECK(binding.instrument==0 || binding.instrument==3);
+            CHECK_EQ(binding.reference_note,60); CHECK_EQ(binding.sample.data,binding.instrument==0?sample2:sample3);
             auto pattern=f.pattern; pattern.cells[0][0]={60,binding.instrument}; pattern.cells[0][1]={NOTE_EMPTY,kNoInstrumentUpdate};
             VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,pattern,f.bindings),VariableRatePatternPlayerStatus::Success);
             CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[4];
             CHECK_EQ(player.Render(pcm,4),VariableRatePatternPlayerStatus::Success);
-            CHECK_EQ(pcm[0],binding.instrument==2?100:300); CHECK_EQ(pcm[1],binding.instrument==2?200:400);
+            CHECK_EQ(pcm[0],binding.instrument==0?100:300); CHECK_EQ(pcm[1],binding.instrument==0?200:400);
             CHECK_EQ(pcm[2],0); CHECK_EQ(pcm[3],0);
         }
     }
 }
 
 TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) {
-    const std::int16_t beeper[]={1},sample2[]={1000,2000,3000,4000},sample3[]={-100,-200,-300,-400};
-    VariableRateSampleBindings beepers; beepers.count=2;
-    beepers.bindings[0]={0,60,{beeper,1,44100}}; beepers.bindings[1]={1,62,{beeper,1,44100}};
-    const auto fixture=SelectDevelopmentFixture(beepers,{sample2,4,44100},{sample3,4,44100});
-    const unsigned times[]={0,2,4,6,6},channels[]={0,0,0,0,1},instruments[]={2,3,3,2,3};
+    const std::int16_t sample2[]={1000,2000,3000,4000},sample3[]={-100,-200,-300,-400};
+    const auto fixture=SelectDevelopmentFixture({sample2,4,44100},{sample3,4,44100});
+    const unsigned times[]={0,2,4,6,6},channels[]={0,0,0,0,1},instruments[]={0,3,3,0,3};
     const std::int16_t expected[]={1000,2000,-100,-200,-100,-200,900,1800,2700,3600,0,0};
     for(const auto partitions:{std::vector<unsigned>{4},std::vector<unsigned>{1,3,2,1,5}}) {
         VariableRateSampleCommandPreparer prepare; VariableRateVoiceBlockRenderer render;
@@ -237,7 +212,7 @@ TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) 
             VariableRateVoiceCommandBatch commands;
             CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
             for(unsigned i=0;i<commands.count;++i) {
-                CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==2?sample2:sample3);
+                CHECK_EQ(commands.commands[i].sample.data,rows.events[i].instrument==0?sample2:sample3);
                 CHECK_EQ(commands.commands[i].step_q32_32,kSourceFrameStepUnity);
             }
             std::int16_t pcm[8][12]{},mixed[12]{}; VariableRateVoiceOutputs outputs; Pcm16MixInputs inputs;
@@ -252,7 +227,7 @@ TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) 
         VariableRateVoiceCommandBatch unchanged; unchanged.count=7;
         CHECK_EQ(prepare.Prepare(bad,unchanged),VariableSampleCommandStatus::UnknownInstrument);
         CHECK_EQ(unchanged.count,7); LogicalChannelState state;
-        CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,2);
+        CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,0);
     }
 }
 

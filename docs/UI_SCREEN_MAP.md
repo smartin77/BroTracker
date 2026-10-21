@@ -25,7 +25,7 @@ not a general sample browser, instrument authoring system or project persistence
 
 Established decisions retained here include eight initial channels; four rows per
 quarter note (D0029/D0056); channel mute as pattern-event suppression (D0036);
-Sample/MIDI/Native Synth instrument boundaries (D0042); independent sample rate,
+Sample/MIDI/Synth instrument boundaries (D0042); independent sample rate,
 reference pitch and loop tempo (D0055); paused current-row replay (D0054); and
 configuration, logging and sparse-preview semantics (D0057–D0059).
 
@@ -107,7 +107,7 @@ Previous/Next instrument. Type-specific pages expose supported capabilities:
 | --- | --- | --- |
 | Sample | Resource, gain, reference note, fine tuning, playback start/end range | Loops, envelopes, slicing and tempo matching later; expose each only when supported. |
 | MIDI | Port/channel, bank/program and device notes | Supported CC mapping and external state capture/restore later; validate device capabilities and route availability. |
-| Native Synth | Planned three oscillators with waveforms, tuning/detune and levels; envelope/filter pages | Exact synthesis limits and parameters pending; modulation later. No complete synth engine/editor is claimed. |
+| Synth (Native) | Planned three oscillators with waveforms, tuning/detune and levels; envelope/filter pages | Exact synthesis limits and parameters pending; modulation later. No complete synth engine/editor is claimed. |
 
 For samples, display source sample rate independently of reference pitch and
 optional original BPM. Preserve explicit tuning metadata; fallback reference is
@@ -120,8 +120,10 @@ metadata integration already work.
 MIDI state transfer is capability-dependent, normally before playback; large
 device-state transfers do not belong in the realtime event path. SysEx and
 MIDI-CI/device-state mechanisms remain future work as documented in MIDI Support.
-The planned minimal sine synth foundation replacing the current beeper in TODO
-is not completion of the three-oscillator Native Synth foundation.
+The [minimal sine Synth foundation](SYNTH_FOUNDATION.md) now replaces the development
+beeper: one sine, fixed one-shot envelope and eight monophonic channel voices.
+This is not completion of the planned three-oscillator Synth or its editor.
+MIDI is an unsupported silent placeholder; modular Synth2 is separate future work.
 
 Optional instrument modules use this same navigation/capability model. Unsupported
 types/resources must be reported honestly. D0042's subsystem boundary does not

@@ -6,6 +6,15 @@ The document is intentionally focused on the Teensy platform and its interaction
 
 The shared BroTracker audio engine must remain platform-independent.
 
+## Current Sample/Synth development renderer
+
+`teensy41_dev` and `teensy41_pattern_variable_rate` now use the
+[minimal sine Synth foundation](SYNTH_FOUNDATION.md) instead of the development
+beeper instruments. Existing output selection, USB_BRIDGE default, SD preparation,
+channel gains/mixing and paused bridge diagnostics remain unchanged. Historical
+native-rate pattern environments retain their diagnostic PCM fixtures as regression
+workloads; they are not the current project instrument list.
+
 ## Reference Platform
 
 Teensy 4.1 is the reference realtime audio platform for BroTracker.
