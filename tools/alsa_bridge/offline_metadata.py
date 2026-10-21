@@ -43,6 +43,15 @@ def collect(repo,port=None):
         workload='automatic-workload.json and condition readbacks contain device-verified pattern, tempo, gains and available sample metadata/checksums',
         phases_and_ownership='events.jsonl and condition result.json contain monotonic boundaries and owned PIDs',
         audible_click_status='NOT YET CONFIRMED')
+    result['kernel_build']=read_fact('/proc/version')
+    result['kernel_notes']=command_fact(['sha256sum','/sys/kernel/notes'])
+    result['loaded_modules']=read_fact('/proc/modules')
+    result['audio_module_identity']={name:dict(
+        loaded_version=read_fact('/sys/module/'+name+'/version'),
+        loaded_srcversion=read_fact('/sys/module/'+name+'/srcversion'),
+        loaded_build_note=command_fact(['sha256sum','/sys/module/'+name+'/notes/.note.gnu.build-id']),
+        installed_module=command_fact(['modinfo',name])) for name in ['snd_usb_audio','snd_pcm','usbcore']}
+    result['kernel_source_match']=dict(status='unknown',reason='Release/build/module identifiers do not verify a source-repository revision; installed modinfo may differ from the loaded module')
     for key in ['physical_wiring','headphone_connection','analog_volume']:
         result[key]=dict(status='unknown',reason='Not observable through existing read-only software interfaces; not a run prerequisite')
     if port:

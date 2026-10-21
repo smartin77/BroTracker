@@ -193,6 +193,7 @@ def main():
     p.add_argument('directory', type=Path)
     p.add_argument('--output', type=Path, help='new JSON report; refuses overwrite')
     p.add_argument('--usbmon', type=Path, help='optional USB evidence; PCM validation remains independent')
+    p.add_argument('--read-integrity',action='store_true',help='require independent read-return evidence')
     p.add_argument('--marker', help='append an approximate user-observation marker, not an audio timestamp')
     args = p.parse_args()
     if args.marker is not None:
@@ -214,6 +215,9 @@ def main():
                 report['usb_comparison']['errors'].append('PCM evidence incomplete; comparison invalid')
         except (OSError,ValueError,KeyError) as e:
             report['usb_comparison']=dict(usb_comparison_valid=False,errors=[str(e)])
+    if args.read_integrity:
+        from analyze_read_integrity import analyze as analyze_reads
+        report['read_integrity']=analyze_reads(args.directory,report,report.get('usb_comparison'))
     text = json.dumps(report, indent=2)+'\n'
     if args.output:
         with args.output.open('x', encoding='utf-8') as f:

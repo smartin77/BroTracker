@@ -27,6 +27,7 @@ for path in ['tools/alsa_bridge/main.cpp','tools/alsa_bridge/click_diagnostics.h
              'tools/alsa_bridge/offline_runner.py','tools/alsa_bridge/analyze_clicks.py',
              'tools/alsa_bridge/offline_metadata.py','tools/alsa_bridge/prepare_offline.py',
              'tools/alsa_bridge/analyze_usbmon.py','tools/alsa_bridge/usbmon_capture.py',
+             'tools/alsa_bridge/read_integrity.h','tools/alsa_bridge/analyze_read_integrity.py',
              'ui/arkos/main.cpp','ui/arkos/diagnostic_status.h','ui/arkos/offline_click_mode.h','src/ui/bringup_serial.h']:
     manifest['source_sha256'][path]=hashlib.sha256(Path(path).read_bytes().replace(b'\r\n',b'\n')).hexdigest()
 manifest['assets_sha256']={}

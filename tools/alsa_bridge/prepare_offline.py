@@ -6,7 +6,8 @@ from pathlib import Path
 import tempfile
 
 
-def install(repo,ports,usbmon=False):
+def install(repo,ports,usbmon=False,read_integrity=False):
+    usbmon=usbmon or read_integrity
     repo=Path(repo).resolve(); ports=Path(ports)
     source=repo/'tools/arkos/port/BroTracker Bridge Clicks.sh'
     if not source.is_file() or not (repo/'tools/alsa_bridge/offline_runner.py').is_file():
@@ -23,7 +24,7 @@ def install(repo,ports,usbmon=False):
     ports.mkdir(parents=True,exist_ok=True)
     entries=[('BroTracker Bridge Clicks.sh',source.read_bytes().replace(b'\r\n',b'\n'),0o755),
              ('BroTracker Bridge Clicks.repo.path',(str(repo)+'\n').encode(),0o644),
-             ('BroTracker Bridge Clicks.usbmon',b'enabled\n' if usbmon else b'disabled\n',0o644)]
+             ('BroTracker Bridge Clicks.usbmon',b'read-integrity\n' if read_integrity else (b'enabled\n' if usbmon else b'disabled\n'),0o644)]
     if receipt is not None:
         entries.append(('BroTracker Bridge Clicks.usbmon-preflight.json',(json.dumps(receipt,indent=2)+'\n').encode(),0o644))
     for name,data,mode in entries:
@@ -50,6 +51,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--ports-dir',type=Path,default=Path('/roms/ports'))
     p.add_argument('--usbmon',action='store_true',help='opt in; noninteractive sudo and installed tcpdump semantics must pass')
+    p.add_argument('--read-integrity',action='store_true',help='opt in to read-return checks plus USB capture')
     a=p.parse_args()
-    try: install(Path(__file__).resolve().parents[2],a.ports_dir,a.usbmon)
+    try: install(Path(__file__).resolve().parents[2],a.ports_dir,a.usbmon,a.read_integrity)
     except (OSError,ValueError,RuntimeError) as e:p.error(str(e))

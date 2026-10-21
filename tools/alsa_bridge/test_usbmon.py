@@ -187,6 +187,9 @@ class UsbTests(unittest.TestCase):
         with patch.object(c,'permission_check',return_value=dict(dependencies='synthetic libpcap')):
             prep.install(repo,ports,True)
         self.assertEqual((ports/'BroTracker Bridge Clicks.usbmon').read_text(),'enabled\n')
+        with patch.object(c,'permission_check',return_value=dict(dependencies='synthetic libpcap')):
+            prep.install(repo,ports,read_integrity=True)
+        self.assertEqual((ports/'BroTracker Bridge Clicks.usbmon').read_text(),'read-integrity\n')
 
     def test_owned_helper_stops_and_reaps_fake_tcpdump_on_pipe_eof(self):
         fake=self.root/'fake-tcpdump'

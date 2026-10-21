@@ -14,6 +14,7 @@
 #include "discovery.h"
 #include "recording.h"
 #include "click_diagnostics.h"
+#include "read_integrity.h"
 
 namespace
 {
@@ -215,6 +216,7 @@ struct Bridge
     Pcm capture, playback;
     std::unique_ptr<recording::Recorder> recorder;
     std::unique_ptr<clicks::Trace> trace;
+    std::unique_ptr<read_integrity::Trace> read_trace;
     uint64_t next_status = 0;
     bool normal_end = false;
 
@@ -312,6 +314,7 @@ struct Bridge
             trace->Finish();
             if(trace->Failed()) std::fprintf(stderr,"Click diagnostic writer failed; evidence incomplete\n");
         }
+        if(read_trace) read_trace->Finish();
         if (recorder) recorder->Finish();
         std::fprintf(stderr,
             "Summary: captured=%llu frames, submitted=%llu frames, "
@@ -376,6 +379,12 @@ struct Bridge
             trace.reset();
             std::fprintf(stderr,"Click diagnostics unavailable: %s; audio continues\n",e.what());
         }
+        if(const char* enabled=std::getenv("BROTRACKER_READ_INTEGRITY")) {
+            if(std::strcmp(enabled,"1")==0 && trace) {
+                try { read_trace=std::make_unique<read_integrity::Trace>(trace->Directory()); }
+                catch(const std::exception& e) { std::fprintf(stderr,"Read integrity unavailable: %s; evidence UNKNOWN\n",e.what()); }
+            }
+        }
         const int start_result=snd_pcm_start(capture.handle);
         Note(clicks::Start,0,start_result);
         if(start_result<0) {
@@ -393,6 +402,7 @@ struct Bridge
                 const auto tail = (head + queued) % kQueueFrames;
                 const auto frames = std::min({kChunkFrames, kQueueFrames - queued, kQueueFrames - tail});
                 const auto result = snd_pcm_readi(capture.handle, samples.data() + tail * kFrameBytes, frames);
+                if(result>0 && read_trace) read_trace->Observe(samples.data()+tail*kFrameBytes,captured,static_cast<size_t>(result));
                 Note(clicks::Read,frames,result,samples.data()+tail*kFrameBytes);
                 if (Retry(result, true)) continue;
                 if (result > 0)
@@ -433,7 +443,7 @@ int main(int argc, char** argv)
 {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     if(argc==2 && std::strcmp(argv[1],"--diagnostic-info")==0) {
-        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300}");
+        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300,\"read_integrity\":1}");
         return 0;
     }
     const bool preflight=argc==2 && std::strcmp(argv[1],"--preflight")==0;

@@ -226,6 +226,13 @@ class RunnerTests(unittest.TestCase):
         with patch.object(r,'terminate_owned',side_effect=lambda child,**kw:order.append('bridge stop') or 0):
             self.assertEqual(e.cleanup(),[])
         self.assertEqual(order,['BTTEST1 STOP','BTTEST1 STATUS','serial close','bridge stop','owned USB stop'])
+    def test_missing_or_mismatched_read_integrity_never_passes(self):
+        for status in ['UNKNOWN','RECORDER_PATH_MISMATCH']:
+            e=self.experiment();e.read_integrity_requested=True;e.preflight=Mock()
+            e.condition=lambda mode,identity:e.results.append(dict(mode=mode,success=True,read_integrity=dict(status=status)))
+            self.assertFalse(e.run())
+            summary=json.loads((e.root/'summary.json').read_text())
+            self.assertEqual(summary['outcome'],'FAILED');self.assertEqual(summary['read_integrity']['status'],status)
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff

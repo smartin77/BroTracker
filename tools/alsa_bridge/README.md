@@ -615,3 +615,76 @@ The smallest next discriminating observation is an independent read-return diges
 before `Trace::Emit`, checked against its queued/written bytes and aligned USB,
 plus exact running-kernel source identity. This is proposed only, not implemented
 or captured in this change. usbmon remains HCD evidence, not on-wire certainty.
+
+### Opt-in immediate read-return integrity
+
+From the updated console checkout, while Wi-Fi is available, run:
+
+```sh
+python3 -B tools/alsa_bridge/prepare_offline.py --read-integrity
+```
+
+This enables the existing USB option plus independent read digests through the
+same Ports entry and generated companion setting. It performs the existing
+noninteractive sudo/USB preflight; no manual configuration edits are needed.
+Disconnect Wi-Fi, connect Teensy, and select **Ports > BroTracker Bridge Clicks**.
+The workload, phase timers, emergency B, cleanup and automatic return are unchanged.
+Without this explicit option the added read path is disabled. Re-running normal
+preparation disables it; `--usbmon` alone retains USB capture without digests.
+Matching ARM64 artifacts/fingerprints are required; the bridge advertises the
+`read_integrity: 1` capability. No firmware change is needed.
+
+Immediately after every positive `snd_pcm_readi`, before PCM tracing or any other
+consumer, the bridge hashes exactly `returned_frames * 4` bytes. It uses FNV-1a
+64: offset basis 14695981039346656037, XOR each byte then multiply by
+1099511628211 modulo 2^64. It covers every byte in original S16_LE order, with
+no normalization or skipped samples. Each observation has a contiguous ID starting
+at 1, absolute captured-source frame offset, returned frame count and digest.
+Negative/zero reads have no observation. Short reads hash only returned bytes.
+The hash is noncryptographic: collisions are possible, especially for adversarial
+inputs, and equality does not prove byte equality or exclude common-mode faults.
+No guaranteed 2^-64 collision bound is claimed for structured PCM.
+
+A separate fixed 4096-record SPSC queue carries values, never application-buffer
+pointers. The audio loop performs at most a 1024-byte digest and fixed publication;
+no allocation, I/O, mutex or wait is added there. A separate writer saves
+`read-integrity.tsv` and a flushed completion marker beside `received.s16le`.
+At most 1,000,000 records are accepted (under 100 MiB text), also bounded by the
+existing recording lifecycle. Queue/full-record-limit/writer failure stops later
+acceptance and marks lost/incomplete observations; audio continues. Missing or
+partial markers are UNKNOWN. This is independent of the existing PCM trace queue,
+not independent hardware truth. Hash work and another writer/thread add observer
+load only to diagnostics-on; that load is recorded and must be considered.
+Audio parameters, PCM, recovery policy and diagnostics-off remain unchanged.
+
+Offline `on/analysis.json` checks contiguous IDs, exact positive-read boundaries
+from transfers.tsv, source offsets, frame totals and completion/loss counts,
+then independently recomputes every digest from saved received PCM. It requires
+complete PCM and aligned full USB coverage before reporting:
+
+- `READ_RETURN_DIFFERS_FROM_USB`: every read digest matches saved PCM, which
+  differs from USB. The differing bytes were present at the immediate post-read
+  observation, subject to collision/common-mode limitations; this does not name
+  ALSA, the kernel or Teensy as the cause.
+- `READ_RETURN_MATCHES_USB`: complete matching read/PCM/USB evidence.
+- `RECORDER_PATH_MISMATCH`: complete read evidence contains digest mismatches
+  against saved PCM. Investigate the subsequent application/recording path.
+- `UNKNOWN`: missing, overflowed, malformed or inconsistent evidence, or missing
+  aligned USB coverage. Never a successful boundary comparison.
+
+A requested UNKNOWN or recorder mismatch fails the overall attempt while retaining
+PCM, USB and digest evidence. Technical acquisition/comparison completion and
+listening/cause confirmation remain separate. Independent offline replay:
+
+```sh
+python3 -B tools/alsa_bridge/analyze_clicks.py ATTEMPT/on/bridge-XXXXXX \
+  --usbmon ATTEMPT/on/usb --read-integrity --output ATTEMPT/read-replay.json
+```
+
+Existing metadata now also collects `/proc/version`, a hash of `/sys/kernel/notes`,
+loaded module versions/srcversions/build-note hashes and available `modinfo` for
+snd_usb_audio, snd_pcm and usbcore. Unavailable/built-in/restricted fields are
+unknown with reasons. Installed module information may differ from loaded code;
+these identifiers do not verify a match to a source repository. The suspected
+kernel publication-before-copy race remains unconfirmed and is not patched.
+No physical run of this new read-return observation has been performed.

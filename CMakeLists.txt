@@ -246,10 +246,15 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
     add_executable(BroTrackerAlsaDiscoveryTests tools/alsa_bridge/discovery_test.cpp)
     add_test(NAME BroTrackerAlsaDiscoveryTests COMMAND BroTrackerAlsaDiscoveryTests)
     add_executable(BroTrackerClickDiagnosticsTests tools/alsa_bridge/click_diagnostics_test.cpp)
+    add_executable(BroTrackerReadIntegrityTests tools/alsa_bridge/read_integrity_test.cpp)
+    target_link_libraries(BroTrackerReadIntegrityTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerReadIntegrityTests COMMAND BroTrackerReadIntegrityTests ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(BroTrackerClickDiagnosticsTests PRIVATE Threads::Threads)
     add_test(NAME BroTrackerClickDiagnosticsTests
         COMMAND BroTrackerClickDiagnosticsTests ${CMAKE_CURRENT_BINARY_DIR})
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME BroTrackerReadIntegrityAnalysisTests COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_read_integrity.py)
+    set_tests_properties(BroTrackerReadIntegrityAnalysisTests PROPERTIES ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-read-integrity-tests" TIMEOUT 30)
     add_test(NAME BroTrackerClickAnalysisTests
         COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_analyze_clicks.py)
     set_tests_properties(BroTrackerClickAnalysisTests PROPERTIES
