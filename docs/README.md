@@ -10,6 +10,7 @@ Project documentation is located in the `docs` directory.
 - [Architecture Decisions](./ARCHITECTURE_DECISIONS.md)
 - [Core Architecture](./CORE_ARCHITECTURE.md)
 - [UI / UX Architecture](./UI_UX_ARCHITECTURE.md)
+- [UI Screen Map and Implementation Direction](./UI_SCREEN_MAP.md)
 - [Effect Event Architecture](./EFFECT_EVENT_ARCHITECTURE.md)
 - [Teensy Audio Architecture](./TEENSY_AUDIO_ARCHITECTURE.md)
 - [Scheduler](./SCHEDULER.md)

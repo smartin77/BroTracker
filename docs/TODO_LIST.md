@@ -8,6 +8,10 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+* [ ] Review the proposed [UI screen map and staged direction](UI_SCREEN_MAP.md),
+  resolve its pending design questions and backend dependencies before scheduling
+  UI implementation. Planning only; no proposed screen is marked complete.
+
 ArkOS remains the priority target platform for BroTracker Terminal (BTX), with
 follow-up hardware validation. Windows BTX + the bare Teensy 4.1 is the primary
 development bring-up/test setup, using the existing USB audio path to the host.

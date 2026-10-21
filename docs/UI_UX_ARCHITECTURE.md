@@ -1,5 +1,10 @@
 # BroTracker UI/UX Architecture
 
+See [UI Screen Map](UI_SCREEN_MAP.md) for the proposed screen responsibilities,
+incremental implementation direction and identified conflicts with older passages
+below. That map distinguishes implemented behavior, established decisions and
+proposals; it does not authorize UI implementation or runtime changes.
+
 ## Display Resolution
 
 BroTracker's primary UI target is a **640 × 480 pixel** display.
