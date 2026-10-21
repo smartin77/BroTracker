@@ -342,6 +342,7 @@ class RunnerTests(unittest.TestCase):
             if command[0]==str(e.binary):
                 log.write_text('Queue capacity: synthetic\n')
                 self.assertEqual(kwargs['env']['BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS'],'240')
+                self.assertEqual(kwargs['env'].get('BROTRACKER_CAPTURE_HOLDBACK'), '1' if e.capture_holdback else None)
                 if log.parent.name=='on':
                     trace=log.parent/'bridge-synthetic';trace.mkdir()
                     (trace/'run.json').write_text(json.dumps({'limit_seconds':240}))
@@ -366,6 +367,13 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(e.stop_playback.call_count,2);self.assertEqual(e.active_phase.call_count,2)
         self.assertTrue((e.root/'on/analysis.json').exists());self.assertTrue((e.root/'off/result.json').exists())
         self.assertFalse(e.playback_owned)
+        # Same opt-in strategy in diagnostics-on and diagnostics-off; no extra
+        # conditions or source edits. Existing baseline above stays unchanged.
+        e.capture_holdback=True
+        previous=e.root
+        e.root=previous/'holdback-synthetic';e.root.mkdir();e.results=[]
+        e.wait_status.side_effect=[{'phase':'prepared'},{'phase':'running','tick':1}, {'phase':'prepared'},{'phase':'running','tick':1}]
+        e.condition('on',4000000000);e.condition('off',4000000004)
 
     def test_working_pattern_is_never_replaced(self):
         e=self.experiment();s=Mock();e.session=s

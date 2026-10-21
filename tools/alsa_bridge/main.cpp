@@ -15,6 +15,7 @@
 #include "recording.h"
 #include "click_diagnostics.h"
 #include "read_integrity.h"
+#include "capture_holdback.h"
 
 namespace
 {
@@ -219,6 +220,9 @@ struct Bridge
     std::unique_ptr<read_integrity::Trace> read_trace;
     uint64_t next_status = 0;
     bool normal_end = false;
+    bool holdback=false;
+    capture_holdback::Metrics holdback_metrics;
+    snd_pcm_uframes_t capture_buffer=0;
 
     void Note(clicks::Kind kind, uint32_t requested=0, int64_t result=0,
               const void* pcm=nullptr, uint32_t step=0, int64_t avail=0,
@@ -294,9 +298,9 @@ struct Bridge
         const int n=std::fprintf(f,"{\"schema\":1,\"pid\":%ld,\"rate\":44100,\"channels\":2,"
             "\"format\":\"S16_LE\",\"frame_bytes\":4,\"queue_frames\":8192,\"chunk_frames\":256,"
             "\"diagnostic_slots\":4096,\"limit_seconds\":%u,\"status_interval_ms\":20,"
-            "\"clock\":\"CLOCK_MONOTONIC\",\"anchor_ns\":%llu,\"wall_seconds\":%lld,"
+            "\"capture_holdback_frames\":%u,\"clock\":\"CLOCK_MONOTONIC\",\"anchor_ns\":%llu,\"wall_seconds\":%lld,"
             "\"wall_nanoseconds\":%ld,\"alsa_version\":\"%s\"}\n",
-            (long)getpid(),limit,(unsigned long long)clicks::Now(),(long long)stamp.wall.tv_sec,
+            (long)getpid(),limit,holdback?unsigned(capture_holdback::kFrames):0,(unsigned long long)clicks::Now(),(long long)stamp.wall.tv_sec,
             stamp.wall.tv_nsec,snd_asoundlib_version());
         const bool bad=n<0 || std::ferror(f);
         const int closed=std::fclose(f);
@@ -309,6 +313,15 @@ struct Bridge
 
     ~Bridge()
     {
+        if(holdback) {
+            // Outside the service loop. Do not drain/re-read the reserved tail;
+            // report the final unread snapshot rather than hiding shutdown loss.
+            const auto final_avail=snd_pcm_avail(capture.handle);
+            std::fprintf(stderr,"Experimental capture holdback: reserve=%llu frames, buffer=%lu, availability_samples=%llu, gated=%llu, max_available=%llu, shutdown_unread_snapshot=%lld (negative=unknown/error); no tail drain\n",
+                (unsigned long long)capture_holdback::kFrames,(unsigned long)capture_buffer,
+                (unsigned long long)holdback_metrics.samples,(unsigned long long)holdback_metrics.gated,
+                (unsigned long long)holdback_metrics.max_available,(long long)final_avail);
+        }
         Note(clicks::End,0,normal_end?0:-1);
         if (trace) {
             trace->Finish();
@@ -364,6 +377,14 @@ struct Bridge
 
     void Run()
     {
+        const char* guard=std::getenv("BROTRACKER_CAPTURE_HOLDBACK");
+        holdback=guard && std::strcmp(guard,"1")==0;
+        if(holdback) {
+            snd_pcm_uframes_t period=0;
+            Check(snd_pcm_get_params(capture.handle,&capture_buffer,&period),"capture holdback params");
+            if(snd_pcm_type(capture.handle)!=SND_PCM_TYPE_HW || capture_buffer!=2048)
+                throw std::runtime_error("experimental holdback requires raw hardware capture with the existing 2048-frame buffer");
+        }
         const char* dir=std::getenv("BROTRACKER_DIAGNOSTICS_DIR");
         if(dir && *dir) {
             try { recorder=std::make_unique<recording::Recorder>(dir); }
@@ -400,18 +421,29 @@ struct Bridge
             if (queued < kQueueFrames)
             {
                 const auto tail = (head + queued) % kQueueFrames;
-                const auto frames = std::min({kChunkFrames, kQueueFrames - queued, kQueueFrames - tail});
-                const auto result = snd_pcm_readi(capture.handle, samples.data() + tail * kFrameBytes, frames);
-                if(result>0 && read_trace) read_trace->Observe(samples.data()+tail*kFrameBytes,captured,static_cast<size_t>(result));
-                Note(clicks::Read,frames,result,samples.data()+tail*kFrameBytes);
-                if (Retry(result, true)) continue;
-                if (result > 0)
-                {
-                    if (recorder) recorder->Push(samples.data() + tail * kFrameBytes, static_cast<size_t>(result));
-                    queued += result;
-                    captured += result;
-                    high_water = std::max(high_water, queued);
-                    progress = true;
+                auto frames = std::min({kChunkFrames, kQueueFrames - queued, kQueueFrames - tail});
+                snd_pcm_sframes_t available=0;
+                if(holdback) {
+                    available=snd_pcm_avail(capture.handle); // Fresh driver position, not cached avail_update.
+                    holdback_metrics.Observe(available);
+                    if(available<0) {
+                        Note(clicks::StatusCapture,0,available);
+                        if(Retry(available,true)) continue;
+                    }
+                    frames=capture_holdback::Request(available,frames);
+                }
+                if(frames) {
+                    const auto result = snd_pcm_readi(capture.handle, samples.data() + tail * kFrameBytes, frames);
+                    if(result>0 && read_trace) read_trace->Observe(samples.data()+tail*kFrameBytes,captured,static_cast<size_t>(result));
+                    Note(clicks::Read,frames,result,samples.data()+tail*kFrameBytes,0,available);
+                    if (Retry(result, true)) continue;
+                    if (result > 0) {
+                        if (recorder) recorder->Push(samples.data() + tail * kFrameBytes, static_cast<size_t>(result));
+                        queued += result;
+                        captured += result;
+                        high_water = std::max(high_water, queued);
+                        progress = true;
+                    }
                 }
             }
             if (stopped) break;
@@ -443,7 +475,7 @@ int main(int argc, char** argv)
 {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     if(argc==2 && std::strcmp(argv[1],"--diagnostic-info")==0) {
-        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300,\"read_integrity\":1}");
+        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300,\"read_integrity\":1,\"capture_holdback\":45}");
         return 0;
     }
     const bool preflight=argc==2 && std::strcmp(argv[1],"--preflight")==0;

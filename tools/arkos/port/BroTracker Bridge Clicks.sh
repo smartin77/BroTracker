@@ -41,6 +41,7 @@ if [[ -r "$launcher_dir/BroTracker Bridge Clicks.usbmon" ]]; then
     IFS= read -r usb_option < "$launcher_dir/BroTracker Bridge Clicks.usbmon"
     if [[ "$usb_option" == enabled ]]; then usb_args=(--usbmon); fi
     if [[ "$usb_option" == read-integrity ]]; then usb_args=(--usbmon --read-integrity); fi
+    if [[ "$usb_option" == capture-holdback ]]; then usb_args=(--usbmon --read-integrity --capture-holdback); fi
 fi
 python3 -B "$repo/tools/alsa_bridge/offline_runner.py" --repo "$repo" "${usb_args[@]}"
 code=$?

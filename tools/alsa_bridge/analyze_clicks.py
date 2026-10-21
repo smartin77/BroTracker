@@ -36,6 +36,8 @@ def analyze(directory):
     if missing:
         return {'complete': False, 'errors': ['missing: '+', '.join(missing)], 'sha256': hashes}
     meta = json.loads((directory/'run.json').read_text())
+    reserve=meta.get('capture_holdback_frames',0)
+    if reserve not in [0,45]:errors.append('unsupported experimental capture reserve')
     completion = json.loads((directory/'completion.json').read_text())
     if meta.get('schema') != 1 or meta.get('rate') != 44100 or meta.get('format') != 'S16_LE' or meta.get('frame_bytes') != 4 or meta.get('channels') != 2:
         errors.append('incompatible PCM schema')
@@ -86,6 +88,8 @@ def analyze(directory):
                     first_service = r['ns']
                 previous_service = r['ns']
             elif kind in [2, 3]:
+                if kind==2 and reserve and (r['avail']<=reserve or r['requested']>r['avail']-reserve):
+                    errors.append('capture read violated declared holdback snapshot')
                 side = 'capture' if kind == 2 else 'playback'
                 stats = transfers[side]
                 stats['calls'] += 1

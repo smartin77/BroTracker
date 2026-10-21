@@ -72,6 +72,14 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(r['transfers']['playback']['zero'], 1)
         self.assertEqual(r['transfers']['playback']['errors'], {'-11': 1})
         self.assertEqual(len(r['sha256']), 6)
+    def test_holdback_read_snapshot_enforced(self):
+        self.meta['capture_holdback_frames']=45
+        for row in self.records:
+            if row['kind']==2:row['avail']=row['requested']+45
+        self.assertTrue(self.save()['complete'])
+        row=next(r for r in self.records if r['kind']==2)
+        row['avail']-=1
+        self.assertFalse(self.save()['complete'])
     def test_status_gap_and_recovery_reporting(self):
         self.records.pop()  # replace end with actual status fixtures
         self.event(4, avail=7, delay=9)

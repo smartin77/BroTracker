@@ -158,7 +158,7 @@ def terminate_owned(child,force=False):
         raise Failure('owned process needed forced shutdown; attempt failed')
 
 class Experiment:
-    def __init__(self,repo,workload,usbmon=False,read_integrity=False):
+    def __init__(self,repo,workload,usbmon=False,read_integrity=False,capture_holdback=False):
         self.repo=Path(repo).resolve(); self.package=self.repo/'deploy/arkos'
         base=self.repo/'assets/hardware_diagnostics/bridge_clicks'; base.mkdir(parents=True,exist_ok=True)
         self.root=Path(tempfile.mkdtemp(prefix=time.strftime('%Y%m%dT%H%M%SZ-',time.gmtime())+'offline-',dir=base))
@@ -167,8 +167,9 @@ class Experiment:
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
         self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False; self.cancel_producers={}; self.cancel_records=set(); self.current_phase="initializing"; self.results_finalized=False; self.results_dismissed=False
-        self.read_integrity_requested=read_integrity
-        self.usb_requested=usbmon or read_integrity;self.usb_capture=None;self.usb_state=None
+        self.capture_holdback=capture_holdback
+        self.read_integrity_requested=read_integrity or capture_holdback
+        self.usb_requested=usbmon or self.read_integrity_requested;self.usb_capture=None;self.usb_state=None
     def retain_traceback(self):
         try:
             with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
@@ -227,6 +228,8 @@ class Experiment:
             if json.loads(result.stdout)['id']!=expected: raise Failure('stale diagnostic binary: '+name)
             if self.read_integrity_requested and name=='BroTrackerAlsaBridge' and json.loads(result.stdout).get('read_integrity')!=1:
                 raise Failure('bridge lacks read-return integrity capability')
+            if self.capture_holdback and name=='BroTrackerAlsaBridge' and json.loads(result.stdout).get('capture_holdback')!=45:
+                raise Failure('bridge lacks experimental capture holdback capability')
             deps=subprocess.run(['ldd','-r',str(path)],capture_output=True,timeout=15)
             (self.root/(name+'-dependencies.txt')).write_bytes(deps.stdout+deps.stderr)
             if deps.returncode or b'not found' in deps.stdout+deps.stderr or b'undefined symbol' in deps.stdout+deps.stderr:
@@ -265,6 +268,12 @@ class Experiment:
                     break
         if len(ports)!=1: raise Failure('need exactly one Teensy CDC 16c0:048a: '+repr(ports))
         self.port=ports[0]
+        if self.capture_holdback:
+            from usbmon_capture import discover
+            target=discover(self.port)
+            if target['max_packet_bytes']!=180:
+                raise Failure('45-frame holdback requires verified 180-byte PCM IN endpoint')
+            save(self.root/'holdback-profile.json',dict(experimental=True,frames=45,nominal_latency_ms=45*1000/44100,target=target))
         save(self.root/'connected-device.json',collect(self.repo,self.port))
         # Check existing owners before exclusive open. No arbitrary process kills.
         owners=subprocess.run(['fuser',self.port],capture_output=True,timeout=5)
@@ -433,11 +442,12 @@ class Experiment:
                 self.usb_state=dict(clean_stop=False,reason=str(e))
                 self.event('usb_capture_unavailable',result=self.usb_state)
         env=os.environ.copy()
-        for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE','BROTRACKER_READ_INTEGRITY']:
+        for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE','BROTRACKER_READ_INTEGRITY','BROTRACKER_CAPTURE_HOLDBACK']:
             env.pop(key,None)
         env['BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS']=str(RECORD_SECONDS)
         if mode=='on': env['BROTRACKER_BRIDGE_CLICKS_DIR']=str(directory)
         if mode=='on' and self.read_integrity_requested:env['BROTRACKER_READ_INTEGRITY']='1'
+        if self.capture_holdback:env['BROTRACKER_CAPTURE_HOLDBACK']='1'  # Same strategy in both on/off conditions.
         setup_deadline=time.monotonic()+SETUP_SECONDS
         self.bridge=self.launch([str(self.binary),'--auto'],directory/'bridge.log',env=env,cwd=self.package)
         self.event('recording_setup_deadline',deadline_ns=time.monotonic_ns()+SETUP_SECONDS*1000000000)
@@ -590,11 +600,13 @@ class Experiment:
             outcome='CANCELLED' if self.cancelled else ('FAILED' if failure or errors else 'COMPLETED'),
             usb_capture_requested=self.usb_requested,usb_capture=self.usb_state,usb_comparison=usb_result,
             read_integrity_requested=self.read_integrity_requested,read_integrity=read_result,
+            experimental_capture_holdback_frames=45 if self.capture_holdback else 0,
             audible_click_status='NOT YET CONFIRMED',listening_report='User may report clicks and phase afterward; no event markers or external recording required',failure=failure,cleanup_errors=errors,conditions=self.results,
             limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
             'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.'
             +(' Optional usbmon/tcpdump runs only in diagnostics-on and adds observer load; it is HCD evidence, not guaranteed on-wire truth.' if self.usb_requested else ''))
         if self.read_integrity_requested:summary['limitations']+=' Independent FNV-1a read digests and a separate writer add observer load only during diagnostics-on; hash collisions/common-mode faults remain possible.'
+        if self.capture_holdback:summary['limitations']+=' Experimental 45-frame capture reserve in both conditions; nominal 1.0204 ms delay plus scheduling/backlog. No kernel-cause or workaround-success claim; shutdown unread snapshot is in bridge logs.'
         # Freeze the result decision before publication; later B only dismisses UI.
         self.results_finalized=True
         self.event('results_publication_begin',outcome=summary['outcome'])
@@ -652,7 +664,8 @@ def main():
     p.add_argument('--no-display',action='store_true',help='shell/device-free tests only; Ports uses SDL status')
     p.add_argument('--usbmon',action='store_true',help='opt-in bounded USB/HCD capture; prepare permissions first')
     p.add_argument('--read-integrity',action='store_true',help='opt-in independent read-return digests plus USB capture')
-    args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json',args.usbmon,args.read_integrity)
+    p.add_argument('--capture-holdback',action='store_true',help='experimental 45-frame capture reserve with existing USB/read diagnostics')
+    args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json',args.usbmon,args.read_integrity,args.capture_holdback)
     if args.no_display: e.show=lambda:None
     def interrupted(signum,frame): raise Failure('runner interrupted by signal '+str(signum))
     for sig in [signal.SIGTERM,signal.SIGINT,signal.SIGHUP]: signal.signal(sig,interrupted)

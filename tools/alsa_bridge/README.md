@@ -688,3 +688,101 @@ unknown with reasons. Installed module information may differ from loaded code;
 these identifiers do not verify a match to a source repository. The suspected
 kernel publication-before-copy race remains unconfirmed and is not patched.
 No physical run of this new read-return observation has been performed.
+
+### Experimental one-packet capture holdback (pending physical A/B)
+
+Replay of `20261021T150952Z-offline-xayxxyei` confirms COMPLETED with both
+conditions, 113261 positive read observations covering 5428886 stereo frames,
+zero read-digest mismatches/loss, and byte-identical received/accepted PCM.
+USB has 246328 paired events with no reported drop. Independently aligned PCM
+has 921 differing frames in 55 groups, all matching the 2048-frame history in
+both streams (maximum channel difference 4232). This supports stale bytes at the
+immediate post-read observation, subject to hash/common-mode limitations. It does
+not prove the proposed kernel race. Original evidence remains unchanged.
+
+A small userspace experiment is enabled by `prepare_offline.py --capture-holdback`.
+It also enables the existing USB/read-integrity diagnostics. The existing Ports
+entry uses the same musical workload, timers, B cancellation and automatic return.
+The strategy applies to both diagnostics-on and diagnostics-off; those conditions
+are not the workaround A/B. Compare separate baseline and experimental attempts.
+Default preparation, normal bridge behavior and production defaults remain unchanged.
+
+For the observed maximum 180-byte stereo PCM16 packet, reserve H=45 frames.
+Before a read, synchronized `snd_pcm_avail()` obtains availability A; request
+`min(existing contiguous/chunk limit, max(0, A-H))`. A zero request is a gate,
+not an invented ALSA read/EAGAIN record. It does not advance any cursor. Positive
+short reads advance only by their actual returned count. Availability errors go
+through the existing recovery policy, and every iteration resamples availability;
+there is no stale quota across EAGAIN, wrap, XRUN or restart. Playback still
+services queued data when capture is gated. No samples are replaced, inserted,
+repeated, filtered or deliberately discarded during steady-state service.
+
+The runner verifies the actual supported endpoint's maximum packet is 180 bytes;
+the bridge requires raw hardware capture with the existing 2048-frame buffer.
+No ALSA buffer/period/threshold is changed. Read requests are checked offline
+against their saved availability snapshots. The nominal extra reserve is
+45/44100 = **1.020408 ms**. Actual delay includes packet arrival, the unchanged
+1 ms idle wait, scheduling and backlog; this is not a measured or guaranteed
+end-to-end latency. Capture remains bounded by its 2048-frame ring (~46.44 ms),
+with 2003 frames (~45.42 ms) beyond the reserve before that capacity is reached;
+existing XRUN handling applies. The application ring remains 8192 frames and
+reads remain bounded at 256 frames. There is no broad buffer increase or new sleep.
+`max_available`, gate counts and a final unread availability snapshot are logged
+outside the service loop. The normal immediate-close policy is preserved: the
+reserved/latest tail is not drained on shutdown, and that tail is explicitly
+reported rather than hidden. The snapshot is not an exact count of subsequent
+arrivals before device close. USB comparison retains trailing USB coverage.
+
+This excludes the newest maximum-size packet **at the sampled position**. Its
+motivation assumes earlier packet copies have completed in the usual sequential
+callback progression; ALSA provides no userspace copy-publication barrier. A
+stalled/multiple concurrent callback, another visibility problem or another
+kernel defect could defeat this guard. The availability query also adds observer
+load. A clean run would support a read-timing workaround, not identify the kernel
+cause. It remains experimental until controlled physical A/B validation.
+
+Primary semantics/history checked:
+
+- [ALSA availability API](https://www.alsa-project.org/alsa-doc/alsa-lib/group___p_c_m.html):
+  `snd_pcm_avail()` synchronizes the hardware position, unlike cached/lightweight
+  `snd_pcm_avail_update()`. Neither advances the application capture cursor.
+- [Console-version libasound source](https://github.com/alsa-project/alsa-lib/blob/v1.1.9/src/pcm/pcm.c)
+  and [hardware plugin](https://github.com/alsa-project/alsa-lib/blob/v1.1.9/src/pcm/pcm_hw.c):
+  availability/hwsync precedes the bounded nonblocking read; the existing kernel
+  read path consumes from appl_ptr and splits physical-ring wrap as needed.
+- [Vendor reference](https://github.com/christianhaitian/linux/blob/daf063fc503be035a3df68ad59209ee62c57cfc9/sound/usb/pcm.c#L1282)
+  publishes hwptr_done before copying. Inspected upstream v4.9, v4.19, v5.4,
+  v5.10, v6.0, v6.12 and [v6.18](https://github.com/torvalds/linux/blob/v6.18/sound/usb/pcm.c)
+  retain that relative ordering; this inspection did not establish a fix for it.
+- [1d0f953086f0](https://github.com/torvalds/linux/commit/1d0f953086f090a022f2c0e1448300c15372db46)
+  fixes stop/callback lifetime synchronization, not this packet publication order.
+  Its title must not be presented as proof of a capture-data fix.
+- Captured kernel is 4.4.189, #3 SMP Oct 13 2021, with kernel-notes hash
+  `e7e55d5092479ee537d5ef6665e2781bf79eb12c2fcd22ba6af90e44ce29e98a`.
+  Audio module srcversion/build-note/modinfo identifiers were unavailable.
+  A match to the inspected source repository remains unverified.
+
+For a later controlled A/B, deliver the same reviewed checkout/artifact by Git.
+While Wi-Fi is connected, from that console checkout prepare baseline A:
+
+```sh
+python3 -B tools/alsa_bridge/prepare_offline.py --read-integrity
+```
+
+Disconnect Wi-Fi, connect Teensy, launch **Ports > BroTracker Bridge Clicks** and
+let it return automatically. Preserve the attempt. Reconnect Wi-Fi as necessary,
+then prepare B from the **same checkout**:
+
+```sh
+python3 -B tools/alsa_bridge/prepare_offline.py --capture-holdback
+```
+
+Repeat the same disconnected-Wi-Fi Ports launch. Keep USB topology, pattern,
+tempo, gains and sample bindings unchanged; compare the automatically saved
+workload readbacks before interpreting A/B. Save every failed/UNKNOWN attempt.
+Both runs must pass USB retention/loss, PCM phase coverage and independent read
+integrity checks. Compare USB/PCM differing-frame ranges and 2048-history counts,
+XRUNs/discards, service gaps, actual ALSA parameters and holdback snapshots. A
+COMPLETED technical acquisition is not a listening or workaround success claim.
+No physical A/B validation, deployment, kernel change or firmware change has
+been performed for this experimental option.
