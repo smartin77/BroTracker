@@ -16,15 +16,16 @@ import usbmon_capture as c
 import prepare_offline as prep
 
 
-def record(ident, event, payload, descriptors, status=0, device=7):
+def record(ident, event, payload, descriptors, status=0, device=7, aggregate=None):
     header = bytearray(64)
     desc = b''.join(struct.pack('<iIII', *d, 0) for d in descriptors)
+    length = (max((d[1]+d[2] for d in descriptors),default=0) if event=='S' else sum(d[2] for d in descriptors)) if aggregate is None else aggregate
     struct.pack_into('<QBBBBHccqiiII', header, 0, ident, ord(event), 0, 0x83, device, 1,
                      b'-', b'\0' if payload else b'<', 1, 0, status,
-                     sum(d[2] for d in descriptors), len(desc)+len(payload))
+                     length, len(desc)+len(payload))
     struct.pack_into('<iIiiII', header, 40, int(any(d[0] for d in descriptors)), len(descriptors), 1, 100, 0, len(descriptors))
     body = bytes(header)+desc+payload
-    return struct.pack('<IIII', 1, 0, len(body), 64+len(desc)+sum(d[2] for d in descriptors))+body
+    return struct.pack('<IIII', 1, 0, len(body), 64+len(desc)+(length if payload else 0))+body
 
 
 class UsbTests(unittest.TestCase):
@@ -65,6 +66,42 @@ class UsbTests(unittest.TestCase):
         p=self.usb/'capture.pcap';p.write_bytes(p.read_bytes()[:-7])
         result=a.analyze(self.usb,self.pcm)
         self.assertFalse(result['usb_comparison_valid']);self.assertTrue(any('unfinished' in x for x in result['errors']))
+        self.assertFalse(result['full_stream_scanned'])
+        self.assertIsNone(result['unmatched_submissions'])
+        self.assertFalse(any('missing USB completions' in x or 'packet count does not match' in x for x in result['errors']))
+
+    def test_zero_aggregate_iso_uses_verified_descriptor_lengths(self):
+        for i in range(8):
+            payload=self.audio[i*352:i*352+176]+bytes(16)+self.audio[i*352+176:(i+1)*352]
+            self.chunks[2*i+1]=record(i,'C',payload,[(0,0,176),(0,192,176)],aggregate=0)
+        self.write();result=a.analyze(self.usb,self.pcm)
+        self.assertTrue(result['usb_comparison_valid'],result['errors'])
+        self.assertEqual(result['zero_aggregate_payload_completions'],8)
+        self.assertEqual(result['reconstructed_frames'],704)
+
+    def test_nonzero_inconsistent_aggregate_is_rejected(self):
+        self.chunks[1]=record(0,'C',self.audio[:176]+bytes(16)+self.audio[176:352],[(0,0,176),(0,192,176)],aggregate=348)
+        self.write();result=a.analyze(self.usb,self.pcm)
+        self.assertTrue(any('URB actual length' in e for e in result['errors']))
+
+    def test_metadata_export_cap_does_not_stop_full_validation(self):
+        result=a.analyze(self.usb,self.pcm,metadata_limit=700)
+        self.assertTrue(result['usb_comparison_valid'],result['errors'])
+        self.assertEqual(result['records'],16);self.assertEqual(result['unmatched_submissions'],0)
+        self.assertTrue(result['full_stream_scanned']);self.assertGreater(result['metadata_export']['records_omitted'],0)
+        self.assertLessEqual(result['metadata_export']['bytes_written'],700)
+        self.assertEqual((Path(result['derived_directory'])/'usb-records.jsonl').stat().st_size,result['metadata_export']['bytes_written'])
+        # A genuinely bad late packet must still be checked after export stops.
+        self.chunks[-1]=record(7,'C',b'',[(0,0,176),(0,192,176)],aggregate=0)
+        self.write();result=a.analyze(self.usb,self.pcm,metadata_limit=0)
+        self.assertEqual(result['records'],16);self.assertFalse(result['usb_comparison_valid'])
+        self.assertTrue(any('missing sparse payload' in e for e in result['errors']))
+
+    def test_zero_aggregate_cannot_bypass_submission_bounds(self):
+        self.chunks[1]=record(0,'C',self.audio[:176]+bytes(16)+self.audio[176:352],[(0,0,176),(0,192,176)],aggregate=0)
+        self.chunks[0]=record(0,'S',b'',[(0,0,172),(0,192,176)])
+        self.write();result=a.analyze(self.usb,self.pcm)
+        self.assertTrue(any('submitted descriptor bounds' in e for e in result['errors']))
 
     def test_declared_usb_data_truncation_invalidates_complete_pcap_record(self):
         data=bytearray(self.chunks[1])
@@ -111,6 +148,10 @@ class UsbTests(unittest.TestCase):
         result=a.align(usb,bytes(pcm),[0,5000])[0]
         self.assertEqual(result['status'],'ALIGNED');self.assertEqual(result['differing_frames'],36)
         self.assertEqual(result['differing_pcm_frames_equal_2048_prior'],36)
+        self.assertEqual(result['differing_pcm_frames_equal_usb_2048_prior'],36)
+        self.assertEqual(result['differing_pcm_frames_equal_both_2048_prior'],36)
+        self.assertEqual(result['differing_frame_ranges'],[[2500,2536]])
+        self.assertTrue(result['ranges_complete'])
 
     def test_silent_or_repeated_content_is_unknown_not_arbitrarily_aligned(self):
         self.assertEqual(a.align(bytes(4096),bytes(2048),[0,512])[0]['status'],'UNKNOWN')

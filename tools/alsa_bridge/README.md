@@ -569,3 +569,49 @@ pass the live run's per-record checks. Matching USB/ALSA bytes narrow the bounda
 corrupted HCD-visible bytes alone do not prove a Teensy defect. No physical USB
 capture has yet validated this optional path. Listening confirmation remains a
 separate user result; no markers, questionnaire or external recording is required.
+
+### Corrected ISO replay and capture-path boundary (2026-10-21)
+
+The retained run `20261021T130929Z-offline-gpebrcv6` remains historically FAILED;
+corrected offline replay does not change its saved result. All 251866 pcap events
+are readable and paired (125933 submissions/completions), with no recorded drop.
+Eleven zero-data cancelled completions follow the final payload. Successful ISO
+completions have aggregate `urb_length=0` but valid 176/180-byte descriptor actual
+lengths. This is supported by the kernel representation: `mon_bin_event` keeps
+`urb->actual_length` separately while `mon_bin_collate_isodesc` derives the ISO IN
+payload extent and `mon_bin_get_isodesc` exports packet actual lengths. See the
+[ArkOS-linked 4.4.189 reference](https://github.com/christianhaitian/linux/blob/daf063fc503be035a3df68ad59209ee62c57cfc9/drivers/usb/mon/mon_bin.c#L441)
+and [installed libpcap 1.9.1 mmap reader](https://github.com/the-tcpdump-group/libpcap/blob/libpcap-1.9.1/pcap-usb-linux.c#L1206).
+
+Replay accepts zero aggregate length only with retained descriptor/payload,
+status, pairing, submitted descriptor bounds and original-length checks intact;
+a nonzero aggregate must equal the packet-length sum. Detailed JSONL export is
+bounded separately at 128 MiB. Reaching that cap records omitted detail but keeps
+validating and reconstructing the entire pcap. A genuinely interrupted scan is
+invalid, but does not infer missing completions/count mismatches from its prefix.
+Original pcap and historical reports remain unchanged.
+
+Content alignment independently selected offset zero: USB reconstruction has
+5553160 stereo frames versus 5551088 received frames (2072 trailing USB frames).
+Exactly 1270 frames differ in 98 groups, maximum channel difference 5560. Each
+differing received frame matches data 2048 frames earlier in both streams;
+outside those frames the aligned streams match exactly. Received/accepted PCM
+are byte-identical. These differences affect 67 reads/packets; the application
+queue was empty at those reads. The measured ALSA buffer is 2048 frames and our
+application ring is 8192 frames. This narrows the path but is not a causal proof.
+
+Our service path reads directly into a bounded nonoverlapping ring span, copies
+Read evidence immediately by value, accounts only successful frames, then writes
+and copies accepted evidence. The SPSC queue publishes/releases copied records;
+the writer does not retain application-buffer pointers. No concrete defect was
+reproduced in this path, so no production correction or tuning is applied.
+The [vendor reference capture callback](https://github.com/christianhaitian/linux/blob/daf063fc503be035a3df68ad59209ee62c57cfc9/sound/usb/pcm.c#L1282)
+updates/unlocks `hwptr_done` before copying into the PCM ring; its pointer callback
+can expose that position to a concurrent reader. This is a specific ordering-race
+candidate consistent with old ring content, not a verified diagnosis. The source
+reports 4.4.189 but its identity with the console's running binary is unverified.
+A shared recording-memory fault is still not excluded by two identical exports.
+The smallest next discriminating observation is an independent read-return digest
+before `Trace::Emit`, checked against its queued/written bytes and aligned USB,
+plus exact running-kernel source identity. This is proposed only, not implemented
+or captured in this change. usbmon remains HCD evidence, not on-wire certainty.

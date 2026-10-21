@@ -127,23 +127,41 @@ def align(usb, pcm, boundaries):
             difference = []
             total = 0
             prior_match = 0
+            usb_prior_match = 0
+            both_prior_match = 0
+            groups = []
+            maximum = 0
             for i in range(frames):
                 if segment[i*4:i*4+4] != usb[(candidate+i)*4:(candidate+i+1)*4]:
                     total += 1
                     absolute = begin+i
-                    if absolute >= 2048 and pcm[absolute*4:(absolute+1)*4] == pcm[(absolute-2048)*4:(absolute-2047)*4]:
+                    frame = segment[i*4:i*4+4]
+                    in_pcm = absolute >= 2048 and frame == pcm[(absolute-2048)*4:(absolute-2047)*4]
+                    in_usb = candidate+i >= 2048 and frame == usb[(candidate+i-2048)*4:(candidate+i-2047)*4]
+                    if in_pcm:
                         prior_match += 1
+                    usb_prior_match += in_usb
+                    both_prior_match += in_pcm and in_usb
+                    maximum = max(maximum, *(abs(x-y) for x,y in zip(struct.unpack('<hh',frame), struct.unpack_from('<hh',usb,(candidate+i)*4))))
+                    if groups and groups[-1][1] == absolute:
+                        groups[-1][1] += 1
+                    elif len(groups) < 4096:
+                        groups.append([absolute, absolute+1])
                     if len(difference) < 4096:
                         difference.append(begin+i)
             result.update(status='ALIGNED', usb_start_frame=candidate, differing_frames=total,
                           selection_basis=basis,
                           differing_frame_indices=difference, difference_list_truncated=total>len(difference),
-                          differing_pcm_frames_equal_2048_prior=prior_match)
+                          differing_pcm_frames_equal_2048_prior=prior_match,
+                          differing_pcm_frames_equal_usb_2048_prior=usb_prior_match,
+                          differing_pcm_frames_equal_both_2048_prior=both_prior_match,
+                          maximum_absolute_channel_difference=maximum,
+                          differing_frame_ranges=groups, ranges_complete=total==sum(e-b for b,e in groups))
         reports.append(result)
     return reports
 
 
-def analyze(directory, pcm_directory):
+def analyze(directory, pcm_directory, metadata_limit=MAX_BYTES):
     directory, pcm_directory = Path(directory), Path(pcm_directory)
     target = json.loads((directory/'target.json').read_text())
     completion = json.loads((directory/'capture-result.json').read_text())
@@ -156,11 +174,13 @@ def analyze(directory, pcm_directory):
         errors.append('USB capture loss or missing kernel loss statistics')
     if 'packets captured' not in counters or 'packets received by filter' not in counters:
         errors.append('tcpdump footer missing')
-    pending, terminal, count, completions = {}, [], 0, 0
+    pending, terminal, count, completions, submissions = {}, [], 0, 0, 0
+    zero_aggregate = 0
+    scan_complete = False
     audio = bytearray()
     last_positive = 0
-    written = 0
-    with (derived/'usb-records.jsonl').open('x', encoding='utf-8') as notes:
+    written = exported = omitted = 0
+    with (derived/'usb-records.jsonl').open('x', encoding='utf-8', newline='\n') as notes:
         try:
             for record in records(directory/'capture.pcap'):
                 count += 1
@@ -170,14 +190,14 @@ def analyze(directory, pcm_directory):
                 if not matches:
                     errors.append('capture filter admitted an unrelated USB transfer')
                 elif record['event'] == 'S':
+                    submissions += 1
                     if record['id'] in pending:
                         errors.append('duplicate USB submission')
-                    pending[record['id']] = count
+                    pending[record['id']] = record
                 elif record['event'] in ['C', 'E']:
-                    if record['id'] not in pending:
+                    submission = pending.pop(record['id'], None)
+                    if submission is None:
                         errors.append('completion without retained submission')
-                    else:
-                        del pending[record['id']]
                     if record['event'] == 'E':
                         errors.append('USB submission error')
                     else:
@@ -185,19 +205,37 @@ def analyze(directory, pcm_directory):
                         desc = record['descriptors']
                         lengths = sum(d['length'] for d in desc)
                         cancelled_tail = record['status'] in [-2, -104, -108] and lengths == 0
+                        if not record['retained_complete'] or record['iso_count'] != len(desc) or (not desc and not cancelled_tail):
+                            errors.append('incomplete ISO metadata or snaplen truncation')
+                        if record['captured_length'] < record['original_length']:
+                            errors.append('pcap original length exceeds captured length')
+                        if record['original_length'] != 64+16*len(desc)+record['urb_length']:
+                            errors.append('pcap original length inconsistent with mmap USB header')
                         if cancelled_tail:
                             terminal.append(count)
+                            if payload or record['urb_length']:
+                                errors.append('zero-data cancellation contains unexpected payload/aggregate length')
                         else:
                             if record['status'] or record['iso_error_count']:
                                 errors.append('USB URB completion error')
-                            if not record['retained_complete'] or record['iso_count'] != len(desc) or not desc:
-                                errors.append('incomplete ISO metadata or snaplen truncation')
-                            if record['captured_length'] < record['original_length']:
-                                errors.append('pcap original length exceeds captured length')
                             if record['data_flag'] != 0 and lengths:
                                 errors.append('ISO payload not retained')
-                            if lengths != record['urb_length']:
+                            # mon_bin_event keeps urb->actual_length separately;
+                            # ISO IN payload extent/actual lengths come from the
+                            # descriptor vector (mon_bin_collate/get_isodesc).
+                            # Accept zero aggregate only with all other checks;
+                            # a nonzero inconsistent aggregate is still invalid.
+                            if record['urb_length'] not in (0, lengths):
                                 errors.append('ISO descriptor lengths differ from URB actual length')
+                            if record['urb_length'] == 0 and lengths:
+                                zero_aggregate += 1
+                            if submission is not None:
+                                requested = submission['descriptors']
+                                if len(desc) != len(requested) or any(
+                                    d['offset'] != s['offset'] or d['length'] > s['length']
+                                    or d['offset']+d['length'] > submission['urb_length']
+                                    for d,s in zip(desc,requested)):
+                                    errors.append('ISO completion exceeds submitted descriptor bounds')
                             previous_end = 0
                             for d in desc:
                                 d['reconstructed_byte_offset'] = len(audio)
@@ -214,23 +252,26 @@ def analyze(directory, pcm_directory):
                 else:
                     errors.append('unknown USB event')
                 line = json.dumps(record)+'\n'
-                written += len(line)
-                if written > MAX_BYTES:
-                    raise ValueError('derived USB metadata storage limit reached; original pcap retained')
-                notes.write(line)
+                size = len(line.encode('utf-8'))
+                if not omitted and written+size <= metadata_limit:
+                    notes.write(line)
+                    written += size; exported += 1
+                else:
+                    omitted += 1  # Export cap never stops validation/reconstruction.
+            scan_complete = True
         except (ValueError, OSError) as e:
             errors.append(str(e))
-    if pending:
+    if scan_complete and pending:
         errors.append('missing USB completions at capture end')
     if any(n < last_positive for n in terminal):
         errors.append('cancelled URBs inside audio stream')
     if not completions or not audio:
         errors.append('no reconstructed ISO audio')
-    if counters.get('packets captured') != count:
+    if scan_complete and counters.get('packets captured') != count:
         errors.append('tcpdump packet count does not match saved pcap')
     with (derived/'usb-audio.s16le').open('xb') as f:
         f.write(audio)  # Partial on failure; never fabricate holes/silence.
-    reconstruction_complete = not errors
+    reconstruction_complete = scan_complete and not errors
     alignment = []
     if not errors:
         pcm = (pcm_directory/'received.s16le').read_bytes()
@@ -243,9 +284,13 @@ def analyze(directory, pcm_directory):
         alignment = align(bytes(audio), pcm, boundaries)
         if not alignment or any(r['status'] != 'ALIGNED' for r in alignment):
             errors.append('content alignment ambiguous/unavailable; no comparison verdict')
-    return dict(schema=1, usb_comparison_valid=not errors, errors=sorted(set(errors)), target=target,
+    return dict(schema=2, usb_comparison_valid=not errors, errors=sorted(set(errors)), target=target,
                 derived_directory=str(derived),
-                records=count, completions=completions, stats=counters,
+                records=count, submissions=submissions, completions=completions, stats=counters,
+                full_stream_scanned=scan_complete, unmatched_submissions=len(pending) if scan_complete else None,
+                terminal_cancelled_completions=len(terminal), zero_aggregate_payload_completions=zero_aggregate,
+                metadata_export=dict(limit_bytes=metadata_limit, bytes_written=written,
+                                     records_exported=exported, records_omitted=omitted, complete=scan_complete and omitted==0),
                 reconstruction_complete=reconstruction_complete, reconstructed_frames=len(audio)//4, alignment=alignment,
                 pcap_sha256=hashlib.sha256((directory/'capture.pcap').read_bytes()).hexdigest(),
                 audio_sha256=hashlib.sha256(audio).hexdigest(),

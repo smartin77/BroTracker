@@ -11,7 +11,7 @@
     "tools/alsa_bridge/analyze_clicks.py": "206af3e2021fb283ef1c05777362dc39204bcb9096119fd83ed08a1dafd24426",
     "tools/alsa_bridge/offline_metadata.py": "b69c36fe5072f8602b20c3d57b1426925a2d2aa6f1f79d8dc5d4d90313c964c2",
     "tools/alsa_bridge/prepare_offline.py": "9b2041d1a0a6502ed38a641d2aa2e5ae90901c065053ae77f0c4d96f0419cde9",
-    "tools/alsa_bridge/analyze_usbmon.py": "3098bb269b4dc7ea7c662ce7be94087eb18d5989999f114dc451f4152f0f0778",
+    "tools/alsa_bridge/analyze_usbmon.py": "efd72b1c833ecf1556f3453abc11932454569753c358b09a072850e5bcf96aa4",
     "tools/alsa_bridge/usbmon_capture.py": "840ebb4515beb6576374310f7184fb1ab566f1864c9fad0df9cd7ada8a3eb1fa",
     "ui/arkos/main.cpp": "9f2f8be8febd87e9e29cd7cf6a69a0068d32f767ef1e6b127c87c52fe533b9a9",
     "ui/arkos/diagnostic_status.h": "ac2b23c8acea090e44bd19b904ba73273b3b3e2a8cae384a504f9f612f835bde",
