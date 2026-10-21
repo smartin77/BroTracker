@@ -480,3 +480,92 @@ available, align pattern onset and later events allowing latency/clock drift.
 Neither recording nor live markers are required. Technical completion is not a
 listening pass. Physical ArkOS/dArkOS validation and click-cause identification
 remain pending.
+
+### Optional USB/HCD payload comparison (offline Ports)
+
+This is a separate opt-in observer, not a click fix. It records only the Teensy
+ISO audio IN endpoint on its actual single `usbmonN` bus, alongside the
+**diagnostics-on** condition. The diagnostics-off condition has no USB recorder;
+the extra recorder load must be considered when interpreting that comparison.
+Without this option the existing workload, audio parameters and defaults remain
+unchanged. No firmware change or live pattern edit is required.
+
+While Wi-Fi is connected, run from the existing console checkout:
+
+```sh
+git pull --ff-only
+python3 -B tools/alsa_bridge/prepare_offline.py --usbmon
+```
+
+Preparation installs the existing
+Ports entry and a generated opt-in companion file; no hand-edited manifest or
+configuration is required. It checks `sudo -n -k -- <python> <usbmon_capture.py>`
+without using a cached password ticket. Only that bounded helper runs as root;
+the runner, UI, bridge and BTX remain unprivileged. An existing password-free
+sudo policy must permit it. Preparation fails before installing the option if
+permission is missing; it does not change sudoers, capabilities or PortMaster.
+Do not run the entire launcher as root. To disable the option, run the same
+preparation command without `--usbmon`.
+
+Preparation records the installed tcpdump version, linked libpcap dependencies
+and hashes, lists supported link types without collecting traffic, and checks
+an offline sparse-ISO fixture through the installed filter/savefile path.
+It requires `USB_LINUX_MMAPPED` (DLT 220), including its 64-byte header and ISO
+descriptor array. This verifies the installed offline semantics, **not** live
+payload retention. `-s 0` or a successful tcpdump startup cannot establish that.
+The actual capture uses an explicit 262144-byte snapshot, and every completion's
+retained bytes, actual lengths and descriptor ranges are checked afterward.
+
+Disconnect Wi-Fi, connect Teensy, then select **Ports > BroTracker Bridge Clicks**.
+No network is needed during acquisition or automatic return. Existing emergency
+B/Back/Escape cancellation and immutable finalized outcomes remain unchanged.
+The helper discovers CDC ancestry and USB descriptors, requires the supported
+stereo PCM16/44100 IN interface, and starts before bridge/playback activation.
+The single-bus filter retains that endpoint's submissions, completions and
+errors; it never selects usbmon0 or a network interface. Device/endpoint changes
+are rediscovered on each attempt. Preparation may load the usbmon module.
+
+Limits: 240 seconds and 128 MiB for the pcap, with at least 1 GiB free before
+starting. Setup/readiness is bounded; owner-pipe EOF requests shutdown of only
+the owned tcpdump, with bounded SIGINT/kill/reap handling. PCM shutdown precedes
+USB shutdown. Loss, premature exit, storage/duration limits, missing statistics,
+truncation or incomplete ISO records invalidate the USB comparison explicitly;
+the matched PCM results and partial evidence remain available. Opt-in analysis
+has a separate 360-second deadline (normal analysis remains 180 seconds), runs
+off the audio path and remains emergency-cancellable. No audio buffers, recovery
+policy or source PCM are changed.
+
+Evidence lives under the existing unique attempt directory:
+`on/usb/capture.pcap`, `capture.log`, `target.json`, `capture-result.json`.
+The log retains actual commands/versions, readiness, stop result and tcpdump
+capture/drop statistics. Derived `replay-*` directories retain every decoded
+USB record's timestamps, S/C/E identity, captured/original lengths, per-packet
+status/length/offset and reconstructed-byte mapping, plus `usb-audio.s16le`.
+The pcap remains the original evidence, including sparse holes. Partial audio
+is explicitly invalid: no silence, repair or resampling is inserted.
+`on/analysis.json` and the overall summary retain a separate USB validity result;
+requested invalid USB comparison makes the overall attempt FAILED even when
+both PCM conditions completed. Terminal zero-data cancelled URBs are retained;
+cancellation inside the audio stream is invalid.
+
+Content alignment uses independent PCM anchors, allowing separate epochs at
+recorded ALSA recoveries. Repeated musical passages and silence can make
+alignment ambiguous; ambiguity is UNKNOWN, never a guessed timestamp offset.
+Reports include differing frame indices and how many differing received frames
+match data 2048 frames earlier. Alignment is not an attribution of cause.
+For an independent replay, choose the exact retained PCM child and a new output:
+
+```sh
+python3 -B tools/alsa_bridge/analyze_usbmon.py ATTEMPT/on/usb \
+  ATTEMPT/on/bridge-XXXXXX --output ATTEMPT/usb-reanalysis.json
+```
+
+The [kernel usbmon ABI](https://docs.kernel.org/usb/usbmon.html) observes the
+USB driver/HCD boundary, not guaranteed on-wire bytes. The
+[libpcap mmap implementation](https://github.com/the-tcpdump-group/libpcap/blob/libpcap-1.9.1/pcap-usb-linux.c)
+explains why sparse descriptor offsets and retained lengths matter; this is not
+an assumption that the console uses that libpcap version. Full retention must
+pass the live run's per-record checks. Matching USB/ALSA bytes narrow the boundary;
+corrupted HCD-visible bytes alone do not prove a Teensy defect. No physical USB
+capture has yet validated this optional path. Listening confirmation remains a
+separate user result; no markers, questionnaire or external recording is required.

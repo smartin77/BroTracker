@@ -20,6 +20,7 @@ import time
 import tty
 import traceback
 from offline_metadata import collect, supplementary
+from usbmon_capture import Capture
 
 PHASE_SECONDS=60
 SETUP_SECONDS=60
@@ -157,7 +158,7 @@ def terminate_owned(child,force=False):
         raise Failure('owned process needed forced shutdown; attempt failed')
 
 class Experiment:
-    def __init__(self,repo,workload):
+    def __init__(self,repo,workload,usbmon=False):
         self.repo=Path(repo).resolve(); self.package=self.repo/'deploy/arkos'
         base=self.repo/'assets/hardware_diagnostics/bridge_clicks'; base.mkdir(parents=True,exist_ok=True)
         self.root=Path(tempfile.mkdtemp(prefix=time.strftime('%Y%m%dT%H%M%SZ-',time.gmtime())+'offline-',dir=base))
@@ -166,6 +167,7 @@ class Experiment:
         self.playback_owned=False; self.workload=Path(workload) if workload else None; self.results=[]; self.config_path=None
         self.config_before=None; self.owned_logs=[]; self.recording_error=False; self.display_verified=False
         self.release_ns=None; self.active_dir=None; self.cleanup_done=False; self.cancelled=False; self.finishing=False; self.cancel_producers={}; self.cancel_records=set(); self.current_phase="initializing"; self.results_finalized=False; self.results_dismissed=False
+        self.usb_requested=usbmon;self.usb_capture=None;self.usb_state=None
     def retain_traceback(self):
         try:
             with (self.root/'runner-traceback.txt').open('a',encoding='utf-8') as f:
@@ -240,6 +242,8 @@ class Experiment:
         refuse_existing_sessions(owned_pids=(self.viewer.pid,) if self.viewer else ())
         if shutil.disk_usage(self.root).free<512*1024*1024:
             raise Failure('need at least 512 MiB free storage')
+        if self.usb_requested and shutil.disk_usage(self.root).free<1024*1024*1024:
+            raise Failure('optional USB capture needs at least 1 GiB free storage')
         save(self.root/'supplementary-context.json',supplementary(self.workload,self.root))
         save(self.root/'automatic-metadata.json',collect(self.repo))
         cfg=subprocess.run([str(self.terminal),'--offline-diagnostic-config'],cwd=self.package,capture_output=True,timeout=10)
@@ -411,6 +415,20 @@ class Experiment:
         before=self.readback(directory/'before',identity); self.close_serial()
         result['workload_before']=before
         if len(self.results)>1 and before!=self.results[0]['workload_before']: raise Failure('matched workload/sample metadata differs between runs')
+        if mode=='on' and self.usb_requested:
+            self.status('PREPARING optional USB/HCD capture\nPCM measurement is unchanged.')
+            self.event('usb_capture_start_requested')
+            try:
+                self.usb_capture=Capture(directory/'usb',self.port)
+                if not self.usb_capture.start(self.check_view):
+                    self.stop_usb()
+                    self.event('usb_capture_unavailable',result=self.usb_state)
+                else:self.event('usb_capture_ready')
+            except Cancelled:raise
+            except Exception as e:
+                self.stop_usb()
+                self.usb_state=dict(clean_stop=False,reason=str(e))
+                self.event('usb_capture_unavailable',result=self.usb_state)
         env=os.environ.copy()
         for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE']:
             env.pop(key,None)
@@ -456,8 +474,10 @@ class Experiment:
         result['bridge_exit']=terminate_owned(self.bridge); self.bridge=None
         self.event('bridge_shutdown_end',code=result['bridge_exit'])
         if result['bridge_exit']!=0: raise Failure('bridge finalization failed')
+        self.stop_usb()
         if mode=='on':
             report=self.run_analysis(directory,traces[0])
+            if self.usb_requested:result['usb_comparison']=report.get('usb_comparison',dict(usb_comparison_valid=False,errors=['USB analysis missing']))
             if not report['complete'] or not report['accepted_equals_mapped_received']: raise Failure('paired PCM incomplete/mismatched')
             verify_pcm_coverage(report['pcm_transfer_bounds_ns'],result['active']['start_ns'],result['off']['end_ns'])
             result['pcm_phase_coverage']=True
@@ -466,14 +486,16 @@ class Experiment:
     def run_analysis(self,directory,trace):
         # Run existing strict analysis off the orchestration thread. No audio is active.
         self.status('FINALIZING '+directory.name+' recording\nAudio stopped. Please wait.\nB: emergency exit.')
-        self.event('analysis_begin',trace=str(trace),timeout_seconds=ANALYSIS_SECONDS)
-        self.analysis=self.launch([sys.executable,'-B',str(self.repo/'tools/alsa_bridge/analyze_clicks.py'),
-                                  str(trace),'--output',str(directory/'analysis.json')],directory/'analysis.log')
+        timeout=ANALYSIS_SECONDS*(2 if self.usb_requested else 1)
+        self.event('analysis_begin',trace=str(trace),timeout_seconds=timeout)
+        command=[sys.executable,'-B',str(self.repo/'tools/alsa_bridge/analyze_clicks.py'),str(trace),'--output',str(directory/'analysis.json')]
+        if self.usb_requested:command+=['--usbmon',str(directory/'usb')]
+        self.analysis=self.launch(command,directory/'analysis.log')
         began=time.monotonic();next_update=began
         while self.analysis.poll() is None:
             self.check_view()
             now=time.monotonic()
-            if now-began>=ANALYSIS_SECONDS: raise Failure('analysis timeout; raw evidence retained')
+            if now-began>=timeout: raise Failure('analysis timeout; raw evidence retained')
             if now>=next_update:
                 self.status('FINALIZING '+directory.name+' recording: '+str(int(now-began))+'s\nAudio stopped. Please wait.\nB: emergency exit.')
                 next_update=now+1
@@ -484,6 +506,13 @@ class Experiment:
         if code or not report.get('complete') or not report.get('accepted_equals_mapped_received'):
             raise Failure('paired PCM incomplete/mismatched; see analysis.json')
         return report
+    def stop_usb(self):
+        if self.usb_capture:
+            try:self.usb_state=self.usb_capture.stop()
+            except Cancelled:raise
+            except Exception as e:self.usb_state=dict(clean_stop=False,reason='USB stop/reap unconfirmed: '+str(e))
+            self.usb_capture=None
+            self.event('usb_capture_stopped',result=self.usb_state)
     def cleanup(self):
         self.event('cleanup_begin')
         errors=[]
@@ -510,6 +539,8 @@ class Experiment:
                 self.event('bridge_shutdown_end',code=code)
             except Exception as e: errors.append(str(e))
             self.bridge=None
+        try:self.stop_usb()
+        except Exception as e:errors.append('USB capture cleanup: '+str(e))
         self.event('cleanup_end',errors=errors)
         return errors
     def run(self):
@@ -543,11 +574,16 @@ class Experiment:
             self.event('analysis_deferred',trace=str(trace))
         if not failure and not self.cancelled and (len(self.results)!=2 or not all(v.get('success') for v in self.results)):
             errors.append('both complete matched conditions required')
+        usb_result=next((v['usb_comparison'] for v in self.results if 'usb_comparison' in v),None)
+        if self.usb_requested and not (usb_result or {}).get('usb_comparison_valid'):
+            errors.append('USB comparison invalid/unavailable; PCM condition results retained')
         summary=dict(success=not self.cancelled and not failure and not errors,technical_success=not self.cancelled and not failure and not errors,
             outcome='CANCELLED' if self.cancelled else ('FAILED' if failure or errors else 'COMPLETED'),
+            usb_capture_requested=self.usb_requested,usb_capture=self.usb_state,usb_comparison=usb_result,
             audible_click_status='NOT YET CONFIRMED',listening_report='User may report clicks and phase afterward; no event markers or external recording required',failure=failure,cleanup_errors=errors,conditions=self.results,
             limitations='No physical listening verification. Sparse off-phase serial checks are observer load and do not prove gap-free playback. '
-            'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.')
+            'Available sample hashes/metadata do not establish every sample binding. The separate 10 Hz SDL status view remains during BTX-off and adds observer load. No hardware limit or click cause inferred.'
+            +(' Optional usbmon/tcpdump runs only in diagnostics-on and adds observer load; it is HCD evidence, not guaranteed on-wire truth.' if self.usb_requested else ''))
         # Freeze the result decision before publication; later B only dismisses UI.
         self.results_finalized=True
         self.event('results_publication_begin',outcome=summary['outcome'])
@@ -603,7 +639,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]); p.add_argument('--workload',type=Path,help='optional unverified supplementary description; never required')
     p.add_argument('--no-display',action='store_true',help='shell/device-free tests only; Ports uses SDL status')
-    args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json')
+    p.add_argument('--usbmon',action='store_true',help='opt-in bounded USB/HCD capture; prepare permissions first')
+    args=p.parse_args(); e=Experiment(args.repo,args.workload or Path.home()/'BroTracker/bridge-click-workload.json',args.usbmon)
     if args.no_display: e.show=lambda:None
     def interrupted(signum,frame): raise Failure('runner interrupted by signal '+str(signum))
     for sig in [signal.SIGTERM,signal.SIGINT,signal.SIGHUP]: signal.signal(sig,interrupted)

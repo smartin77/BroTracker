@@ -192,6 +192,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('directory', type=Path)
     p.add_argument('--output', type=Path, help='new JSON report; refuses overwrite')
+    p.add_argument('--usbmon', type=Path, help='optional USB evidence; PCM validation remains independent')
     p.add_argument('--marker', help='append an approximate user-observation marker, not an audio timestamp')
     args = p.parse_args()
     if args.marker is not None:
@@ -204,6 +205,15 @@ def main():
         report = analyze(args.directory)
     except (ValueError, OSError, KeyError) as e:
         report = {'complete': False, 'errors': [str(e)], 'directory': str(args.directory)}
+    if args.usbmon is not None:
+        try:
+            from analyze_usbmon import analyze as analyze_usb
+            report['usb_comparison']=analyze_usb(args.usbmon,args.directory)
+            if not report.get('complete'):
+                report['usb_comparison']['usb_comparison_valid']=False
+                report['usb_comparison']['errors'].append('PCM evidence incomplete; comparison invalid')
+        except (OSError,ValueError,KeyError) as e:
+            report['usb_comparison']=dict(usb_comparison_valid=False,errors=[str(e)])
     text = json.dumps(report, indent=2)+'\n'
     if args.output:
         with args.output.open('x', encoding='utf-8') as f:

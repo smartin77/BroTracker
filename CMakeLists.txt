@@ -258,6 +258,10 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
         COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_offline_runner.py)
     set_tests_properties(BroTrackerOfflineRunnerTests PROPERTIES
         TIMEOUT 30 ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-tests")
+    add_test(NAME BroTrackerUsbmonTests
+        COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/test_usbmon.py)
+    set_tests_properties(BroTrackerUsbmonTests PROPERTIES
+        TIMEOUT 30 ENVIRONMENT "BROTRACKER_TEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/synthetic-usbmon-tests")
     add_executable(BroTrackerOfflineModeTests tools/alsa_bridge/offline_mode_test.cpp)
     target_include_directories(BroTrackerOfflineModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/libraries/scheduler/src)
     add_test(NAME BroTrackerOfflineModeTests COMMAND BroTrackerOfflineModeTests ${CMAKE_CURRENT_BINARY_DIR}/synthetic-offline-mode)

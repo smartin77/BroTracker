@@ -209,6 +209,23 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(report['complete']);self.assertTrue(report['accepted_equals_mapped_received'])
         self.assertEqual(set(report['pcm_transfer_bounds_ns']),{'capture','playback'})
         self.assertIsNone(e.analysis);self.assertTrue((d/'analysis.json').exists())
+    def test_usb_failure_retains_both_pcm_results_and_invalidates_requested_comparison(self):
+        e=self.experiment();e.usb_requested=True;e.preflight=Mock()
+        e.condition=lambda mode,identity:e.results.append(dict(mode=mode,success=True,
+            usb_comparison=dict(usb_comparison_valid=False,errors=['synthetic truncation'])))
+        self.assertFalse(e.run())
+        summary=json.loads((e.root/'summary.json').read_text())
+        self.assertEqual(summary['outcome'],'FAILED')
+        self.assertTrue(all(v['success'] for v in summary['conditions']))
+        self.assertFalse(summary['usb_comparison']['usb_comparison_valid'])
+    def test_usb_cleanup_follows_stop_serial_close_and_bridge_finalize(self):
+        e=self.experiment();order=[];e.playback_owned=True;e.session=Mock();e.bridge=Mock();e.bridge.pid=123;e.usb_capture=Mock()
+        e.session.request.side_effect=lambda command,predicate:order.append(command) or ('BTTEST1 STOPPED' if command.endswith('STOP') else 'BTTEST1 STATE IDLE')
+        e.session.close.side_effect=lambda:order.append('serial close')
+        e.usb_capture.stop.side_effect=lambda:order.append('owned USB stop') or dict(clean_stop=True)
+        with patch.object(r,'terminate_owned',side_effect=lambda child,**kw:order.append('bridge stop') or 0):
+            self.assertEqual(e.cleanup(),[])
+        self.assertEqual(order,['BTTEST1 STOP','BTTEST1 STATUS','serial close','bridge stop','owned USB stop'])
     def fixture(self):
         h=2166136261
         for n in [1,1,12500&255,12500>>8,0,0,60,1,0]: h=((h^n)*16777619)&0xffffffff

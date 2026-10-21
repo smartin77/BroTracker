@@ -1168,6 +1168,20 @@ design remains unchanged.
   ArkOS attempt 20261020T204220Z remains CANCELLED, 0/2 conditions; its retained
   80.21-second PCM validates. User heard irregular dull pops (separate listening
   confirmation, cause/phase alignment unknown); complete matched validation pending.
+* [x] Add optional bounded USB/HCD ISO capture to the existing offline runner's
+  diagnostics-on condition. Preparation checks noninteractive helper permissions,
+  installed tcpdump/libpcap identity, mmap link type and sparse offline fixture.
+  Runtime discovers the Teensy bus/device/audio IN endpoint, retains submissions,
+  completions, ISO descriptor ranges/status and loss statistics, and validates
+  retention before content alignment with received PCM (including 2048-frame stale
+  comparisons). USB loss/truncation/ambiguous alignment invalidate USB comparison
+  without discarding PCM evidence. No audio tuning, firmware or normal-mode changes.
+  Observer load is explicit; usbmon is HCD evidence, not guaranteed on-wire truth.
+* [ ] Physically validate the optional USB capture on ArkOS: verify full ISO
+  payload retention, permission/startup/owned shutdown and automatic offline Ports
+  return. Compare USB/ALSA content for the localized stale-data signature without
+  inferring a Teensy defect from HCD bytes alone. Console preflight confirmed
+  usbmon availability and tcpdump 4.9.3; no USB acquisition has been performed here.
 * [ ] Physically investigate intermittent ArkOS clicks using the unchanged looping
   pattern: matched BTX-active/diagnostically-released runs with an independent bridge,
   diagnostics off/on and optional aligned headphone recording. Preserve every run

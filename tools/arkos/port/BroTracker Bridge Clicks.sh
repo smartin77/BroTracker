@@ -36,7 +36,12 @@ if type pm_platform_helper >/dev/null 2>&1; then
 fi
 set +e
 printf 'PREPARING offline bridge-click experiment; no Wi-Fi or hub required.\n'
-python3 -B "$repo/tools/alsa_bridge/offline_runner.py" --repo "$repo"
+usb_args=()
+if [[ -r "$launcher_dir/BroTracker Bridge Clicks.usbmon" ]]; then
+    IFS= read -r usb_option < "$launcher_dir/BroTracker Bridge Clicks.usbmon"
+    if [[ "$usb_option" == enabled ]]; then usb_args=(--usbmon); fi
+fi
+python3 -B "$repo/tools/alsa_bridge/offline_runner.py" --repo "$repo" "${usb_args[@]}"
 code=$?
 printf 'Diagnostics finished, status=%s. Results remain in %s/assets/hardware_diagnostics/bridge_clicks/\n' "$code" "$repo"
 # Do not invoke the external pm_finish return hook: it may wait for network.
