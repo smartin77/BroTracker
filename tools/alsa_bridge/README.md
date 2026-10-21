@@ -1,5 +1,18 @@
 # Temporary standalone ALSA live bridge
 
+**2026-10-21 closeout: diagnostic development is paused.** One completed ArkOS
+A/B supports the opt-in 45-frame holdback: baseline had 991 differing stereo
+frames in 68 groups with the 2048-frame history signature; holdback had zero
+differences in its recorded range. Both completed runs pass USB/read-integrity
+checks and received/accepted PCM equality. Holdback diagnostics-off separately
+recorded one playback underrun and 256 discarded frames; investigation is pending.
+The user's cleaner holdback listening report included one larger pop without a
+precise timestamp/phase, so it is not causally matched to that underrun.
+See [the closeout report](../../docs/BRIDGE_POP_CLOSEOUT_20261021.md) for exact run
+IDs, the excluded analysis-timeout failure, limitations and verified backup hashes.
+Holdback stays experimental and opt-in; normal defaults are unchanged. The
+reference procedures below are retained, not a request to resume diagnostics.
+
 This command-line experiment is separate from BroTracker's UI and Teensy
 firmware. It does not send BTTEST1 commands or start the Teensy sequence.
 Use `--auto` for identity discovery or supply both device names explicitly.
@@ -167,7 +180,8 @@ This experiment measures the existing USB-capture -> playback path. It does not
 change PCM, queue sizes, ALSA settings, clock correction or recovery policy, and
 does not diagnose a bridge bug or hardware limit by itself. The looping production
 pattern is the primary workload; a continuous tone is only a secondary control.
-Physical ArkOS and dArkOS runs remain pending and must be labelled separately.
+Limited ArkOS physical evidence is recorded in the closeout above; dArkOS
+physical validation remains pending and must be labelled separately.
 
 Local validation (2026-10-20): the bridge and focused test targets build in the
 existing Eoan ARM64/QEMU environment. All 11 selected CTest suites pass, including
@@ -446,7 +460,8 @@ there is no diagnostics-off pair. The user separately confirmed irregular dull
 pops while listening. This is an auditory observation, not an automated PCM fault
 finding or an identified cause. Historical screen presentation timing and the
 reported Wi-Fi message remain unverified; saved status-write timestamps are not
-proof of when a screen was seen. Matched physical validation remains pending.
+proof of when a screen was seen. Later completed ArkOS A/B evidence is recorded
+in the closeout; this historical cancelled attempt remains incomplete.
 
 
 Cleanup first stops/reaps only an owned BTX if needed, then makes bounded
@@ -478,8 +493,8 @@ Report afterward whether clicks were audible and, if remembered, during which
 phase. An external headphone recording is optional; if one is independently
 available, align pattern onset and later events allowing latency/clock drift.
 Neither recording nor live markers are required. Technical completion is not a
-listening pass. Physical ArkOS/dArkOS validation and click-cause identification
-remain pending.
+listening pass. Limited ArkOS A/B/listening results are in the closeout;
+dArkOS physical validation and definitive cause identification remain pending.
 
 ### Optional USB/HCD payload comparison (offline Ports)
 
@@ -566,8 +581,8 @@ USB driver/HCD boundary, not guaranteed on-wire bytes. The
 explains why sparse descriptor offsets and retained lengths matter; this is not
 an assumption that the console uses that libpcap version. Full retention must
 pass the live run's per-record checks. Matching USB/ALSA bytes narrow the boundary;
-corrupted HCD-visible bytes alone do not prove a Teensy defect. No physical USB
-capture has yet validated this optional path. Listening confirmation remains a
+corrupted HCD-visible bytes alone do not prove a Teensy defect. Completed ArkOS USB
+captures now validate this path for the recorded runs. Listening confirmation is a
 separate user result; no markers, questionnaire or external recording is required.
 
 ### Corrected ISO replay and capture-path boundary (2026-10-21)
@@ -687,9 +702,10 @@ snd_usb_audio, snd_pcm and usbcore. Unavailable/built-in/restricted fields are
 unknown with reasons. Installed module information may differ from loaded code;
 these identifiers do not verify a match to a source repository. The suspected
 kernel publication-before-copy race remains unconfirmed and is not patched.
-No physical run of this new read-return observation has been performed.
+Completed physical read-return evidence is recorded in the closeout above;
+this does not confirm a kernel cause.
 
-### Experimental one-packet capture holdback (pending physical A/B)
+### Experimental one-packet capture holdback (one completed A/B; paused)
 
 Replay of `20261021T150952Z-offline-xayxxyei` confirms COMPLETED with both
 conditions, 113261 positive read observations covering 5428886 stereo frames,
@@ -739,7 +755,8 @@ callback progression; ALSA provides no userspace copy-publication barrier. A
 stalled/multiple concurrent callback, another visibility problem or another
 kernel defect could defeat this guard. The availability query also adds observer
 load. A clean run would support a read-timing workaround, not identify the kernel
-cause. It remains experimental until controlled physical A/B validation.
+cause. One completed physical A/B supports it; broader validation remains pending
+and diagnostic development is paused.
 
 Primary semantics/history checked:
 
@@ -784,5 +801,6 @@ Both runs must pass USB retention/loss, PCM phase coverage and independent read
 integrity checks. Compare USB/PCM differing-frame ranges and 2048-history counts,
 XRUNs/discards, service gaps, actual ALSA parameters and holdback snapshots. A
 COMPLETED technical acquisition is not a listening or workaround success claim.
-No physical A/B validation, deployment, kernel change or firmware change has
-been performed for this experimental option.
+The limited completed physical A/B is documented in the closeout above; this
+reference procedure does not imply a universal fix or authorize further tests.
+No kernel or firmware change was made for this option. Diagnostics are paused.

@@ -1167,7 +1167,8 @@ design remains unchanged.
   evidence. Diagnostic return bypasses external pm_finish; no network is required.
   ArkOS attempt 20261020T204220Z remains CANCELLED, 0/2 conditions; its retained
   80.21-second PCM validates. User heard irregular dull pops (separate listening
-  confirmation, cause/phase alignment unknown); complete matched validation pending.
+  confirmation, cause/phase alignment unknown). Later completed ArkOS A/B is indexed
+  below; this historical cancelled attempt remains incomplete.
 * [x] Add optional bounded USB/HCD ISO capture to the existing offline runner's
   diagnostics-on condition. Preparation checks noninteractive helper permissions,
   installed tcpdump/libpcap identity, mmap link type and sparse offline fixture.
@@ -1177,19 +1178,29 @@ design remains unchanged.
   comparisons). USB loss/truncation/ambiguous alignment invalidate USB comparison
   without discarding PCM evidence. No audio tuning, firmware or normal-mode changes.
   Observer load is explicit; usbmon is HCD evidence, not guaranteed on-wire truth.
-* [ ] Physically validate the optional USB capture on ArkOS: verify full ISO
-  payload retention, permission/startup/owned shutdown and automatic offline Ports
-  return. Compare USB/ALSA content for the localized stale-data signature without
-  inferring a Teensy defect from HCD bytes alone. Console preflight confirmed
-  usbmon availability and tcpdump 4.9.3; no USB acquisition has been performed here.
-* [ ] Physically investigate intermittent ArkOS clicks using the unchanged looping
-  pattern: matched BTX-active/diagnostically-released runs with an independent bridge,
-  diagnostics off/on and optional aligned headphone recording. Preserve every run
-  under `assets/hardware_diagnostics/bridge_clicks/`; validate PCM accounting before
-  interpreting transients, gaps, recovery or occupancy trends. ArkOS and dArkOS
-  complete physical validation remain separate and pending; neither bridge fault nor
-  hardware limitation is established. Do not reopen resolved cold-boot corruption
-  without new evidence; see the earlier validation record.
+* [x] Record one completed physical ArkOS bridge-pop A/B and verified preservation:
+  baseline `20261021T160940Z-offline-nsulhgyp` has 991 USB/PCM differing stereo
+  frames in 68 groups, all matching 2048-frame history; 45-frame holdback
+  `20261021T162057Z-offline-f49vr6z6` has zero differences over its captured range.
+  Both pass USB integrity and immediate read-digest checks, with identical
+  received/accepted PCM, identical binaries and matching workload readbacks.
+  `20261021T155911Z-offline-fga4lt6d` remains FAILED on analysis timeout and is
+  excluded from completed A/B. See [closeout and backup hashes](BRIDGE_POP_CLOSEOUT_20261021.md).
+  Listening separately: baseline dull pops, more noticeable in the second reported
+  segment; holdback substantially cleaner with a larger pop near the end of the
+  second reported segment. No precise timestamp or unambiguous phase was supplied.
+* [ ] **Paused:** further bridge diagnostics and playback-underrun investigation.
+  Holdback diagnostics-off records one playback underrun and 256 discarded frames;
+  do not identify it as the cause of the reported larger pop. One completed A/B
+  supports experimental holdback, not a universal fix. Holdback remains opt-in;
+  normal production defaults are unchanged. The kernel publication/copy race and
+  exact running-kernel source match remain unconfirmed; dArkOS physical validation
+  remains pending. Preserve all original/failed evidence; no further tests during
+  this pause. Resolved historical cold-boot corruption is not reopened.
+* [ ] **Next planned task (not implemented):** replace the current beeper with a
+  minimal sine synth foundation: 440 Hz reference note, gentle attack around
+  10–20 ms, smooth decay to zero and approximately one-second total duration.
+  Resolve the project's octave naming before applying an octave label.
 
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 
