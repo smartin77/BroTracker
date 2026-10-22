@@ -78,6 +78,11 @@ The existing proposal is two 32-row pages for 64 rows, controlled by the edit
 cursor, with off-page playback position visible rather than automatic playback
 page flips. Paging controls/policy remain pending, not implemented by this map.
 Highlight each quarter-note start every four rows regardless of row-number mode.
+The shared renderer now extends this foreground treatment across all eight channels:
+white beat notes, dimmer ordinary notes, purple instrument levels and independently
+dimmed empty fields. Existing selection/playback/edit priorities remain intact;
+no new background bands. See [palette and priorities](UI_UX_ARCHITECTURE.md).
+Implemented 2026-10-22; manual visual approval pending.
 
 ### 2. Event Detail
 

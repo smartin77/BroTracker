@@ -8,6 +8,22 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Pattern beat readability (2026-10-22)
+
+* [x] Use the shared beat-row predicate across all eight note/instrument columns:
+  full-white beat notes, dimmer neutral ordinary notes, subdued empty fields and
+  corresponding purple instrument levels. Preserve geometry and semantic indicators.
+* [x] Add focused pixel coverage for populated/empty fields, playback and selection;
+  generate and inspect a representative 640x480 preview with several beats.
+* [x] Windows `-EmptyWindowTitle` build: all eight suites pass. Refresh the complete
+  Eoan ARM64 Git package with `prepare-package.sh`: all 20 suites, ABI, checksums,
+  clean-install/upgrade and persistent user-config preservation checks pass.
+* [ ] User visual approval on Windows/handheld remains pending. See
+  [preview and validation](../build/beat-readability/validation.md).
+* [ ] User reports severe audible crackling on the console; cause unresolved.
+  No audio changes or diagnostic development in this visual task. Bridge diagnostics
+  remain paused. Keep external MIDI/combined-audio measurements separately pending.
+
 ### MIDI instrument foundation (2026-10-22)
 
 * [x] Implement [instrument 02 USB MIDI foundation](MIDI_FOUNDATION.md): shared
@@ -24,8 +40,8 @@ Items may be added during development to record agreed next steps or work that n
   agree tolerance before declaring audible synchronization verified.
 * [ ] Review output compensation separately only if measurements justify it;
   assess MIDI lookahead versus internal audio delay and live-edit/input latency.
-* [ ] Retain all parent-branch physical handheld validations below. Bridge
-  diagnostics remain paused; no SSH or handheld deployment in this milestone.
+* [ ] Retain remaining unconfirmed parent-branch physical handheld validations below.
+  Bridge diagnostics remain paused; no SSH or handheld deployment in this milestone.
 
 ### Beat-row cursor navigation (2026-10-22)
 
@@ -40,10 +56,11 @@ Items may be added during development to record agreed next steps or work that n
   Eoan ARM64 application build: all seven suites and ABI/dependency checks pass.
   See [actual validation and focused diff](../build/beat-navigation/validation.md).
 * [x] User confirmed Windows Shift+Up/Down beat-row navigation works as requested.
-* [ ] Manually verify physical handheld beat-navigation chords:
-  adjacent/strict beat destinations, boundary clamps, hold/release and modifier
-  changes without ordinary navigation leakage or data edits. Handheld validation
-  remains pending; earlier tempo/Synth validation records are unchanged.
+* [x] User confirms handheld R1+Up/Down beat navigation works during playback
+  and the supplied handheld control test passed (2026-10-22).
+* [ ] Unreported individual edge cases remain unconfirmed: strict destinations,
+  boundary clamps, hold/release and modifier transitions without navigation leakage
+  or data edits. Do not infer these separately from the overall control-test pass.
 * [ ] Review a consistent directional/modifier scheme for beat and channel
   navigation together with the final keyboard shortcut mapping. Observed workflow
   issue: Shift+Up/Down is useful for sequencer beat navigation and Tab/Shift+Tab
@@ -78,8 +95,10 @@ Items may be added during development to record agreed next steps or work that n
   hold/release acceleration, live changes without restart, unchanged Synth pitch,
   Pause/Continue, STOP/START, Publish/Restore and reconnect retention.
 * [ ] Teensy reboot/default-tempo restoration remains unconfirmed.
-* [ ] Physical handheld control/UX checks remain pending; ARM64 builds are not a
-  handheld pass.
+* [x] User confirms handheld R1+Left/Right tempo changes work smoothly during
+  playback and the supplied handheld control test passed (2026-10-22).
+* [ ] Other unreported handheld cases remain unconfirmed; the above confirmation
+  does not establish reboot restoration, Synth/audio quality or MIDI alignment.
 * [x] Replace the BPM pending asterisk with the editing frame orange on the
   number only; preserve the existing pending indication lifecycle, with white
   otherwise and no additional timer. User confirmed the Windows BPM pending
@@ -1321,10 +1340,10 @@ design remains unchanged.
   following, edit-cursor independence and usability on Windows and the ArkOS
   handheld. The existing page/region navigation decision remains in effect pending
   this comparison; no scrolling implementation is requested now.
-* [ ] Render completely empty cells/rows at lower brightness, distinguishing them
-  from notes and non-note events such as NOTE_OFF or instrument-only updates.
-  Preserve readable playback highlighting and the separate edit cursor; no visual
-  implementation is included now.
+* [x] Render empty note/instrument fields at lower brightness, with beat/normal
+  levels and populated NOTE_OFF/instrument-only fields kept distinct. Playback
+  highlighting and the separate edit cursor are preserved. Manual visual approval
+  remains pending; see Pattern beat readability above.
 
 ### PCM Playback Validation
 

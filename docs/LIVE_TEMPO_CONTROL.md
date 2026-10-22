@@ -180,8 +180,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.
 ```
 
 Windows manual checklist confirmed by the user, including the BPM pending color
-indication working exactly as requested. Physical handheld checks and Teensy
-reboot/default-tempo restoration remain pending:
+indication working exactly as requested. On 2026-10-22 the user also confirmed
+smooth handheld R1+Left/Right tempo changes during playback, working R1+Up/Down
+beat navigation during playback, and a pass of the supplied handheld control test.
+Other unreported handheld cases and Teensy reboot/default-tempo restoration remain
+unconfirmed. Severe console audible crackling is separately reported, cause unresolved;
+these control confirmations do not establish audio quality or MIDI synchronization.
+The existing detailed checklist follows (do not infer additional handheld passes):
 
 - Tap keypad +/- and check fine adjustment, including hidden hundredths and the
   first-tap rounding behavior; confirm main +/- do nothing to tempo.

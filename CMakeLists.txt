@@ -195,6 +195,7 @@ add_executable(BroTrackerTests
     tests/test_host_pattern_preview.cpp
     tests/test_sparse_preview.cpp
     tests/test_local_pattern_editor.cpp
+    tests/test_pattern_beat_colors.cpp
     tests/test_host_logging.cpp
     tests/test_host_config.cpp
     src/ui/font.cpp

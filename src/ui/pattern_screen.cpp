@@ -40,10 +40,14 @@ namespace
     constexpr Color row_number_bright           { 130, 130, 196 };
     constexpr Color row_marker                  { 192, 192, 192 };
     constexpr Color channel_number              { 130, 130, 196 };
-    constexpr Color note_color_default          { 255, 255, 255 };
-    constexpr Color instrument_number           { 130, 130, 196 };
-    constexpr Color empty_note                  { 192, 192, 192 };
-    constexpr Color empty_instrument            { 78,  78,  118 };
+    constexpr Color note_normal                 { 208, 208, 208 };
+    constexpr Color note_bright                 { 255, 255, 255 };
+    constexpr Color instrument_normal           { 130, 130, 196 };
+    constexpr Color instrument_bright           { 174, 174, 232 };
+    constexpr Color empty_note_normal           { 104, 104, 104 };
+    constexpr Color empty_note_bright           { 152, 152, 152 };
+    constexpr Color empty_instrument_normal     { 66,  66,  100 };
+    constexpr Color empty_instrument_bright     { 104, 104, 156 };
     constexpr Color current_position_note       { 16,  16,  16  };
     constexpr Color current_position_instrument { 78,  78,  118 };
     constexpr Color current_event_edit_border   { 134, 32,  32  };
@@ -414,23 +418,15 @@ namespace
                     !display.device_mode && channel == current_pattern_channel &&
                     row == current_pattern_row - 1;
 
-                const bool is_empty_event =
-                    note_value == NOTE_EMPTY &&
-                    instrument_value == 0xFF;
-
-                const Color note_color =
-                    is_empty_event
-                        ? empty_note
-                        : is_current_position
-                            ? current_position_note
-                            : note_color_default;
-
-                const Color instrument_color =
-                    is_empty_event
-                        ? empty_instrument
-                        : is_current_position
-                            ? current_position_instrument
-                            : instrument_number;
+                const bool beat = PatternGrid::IsBeatRow(static_cast<unsigned>(row));
+                // Base rhythm colors are per field; a populated neighbor must
+                // not promote an empty placeholder. Inverse selection wins.
+                const Color note_color = is_current_position ? current_position_note
+                    : note_value == NOTE_EMPTY ? (beat ? empty_note_bright : empty_note_normal)
+                    : (beat ? note_bright : note_normal);
+                const Color instrument_color = is_current_position ? current_position_instrument
+                    : instrument_value == 0xFF && note_value != NOTE_OFF ? (beat ? empty_instrument_bright : empty_instrument_normal)
+                    : (beat ? instrument_bright : instrument_normal);
 
                 DrawFixedText(
                     framebuffer,

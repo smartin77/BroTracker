@@ -381,8 +381,8 @@ TEST_CASE(DevicePatternDisplayPadsEightChannelsThirtyTwoRowsOnly) {
     // Exact glyph/color regions, outside active dimensions, in the same one-pass grid.
     for(const auto cell : {std::pair<int,int>{16,0},{31,7},{0,2}}) {
         const int x=30+cell.second*53+(53-36)/2, y=62+cell.first*13+2;
-        DrawFixedText(expected,x,y,"---",Color{192,192,192});
-        DrawFixedText(expected,x+24,y,"--",Color{78,78,118});
+        DrawFixedText(expected,x,y,"---",cell.first%4==0 ? Color{152,152,152} : Color{104,104,104});
+        DrawFixedText(expected,x+24,y,"--",cell.first%4==0 ? Color{104,104,156} : Color{66,66,100});
         for(int yy=y;yy<y+8;++yy) for(int xx=x;xx<x+36;++xx)
             CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
     }

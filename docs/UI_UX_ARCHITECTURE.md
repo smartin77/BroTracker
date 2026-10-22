@@ -434,7 +434,16 @@ one beat occupies four pattern rows:
 05  C-4 01   <- next beat start
 ```
 
-Beat-start rows are displayed using the **bright** colour variant.
+Beat-start rows are displayed using the **bright** colour variant across all eight
+note/instrument columns. The shared `PatternGrid::IsBeatRow` predicate also drives
+row numbering and beat navigation (zero-based origin 0, step 4). Empty fields are
+dimmed independently, including a missing note beside a populated instrument.
+NOTE OFF timing remains a populated semantic value, not an empty instrument field.
+
+Base beat colours do not override inverse selection text, playback-position
+background/marker, the edit frame, or pending/error indications. No background
+bands, geometry, typography, row numbering or pattern data change. Implemented
+2026-10-22; manual visual approval remains pending.
 
 Therefore, with `LPB = 4` and `d1`, the bright beat positions are:
 
@@ -614,9 +623,17 @@ The initial BroTracker colour scheme uses:
 
 Each colour has a normal and bright variant.
 
-The current visual prototype treats full white as the bright white level.
+The shared pattern renderer uses these RGB foreground levels (ordinary / beat):
 
-The existing purple is used as the normal purple level. If required, a lighter purple variant will be used for bright purple.
+| Field | Ordinary row | Beat row |
+| --- | --- | --- |
+| Populated note | 208,208,208 | 255,255,255 |
+| Empty note | 104,104,104 | 152,152,152 |
+| Populated instrument | 130,130,196 | 174,174,232 |
+| Empty instrument | 66,66,100 | 104,104,156 |
+
+Full white is the bright note level; instruments retain their purple family.
+Existing row-number colours and semantic overrides are unchanged.
 
 The final colour values remain configurable during visual prototyping.
 
