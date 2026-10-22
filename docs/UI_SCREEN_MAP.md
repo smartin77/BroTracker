@@ -82,7 +82,8 @@ The shared renderer now extends this foreground treatment across all eight chann
 white beat notes, dimmer ordinary notes, purple instrument levels and independently
 dimmed empty fields. Existing selection/playback/edit priorities remain intact;
 no new background bands. See [palette and priorities](UI_UX_ARCHITECTURE.md).
-Implemented 2026-10-22; manual visual approval pending.
+Implemented 2026-10-22; actual Windows BTX changes visually approved by the user.
+Handheld visual approval remains pending.
 
 ### 2. Event Detail
 

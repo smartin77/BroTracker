@@ -443,7 +443,8 @@ NOTE OFF timing remains a populated semantic value, not an empty instrument fiel
 Base beat colours do not override inverse selection text, playback-position
 background/marker, the edit frame, or pending/error indications. No background
 bands, geometry, typography, row numbering or pattern data change. Implemented
-2026-10-22; manual visual approval remains pending.
+2026-10-22; user visually approved the actual Windows BTX changes. Handheld
+visual approval remains pending.
 
 Therefore, with `LPB = 4` and `d1`, the bright beat positions are:
 

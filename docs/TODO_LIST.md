@@ -18,7 +18,11 @@ Items may be added during development to record agreed next steps or work that n
 * [x] Windows `-EmptyWindowTitle` build: all eight suites pass. Refresh the complete
   Eoan ARM64 Git package with `prepare-package.sh`: all 20 suites, ABI, checksums,
   clean-install/upgrade and persistent user-config preservation checks pass.
-* [ ] User visual approval on Windows/handheld remains pending. See
+* [x] Update BMP preview tooling to use the production renderer and real editor
+  selection: orange outline, no obsolete selection fill, an empty channel and a
+  three-cell sparse channel. Generate/inspect 640x480 output in ignored build storage.
+* [x] User visually approved the actual Windows BTX beat-readability changes.
+* [ ] Handheld visual approval remains pending. See
   [preview and validation](../build/beat-readability/validation.md).
 * [ ] User reports severe audible crackling on the console; cause unresolved.
   No audio changes or diagnostic development in this visual task. Bridge diagnostics
@@ -1342,8 +1346,8 @@ design remains unchanged.
   this comparison; no scrolling implementation is requested now.
 * [x] Render empty note/instrument fields at lower brightness, with beat/normal
   levels and populated NOTE_OFF/instrument-only fields kept distinct. Playback
-  highlighting and the separate edit cursor are preserved. Manual visual approval
-  remains pending; see Pattern beat readability above.
+  highlighting and the separate edit cursor are preserved. Actual Windows BTX changes are visually
+  approved by the user; handheld approval remains pending. See Pattern beat readability above.
 
 ### PCM Playback Validation
 
