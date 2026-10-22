@@ -685,7 +685,7 @@ USB Audio may introduce:
 - host audio routing latency;
 - resampling or clock-domain conversion where required.
 
-Constant latency is not itself a synchronization error.
+Common constant latency may be harmless, but differential latency between internal and external audio can be an audible synchronization error.
 
 A fixed additional delay may be acceptable for monitoring.
 
@@ -994,3 +994,11 @@ AudioStream::update() must not perform SD I/O or block waiting for storage.
 SD latency must never affect scheduler advancement or tracker timing. Buffer underruns are treated as an audio-storage fault, not a timing fault.
 
 The initial implementation will validate this model with a single streaming sample before introducing multi-voice streaming or more complex buffering policies.
+
+## Implemented MIDI output boundary
+
+See [MIDI foundation](MIDI_FOUNDATION.md) for the inspected render/DMA/USB path,
+nonblocking timer dispatch, ownership and transport-failure handling. Its
+render-phase deadlines do not establish physical output phase. Audible-sync
+measurement is pending; no output compensation or bridge diagnostic work is
+included in this milestone.

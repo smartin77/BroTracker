@@ -7,6 +7,7 @@ namespace BroTracker {
 // InvalidReferenceNote maps to the existing binding-note validation status.
 class VariableRateBringUpPlayer {
 public:
+    VariableRatePatternPlayer& MidiPlayer() noexcept { return player_; }
     PatternPlayerStatus Configure(std::uint32_t tempo_hundredths, std::uint32_t rate,
         const RealtimePattern& pattern, const VariableRateSampleBindings& bindings) noexcept {
         return Map(player_.Configure(tempo_hundredths,rate,pattern,bindings));

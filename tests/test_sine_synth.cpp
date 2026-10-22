@@ -135,7 +135,7 @@ TEST_CASE(SynthFixtureIdentitySampleSelectionMidiSilenceAndTypeIndependentOfId) 
     Harness h; h.Render(1500,commands); CHECK_EQ(h.pcm[0][0],1000); CHECK(h.pcm[7][700]!=0);
     rows.count=1; rows.events[0]={7,0,0,0,0,0,69,1};
     CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
-    CHECK_EQ(commands.commands[0].action,VariableRateVoiceAction::UnsupportedMIDI); h.Render(128,commands);
+    CHECK_EQ(commands.commands[0].action,VariableRateVoiceAction::TriggerMidi); h.Render(128,commands);
     for(unsigned i=0;i<128;++i) CHECK_EQ(h.pcm[7][i],0);
     // Another project can bind Synth at an arbitrary identity.
     auto bindings=fixture.bindings; bindings.bindings[1].instrument=42;

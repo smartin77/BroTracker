@@ -11,6 +11,8 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    unsigned midi_output_channel = 12;
+    bool midi_output_invalid = false;
     AudioOutputChoice audio_output = AudioOutputChoice::Default;
     bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
     std::uint32_t schema_version = 1;
@@ -27,6 +29,8 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // note_step_direction is accepted, but supplying both names rejects.
 // Optional [audio]: output=bridge/pt8211. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
+// Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
+// Invalid nonempty MIDI channel warns once at startup and uses 12.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.

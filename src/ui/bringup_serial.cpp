@@ -26,6 +26,7 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
+    midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
@@ -178,6 +179,7 @@ bool BringUpSerial::Start()
 {
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
     if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
+    if(midi_supported_ && !midi_confirmed_) return false;
     start_queued_ = true;
     ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
@@ -210,6 +212,7 @@ bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, 
 bool BringUpSerial::QueueTransport(Command command) {
     if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
+    if(command==Command::Continue && midi_supported_ && !midi_confirmed_) return false;
     transport_queued_ = command; stopped_ = false; return true;
 }
 bool BringUpSerial::Pause() { return QueueTransport(Command::Pause); }
@@ -231,6 +234,8 @@ const char* BringUpSerial::Status() const
         if (start_unconfirmed_) return "Waiting - START result unknown";
         return "Waiting for Teensy USB";
     }
+    if(midi_failed_) return "MIDI setup failed - see log; restart Teensy if required";
+    if(midi_supported_ && !midi_confirmed_) return "Waiting for MIDI channel acknowledgment";
     if(audio_failed_) return "Audio selection failed - see log; restart Teensy to change route";
     if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return "Waiting for Teensy audio selection";
     if (stop_queued_ || pending_ == Command::Stop) return "Connected - stopping";
@@ -241,7 +246,7 @@ const char* BringUpSerial::Status() const
     if (std::strcmp(state_, "PLAYING") == 0) return "Connected - playing";
     if (std::strcmp(state_, "DONE") == 0) return "Connected - completed";
     if (std::strcmp(state_, "ERROR") == 0) return "Connected - playback ERROR";
-    return "Connected - idle";
+    return midi_supported_ ? "Connected - idle" : "Connected - idle (MIDI unsupported)";
 }
 
 void BringUpSerial::Send(Command command, std::uint32_t now)
@@ -249,8 +254,11 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     const char* verb = command == Command::Hello ? "HELLO" :
                        command == Command::Status ? "STATUS" :
                        command == Command::Start ? "START" :
-                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : "STOP";
+                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Midi ? "MIDI" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
+    if(command==Command::Midi) {
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTMIDI1 SET 1 %u\n",midi_channel_); midi_sent_=true;
+    }
     if(command==Command::Audio) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
         audio_sent_=true;
@@ -302,6 +310,17 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTMIDI1 CAP 1")) { if(connected_) midi_supported_=true; return; }
+    if(pending_==Command::Midi && !std::strncmp(line_,"BTMIDI1 SELECTED 1 ",18)) {
+        std::uint32_t channel=0;
+        midi_confirmed_=BroTracker::SnapshotFields(line_,used_,"BTMIDI1 SELECTED 1 ",&channel,1) && channel==midi_channel_;
+        midi_failed_=!midi_confirmed_; pending_=Command::None;
+        if(midi_failed_) start_queued_=false;
+        Log(MidiStatus()); return;
+    }
+    if(pending_==Command::Midi && (!std::strncmp(line_,"BTMIDI1 ERROR ",14) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
+        midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR:",line_); return;
+    }
     if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
     if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {
         const char* route=line_+20;
@@ -548,6 +567,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     // for its reply. STATE received during transport is ignored above; ACKs differ.
     if (pending_ == Command::Status && (transport_queued_ != Command::None || stop_queued_ || start_queued_) && tx_offset_ == tx_size_)
         pending_ = Command::None;
+    if(pending_==Command::Midi && now-sent_at_>=6000 && tx_offset_==tx_size_) {
+        midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR: acknowledgment timeout; not retrying this session");
+    }
     if(pending_==Command::Audio && now-sent_at_>=6000 && tx_offset_==tx_size_) {
         audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
     }
@@ -558,6 +580,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
             Send(Command::Audio,now);
         }
+        else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
         else if (start_queued_)
         {
             Send(Command::Start, now);

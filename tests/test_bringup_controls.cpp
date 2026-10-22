@@ -34,6 +34,32 @@ struct Test {
 };
 int main() {
     try {
+        for(unsigned channel:{1u,12u,16u}) {
+            Test t; t.serial.SetMidiOutputChannel(channel);
+            t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            CHECK(!t.serial.Start()); CHECK(!t.serial.Playing());
+            const auto command="BTMIDI1 SET 1 "+std::to_string(channel)+"\n";
+            t.Tick(); t.port->Expect(command.c_str());
+            const auto ack="BTMIDI1 SELECTED 1 "+std::to_string(channel)+"\n";
+            t.Reply(ack.c_str()); CHECK(std::strstr(t.serial.MidiStatus(),"acknowledged"));
+            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing());
+            t.port->online=false; t.Tick(); t.port->online=true; t.now+=1001;
+            t.Tick(); t.port->Expect("BTTEST1 HELLO\n");
+            t.Reply("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            t.Tick(); t.port->Expect(command.c_str()); t.Reply(ack.c_str());
+            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing()); CHECK(t.serial.Start());
+        }
+        for(const auto response:{"BTMIDI1 ERROR 1 restart-required\n","BTMIDI1 ERROR 1 invalid-channel\n","BTMIDI1 SELECTED 1 11\n","BTTEST1 ERROR command\n"}) {
+            Test t; t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply(response);
+            CHECK(!t.serial.Start()); CHECK(std::strstr(t.serial.Status(),"MIDI setup failed"));
+            t.Tick(); t.port->Expect("");
+        }
+        { Test t; t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+          t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.now+=6001; t.Tick();
+          CHECK(!t.serial.Start()); CHECK(std::strstr(t.serial.Status(),"MIDI setup failed")); }
+        { Test t; t.Ready("BTTEST1 STATE IDLE\n"); CHECK(t.serial.Start());
+          CHECK(std::strstr(t.serial.MidiStatus(),"unsupported")); }
         for(auto choice : {BroTracker::AudioOutputChoice::Bridge,BroTracker::AudioOutputChoice::Pt8211}) {
             Test t; t.serial.SetAudioOutputPreference(choice);
             t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n");

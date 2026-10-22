@@ -3,6 +3,18 @@
 #include "pattern_beeper_samples.h"
 #include <Arduino.h>
 #include <Audio.h>
+#include <IntervalTimer.h>
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+#include "bringup/midi_output.h"
+extern "C" {
+int brotracker_midi_try_submit(const uint32_t*, uint32_t, uint32_t);
+int brotracker_midi_tx_fault(uint32_t);
+int brotracker_midi_tx_idle(void);
+extern volatile uint32_t brotracker_midi_generation;
+extern volatile uint8_t brotracker_midi_ready;
+extern volatile uint8_t usb_configuration;
+}
+#endif
 #include "production_audio_output.h"
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_player_selection.h"
@@ -86,6 +98,41 @@ namespace
     private:
         std::uint32_t mask_;
     };
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+    MidiOutput g_midi;
+    IntervalTimer g_midi_timer;
+    bool g_midi_timer_ready=false, g_midi_session=false;
+    void ServiceMidi() {
+        // Same priority as AudioStream software update (208): neither preempts
+        // the other. Only the USB ring reservation/submission excludes USB IRQ.
+        const auto now=micros();
+        {
+            // Keep completion and lifecycle observations coherent: USB reset
+            // must not clear descriptors between the generation and idle reads.
+            InterruptGuard guard;
+            g_midi.Lifecycle(brotracker_midi_ready && usb_configuration && (USB1_PORTSC1 & USB_PORTSC1_CCS) && !(USB1_PORTSC1 & USB_PORTSC1_SUSP),brotracker_midi_generation);
+            if(brotracker_midi_tx_fault(now)) g_midi.TransportFailure();
+            if(brotracker_midi_tx_idle()) g_midi.ConfirmTransfers();
+        }
+        g_midi.Service(now,[](const uint32_t* words,unsigned count) {
+            // PJRC schedule_transfer unconditionally enables PRIMASK. BASEPRI
+            // keeps USB reset/configuration excluded until tx_head is committed.
+            uint32_t mask, priority;
+            asm volatile("mrs %0, primask\n\tmrs %1, basepri\n\tcpsid i\n\tmsr basepri_max, %2\n\tdsb\n\tisb"
+                : "=&r"(mask), "=&r"(priority) : "r"(16u) : "memory");
+            const bool accepted=brotracker_midi_try_submit(words,count,micros())!=0;
+            asm volatile("msr primask, %0\n\tmsr basepri, %1\n\tdsb\n\tisb" :: "r"(mask),"r"(priority) : "memory");
+            return accepted;
+        });
+    }
+    void CollectMidi(std::uint32_t render_us) {
+        auto& player=g_control.OutputPlayer().MidiPlayer();
+        if(player.TakeMidiReset()) g_midi.Reset();
+        const auto batch=player.TakeMidiCommands();
+        if(batch.count && !g_midi.Enqueue(batch,player.GetNextSamplePosition()-AUDIO_BLOCK_SAMPLES,render_us))
+            g_control.OutputFailure();
+    }
+#endif
     class PatternAudioSource : public AudioStream
     {
     public:
@@ -95,6 +142,10 @@ namespace
             // Hardware may schedule updates before activation publishes readiness.
             // Do not configure, allocate or latch false failures until memory is ready.
             if (!g_audio_ready) return;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            const auto render_us=micros();
+            if(g_midi.Faulted() && g_control.Snapshot().fault==PatternFault::None) g_control.OutputFailure();
+#endif
 #ifdef BROTRACKER_PATTERN_PERF
             const std::uint32_t begin=ARM_DWT_CYCCNT;
             const bool first=!initialized_;
@@ -108,12 +159,18 @@ namespace
             if (!block)
             {
                 g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                CollectMidi(render_us);
+#endif
 #ifdef BROTRACKER_PATTERN_PERF
                 RecordCost(begin,first);
 #endif
                 return; // Fail-stop: no timeline advance and no stale block transmitted.
             }
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            CollectMidi(render_us);
+#endif
             transmit(block);
             release(block);
 #ifdef BROTRACKER_PATTERN_PERF
@@ -196,6 +253,9 @@ namespace
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
+#endif
         OfferPosition(status);
         if (advertise_snapshot) {
             (void)QueueLine("BTPATTERN1 SNAPCAP 2\n");
@@ -316,6 +376,14 @@ namespace
             g_pattern_transfer.Clear();
             g_publication.NewSession();
             g_preview.NewSession();
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            if(g_protocol_connected) {
+                InterruptGuard guard;
+                g_midi_session=false;
+                g_midi.Reset();
+                (void)g_control.Submit(PatternRequest::Stop);
+            }
+#endif
             g_protocol_connected = false;
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
@@ -446,6 +514,35 @@ namespace
                 }
 #endif
             }
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            else if (!std::strncmp(line,"BTMIDI1",7)) {
+                char reply[192];
+                if(!std::strcmp(line,"BTMIDI1 GET 1")) {
+                    MidiOutput::Counters c; bool fault,cleanup; unsigned queued;
+                    { InterruptGuard guard; c=g_midi.counters; fault=g_midi.Faulted(); cleanup=g_midi.PendingCleanup(); queued=g_midi.Queued(); }
+                    std::snprintf(reply,sizeof(reply),"BTMIDI1 STATE 1 %u %u %u %lu %lu %lu %lu\n",
+                        fault,cleanup,queued,(unsigned long)c.submitted,(unsigned long)c.busy,(unsigned long)c.late,(unsigned long)c.overflow);
+                    (void)QueueLine(reply);
+                    std::snprintf(reply,sizeof(reply),"BTMIDI1 TIMING 1 %lu %lu %lu %lu %lu\n",
+                        (unsigned long)c.disconnect,(unsigned long)c.max_lateness_us,(unsigned long)c.cleanup_submitted,
+                        (unsigned long)c.transport_failure,(unsigned long)c.transfers);
+                } else {
+                    uint32_t channel=0;
+                    const bool parsed=SnapshotFields(line,used,"BTMIDI1 SET 1 ",&channel,1);
+                    const char* error=nullptr;
+                    if(!parsed || channel<1 || channel>16) error="invalid-channel";
+                    else if(!g_protocol_connected) error="not-connected";
+                    else {
+                        InterruptGuard guard;
+                        if(g_midi.Select(channel)==MidiOutput::Selection::RestartRequired) error="restart-required";
+                        else g_midi_session=true;
+                    }
+                    if(error) std::snprintf(reply,sizeof(reply),"BTMIDI1 ERROR 1 %s\n",error);
+                    else std::snprintf(reply,sizeof(reply),"BTMIDI1 SELECTED 1 %lu\n",(unsigned long)channel);
+                }
+                (void)QueueLine(reply);
+            }
+#endif
             else if (!std::strncmp(line,"BTAUDIO1",8)) {
                 AudioOutputChoice request=AudioOutputChoice::Default;
                 const bool valid=ParseAudioOutputRequest(line,request);
@@ -576,6 +673,15 @@ namespace
                 const auto request = !std::strcmp(line,"BTTEST1 START") ? PatternRequest::Start :
                     !std::strcmp(line,"BTTEST1 PAUSE") ? PatternRequest::Pause :
                     !std::strcmp(line,"BTTEST1 CONTINUE") ? PatternRequest::Continue : PatternRequest::Stop;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                bool midi_fault;
+                { InterruptGuard guard; midi_fault=g_midi.Faulted(); }
+                if((request==PatternRequest::Start || request==PatternRequest::Continue) &&
+                   (!g_midi_session || !g_midi_timer_ready || midi_fault)) {
+                    (void)QueueLine("BTTEST1 ERROR midi-not-ready-or-restart-required\n");
+                    used=0; overflow=false; break;
+                }
+#endif
                 if(g_output.Active()==AudioOutputChoice::Default) (void)SelectAudio(AudioOutputChoice::Default);
                 PatternRequestStatus accepted;
                 { InterruptGuard guard; accepted = g_control.Submit(request); }
@@ -610,6 +716,10 @@ namespace
     void PatternBringUpPlatformInit()
     {
         Serial.begin(115200);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        g_midi_timer.priority(208);
+        g_midi_timer_ready=g_midi_timer.begin(ServiceMidi,100);
+#endif
         pinMode(LED_BUILTIN,OUTPUT); digitalWrite(LED_BUILTIN,LOW);
         // Optional SD preparation is boot-only; no logging/time-sync initialization.
         // All globals are constructed; audio owner configures on its first update.
@@ -637,7 +747,7 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         // Eight-channel development fixture; pitched sequences need variable-rate mapping.
-        // Sample 01=test2.wav; unsupported MIDI 02; Synth 03; Sample 04=test3.wav.
+        // Sample 01=test2.wav; USB MIDI 02; Synth 03; Sample 04=test3.wav.
         const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif

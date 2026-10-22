@@ -20,3 +20,7 @@ value_step_direction=normal
 ; Selects Teensy output, not the host playback device. Restart Teensy to change an active route.
 [audio]
 output=bridge
+
+; External MIDI: decimal 1-16; empty/missing/invalid uses 12.
+[midi]
+output_channel=12

@@ -81,6 +81,7 @@ int main(int argc, char* argv[]) try {
     }
     BringUpSerial serial(log_file);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
+    serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");

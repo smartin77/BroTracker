@@ -1,5 +1,11 @@
 # Minimal note-driven Synth foundation
 
+The Synth milestone below records its original MIDI placeholder behavior.
+Instrument 02 now has the [USB MIDI foundation](MIDI_FOUNDATION.md); it remains
+silent locally but emits note events. Synth behavior and its default pattern
+are retained.
+
+
 Implemented on `feature/sine-synth-foundation`, 2026-10-21. This note describes
 `teensy41_dev` and `teensy41_pattern_variable_rate`; historical native-rate/beeper
 fixtures remain regression workloads. Bridge diagnostics and their evidence are

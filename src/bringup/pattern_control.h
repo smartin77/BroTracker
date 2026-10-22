@@ -49,6 +49,8 @@ namespace BroTracker
     class BasicPatternBringUpControl
     {
     public:
+        void OutputFailure() noexcept { Fail(PatternFault::Render,PatternPlayerStatus::ComponentError); Publish(); }
+        Player& OutputPlayer() noexcept { return player_; } // Platform audio owner only.
         // Audio owner only; main loop snapshots this under the existing exclusion.
         void RecordPerformance(std::uint32_t begin, std::uint32_t end, bool initialization,
             std::uint32_t budget) noexcept { RecordPatternCycles(status_.performance,begin,end,initialization,budget); }

@@ -16,6 +16,7 @@ Project documentation is located in the `docs` directory.
 - [Scheduler](./SCHEDULER.md)
 - [Sample Format](./SAMPLE_FORMAT.md)
 - [MIDI Support](./MIDI_SUPPORT.md)
+- [Implemented MIDI foundation](./MIDI_FOUNDATION.md)
 - [Teensy 4.1 Memory Architecture](./TEENSY_MEMORY_ARCHITECTURE.md)
 - [BroTracker File Formats](./FILE_FORMATS.md)
 - [Reference Engines](./REFERENCE_ENGINES.md)

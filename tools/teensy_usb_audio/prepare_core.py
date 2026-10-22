@@ -10,11 +10,18 @@ framework = env.PioPlatform().get_package_dir("framework-arduinoteensy")
 defines=env.ParseFlags(env.GetProjectOption("build_flags")).get("CPPDEFINES",[])
 trace=any((d[0] if isinstance(d,(tuple,list)) else d)=="BROTRACKER_USB_TX_TRACE" for d in defines)
 original, patched = prepare(framework, env.subst("$BUILD_DIR"), trace=trace)
+from midi_core import prepare_midi, prepare_lifecycle
+midi_original,midi_patched=prepare_midi(framework,env.subst("$BUILD_DIR"))
+
+usb_original,usb_patched=prepare_lifecycle(framework,env.subst("$BUILD_DIR"),trace)
+
 def replace_core(node):
+    if Path(node.srcnode().get_abspath()).resolve() == usb_original:
+        return env.File(str(usb_patched))
+    if Path(node.srcnode().get_abspath()).resolve() == midi_original:
+        return env.File(str(midi_patched))
     if Path(node.srcnode().get_abspath()).resolve() == original:
         print("BroTracker USB audio: compiling isolated patched core:", patched)
         return env.File(str(patched))
-    if trace and Path(node.srcnode().get_abspath()).resolve()==(Path(framework)/"cores/teensy4/usb.c").resolve():
-        return env.File(str(patched.with_name("usb.c")))
     return node
 env.AddBuildMiddleware(replace_core)

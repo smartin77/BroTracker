@@ -72,3 +72,14 @@ paths identify local evidence, not repository deliverables.
 Report build/test outcomes in the response and relevant tracked documentation.
 Reusable diagnostic tools may be deliberately maintained under `tools/`.
 Do not add source-code comments merely to record individual test runs.
+
+## MIDI foundation
+
+See [MIDI foundation](MIDI_FOUNDATION.md) and its linked actual validation record.
+`tools/midi/check_hardware.py --hardware` is an opt-in bounded Windows WinMM/CDC
+check; it temporarily publishes a MIDI test tune, captures message content/order,
+restores the original tune, stops and closes its owned handles. It requires
+pyserial and an otherwise available Teensy MIDI input; it never closes another
+application. Native tests also compile the actual isolated core MIDI extension
+against mocked DMA operations, including full-ring refusal and final-OFF error/
+completion-stall detection. USB capture is not an audible alignment test.

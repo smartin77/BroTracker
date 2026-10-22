@@ -30,7 +30,7 @@ namespace BroTracker
         UnknownInstrument, InvalidNoteOffTiming
     };
 
-    // Bounded Sample/Synth command adapter with an explicit silent MIDI placeholder.
+    // Bounded Sample/Synth command adapter with MIDI note commands for a separate output adapter.
     // Existing identity/binding table; not an instrument/plugin ABI. Single
     // owner, ordered consumption: apply each supplied row command exactly once.
     // Fixed storage, no allocation, rendering, I/O, callbacks or exceptions.
@@ -49,7 +49,7 @@ namespace BroTracker
         // Validate count and every active binding before mutation (inactive slots
         // are not consumed). IDs 0..254 are unique;
         // Sample reference notes are 24..127; PCM must match the output rate.
-        // Synth has no PCM/reference-note dependency; MIDI is recognized but unsupported.
+        // Synth has no PCM/reference-note dependency; MIDI has no local PCM.
         // Zero bindings is valid (NOTE_OFF still works). Success copies metadata
         // and clears logical state; failure preserves bindings, rate and state.
         // Validation reuses VariableRateSampleVoice::Trigger at unity, without reading sample data.
@@ -72,7 +72,7 @@ namespace BroTracker
                 for (std::size_t j = 0; j < i; ++j)
                     if (bindings.bindings[j].instrument == binding.instrument)
                         return VariableSampleCommandStatus::DuplicateInstrument;
-                if(binding.type == InstrumentType::MIDI) continue; // Recognized, explicitly unsupported.
+                if(binding.type == InstrumentType::MIDI) continue; // No PCM binding.
                 if(binding.type == InstrumentType::Synth) {
                     if(sample_rate_hz<32000 || sample_rate_hz>192000) return VariableSampleCommandStatus::InvalidSampleRate;
                     continue;
@@ -143,7 +143,7 @@ namespace BroTracker
                         }
                     if (selected == nullptr) return VariableSampleCommandStatus::UnknownInstrument;
                     if(selected->type == InstrumentType::MIDI) {
-                        command.action=VariableRateVoiceAction::UnsupportedMIDI;
+                        command.action=VariableRateVoiceAction::TriggerMidi; command.synth_note=event.note;
                         result.commands[result.count++]=command; continue;
                     }
                     if(selected->type == InstrumentType::Synth) {

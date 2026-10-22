@@ -8,6 +8,25 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### MIDI instrument foundation (2026-10-22)
+
+* [x] Implement [instrument 02 USB MIDI foundation](MIDI_FOUNDATION.md): shared
+  sample-targeted engine events, bounded nonblocking timer dispatch, raw pitch,
+  velocity 100, monophonic tracker ownership and explicit duplicate-note limits.
+* [x] Add shared config channel resolution, capability-gated acknowledged setup,
+  idempotent reconnect and restart-required channel changes; retain old firmware.
+* [x] Add native timing/ownership/deadline/transport/protocol coverage and bounded
+  Teensy USB MIDI capture. See the linked foundation for actual validation.
+* [ ] Configure/confirm the user's PC -> CME -> external synth routing; this run
+  observed only Teensy MIDI on Windows, without a CME output or external audio.
+* [ ] Measure simultaneous internal/external audio on two recording channels;
+  separate constant offset from jitter and patch attack, state topology and
+  agree tolerance before declaring audible synchronization verified.
+* [ ] Review output compensation separately only if measurements justify it;
+  assess MIDI lookahead versus internal audio delay and live-edit/input latency.
+* [ ] Retain all parent-branch physical handheld validations below. Bridge
+  diagnostics remain paused; no SSH or handheld deployment in this milestone.
+
 ### Beat-row cursor navigation (2026-10-22)
 
 * [x] Add shared highlighted-row destination logic and grid constants (origin 0,

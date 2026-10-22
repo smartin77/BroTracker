@@ -8,7 +8,7 @@ namespace BroTracker
 {
     // Initial command implementation capacity, not a permanent pattern-format limit.
     constexpr std::size_t kVariableRateVoiceCommandCapacity = 16;
-    enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, UnsupportedMIDI };
+    enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, TriggerMidi };
     struct VariableRateVoiceCommand
     {
         std::uint32_t channel = 0;
@@ -16,7 +16,7 @@ namespace BroTracker
         VariableRateVoiceAction action = VariableRateVoiceAction::Stop;
         Pcm16MonoView sample;
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
-        Note synth_note = 69;
+        Note synth_note = 69; // Raw Synth/MIDI pitch; never the display octave convention.
     };
     struct VariableRateVoiceCommandBatch
     {
@@ -71,7 +71,7 @@ namespace BroTracker
         // Configured zero-frame blocks accept only empty batches and permit null
         // outputs. Stop ignores its sample/step fields: Sample stops immediately; Synth
         // releases over 15 ms. Reset clears all voices and transitions immediately.
-        // UnsupportedMIDI explicitly clears this channel and emits no MIDI events.
+        // TriggerMidi explicitly clears this channel and emits no MIDI events.
         // Caller guarantees eight writable, mutually non-overlapping output spans,
         // each of frame_count frames, disjoint from ALL retained/triggered immutable
         // sample data, this object and request metadata. Sample extents/lifetimes
@@ -98,7 +98,7 @@ namespace BroTracker
                 const auto& command = batch.commands[i];
                 if (command.channel >= kRealtimePatternChannelCapacity) return VariableRateBlockStatus::InvalidChannel;
                 if (command.action != VariableRateVoiceAction::Trigger && command.action != VariableRateVoiceAction::Stop &&
-                    command.action != VariableRateVoiceAction::TriggerSynth && command.action != VariableRateVoiceAction::UnsupportedMIDI)
+                    command.action != VariableRateVoiceAction::TriggerSynth && command.action != VariableRateVoiceAction::TriggerMidi)
                     return VariableRateBlockStatus::InvalidAction;
                 if (command.sample_offset >= frame_count) return VariableRateBlockStatus::InvalidOffset;
                 if (i != 0 && command.sample_offset < batch.commands[i - 1].sample_offset)
@@ -126,8 +126,8 @@ namespace BroTracker
                 auto& voice = voices_[command.channel];
                 auto& channel = channels_[command.channel];
                 auto& synth = synths_[command.channel];
-                if(command.action == VariableRateVoiceAction::UnsupportedMIDI) {
-                    voice.Reset(); synth.Reset(); channel={}; // Explicit unsupported destination: no fallback/events.
+                if(command.action == VariableRateVoiceAction::TriggerMidi) {
+                    voice.Reset(); synth.Reset(); channel={}; // MIDI contributes no local PCM.
                 } else if(command.action == VariableRateVoiceAction::Stop) {
                     if(channel.synth) synth.Release(); else voice.Stop();
                 } else {

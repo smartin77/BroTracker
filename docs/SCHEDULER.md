@@ -203,3 +203,15 @@ boundary with the old segment, then anchor the new segment at that actual sample
 elapsed playback is never remapped. The same cursor supplies row events, telemetry
 and deferred OFF deadlines, which retain musical target ticks. See the linked
 contract for boundary ordering, transport and validation.
+
+## MIDI foundation: timing evidence
+
+The [implemented USB MIDI foundation](MIDI_FOUNDATION.md) exports the same
+sample-targeted command order as Sample/Synth rendering. Its bounded timer
+adapter schedules uncompensated render-phase dispatch; it does not measure DAC
+phase or external audio onset. Exact engine generation, dispatch/USB jitter,
+internal audio buffering and external synth response are distinct properties.
+Audible alignment at the combined hardware output is the primary objective and
+requires repeated simultaneous two-channel audio measurements. A successful
+transport test is insufficient. Compensation is a separately reviewed follow-up
+only after evidence for the chosen audio route and MIDI topology.

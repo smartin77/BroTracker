@@ -66,7 +66,7 @@ inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
     return fixture;
 }
 // UI IDs are one-based; raw bytes remain unchanged: 0=Sample 01,
-// 1=MIDI 02 (unsupported), 2=Synth 03, 3=Sample 04 (test3.wav).
+// 1=MIDI 02, 2=Synth 03, 3=Sample 04 (test3.wav).
 // Sample 01 uses the existing test2.wav preparation; test.wav remains inspected/deferred.
 inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentFixture(
     Pcm16MonoView test2, Pcm16MonoView test3={}) noexcept {
