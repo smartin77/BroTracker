@@ -776,3 +776,40 @@ TEST_CASE(InstrumentCycleMatchingReadbackPreservesInteractionButReplacementReset
     CHECK(e.Apply(EditorAction::Clear)); CHECK(e.Apply(EditorAction::Decrement));
     CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
 }
+
+TEST_CASE(BeatNavigationUsesHighlightedRowsVisibleBoundsAndPreservesEditorData) {
+    CHECK(PatternGrid::IsBeatRow(0)); CHECK(PatternGrid::IsBeatRow(4));
+    CHECK(!PatternGrid::IsBeatRow(3));
+    for (unsigned length : {1u, 2u, 4u, 5u, 6u, 8u, 9u, 16u, 31u, 32u, 33u, 64u}) {
+        auto live = ConnectedDraft();
+        live->position.rows = length; live->device_pattern->pattern.active_rows = length;
+        for (unsigned origin = 0; origin < length; ++origin) {
+            LocalPatternEditor editor; editor.Sync(live); CHECK(editor.Ready());
+            for (unsigned i = 0; i < origin; ++i) CHECK(editor.Apply(EditorAction::Down));
+            CHECK(editor.Apply(EditorAction::NextChannel)); CHECK(editor.Apply(EditorAction::Right));
+            const auto before = *editor.Draft(); const auto cursor = editor.Cursor();
+            for (const bool forward : {false, true}) {
+                // Independent row-by-row oracle, using the renderer's highlight predicate.
+                auto expected = origin;
+                if (forward) {
+                    for (unsigned r = origin + 1; r < length && r < PatternGrid::visible_rows; ++r)
+                        if (PatternGrid::IsBeatRow(r)) { expected = r; break; }
+                } else {
+                    for (unsigned r = origin; r > 0; --r)
+                        if (r-1 < PatternGrid::visible_rows && PatternGrid::IsBeatRow(r-1)) { expected = r-1; break; }
+                }
+                editor.SetLocked(true); // Publication locks data, not navigation.
+                CHECK_EQ(editor.Apply(forward ? EditorAction::NextBeat : EditorAction::PreviousBeat), expected != origin);
+                CHECK_EQ(editor.Cursor().row, expected);
+                CHECK_EQ(editor.Cursor().channel, cursor.channel); CHECK(editor.Cursor().field == cursor.field);
+                CHECK(BroTracker::SamePattern(before, *editor.Draft()));
+                CHECK(!editor.Dirty()); CHECK(!editor.CanUndo()); CHECK(!editor.CanRedo());
+                BroTracker::SparsePreviewCell captured;
+                for (unsigned i = 0; i < BroTracker::kSparsePreviewCellCapacity; ++i)
+                    CHECK(!editor.TakeCapturedCell(i, captured));
+                while (editor.Cursor().row < origin) CHECK(editor.Apply(EditorAction::Down));
+                while (editor.Cursor().row > origin) CHECK(editor.Apply(EditorAction::Up));
+            }
+        }
+    }
+}

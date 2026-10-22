@@ -15,7 +15,11 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
         (event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) return EditorAction::None;
     if (event.key.keysym.sym == SDLK_TAB)
         return event.key.keysym.mod & KMOD_SHIFT ? EditorAction::PreviousChannel : EditorAction::NextChannel;
-    if (event.key.keysym.mod & KMOD_SHIFT) return EditorAction::None;
+    if (event.key.keysym.mod & KMOD_SHIFT) {
+        if (event.key.keysym.sym == SDLK_UP) return EditorAction::PreviousBeat;
+        if (event.key.keysym.sym == SDLK_DOWN) return EditorAction::NextBeat;
+        return EditorAction::None;
+    }
     switch (event.key.keysym.sym) {
     case SDLK_UP: return EditorAction::Up;
     case SDLK_DOWN: return EditorAction::Down;

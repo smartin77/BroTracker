@@ -48,8 +48,6 @@ namespace
     constexpr Color current_position_instrument { 78,  78,  118 };
     constexpr Color current_event_edit_border   { 134, 32,  32  };
 
-    constexpr int pattern_position_highlight_interval = 4;
-
     constexpr int current_pattern_row = 13;
     constexpr int current_pattern_channel = 0;
 
@@ -69,7 +67,7 @@ namespace
         // Pattern rows.
         int first_row_y = 62;
         int row_height = 13;
-        int visible_rows = 32;
+        int visible_rows = PatternGrid::visible_rows;
 
         // Row number column.
         int row_number_width = 29;
@@ -331,8 +329,7 @@ namespace
             }
 
             const bool is_highlighted_position =
-                ((row + 1) %
-                    pattern_position_highlight_interval) == 1;
+                PatternGrid::IsBeatRow(static_cast<unsigned>(row));
 
             const Color row_number_color =
                 is_highlighted_position

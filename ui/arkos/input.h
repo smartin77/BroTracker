@@ -44,7 +44,7 @@ public:
     }
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
         if(!connected || !focused_ || !editor.Ready()) { Cancel(); return; }
-        if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {tempo_step_=tempo_repeat_.Tick(now);return;}
+        if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] && !navigation_.Active()) {tempo_step_=tempo_repeat_.Tick(now);return;}
         if(repeat_direction_<0) return;
         if(navigation_.Active()) {
             navigation_.Tick(now,editor);
@@ -94,6 +94,20 @@ private:
         pressed_[b]=down;
         const auto r1=SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
         const auto left=SDL_CONTROLLER_BUTTON_DPAD_LEFT, right=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        const auto up=SDL_CONTROLLER_BUTTON_DPAD_UP, down_button=SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        if((b==r1 && down && (pressed_[up] || pressed_[down_button])) ||
+           ((b==up || b==down_button) && pressed_[r1])) {
+            const bool blocked = (blocked_ & (1u<<b)) != 0;
+            Cancel();
+            if(!down) blocked_ &= ~(1u<<b);
+            if(down && connected && focused_ && editor.Ready() && pressed_[up]!=pressed_[down_button] &&
+               (b==r1 || !blocked)) {
+                const auto direction = pressed_[up] ? up : down_button;
+                blocked_ &= ~(1u<<direction); repeat_direction_=direction;
+                navigation_.Begin(pressed_[up] ? EditorAction::PreviousBeat : EditorAction::NextBeat,now,editor);
+            }
+            return {};
+        }
         if(b==r1 || ((b==left || b==right) && pressed_[r1])) {
             Cancel(); // Also blocks held editor directions until physical release.
             if(!down && b!=r1) blocked_ &= ~(1u<<b);

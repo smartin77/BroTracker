@@ -24,7 +24,9 @@ edit cursor.
 | L1 + Y | Restore the published baseline locally and to working playback through preview |
 | A | Publish the selected draft while Stopped/Paused, with required device capabilities |
 | L1 + Start | Clean exit through the existing STOP/acknowledgement workflow |
-| L1 alone / Select / R1 | Unassigned |
+| L1 alone / Select / R1 alone | Unassigned |
+| R1 + Up / Down | Previous / next highlighted beat row (visible active rows only) |
+| R1 + Left / Right | Decrease / increase tempo |
 
 X and A have no action with L1 held. B still requests Stop/reset with L1 held.
 Legacy firmware without pattern-transport capability uses Start/Restart rather
@@ -126,3 +128,25 @@ L1 editing and transport remain unchanged. L1+Y Restore restores the published
 pattern and tempo baseline; A Publish freezes pattern plus applied tempo while
 stopped/paused. See [retention and manual checks](LIVE_TEMPO_CONTROL.md).
 Automated input/ARM64 checks do not establish physical handheld UX approval.
+
+## Beat-row cursor navigation (2026-10-22)
+
+R1 + D-pad Up/Down moves only the edit cursor to the strictly preceding/following
+highlighted beat row. Shared host grid constants define zero-based rows 0,4,8,...
+and 32 visible rows. The destination is limited to both the active pattern length
+and those visible rows: no paging, wrapping or landing on an unhighlighted end row.
+Examples: 3 Down -> 4; 4 Down -> 8; 5 Up -> 4; 4 Up -> 0. At the last reachable
+beat, Down stays put. Channel/Note-or-Instrument field and all musical data stay unchanged.
+
+Uses the existing navigation repeat: immediate, 350 ms first delay, then 100 ms,
+60 ms after one second and 40 ms after two seconds; at most one repeat per frame.
+There is no tempo acceleration. GameController and verified raw button/hat paths
+share the chord handler. R1 can precede the direction or take over an already held
+direction (after any earlier plain movement); takeover starts a fresh beat hold.
+Releasing R1 cancels and blocks held directions until physical release. Opposite
+directions, focus loss, removal/disconnect and L1 changes cancel the old stream.
+R1 vertical chords take precedence over L1 editing; R1 Left/Right tempo is unchanged.
+
+Physical handheld validation of these new chords remains pending. No console
+installation or SSH was performed. Windows uses Shift+Up/Down with identical
+destinations; see [Windows controls](../tools/windows/README.md).
