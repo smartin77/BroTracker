@@ -8,6 +8,35 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### MIDI output failure isolation (2026-10-22)
+
+* [x] Record the failed physical ArkOS case: MIDI 02 on tracker channel 3 stops
+  playback; removing the note does not recover, USB reconnect does. BTX responsive.
+  Supplied log: CONTINUED then 410 ms later fault=2/code=21/alloc=0; later preview
+  applies but ERROR persists; ALSA zero XRUNs/discards. Initiating MIDI reason absent.
+* [x] Isolate MIDI faults from core/audio transport; discard stale software/DMA
+  work, retain targeted cleanup ownership and first initiating reason, expose
+  separate bounded MIDI health and allow internal playback with MIDI quarantined.
+* [x] Define safe MIDI recovery: STOP, completed USB cancellation/cleanup, then
+  explicit START from stopped. Retain acknowledged channel setup/restart rules.
+* [x] Validate native DMA-stall/mixed-PCM isolation, deadlines/capacity/disconnect,
+  first-reason retention, partial cleanup failure and explicit recovery. Windows
+  `-EmptyWindowTitle`: 8/8 suites; clean GCC 13 Release CI: 6/6; Eoan ARM64: 20/20,
+  ABI/package/checksum/install and persistent user-config preservation checks pass.
+* [x] Build all eight affected firmware variants (trace cache failure passes on
+  sequential retry); upload final dev image to discovered Teensy 17681760 / COM3.
+  Windows no-WinMM-consumer run observes completion-stall reason 8 while mixed
+  playback advances ticks 85..2268. Consumer appearance emits no stale NOTE ON;
+  STOP cleanup completes, START emits a fresh note. Original pattern restored,
+  playback stopped, owned serial/MIDI handles closed. This is not an ArkOS trigger
+  diagnosis or external audio measurement. Refresh the complete ARM64 Git package.
+* [ ] Physically retest ArkOS isolation/recovery with refreshed BTX and firmware;
+  record the reported MIDI reason. Do not infer the 40 ms watchdog or absent
+  external equipment was the original trigger. See [repair design](MIDI_FOUNDATION.md)
+  and [actual validation](../build/midi-isolation/validation.md).
+* [ ] External MIDI playback and measured internal/external audible alignment remain
+  unverified. Severe console crackling remains unresolved; diagnostics stay paused.
+
 ### Pattern beat readability (2026-10-22)
 
 * [x] Use the shared beat-row predicate across all eight note/instrument columns:

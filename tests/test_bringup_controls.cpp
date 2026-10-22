@@ -49,6 +49,20 @@ int main() {
             t.Tick(); t.port->Expect(command.c_str()); t.Reply(ack.c_str());
             t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing()); CHECK(t.serial.Start());
         }
+        { Test t; t.Ready("BTTEST1 STATE PLAYING\nBTMIDI1 CAP 1\n");
+          t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply("BTMIDI1 SELECTED 1 12\n");
+          for(const auto output:{"BTMIDI1 OUTPUT 1 1 1 1 5\n", "BTMIDI1 OUTPUT 1 0 1 1 6\n"}) {
+              t.Reply(output); CHECK(t.serial.Playing());
+              CHECK(std::strstr(t.serial.MidiStatus(),"cleanup uncertain"));
+              CHECK(std::strstr(t.serial.Status(),"playing"));
+          }
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 0\n");
+          CHECK(std::strstr(t.serial.MidiStatus(),"external delivery unknown"));
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 99\n"); // Malformed status cannot erase last health.
+          CHECK(std::strstr(t.serial.MidiStatus(),"external delivery unknown"));
+          t.Reply("BTTEST1 STATE ERROR\n"); CHECK(!t.serial.Playing());
+          CHECK(std::strstr(t.serial.Status(),"playback ERROR"));
+        }
         for(const auto response:{"BTMIDI1 ERROR 1 restart-required\n","BTMIDI1 ERROR 1 invalid-channel\n","BTMIDI1 SELECTED 1 11\n","BTTEST1 ERROR command\n"}) {
             Test t; t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
             t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply(response);

@@ -27,6 +27,7 @@ void BringUpSerial::Disconnect(const char* reason)
 {
     Log("disconnected/error:", reason);
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
+    midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
@@ -310,6 +311,26 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strncmp(line_,"BTMIDI1 OUTPUT 1 ",17)) {
+        std::uint32_t f[4]{};
+        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTMIDI1 OUTPUT 1 ",f,4) &&
+           f[0]<=1 && f[1]<=1 && f[2]<=1 && f[3]<=8) {
+            const unsigned state=f[0] | (f[1]<<1) | (f[2]<<2) | (f[3]<<3);
+            if(state!=midi_output_state_) {
+                midi_output_state_=state;
+                static constexpr const char* reasons[]={"none","unavailable","deadline","overflow",
+                    "DMA error","invalid event","USB lifecycle","timer","completion stall"};
+                if(f[1]) std::snprintf(midi_output_status_,sizeof(midi_output_status_),
+                    "MIDI fault: %s; %s; %s",reasons[f[3]],f[0]?"STOP/START retry":"USB unavailable",
+                    f[2]?"cleanup uncertain":"external delivery unknown");
+                else std::snprintf(midi_output_status_,sizeof(midi_output_status_),"%s; %s",
+                    f[0]?"MIDI USB configured":"MIDI USB unavailable",
+                    f[2]?"cleanup uncertain":"external delivery unknown");
+                Log("MIDI output:",line_);
+            }
+        }
+        return;
+    }
     if(!std::strcmp(line_,"BTMIDI1 CAP 1")) { if(connected_) midi_supported_=true; return; }
     if(pending_==Command::Midi && !std::strncmp(line_,"BTMIDI1 SELECTED 1 ",18)) {
         std::uint32_t channel=0;

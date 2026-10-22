@@ -57,7 +57,7 @@ public:
     const char* ChannelGainStatus() const { return gains_.Status(); }
     // Set once at host startup, before the first Tick. Default sends no override.
     void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
-    const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?"MIDI channel acknowledged":"MIDI awaiting acknowledgment"; }
+    const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
@@ -115,6 +115,8 @@ private:
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
     unsigned midi_channel_=12;
+    char midi_output_status_[96]{};
+    unsigned midi_output_state_=UINT32_MAX;
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
     char audio_active_[8]="unknown";

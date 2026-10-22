@@ -155,3 +155,62 @@ TEST_CASE(MidiFailedFinalOffRetainsUncertainPitchUntilDmaCompletion) {
     MidiHarness retired; retired.Send(0,69); retired.Send(0,0,VariableRateVoiceAction::Stop);
     retired.output.Reset(); retired.Service(0); CHECK_EQ(retired.words.size(),2);
 }
+
+TEST_CASE(MidiFailureRecoveryDropsBacklogAndKeepsUncertainOwnershipAcrossDisconnect) {
+    for(bool overflow:{false,true}) {
+        MidiHarness h; h.Send(0,69); h.output.TakeAbortRequest();
+        if(overflow) {
+            for(unsigned i=0;i<MidiOutput::Capacity;++i) CHECK(h.output.Enqueue(Command(1,70),i,0));
+            CHECK(!h.output.Enqueue(Command(1,71),64,0));
+        } else {
+            CHECK(h.output.Enqueue(Command(1,70),1,0)); h.busy=true;
+            h.Service(MidiOutput::DeadlineUs+1);
+        }
+        CHECK(h.output.Faulted()); CHECK_EQ(h.output.Queued(),0);
+        CHECK(h.output.TakeAbortRequest()); CHECK(!h.output.Recover(false));
+        h.output.Lifecycle(false,3); const auto n=h.words.size(); h.Service(10000);
+        CHECK_EQ(h.words.size(),n); CHECK(h.output.PendingCleanup());
+        h.output.ConfirmTransfers(); CHECK(h.output.PendingCleanup());
+        h.output.Lifecycle(true,4); h.busy=false; h.Service(11000);
+        CHECK_EQ(h.words.size(),n+1); CHECK_EQ(h.words.back(),h.output.Pack(false,69));
+        h.output.TakeAbortRequest();
+        CHECK(!h.output.Recover(false)); CHECK(h.output.Recover(true));
+        CHECK_EQ(h.output.Select(16),MidiOutput::Selection::Selected); // Not yet activated in harness.
+        CHECK_EQ(h.output.Select(12),MidiOutput::Selection::RestartRequired);
+        CHECK(h.output.Enqueue(Command(1,72),1000,12000)); h.Service(12000);
+        CHECK_EQ(h.words.size(),n+2); CHECK_EQ(h.words.back(),h.output.Pack(true,72));
+    }
+}
+
+TEST_CASE(MidiInitiatingReasonSurvivesCleanupStallAndDisconnect) {
+    MidiHarness h; h.Send(0,69);
+    CHECK(h.output.Enqueue(Command(1,70),1,0));
+    h.Service(MidiOutput::DeadlineUs+1);
+    CHECK_EQ(h.output.Reason(),MidiOutput::Fault::Deadline);
+    h.complete=false; h.Service(10000);
+    h.output.TransportFailure(true);
+    CHECK_EQ(h.output.Reason(),MidiOutput::Fault::Deadline);
+    CHECK(h.output.PendingCleanup());
+    h.output.Lifecycle(false,7);
+    CHECK_EQ(h.output.Reason(),MidiOutput::Fault::Deadline);
+}
+
+TEST_CASE(MidiPartialCleanupFailureCannotRetireUncompletedPitchLedger) {
+    MidiHarness h; h.complete=false;
+    for(unsigned note=60;note<70;++note) h.Send(0,static_cast<Note>(note));
+    h.output.TransportFailure(true); h.Service(0); // First eight OFFs accepted.
+    CHECK(h.output.PendingCleanup());
+    h.output.TransportFailure(false); // DMA error before final cleanup packet.
+    CHECK_EQ(h.output.Reason(),MidiOutput::Fault::CompletionStall);
+    const auto size=h.words.size(); h.complete=true; h.Service(1);
+    CHECK_EQ(h.words.size(),size); CHECK(h.output.PendingCleanup());
+    h.output.Reset(); h.Service(2); h.Service(3);
+    CHECK(!h.output.PendingCleanup()); // Explicit reset retries the whole ledger.
+}
+
+TEST_CASE(MidiTimerInitializationFailureIsExplicitAndQuarantinesAdmission) {
+    MidiOutput output; output.TimerFailure();
+    CHECK_EQ(output.Reason(),MidiOutput::Fault::Timer);
+    CHECK(output.Faulted()); CHECK(output.PendingCleanup());
+    CHECK(!output.Enqueue(Command(0,69),0,0)); CHECK_EQ(output.Queued(),0);
+}

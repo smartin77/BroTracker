@@ -90,9 +90,9 @@ The adapter does not drain accumulated events whenever `loop()` happens to run.
 At the timer-service timestamp, a command more than one nominal block (**2903 us**) late, malformed/backward
 input, disconnected enqueue, or queue overflow latches a fault, cancels unsent
 work and requests per-note cleanup. This is an explicit failure threshold, not
-an agreed acceptable audible tolerance. The audio owner fail-stops on the next
-block (or immediately on enqueue failure). START/Continue are rejected after a
-latched adapter fault until Teensy restart. Submitted DMA descriptors are also
+an agreed acceptable audible tolerance. A MIDI sink fault quarantines MIDI only;
+Sample/Synth PCM and the shared timeline continue. The engine export is always
+drained, including rejected batches, so recovery cannot replay it. Submitted DMA descriptors are also
 checked every timer service for errors and for a **40 ms** completion stall,
 using the installed core's timeout duration as a failure watchdog. This catches
 an undelivered last OFF even with no future tracker events. Neither watchdog
@@ -111,6 +111,94 @@ are copied/formatted only outside rendering. `BTMIDI1 GET 1` returns two lines
 BTMIDI1 STATE 1 fault cleanup_pending queued submitted busy late overflow
 BTMIDI1 TIMING 1 discontinuities max_lateness_us cleanup_submitted transport_faults transfers
 ```
+
+## MIDI output failure isolation (2026-10-22)
+
+The physical ArkOS report is a successfully installed current BTX package, Teensy
+connected directly to the console without external MIDI equipment/router, and a
+MIDI 02 note on tracker channel 3 causing playback ERROR. Removing the note did
+not recover transport; USB reconnect restored operation until another MIDI note.
+BTX remained responsive. Preserve the supplied original log under
+`_backyard/midi-error/brotracker-midi-playback-error-20261022-205527.log`
+(SHA256 `ce5d44b05f60d173bc4b0d5d0b476a7fd4e3d096e724ae4302653249a96d400f`).
+It records CONTINUED at 20:42:17.150 then, 410 ms later, pattern fault=2 code=21
+alloc=0. Later STARTs are rejected as midi-not-ready-or-restart-required; a later
+preview applies while transport remains ERROR. ALSA reports zero capture/playback
+XRUNs and zero discarded frames. This supports the isolation defect, not a proven
+initiating MIDI fault: the old log contains no MIDI reason. It does not prove a
+40 ms watchdog trigger, absent equipment as a trigger, or crackling's cause.
+
+The previous code explicitly propagated adapter enqueue/fault state through
+`g_control.OutputFailure()` to the core Render/ComponentError fault and then
+blocked START/Continue on the latched MIDI fault. Those propagation/gating paths
+are removed. Core configuration/render/allocation checks and their fatal handling
+remain intact. Setup acknowledgment and configured-channel restart requirements
+remain intact. USB configuration/attachment, transfer acceptance, USB completion,
+application consumption, routing and external synth presence/delivery are separate
+facts. Teensy USB MIDI cannot detect an external synth behind its host.
+
+A fault cancels all 64-slot software work, rejects further musical batches for
+that session, and requests asynchronous **MIDI TX endpoint only** DMA cancellation.
+The timer writes ENDPTFLUSH and checks once per service for flush/prime/status
+completion, reissuing the flush if the endpoint is still active. Only then does it
+detach the queue head/reset descriptors using the installed core's TX configuration
+routine. No wait loop, global USB reset or audio endpoint change is introduced.
+If cancellation stalls, MIDI stays quarantined. Data already transferred before
+fault observation cannot be recalled; cancelled DMA is never treated as delivered.
+
+The existing note ledger survives cancellation. Best-effort targeted OFF cleanup
+uses at most eight pitches/one submission per service. A stalled cleanup transfer
+is cancelled and remains uncertain, with no endless accepted-transfer retry loop.
+STOP/Pause/restart/reset may explicitly request a new bounded cleanup pass.
+No broad controller reset is sent. Cleanup uncertainty clears only after the
+cleanup pass's USB transfers complete, never merely because cancellation leaves
+an idle endpoint or while disconnected. External release is still unverified.
+
+Normal internal playback can START/Continue while MIDI is faulted. **MIDI recovery
+requires explicit STOP, completed cancellation and cleanup, then START while the
+engine is stopped and USB configured.** Wait for STOPPED and cleanup_pending=0.
+If the boundary arrives too early, internal playback starts with MIDI still
+quarantined; repeat STOP/START after cleanup becomes possible. Recovery never
+occurs halfway through a running/paused song, on reconnection, on SELECTED, or
+just because a consumer appears. It emits only newly rendered events. If cleanup
+cannot complete, internal playback remains usable and MIDI remains uncertain.
+Serial session disconnect retains the existing intentional engine STOP policy;
+a MIDI backend fault by itself does not invoke it.
+
+Change-only bounded telemetry (also sent on STATUS/HELLO and explicit MIDI GET):
+
+```text
+BTMIDI1 OUTPUT 1 usb_configured fault cleanup_pending initiating_reason
+```
+
+Reason values: 0 none, 1 unavailable at enqueue, 2 release deadline, 3 capacity,
+4 DMA transfer error, 5 invalid/backward event, 6 USB lifecycle, 7 timer initialization,
+8 completion stall. The **first** reason stays latched across cleanup failures and
+disconnect until successful explicit recovery. Busy/late/overflow/disconnect and
+transport counters remain available in the existing STATE/TIMING replies.
+The 2903 us release deadline, 40 ms completion watchdog, sample target timestamps,
+ordering, 100 us timer cadence and service/storage bounds are unchanged. BTX logs
+and displays MIDI health separately from transport; repeated identical health
+states do not generate repeated change notifications. Older firmware without
+OUTPUT health retains acknowledged/unsupported setup status.
+
+Native tests use the actual USB extension with mocked DMA that accepts but never
+completes transfers, rather than equating USB configuration with a consumer. Mixed
+Sample/Synth/MIDI rendering stays bit-identical to a reference and advances the
+same timeline across repeated notes/loops; tests cover cancellation, stalled flush,
+busy/deadline/capacity faults, ownership/disconnect, uncertain cleanup and explicit
+recovery. See [actual repair validation and diff](../build/midi-isolation/validation.md)
+for build/package/hardware results. A native stall is not proof of the initiating
+ArkOS hardware trigger. External MIDI playback and combined-audio alignment
+remain unverified; the separate severe crackling report remains unresolved.
+
+Windows hardware checks on the discovered Teensy 4.1 (serial 17681760, COM3)
+observed completion-stall reason 8 when no WinMM application input was opened,
+while mixed internal playback remained PLAYING and the timeline advanced. That is
+separate evidence for the Windows topology; it does not identify the old ArkOS
+trigger. The raw physical logs/captures are retained under ignored build storage.
+Successful MIDI capture verifies content/order and host-observed timing only,
+not external delivery, PCM quality or audible synchronization.
 
 ## Notes, voices and cleanup
 
@@ -142,8 +230,8 @@ Stop, Start/restart, Pause and engine reset cancel queued work and request one
 OFF for each distinct owned or delivery-uncertain pitch. Continue retains the inherited
 current-row replay behavior. Serial-session disconnect also cancels MIDI work
 and requests engine Stop; reconnect never queues START. USB lifecycle changes
-with queued/submitted ownership fail-stop and retain a separate best-effort
-cleanup ledger for reconnection. While disconnected, no cleanup delivery is
+with queued/submitted ownership quarantine MIDI and retain a separate best-effort
+cleanup ledger for reconnection. They do not fault the core/audio engine. While disconnected, no cleanup delivery is
 claimed. OFFs retry in bounded services where delivery is possible, and cleanup remains
 pending until the backend observes those transfers complete. No broad
 CC reset/all-notes-off affects unrelated notes or parts. An abrupt CPU reset,
@@ -170,8 +258,8 @@ never rewritten. Channel numbering changes only inside USB MIDI packing.
 
 New firmware advertises `BTMIDI1 CAP 1`. BTX sends `BTMIDI1 SET 1 channel` only
 when supported and requires matching `BTMIDI1 SELECTED 1 channel` before START
-or Continue. Firmware also gates these commands on accepted setup and a working
-timer. First valid selection activates the channel for this boot; repeated same
+or Continue. Firmware gates these commands on accepted channel setup. A timer or
+MIDI backend failure is an isolated output fault, not a transport gate. First valid selection activates the channel for this boot; repeated same
 selection, including reconnect, is idempotent and does not start playback.
 Another channel returns `BTMIDI1 ERROR 1 restart-required`. Malformed/range input
 returns `invalid-channel` without changing selection. Host mismatch/rejection

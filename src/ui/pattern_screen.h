@@ -21,6 +21,7 @@ struct HostPanelInformation
     std::string transport_hints;
     std::string publication_status{};
     std::string diagnostic_status{};
+    std::string midi_status{};
 };
 
 void RenderMainScreen(

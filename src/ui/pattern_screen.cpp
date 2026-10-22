@@ -832,6 +832,7 @@ static void RenderPatternScreen(
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
         if (!host.publication_status.empty()) info(host.publication_status, header_value);
         if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
+        if (!host.midi_status.empty()) info(host.midi_status, header_value);
         if (display.device_mode)
         {
             if(live->callback_performance && live->callback_performance->steady_callbacks && live->callback_performance->budget_cycles) {

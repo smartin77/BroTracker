@@ -333,7 +333,7 @@ int main(int argc, char* argv[])
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
             serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
-            serial.PublicationStatus()};
+            serial.PublicationStatus(), {}, serial.MidiStatus()};
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if(diagnostic_status) DrawDiagnosticStatus(framebuffer,diagnostic_status);

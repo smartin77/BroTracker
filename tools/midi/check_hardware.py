@@ -13,6 +13,7 @@ from serial.tools import list_ports
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--hardware',action='store_true',required=True)
+parser.add_argument('--no-midi-consumer',action='store_true',help='Do not open WinMM input; host driver consumption remains unknown')
 parser.add_argument('--output',type=Path,default=Path('build/midi-foundation'))
 args=parser.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
 ports=[p for p in list_ports.comports() if p.vid==0x16c0 and p.pid==0x048a]
@@ -76,9 +77,10 @@ def publish(tune):
 
 def open_serial(): return serial.Serial(port.device,115200,timeout=.02,write_timeout=2)
 try:
-    result=mm.midiInOpen(c.byref(handle),midi_index,callback,0,0x30000)
-    assert result==0,('MIDI input may be owned elsewhere; no other application was closed',result)
-    assert mm.midiInStart(handle)==0
+    if not args.no_midi_consumer:
+        result=mm.midiInOpen(c.byref(handle),midi_index,callback,0,0x30000)
+        assert result==0,('MIDI input may be owned elsewhere; no other application was closed',result)
+        assert mm.midiInStart(handle)==0
     connection=open_serial(); collect(.2)
     request('BTTEST1 HELLO','BTMIDI1 CAP 1',.6)
     request('BTTEST1 STOP','BTTEST1 STOPPED')
@@ -89,30 +91,73 @@ try:
     request('BTMIDI1 SET 1 13','BTMIDI1 ERROR 1 restart-required')
     request('BTAUDIO1 SET 1 default','BTAUDIO1 SELECTED 1 bridge')
     initial=snapshot()
-    tune=dict(rows=8,channels=2,tempo=12500,cells=[[255,255,0] for _ in range(16)])
-    # NOTE_EMPTY=255, NOTE_OFF=254; verify these against core/note.h before changing.
-    tune['cells'][0]=[69,1,0]; tune['cells'][3]=[69,1,0]
-    tune['cells'][4]=[254,255,0]; tune['cells'][7]=[72,1,0]
-    tune['cells'][9]=[254,255,1]; tune['cells'][10]=[69,1,0]
-    tune['cells'][12]=[69,1,0]; tune['cells'][14]=[69,2,0]
-    publish(tune)
-    events.clear(); request('BTTEST1 START','BTTEST1 STARTED',3.05)
-    request('BTTEST1 STOP','BTTEST1 STOPPED')
-    expected=[0x64459b,0x00458b,0x64489b,0x00488b,0x64459b,0x00458b,0x64459b,0x00458b]
-    assert [v['message'] for v in events[:24]]==expected*3,events
-    assert all((v['message']&15)==11 for v in events),events
-    checks.append(dict(operation='notes-order-duplicate-deferred-retrigger-replacement-loop',messages=len(events),first_eight=expected,observed_loop_intervals_ms=[events[i]['winmm_ms']-events[i-8]['winmm_ms'] for i in (8,16,24) if i<len(events)]))
-    before=len(events); request('BTTEST1 START','BTTEST1 STARTED',.035)
-    request('BTTEST1 PAUSE','BTTEST1 PAUSED',.04)
-    assert any(v['message']==0x00458b for v in events[before:]),events[before:]
-    request('BTTEST1 CONTINUE','BTTEST1 CONTINUED',.035)
-    request('BTTEST1 STOP','BTTEST1 STOPPED',.08)
-    checks.append(dict(operation='pause-continue-stop',result='acknowledged; note cleanup observed'))
-    send('BTMIDI1 GET 1'); diagnostics=collect(); state=[v for v in diagnostics if v.startswith('BTMIDI1 STATE 1 ')][-1]
-    timing=[v for v in diagnostics if v.startswith('BTMIDI1 TIMING 1 ')][-1]
-    assert timing.split()[6]=='0',timing
-    assert state.split()[3:6]==['0','0','0'],state
-    checks.append(dict(operation='adapter-state',line=state,timing=timing))
+    if args.no_midi_consumer:
+        tune=dict(rows=8,channels=3,tempo=12500,cells=[[255,255,0] for _ in range(24)])
+        for row in range(8):
+            tune['cells'][row*3+2]=[69+row%4,1,0]
+            if row%4==0:
+                tune['cells'][row*3]=[60,0,0]
+                tune['cells'][row*3+1]=[69,2,0]
+        publish(tune)
+        request('BTTEST1 START','BTTEST1 STARTED',.1)
+        observations=[]
+        for _ in range(6):
+            lines=request('BTTEST1 STATUS','BTTEST1 STATE PLAYING',.45)
+            observations.extend(v for v in lines if v.startswith('BTPATTERN1 POS 2 '))
+        ticks=[int(v.split()[5]) for v in observations if v.split()[3:5]==['1','1']]
+        assert ticks and max(ticks)>min(ticks),observations
+        send('BTMIDI1 GET 1'); diagnostics=collect(.3)
+        health=[v for v in diagnostics if v.startswith('BTMIDI1 OUTPUT 1 ')]
+        faulted=bool(health and health[-1].split()[4]=='1')
+        if faulted:
+            # Consumer appearance must not release a delayed NOTE ON backlog.
+            result=mm.midiInOpen(c.byref(handle),midi_index,callback,0,0x30000)
+            assert result==0,('MIDI input owned elsewhere; no application closed',result)
+            assert mm.midiInStart(handle)==0
+            events.clear(); collect(.25)
+            assert not any((v['message']&0xf0)==0x90 and (v['message']>>16)&127 for v in events),events
+        request('BTTEST1 STOP','BTTEST1 STOPPED',.3)
+        if faulted:
+            send('BTMIDI1 GET 1'); recovered_cleanup=collect(.25)
+            state=[v for v in recovered_cleanup if v.startswith('BTMIDI1 STATE 1 ')][-1]
+            assert state.split()[3:6]==['1','0','0'],state
+        events.clear(); request('BTTEST1 START','BTTEST1 STARTED',.2)
+        if faulted:
+            assert any(v['message']==0x64459b for v in events),events
+            checks.append(dict(operation='explicit-recovery-after-completion-stall',
+                result='consumer appearance produced no stale NOTE ON; STOP cleanup completed; START emitted fresh note 69',
+                fault_health=health[-1],cleanup_state=state))
+        request('BTTEST1 STATUS','BTTEST1 STATE PLAYING',.3)
+        request('BTTEST1 STOP','BTTEST1 STOPPED',.3)
+        checks.append(dict(operation='no-WinMM-consumer-mixed-sample-synth-midi',
+            result='timeline advances; transport stays playing; STOP/START accepted',
+            first_tick=min(ticks),last_tick=max(ticks),diagnostics=diagnostics,
+            caveat='Initial playback opens no application MIDI input; recovery opens WinMM explicitly. Host driver consumption is distinct from external routing/presence. This is not an ArkOS trigger diagnosis or audio measurement.'))
+    else:
+        tune=dict(rows=8,channels=2,tempo=12500,cells=[[255,255,0] for _ in range(16)])
+        # NOTE_EMPTY=255, NOTE_OFF=254; verify these against core/note.h before changing.
+        tune['cells'][0]=[69,1,0]; tune['cells'][3]=[69,1,0]
+        tune['cells'][4]=[254,255,0]; tune['cells'][7]=[72,1,0]
+        tune['cells'][9]=[254,255,1]; tune['cells'][10]=[69,1,0]
+        tune['cells'][12]=[69,1,0]; tune['cells'][14]=[69,2,0]
+        publish(tune)
+        events.clear(); request('BTTEST1 START','BTTEST1 STARTED',3.05)
+        request('BTTEST1 STOP','BTTEST1 STOPPED')
+        expected=[0x64459b,0x00458b,0x64489b,0x00488b,0x64459b,0x00458b,0x64459b,0x00458b]
+        assert [v['message'] for v in events[:24]]==expected*3,events
+        assert all((v['message']&15)==11 for v in events),events
+        checks.append(dict(operation='notes-order-duplicate-deferred-retrigger-replacement-loop',messages=len(events),first_eight=expected,observed_loop_intervals_ms=[events[i]['winmm_ms']-events[i-8]['winmm_ms'] for i in (8,16,24) if i<len(events)]))
+        before=len(events); request('BTTEST1 START','BTTEST1 STARTED',.035)
+        request('BTTEST1 PAUSE','BTTEST1 PAUSED',.04)
+        assert any(v['message']==0x00458b for v in events[before:]),events[before:]
+        request('BTTEST1 CONTINUE','BTTEST1 CONTINUED',.035)
+        request('BTTEST1 STOP','BTTEST1 STOPPED',.08)
+        checks.append(dict(operation='pause-continue-stop',result='acknowledged; note cleanup observed'))
+        send('BTMIDI1 GET 1'); diagnostics=collect(); state=[v for v in diagnostics if v.startswith('BTMIDI1 STATE 1 ')][-1]
+        timing=[v for v in diagnostics if v.startswith('BTMIDI1 TIMING 1 ')][-1]
+        assert timing.split()[6]=='0',timing
+        assert state.split()[3:6]==['0','0','0'],state
+        checks.append(dict(operation='adapter-state',line=state,timing=timing))
     connection.close(); connection=open_serial()
     request('BTTEST1 HELLO','BTTEST1 STATE IDLE',.6)
     request('BTMIDI1 SET 1 12','BTMIDI1 SELECTED 1 12')
@@ -132,7 +177,7 @@ finally:
             mm.midiInStop(handle); mm.midiInReset(handle)
             midi_close_result=mm.midiInClose(handle)
         (args.output/'hardware.log').write_text('\n'.join(transcript)+'\n')
-        summary=dict(port=port.device,serial=port.serial_number,midi_input=midi_name,checks=checks,events=events,
+        summary=dict(port=port.device,serial=port.serial_number,midi_input=midi_name,initial_application_midi_consumer=not args.no_midi_consumer,checks=checks,events=events,
             restored=restored,serial_closed=not connection or not connection.is_open,midi_close_result=midi_close_result,
             timing_scope='Windows MIDI callback observations only; no external audio or end-to-end synchronization measurement')
         (args.output/'hardware.json').write_text(json.dumps(summary,indent=2)+'\n')
