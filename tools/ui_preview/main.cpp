@@ -67,7 +67,7 @@ int main(int argc, char* argv[])
     live.telemetry_available = true;
     BroTracker::DevicePatternSnapshot snapshot;
     snapshot.transfer_id = 1;
-    snapshot.tempo_hundredths = 12500;
+    snapshot.tempo_hundredths = tune.tempo_hundredths;
     snapshot.pattern.active_rows = std::min<unsigned>(pattern.length, 32);
     snapshot.pattern.active_channels = std::min<unsigned>(pattern.channels.size(), 8);
     live.position.rows = snapshot.pattern.active_rows;

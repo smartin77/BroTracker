@@ -63,7 +63,7 @@ namespace
         return bindings;
     }();
     #else
-    constexpr std::uint32_t kTempoHundredths = 12500;
+    constexpr std::uint32_t kTempoHundredths = kDevelopmentFixtureTempo;
     const RealtimePattern kPattern = MakeDevelopmentPattern();
     const SelectedPatternBindings kBindings = SelectDevelopmentFixture({}).bindings;
     #endif

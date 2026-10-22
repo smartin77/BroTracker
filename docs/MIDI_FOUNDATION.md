@@ -268,6 +268,37 @@ within that connection. Reconnect repeats the resolved configuration safely.
 Older firmware stays usable and exposes an explicit MIDI-unsupported status.
 No instrument channel editor or channel persistence on Teensy is added.
 
+## Physical confirmation and future voice experiment (2026-10-22)
+
+The user confirms on ArkOS that adding a note with MIDI instrument 02 no longer
+stops internal playback. External MIDI equipment was not connected. This confirms
+failure isolation only: it does not establish fault-free MIDI output, external
+delivery or audible synchronization, and says nothing about external-device
+presence detection. Other unreported recovery cases remain unconfirmed.
+
+The user also exercised different instrument types within one tracker channel.
+A separate future POC may investigate letting an already sounding Sample/Synth
+voice continue when a MIDI note arrives on that same tracker channel. This is
+exploration, not an approved voice-policy change. Current monophonic replacement,
+MIDI ownership, instrument selection-only behavior and NOTE OFF semantics remain
+unchanged. Any proposed overlap needs separately reviewed lifetime/OFF/cleanup
+and retrigger rules before implementation.
+
+The current development/test2.wav/test3.wav fixture now starts at exactly
+155.00 BPM (applied and published); firmware fixture initialization, host dummy
+tune and preview metadata agree. New projects still default to exactly 125.00 BPM.
+This changes no WAV bytes, sample rate, pitch, stretching, MIDI dispatch or voice
+policy. Bridge diagnostics remain paused. External hardware/playback and physical
+combined-audio measurements remain pending.
+
+The updated development firmware was built/uploaded to discovered Teensy
+17681760 / COM3. Bounded serial checks verify both initial and final applied /
+published fixture tempo 155.00; tempo/publication, Windows MIDI capture and Synth
+helpers pass and leave the original fixture restored, playback stopped and handles
+closed. Windows 8/8 and Eoan ARM64 20/20 suites plus package checks pass. These
+PC checks add no external-delivery or audible-sync claim. See
+[actual fixture update validation](../build/fixture-tempo/validation.md).
+
 ## Actual routing prerequisites
 
 The measured automated topology is **Teensy USB device -> Windows USB host ->

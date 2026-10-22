@@ -8,6 +8,30 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Development fixture tempo and physical confirmation (2026-10-22)
+
+* [x] User physically confirms on ArkOS that adding a MIDI instrument 02 note no
+  longer stops internal playback. No external MIDI equipment was connected.
+  Confirms failure isolation only, not external delivery, fault-free MIDI output,
+  external-device presence or audible synchronization.
+* [x] User exercised different instrument types within one tracker channel.
+* [ ] Future POC/experiment: investigate allowing an already sounding Sample/Synth
+  voice to continue when a MIDI note arrives on that tracker channel. Exploration
+  only; no voice-policy change approved. Retain current monophonic replacement
+  and NOTE OFF semantics until separately reviewed.
+* [x] Set only the current development/test fixture to 155.00 BPM for the existing
+  test2.wav/test3.wav workload; align firmware, dummy-tune/preview metadata and
+  hardware helpers. New projects retain exactly 125.00 BPM. WAV data, pitch,
+  sample rate and tempo-stretching behavior are unchanged.
+* [x] Validate fixture/default/publication tests: Windows `-EmptyWindowTitle` 8/8,
+  Eoan ARM64 20/20 plus complete package/ABI/checksum/install checks. Build/upload
+  dev firmware to discovered Teensy 17681760 / COM3; bounded tempo/publication,
+  MIDI capture and Synth helpers pass. Initial/final applied and published tempo
+  verified 155.00; original fixture restored, playback stopped, handles closed.
+  See [focused diff, delivery hashes and validation](../build/fixture-tempo/validation.md).
+* [ ] External MIDI equipment/playback and measured combined-audio alignment
+  remain pending. Severe crackling remains unresolved; bridge diagnostics paused.
+
 ### MIDI output failure isolation (2026-10-22)
 
 * [x] Record the failed physical ArkOS case: MIDI 02 on tracker channel 3 stops
@@ -30,7 +54,9 @@ Items may be added during development to record agreed next steps or work that n
   STOP cleanup completes, START emits a fresh note. Original pattern restored,
   playback stopped, owned serial/MIDI handles closed. This is not an ArkOS trigger
   diagnosis or external audio measurement. Refresh the complete ARM64 Git package.
-* [ ] Physically retest ArkOS isolation/recovery with refreshed BTX and firmware;
+* [x] User physically confirms adding MIDI 02 no longer stops internal playback
+  on ArkOS, with no external MIDI equipment connected (see bounded claim above).
+* [ ] Other ArkOS isolation/recovery cases remain unconfirmed;
   record the reported MIDI reason. Do not infer the 40 ms watchdog or absent
   external equipment was the original trigger. See [repair design](MIDI_FOUNDATION.md)
   and [actual validation](../build/midi-isolation/validation.md).
@@ -104,8 +130,8 @@ Items may be added during development to record agreed next steps or work that n
 ### Live tempo control (2026-10-21)
 
 * [x] Implement [session-only live tempo control](LIVE_TEMPO_CONTROL.md): integer
-  hundredths, 125.00 development default, 0.05 taps, 32.00-300.00 clamp and integer
-  one-decimal display rounding. Retain intentional fractional test fixtures.
+  hundredths, 125.00 new-project default (development fixture now 155.00), 0.05 taps,
+  32.00-300.00 clamp and integer one-decimal display rounding. Retain intentional fractional test fixtures.
 * [x] Add keypad-only Windows +/- and consumed R1+Left/Right handheld controls,
   shared controller/raw handling and bounded application repeat/acceleration.
 * [x] Anchor playback changes at the next unconsumed row boundary, preserving

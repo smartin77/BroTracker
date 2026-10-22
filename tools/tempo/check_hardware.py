@@ -90,14 +90,17 @@ try:
     assert 'BTTEST1 STATE IDLE' in hello,hello
     assert 'BTTEMPO1 CAP 1' in hello and 'BTPUBLISH1 TEMPOCAP 2' in hello
     send('BTAUDIO1 SET 1 default');assert 'BTAUDIO1 SELECTED 1 bridge' in collect(.5)
-    initial=snapshot();assert initial['tempo']==12500,initial
+    send('BTMIDI1 SET 1 12');assert 'BTMIDI1 SELECTED 1 12' in collect(.3)
+    initial=snapshot();assert initial['tempo']==15500,initial
+    assert state()['tempo']==15500 and state()['published']==15500
+    checks.append(dict(operation='initial-fixture',applied=15500,published=15500,playback='stopped'))
     before=state()
     for value in (3199,30001,4294967295):
         send(f'BTTEMPO1 SET 1 {before["next"]} {value}');lines=collect()
         assert f'BTTEMPO1 REJECTED 1 {before["next"]}' in lines,lines
         assert state()==before
     checks.append(dict(operation='invalid-range',result='transactionally rejected'))
-    tempo(12505);assert snapshot()['tempo']==12500
+    tempo(12505);assert snapshot()['tempo']==15500
     transport('START','STARTED');tempo(15000);tempo(10000)
     playing=collect(.3)
     ticks=[int(s.split()[6]) for s in transcript if s.startswith('RX BTPATTERN1 POS 2 1 1 ')]
@@ -116,9 +119,9 @@ try:
     connection.close();connection=open_port();send('BTTEST1 HELLO');assert 'BTTEST1 STATE IDLE' in collect(.6)
     assert state()['tempo']==13000 and snapshot()['tempo']==13000
     checks.append(dict(operation='reconnect-and-stop-start-retention',tempo=13000,automatic_start=False))
-    publish(initial);assert state()['tempo']==12500 and state()['published']==12500
+    publish(initial);assert state()['tempo']==15500 and state()['published']==15500
     send('BTTEST1 STOP');collect(.3);send('BTTEST1 STATUS');assert 'BTTEST1 STATE IDLE' in collect(.3)
-    checks.append(dict(operation='final-state',playback='stopped',tempo=12500,published=12500,pattern='initial fixture restored'))
+    checks.append(dict(operation='final-state',playback='stopped',tempo=15500,published=15500,pattern='initial fixture restored'))
 finally:
     if connection and connection.is_open:
         try:send('BTTEST1 STOP');collect(.2)

@@ -48,6 +48,13 @@ try:
     route = collect(0.7)
     assert "BTAUDIO1 SELECTED 1 bridge" in route, route
     report["route"] = "default negotiated as bridge (USB_BRIDGE)"
+    send("BTMIDI1 SET 1 12")
+    assert "BTMIDI1 SELECTED 1 12" in collect(0.3)
+    send("BTTEMPO1 GET 1")
+    tempo_lines = collect(0.3)
+    values = [line.split() for line in tempo_lines if line.startswith("BTTEMPO1 STATE 1 ")]
+    assert values and values[-1][-2:] == ["15500", "15500"], tempo_lines
+    report["initial_tempo"] = {"applied": 15500, "published": 15500}
     send("BTTEST1 START")
     started = True
     playing = collect(3.0)

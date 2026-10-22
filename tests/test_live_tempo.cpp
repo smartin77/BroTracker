@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include "bringup/pattern_control.h"
+#include "bringup/pattern_fixture.h"
 #include "bringup/variable_rate_player_adapter.h"
 #include "bringup/host_tempo.h"
 #include "bringup/host_pattern_publication.h"
@@ -221,4 +222,20 @@ TEST_CASE(TempoSerialCapabilityCoalescingStopPriorityAndHybridPublicationRejecti
     wire->rx="BTTEST1 STOPPED\nBTTEMPO1 CANCELLED 1 2\nBTTEMPO1 STATE 1 2 1 3 0 12510 12500\n";serial.Tick(5);
     CHECK_EQ(serial.Tempo().State().tempo,12510);CHECK(wire->tx.find("BTTEMPO1 SET 1 3")==std::string::npos);
     wire->healthy=false;serial.Tick(6);CHECK(!serial.Connected());CHECK(!serial.StepTempo(5));
+}
+
+TEST_CASE(DevelopmentFixtureTempoAndPublicationStaySeparateFromNewProjectDefault) {
+    const auto fixture=SelectDevelopmentFixture({});
+    using Control=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
+    Control control;
+    CHECK_EQ(control.InitializeAudio(kDevelopmentFixtureTempo,44100,fixture.pattern,fixture.bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(control.Snapshot().tempo,15500u); CHECK_EQ(control.Snapshot().published_tempo,15500u);
+    CHECK(!control.Snapshot().running);
+    std::int16_t audio[128];
+    CHECK_EQ(control.SubmitTempo(15600,1),PatternRequestStatus::Accepted); control.AudioBlock(audio,128,true);
+    CHECK_EQ(control.Snapshot().tempo,15600u); CHECK_EQ(control.Snapshot().published_tempo,15500u);
+    CHECK_EQ(control.SubmitPattern(fixture.pattern,1,kDevelopmentFixtureTempo),PatternRequestStatus::Accepted);
+    control.AudioBlock(audio,128,true);
+    CHECK_EQ(control.Snapshot().tempo,15500u); CHECK_EQ(control.Snapshot().published_tempo,15500u);
+    CHECK_EQ(kDefaultTempo,12500u); CHECK(!control.Snapshot().running);
 }

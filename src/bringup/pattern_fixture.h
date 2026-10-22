@@ -6,6 +6,8 @@
 #define BROTRACKER_PATTERN_FIXTURE_ROWS 32
 #endif
 namespace BroTracker {
+// Development/test2.wav/test3.wav workload only; new projects retain kDefaultTempo (12500).
+constexpr std::uint32_t kDevelopmentFixtureTempo = 15500;
 constexpr std::uint8_t kPatternBringUpFixtureRows = BROTRACKER_PATTERN_FIXTURE_ROWS;
 static_assert(BROTRACKER_PATTERN_FIXTURE_ROWS == 16 || BROTRACKER_PATTERN_FIXTURE_ROWS == 32 ||
     BROTRACKER_PATTERN_FIXTURE_ROWS == 64, "Fixture rows must be 16, 32 or 64");

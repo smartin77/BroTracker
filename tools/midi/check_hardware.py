@@ -90,9 +90,9 @@ try:
     request('BTMIDI1 SET 1 12','BTMIDI1 SELECTED 1 12')
     request('BTMIDI1 SET 1 13','BTMIDI1 ERROR 1 restart-required')
     request('BTAUDIO1 SET 1 default','BTAUDIO1 SELECTED 1 bridge')
-    initial=snapshot()
+    initial=snapshot(); assert initial['tempo']==15500,initial
     if args.no_midi_consumer:
-        tune=dict(rows=8,channels=3,tempo=12500,cells=[[255,255,0] for _ in range(24)])
+        tune=dict(rows=8,channels=3,tempo=initial['tempo'],cells=[[255,255,0] for _ in range(24)])
         for row in range(8):
             tune['cells'][row*3+2]=[69+row%4,1,0]
             if row%4==0:
@@ -134,7 +134,7 @@ try:
             first_tick=min(ticks),last_tick=max(ticks),diagnostics=diagnostics,
             caveat='Initial playback opens no application MIDI input; recovery opens WinMM explicitly. Host driver consumption is distinct from external routing/presence. This is not an ArkOS trigger diagnosis or audio measurement.'))
     else:
-        tune=dict(rows=8,channels=2,tempo=12500,cells=[[255,255,0] for _ in range(16)])
+        tune=dict(rows=8,channels=2,tempo=initial['tempo'],cells=[[255,255,0] for _ in range(16)])
         # NOTE_EMPTY=255, NOTE_OFF=254; verify these against core/note.h before changing.
         tune['cells'][0]=[69,1,0]; tune['cells'][3]=[69,1,0]
         tune['cells'][4]=[254,255,0]; tune['cells'][7]=[72,1,0]

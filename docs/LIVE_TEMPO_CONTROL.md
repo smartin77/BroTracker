@@ -1,7 +1,10 @@
 # Live tempo control (session only)
 
 Implemented on `feature/live-tempo-control`. Engine and Tune tempo is an integer
-number of hundredths of BPM, with a 12500 / **125.00 BPM** development default.
+number of hundredths of BPM, with a 12500 / **125.00 BPM** default for new projects.
+The current development fixture starts at 15500 / **155.00 BPM** for the existing test2.wav/test3.wav
+workload; firmware, host dummy tune and preview metadata agree. Sample data, pitch,
+sample rate and stretching are unchanged. Fractional-tempo regressions remain.
 Interactive requests accept 3200-30000 (32.00-300.00 BPM) transactionally. Existing
 fractional regression inputs such as 12753 remain intentional and unchanged.
 The existing decimal JSON input is converted once to integer hundredths; its
@@ -94,7 +97,7 @@ logging, file I/O, locks or host timing in the render path.
 | BTX reconnect | Read device-authoritative tempo and published baseline; no automatic START or replay of an uncertain old SET. |
 | Publish (F5 / A) | Freeze coherent pattern + applied tempo as the new published baseline; requires synchronized tempo and stopped/paused transport. |
 | Restore (F4 / L1+Y) | Return the working pattern and desired tempo to the published snapshot baseline, using normal preview/tempo handoffs. Does not force 125.00 or change the published baseline. |
-| Device reboot / firmware reinitialization | Session ends; development fixture starts at 125.00. No disk persistence is implied. |
+| Device reboot / firmware reinitialization | Session ends; current development fixture starts at 155.00; new projects still default to 125.00. No disk persistence is implied. |
 
 Restore's tempo goal coalesces with an already in-flight adjustment. Its value
 comes from the checksum-verified published snapshot, so it also works immediately
