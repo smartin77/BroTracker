@@ -243,7 +243,11 @@ See [actual results](../build/midi-foundation/validation.md),
 [hardware transcript](../build/midi-foundation/hardware.log),
 [capture and summary](../build/midi-foundation/hardware.json), and
 [complete actual diff including new files](../build/midi-foundation/complete.diff).
-Generated binaries, captures, logs and review exports remain ignored.
+Generated captures, logs and review exports remain ignored; ARM64 binaries and
+required package assets are intentional Git delivery. The initial Eoan build
+validation did not refresh deploy/arkos. Use the corrected
+[build-to-delivery workflow](../tools/arkos/README.md#build-check-and-prepare-git-delivery)
+for a console update.
 
 Actual results on 2026-10-22: Windows BTX with `-EmptyWindowTitle` passed all
 8 suites; clean GCC 13.3 Release passed all 6 CI suites; Eoan ARM64 application,

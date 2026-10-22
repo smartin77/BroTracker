@@ -231,3 +231,13 @@ The following areas remain intentionally undecided:
 
 These questions should be resolved from further implementation and hardware
 testing rather than fixed prematurely.
+
+## Current ARM64 Git package delivery
+
+Compilation, Eoan-root staging and repository delivery are separate steps.
+Use `bash tools/arkos/prepare-package.sh` from WSL/Linux to complete all three,
+including tests/ABI checks, source-to-package identity, required config/assets,
+checksums and isolated clean installation. Review deploy/arkos binaries and all
+required assets for the eventual Git delivery; generated Windows packages remain
+untracked. No SSH or handheld installation is implied. See
+[exact build/update/install instructions](../tools/arkos/README.md#build-check-and-prepare-git-delivery).
