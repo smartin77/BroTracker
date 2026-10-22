@@ -294,7 +294,7 @@ TEST_CASE(PatternSnapshot_DisplayActualDeviceCellsTempoAndDimensionGuard)
     RenderMainScreen(fb, tune, preview, live);
     const std::vector<Color> device(fb.PixelData(), fb.PixelData() + 640 * 480);
     CHECK(std::memcmp(device.data(), unavailable.data(), device.size() * sizeof(Color)) != 0);
-    tune.title = "UNRELATED"; tune.tempo = 12; preview.channels.resize(8);
+    tune.title = "UNRELATED"; tune.tempo_hundredths = 1200; preview.channels.resize(8);
     for (auto& channel : preview.channels) { channel.rows.resize(32); for (auto& cell : channel.rows) cell = {72, 9}; }
     RenderMainScreen(fb, tune, preview, live);
     CHECK(std::memcmp(device.data(), fb.PixelData(), device.size() * sizeof(Color)) == 0);

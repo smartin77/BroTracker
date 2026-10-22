@@ -1,12 +1,13 @@
 #pragma once
 #include "live_playback_view.h"
 #include "pattern_edit_history.h"
+#include "pattern_grid.h"
 #include "bringup/host_pattern_publication.h"
 
 enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
-    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo };
+    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat };
 struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; };
 constexpr unsigned kEditableInstrumentMaximum = 98; // Displayed 99; wire IDs remain unrestricted.
 
@@ -42,8 +43,8 @@ public:
     bool Locked() const noexcept { return locked_; }
     const BroTracker::DevicePatternSnapshot* Baseline() const noexcept { return ready_ ? &baseline_ : nullptr; }
     // Called only after exact publication readback. Cursor remains independent.
-    bool Rebase(const BroTracker::DevicePatternSnapshot& snapshot) noexcept {
-        if(!ready_ || snapshot.version!=2 || snapshot.tempo_hundredths!=baseline_.tempo_hundredths ||
+    bool Rebase(const BroTracker::DevicePatternSnapshot& snapshot,std::uint32_t expected_tempo=0) noexcept {
+        if(!ready_ || snapshot.version!=2 || snapshot.tempo_hundredths!=(expected_tempo?expected_tempo:baseline_.tempo_hundredths) ||
             !BroTracker::SamePattern(snapshot.pattern,draft_)) return false;
         baseline_=snapshot; draft_=snapshot.pattern; instrument_cycle_empty_=false; return true;
     }
@@ -122,6 +123,7 @@ private:
     {
         if (!ready_) return false;
         if (locked_ && action != EditorAction::Up && action != EditorAction::Down &&
+            action != EditorAction::PreviousBeat && action != EditorAction::NextBeat &&
             action != EditorAction::Left && action != EditorAction::Right &&
             action != EditorAction::NextChannel && action != EditorAction::PreviousChannel) return false;
         auto next = cursor_;
@@ -129,6 +131,10 @@ private:
         {
         case EditorAction::Up: if (!next.row) return false; --next.row; break;
         case EditorAction::Down: if (next.row + 1 >= draft_.active_rows) return false; ++next.row; break;
+        case EditorAction::PreviousBeat: case EditorAction::NextBeat:
+            next.row = PatternGrid::BeatDestination(next.row, draft_.active_rows, action == EditorAction::NextBeat);
+            if (next.row == cursor_.row) return false;
+            break;
         case EditorAction::Left:
             if (next.field == EditField::Instrument) next.field = EditField::Note;
             else { if (!next.channel) return false; --next.channel; next.field = EditField::Instrument; }

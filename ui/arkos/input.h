@@ -2,6 +2,7 @@
 #include <SDL.h>
 #include "ui/editor_step_input.h"
 #include "ui/navigation_repeat.h"
+#include "ui/tempo_repeat.h"
 #include "ui/bringup_controls.h"
 #include "ui/handheld_control_hints.h"
 
@@ -11,6 +12,7 @@ enum class ArkOSInputStream { Controller, VerifiedRaw };
 struct ArkOSInputResult {
     BringUpAction transport = BringUpAction::None;
     bool publish = false;
+    bool restore = false;
 };
 
 static_assert(SDL_CONTROLLER_BUTTON_MAX <= 32, "Handheld held-state mask must cover all SDL buttons");
@@ -33,13 +35,16 @@ public:
             bindings[i]=SDL_GameControllerGetBindForButton(controller,static_cast<SDL_GameControllerButton>(i));
         Select(SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)),stream,bindings);
     }
+    int TakeTempoStep() noexcept {const auto step=tempo_step_;tempo_step_=0;return step;}
     void Cancel() noexcept {
+        tempo_repeat_.Cancel(); tempo_step_=0;
         repeat_.Cancel(); navigation_.Cancel(); repeat_direction_=-1;
         for(unsigned b=SDL_CONTROLLER_BUTTON_DPAD_UP;b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;++b)
             if(pressed_[b]) blocked_|=1u<<b;
     }
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
         if(!connected || !focused_ || !editor.Ready()) { Cancel(); return; }
+        if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] && !navigation_.Active()) {tempo_step_=tempo_repeat_.Tick(now);return;}
         if(repeat_direction_<0) return;
         if(navigation_.Active()) {
             navigation_.Tick(now,editor);
@@ -87,6 +92,29 @@ private:
     ArkOSInputResult Button(unsigned b,bool down,std::uint32_t now,bool connected,LocalPatternEditor& editor) noexcept {
         if(b>=SDL_CONTROLLER_BUTTON_MAX || pressed_[b]==down) return {};
         pressed_[b]=down;
+        const auto r1=SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+        const auto left=SDL_CONTROLLER_BUTTON_DPAD_LEFT, right=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        const auto up=SDL_CONTROLLER_BUTTON_DPAD_UP, down_button=SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        if((b==r1 && down && (pressed_[up] || pressed_[down_button])) ||
+           ((b==up || b==down_button) && pressed_[r1])) {
+            const bool blocked = (blocked_ & (1u<<b)) != 0;
+            Cancel();
+            if(!down) blocked_ &= ~(1u<<b);
+            if(down && connected && focused_ && editor.Ready() && pressed_[up]!=pressed_[down_button] &&
+               (b==r1 || !blocked)) {
+                const auto direction = pressed_[up] ? up : down_button;
+                blocked_ &= ~(1u<<direction); repeat_direction_=direction;
+                navigation_.Begin(pressed_[up] ? EditorAction::PreviousBeat : EditorAction::NextBeat,now,editor);
+            }
+            return {};
+        }
+        if(b==r1 || ((b==left || b==right) && pressed_[r1])) {
+            Cancel(); // Also blocks held editor directions until physical release.
+            if(!down && b!=r1) blocked_ &= ~(1u<<b);
+            if(connected && focused_ && pressed_[r1] && pressed_[left]!=pressed_[right] && down)
+                tempo_step_=tempo_repeat_.Begin(pressed_[right]?1:-1,now);
+            return {};
+        }
         const bool direction=b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
         if(!down) {
             blocked_ &= ~(1u<<b);
@@ -124,9 +152,10 @@ private:
         if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
         if(b==SDL_CONTROLLER_BUTTON_A && !modifier) { Cancel(); return {BringUpAction::None,true}; }
         if(b==SDL_CONTROLLER_BUTTON_X && !modifier && connected) { Cancel(); editor.Apply(EditorAction::NoteOff); }
-        if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); }
+        if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
     }
+    TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;
     SDL_JoystickID id_=-1;

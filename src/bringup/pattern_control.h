@@ -6,14 +6,15 @@
 namespace BroTracker
 {
     constexpr std::size_t kPatternRequestCapacity = 8;
-    enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded, Gains };
-    enum class PatternRequestStatus { Accepted, Full, InvalidRequest, InvalidGain, Identity };
+    enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded, Gains, Tempo };
+    enum class PatternRequestStatus { Accepted, Full, InvalidRequest, InvalidGain, Identity, InvalidTempo };
     enum class PatternFault { None, Configuration, Render, Allocation };
     struct PatternAppliedRequest
     {
         PatternRequest request = PatternRequest::Stop;
         PatternPlayerStatus result = PatternPlayerStatus::Success;
         std::uint32_t publication_id = 0;
+        std::uint32_t tempo = 0;
     };
     struct PatternBringUpStatus
     {
@@ -22,6 +23,7 @@ namespace BroTracker
         PatternPerformance performance;
         Pcm16ChannelGains gains;
         std::uint32_t applied_gain_id = 0, next_gain_id = 1;
+        std::uint32_t tempo=0,published_tempo=0,settled_tempo_id=0,applied_tempo_id=0,pending_tempo_id=0,next_tempo_id=1;
         bool running = false;
         PatternTransportState transport = PatternTransportState::Stopped;
         std::uint64_t next_sample = 0;
@@ -56,6 +58,7 @@ namespace BroTracker
                 request != PatternRequest::Pause && request != PatternRequest::Continue)
                 return PatternRequestStatus::InvalidRequest;
             if (request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
+            if(request==PatternRequest::Stop) tempo_cancel_through_=highest_tempo_id_;
             requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = {request, nullptr, 0};
             ++request_count_;
             return PatternRequestStatus::Accepted;
@@ -63,10 +66,12 @@ namespace BroTracker
         // Main-loop critical section. Storage must stay frozen until TakeApplied
         // returns this ID. One outstanding replacement; FIFO order with transport.
         [[nodiscard]] PatternRequestStatus SubmitPattern(const RealtimePattern& pattern,
-            std::uint32_t id) noexcept {
+            std::uint32_t id, std::uint32_t tempo=0) noexcept {
+            if(tempo && !ValidInteractiveTempo(tempo)) return PatternRequestStatus::InvalidTempo;
             if (!id) return PatternRequestStatus::InvalidRequest;
             if (publication_pending_ || request_count_ == kPatternRequestCapacity) return PatternRequestStatus::Full;
             requests_[(request_head_ + request_count_) % kPatternRequestCapacity] = {PatternRequest::Replace, &pattern, id};
+            requests_[(request_head_ + request_count_) % kPatternRequestCapacity].tempo=tempo;
             ++request_count_; publication_pending_ = true;
             return PatternRequestStatus::Accepted;
         }
@@ -91,6 +96,14 @@ namespace BroTracker
             requests_[(request_head_+request_count_)%kPatternRequestCapacity]={PatternRequest::Gains,nullptr,id,gains};
             ++request_count_; highest_gain_id_=id; return PatternRequestStatus::Accepted;
         }
+        [[nodiscard]] PatternRequestStatus SubmitTempo(std::uint32_t value,std::uint32_t id) noexcept {
+            if(!ValidInteractiveTempo(value)) return PatternRequestStatus::InvalidTempo;
+            if(!id || id<=highest_tempo_id_) return PatternRequestStatus::Identity;
+            if(request_count_==kPatternRequestCapacity) return PatternRequestStatus::Full;
+            auto& entry=requests_[(request_head_+request_count_)%kPatternRequestCapacity];
+            entry={}; entry.request=PatternRequest::Tempo; entry.id=id; entry.tempo=value;
+            ++request_count_; highest_tempo_id_=id; return PatternRequestStatus::Accepted;
+        }
         bool TakeApplied(PatternAppliedRequest& output) noexcept
         {
             if (applied_count_ == 0) {
@@ -105,6 +118,8 @@ namespace BroTracker
         }
         PatternBringUpStatus Snapshot() const noexcept {
             auto result=status_;
+            result.next_tempo_id=highest_tempo_id_==UINT32_MAX?0:highest_tempo_id_+1;
+            if(highest_tempo_id_>result.settled_tempo_id) result.pending_tempo_id=highest_tempo_id_;
             result.next_gain_id=highest_gain_id_==UINT32_MAX ? 0 : highest_gain_id_+1;
             return result;
         }
@@ -117,7 +132,7 @@ namespace BroTracker
         {
             const auto result = player_.Configure(tempo_hundredths, rate, pattern, bindings);
             if (result != PatternPlayerStatus::Success) Fail(PatternFault::Configuration, result);
-            if(result==PatternPlayerStatus::Success) status_.applied_gain_id=0;
+            if(result==PatternPlayerStatus::Success) {status_.applied_gain_id=0; status_.published_tempo=tempo_hundredths;}
             Publish();
             return result;
         }
@@ -147,6 +162,15 @@ namespace BroTracker
                 request_head_ = (request_head_ + 1) % kPatternRequestCapacity;
                 --request_count_;
                 PatternPlayerStatus result = PatternPlayerStatus::Success;
+                if(request==PatternRequest::Tempo) {
+                    if(entry.id<=tempo_cancel_through_) { player_.CancelTempo(); status_.pending_tempo_id=0; status_.settled_tempo_id=entry.id; }
+                    else {
+                        result=player_.RequestTempo(entry.tempo);
+                        if(result==PatternPlayerStatus::Success) status_.pending_tempo_id=entry.id;
+                        else status_.settled_tempo_id=entry.id;
+                    }
+                    CompleteTempo(); continue;
+                }
                 if (request == PatternRequest::Gains) {
                     result=player_.SetChannelGains(entry.gains);
                     if(result==PatternPlayerStatus::Success) status_.applied_gain_id=entry.id;
@@ -162,11 +186,14 @@ namespace BroTracker
                     result = player_.GetTransportState() == PatternTransportState::Paused
                         ? player_.ReplacePausedPattern(*entry.pattern) : player_.ReplacePattern(*entry.pattern);
                     if (result == PatternPlayerStatus::Success) {
+                        if(entry.tempo) (void)player_.RequestTempo(entry.tempo);
+                        status_.published_tempo=player_.GetTempo();
                         SupersedePreview(); status_.published_id = entry.id; status_.working_id = 0; // Published revision, separate ID domain.
                     }
                 }
                 else if (request == PatternRequest::Start)
                 {
+                    if(status_.pending_tempo_id) { status_.settled_tempo_id=status_.pending_tempo_id; status_.pending_tempo_id=0; }
                     result = player_.Start();
                     if (result == PatternPlayerStatus::Success)
                     {
@@ -174,11 +201,15 @@ namespace BroTracker
                     }
                     else Fail(PatternFault::Configuration, result);
                 }
-                else if (request == PatternRequest::Stop) player_.Stop();
+                else if (request == PatternRequest::Stop) {
+                    player_.Stop();
+                    if(status_.pending_tempo_id) status_.settled_tempo_id=status_.pending_tempo_id;
+                    status_.pending_tempo_id=0;
+                }
                 else if (status_.fault != PatternFault::None) result = PatternPlayerStatus::InvalidTransportState;
                 else if (request == PatternRequest::Pause) result = player_.Pause();
                 else result = player_.Continue();
-                applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result,entry.id};
+                applied_[(applied_head_ + applied_count_) % kPatternRequestCapacity] = {request,result,entry.id,player_.GetTempo()};
                 ++applied_count_;
                 CompletePreview();
             }
@@ -198,9 +229,16 @@ namespace BroTracker
             }
             else Zero(output, count);
             CompletePreview();
+            CompleteTempo();
             Publish();
         }
     private:
+        void CompleteTempo() noexcept {
+            if(status_.pending_tempo_id && !player_.HasPendingTempo()) {
+                status_.settled_tempo_id=status_.applied_tempo_id=status_.pending_tempo_id;
+                status_.pending_tempo_id=0;
+            }
+        }
         // One completion debt slot covers application when the ACK FIFO fills.
         // While owed, no new requests are applied; rendering/transport timeline continues.
         void Notify(PatternRequest kind, std::uint32_t id) noexcept {
@@ -226,6 +264,8 @@ namespace BroTracker
         void Fail(PatternFault fault, PatternPlayerStatus error) noexcept
         {
             player_.Stop();
+            if(status_.pending_tempo_id) status_.settled_tempo_id=status_.pending_tempo_id;
+            status_.pending_tempo_id=0;
             status_.fault = fault;
             status_.last_fault = fault;
             status_.player_error = error;
@@ -233,6 +273,7 @@ namespace BroTracker
         }
         void Publish() noexcept
         {
+            status_.tempo=player_.GetTempo();
             status_.gains = player_.GetChannelGains();
             status_.running = player_.IsRunning();
             status_.transport = player_.GetTransportState();
@@ -243,9 +284,9 @@ namespace BroTracker
         }
         Player player_;
         PatternBringUpStatus status_;
-        struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; };
+        struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; std::uint32_t tempo=0; };
         RequestEntry requests_[kPatternRequestCapacity]{};
-        std::uint32_t highest_gain_id_ = 0;
+        std::uint32_t highest_gain_id_ = 0, highest_tempo_id_=0, tempo_cancel_through_=0;
         bool publication_pending_ = false;
         bool deferred_notification_ = false;
         PatternAppliedRequest notification_;

@@ -11,6 +11,10 @@ public:
         const RealtimePattern& pattern, const VariableRateSampleBindings& bindings) noexcept {
         return Map(player_.Configure(tempo_hundredths,rate,pattern,bindings));
     }
+    std::uint32_t GetTempo() const noexcept { return player_.GetTempo(); }
+    bool HasPendingTempo() const noexcept { return player_.HasPendingTempo(); }
+    void CancelTempo() noexcept { player_.CancelTempo(); }
+    PatternPlayerStatus RequestTempo(std::uint32_t value) noexcept { return Map(player_.RequestTempo(value)); }
     PatternPlayerStatus Start() noexcept { return Map(player_.Start()); }
     void Stop() noexcept { player_.Stop(); }
     PatternPlayerStatus Pause() noexcept { return Map(player_.Pause()); }

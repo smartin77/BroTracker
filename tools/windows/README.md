@@ -244,3 +244,49 @@ Windows endpoint label, not an old product name in the running firmware; it
 does not establish that every byte of the flashed firmware equals the local
 artifact. No registry, driver, serial, VID/PID or firmware change is needed to
 make bridge discovery work, because discovery uses USB/container identity.
+
+## Live tempo controls
+
+Numeric keypad + / - (SDLK_KP_PLUS / SDLK_KP_MINUS) changes tempo independently of
+Num Lock. Main-keyboard +/- remain unbound. Tap 0.05 BPM; bounded held repeat at
+400 ms / 100 ms intervals accelerates after 1.5 s and 3 s. BPM shows the applied
+value rounded to one decimal; pending desired hundredths remain visible in status.
+F5 Publish freezes pattern plus applied tempo while stopped/paused; F4 Restore
+returns to the published pattern and tempo baseline. STOP/START and reconnect
+retain acknowledged tempo; reboot starts a new session at 125.00. No config.ini
+or SD persistence write occurs. See [full contract/checklist](../../docs/LIVE_TEMPO_CONTROL.md).
+
+Build/start from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin
+.\deploy\windows\BroTrackerTerminal.exe
+```
+
+## Beat-row cursor navigation (2026-10-22)
+
+Shift + Up/Down selects the strictly preceding/following highlighted beat row.
+Highlighting comes from the shared host grid (zero-based 0,4,8,...), independent
+of printed row labels. From 3, Down reaches 4; from 4 it reaches 8; from 5, Up
+reaches 4; from 4 it reaches 0. Bounds use the active length and the existing
+32-row visible area: no wrap, paging or unhighlighted boundary destination.
+The channel, Note/Instrument field, musical data and transport/tempo stay unchanged.
+
+Ordinary arrows and Shift+Tab remain unchanged. Modified arrows use the existing
+navigation repeat (350 ms delay, 100/60/40 ms cadence after 0/1/2 seconds held),
+not tempo repeat. OS repeat is ignored; one action maximum per frame. Changing
+modifiers cancels the old repeat; a direction already held when Shift changes
+must be physically released before rearming. Releasing Shift, opposing arrows
+and focus loss cancel/block held directions so ordinary navigation cannot leak.
+
+Manual verification of the new beat shortcuts is pending. Check both adjacent
+and four-row destinations, first/last beat clamps, hold/release and modifier
+switching, with channel/field and pattern contents unchanged. The earlier Windows
+tempo/Synth confirmations remain valid; physical handheld checks remain pending.
+
+Build with the existing empty-title preference, then start:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin -EmptyWindowTitle
+.\deploy\windows\BroTrackerTerminal.exe
+```

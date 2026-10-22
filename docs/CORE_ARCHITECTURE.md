@@ -238,3 +238,13 @@ uses only fixed storage and sample counts; no allocation, file access, logging,
 locks or host timing. Future Synth waveform selection/combinations build on this
 foundation; modular **Synth2** is separate future work. The planned three-oscillator
 editor in the [UI screen map](UI_SCREEN_MAP.md) is not implemented by this milestone.
+
+## Live tune tempo (2026-10-21)
+
+Tune/transport tempo is integer hundredths of BPM. The bounded audio-owned handoff,
+segmented scheduler, capability-gated host coordination and coherent published /
+working readback are described in [Live tempo control](LIVE_TEMPO_CONTROL.md).
+This milestone retains state only during the device session; no project/SD
+persistence or automatic config.ini write is introduced. Pattern cells and
+cell-preview traffic do not own tempo. Sample rates/pitch and Synth tuning /
+envelope duration remain independent of tempo; output/bridge policy is unchanged.

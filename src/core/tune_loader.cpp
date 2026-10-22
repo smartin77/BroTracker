@@ -1,3 +1,5 @@
+#include <cmath>
+#include <limits>
 /*
  * BroTracker
  *
@@ -300,7 +302,11 @@ namespace
                 }
                 else if (key == "tempo")
                 {
-                    tune.tempo = ParseNumber();
+                    const auto tempo=ParseNumber();
+                    if(!std::isfinite(tempo) || tempo<=0 || tempo>(double(UINT32_MAX)-0.5)/100)
+                        throw std::runtime_error("Invalid tune tempo.");
+                    tune.tempo_hundredths=static_cast<std::uint32_t>(tempo*100+0.5);
+                    if(!tune.tempo_hundredths) throw std::runtime_error("Invalid tune tempo.");
                 }
                 else if (key == "pattern")
                 {

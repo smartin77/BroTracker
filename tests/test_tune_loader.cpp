@@ -24,7 +24,7 @@ TEST_CASE(LoadTuneFromJson_ParsesDummyTune)
     const Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
 
     CHECK_EQ(tune.title, std::string("my_tune"));
-    CHECK_EQ(tune.tempo, 140.5);
+    CHECK_EQ(tune.tempo_hundredths, 14050);
     CHECK(!tune.patterns.empty());
 
     const Pattern& pattern = tune.patterns.front();
@@ -92,4 +92,14 @@ TEST_CASE(TemporaryFixturesAreDistinctAndCleanedDuringException) {
         throw std::runtime_error("fixture cleanup probe");
     } catch(const std::runtime_error&) {}
     CHECK(!removed.empty()); CHECK(!std::filesystem::exists(removed));
+}
+
+TEST_CASE(LoadTuneTempoRetainsHundredthsAndDefaultsTo125) {
+    TemporaryTestDirectory directory; const auto path=directory.Path()/"tempo.json";
+    for(const auto value:{12753u,12505u,12500u}) {
+        { std::ofstream file(path);file<<"{\"tune\":{\"tempo\":"<<value/100<<'.'<<(value%100<10?"0":"")<<value%100<<"}}"; }
+        CHECK_EQ(LoadTuneFromJson(path.string()).tempo_hundredths,value);
+    }
+    { std::ofstream file(path);file<<"{\"tune\":{}}"; }
+    CHECK_EQ(LoadTuneFromJson(path.string()).tempo_hundredths,12500u);
 }

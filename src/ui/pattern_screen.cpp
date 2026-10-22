@@ -8,6 +8,7 @@
  */
 
 #include "pattern_screen.h"
+#include "core/tempo.h"
 
 #include <algorithm>
 #include <string>
@@ -32,6 +33,7 @@ namespace
     constexpr Color current_position_background { 153, 153, 153 };
     constexpr Color header_name                 { 130, 130, 196 };
     constexpr Color header_value                { 255, 255, 255 };
+    constexpr Color editing_frame               { 255, 160, 64 };
     constexpr Color row_header_normal           { 38,  120, 124 };
     constexpr Color row_header_bright           { 76,  195, 201 };
     constexpr Color row_number_normal           { 78,  78,  118 };
@@ -45,8 +47,6 @@ namespace
     constexpr Color current_position_note       { 16,  16,  16  };
     constexpr Color current_position_instrument { 78,  78,  118 };
     constexpr Color current_event_edit_border   { 134, 32,  32  };
-
-    constexpr int pattern_position_highlight_interval = 4;
 
     constexpr int current_pattern_row = 13;
     constexpr int current_pattern_channel = 0;
@@ -67,7 +67,7 @@ namespace
         // Pattern rows.
         int first_row_y = 62;
         int row_height = 13;
-        int visible_rows = 32;
+        int visible_rows = PatternGrid::visible_rows;
 
         // Row number column.
         int row_number_width = 29;
@@ -96,10 +96,10 @@ namespace
     {
         std::ostringstream tempo_stream;
 
-        tempo_stream
-            << std::fixed
-            << std::setprecision(1)
-            << (display.device_pattern ? display.device_pattern->tempo_hundredths / 100.0 : tune.tempo);
+        const auto hundredths=live && live->tempo_hundredths?live->tempo_hundredths:
+            display.device_pattern?display.device_pattern->tempo_hundredths:tune.tempo_hundredths;
+        const auto tenth=BroTracker::TempoTenths(hundredths);
+        tempo_stream << tenth/10 << '.' << tenth%10;
 
         framebuffer.Rectangle(
             layout.pattern_x,
@@ -187,7 +187,7 @@ namespace
                         header_labels[index].length()) * 6,
                 9,
                 header_values[index],
-                header_value);
+                index == 0 && live && live->tempo_pending ? editing_frame : header_value);
         }
     }
 
@@ -329,8 +329,7 @@ namespace
             }
 
             const bool is_highlighted_position =
-                ((row + 1) %
-                    pattern_position_highlight_interval) == 1;
+                PatternGrid::IsBeatRow(static_cast<unsigned>(row));
 
             const Color row_number_color =
                 is_highlighted_position
@@ -617,7 +616,7 @@ namespace
             const int x = layout.channel_start_x + static_cast<int>(cursor.channel) * layout.channel_width +
                 (layout.channel_width - 36) / 2 + (cursor.field == EditField::Instrument ? 24 : 0);
             framebuffer.Rectangle(x - 2, layout.first_row_y + static_cast<int>(cursor.row) * layout.row_height,
-                cursor.field == EditField::Note ? 22 : 16, layout.row_height, Color{255, 160, 64});
+                cursor.field == EditField::Note ? 22 : 16, layout.row_height, editing_frame);
         }
     }
 

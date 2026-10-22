@@ -68,8 +68,73 @@ static int NavigationRegression() {
     input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==1);
     return 0;
 }
+static int BeatNavigationRegression() {
+    LocalPatternEditor editor;
+    std::optional<LivePlaybackView> live=LivePlaybackView{};
+    BroTracker::DevicePatternSnapshot snapshot; snapshot.transfer_id=1; snapshot.tempo_hundredths=12500;
+    snapshot.pattern.active_rows=32; snapshot.pattern.active_channels=2;
+    live->telemetry_available=true; live->position.rows=32; live->position.channels=2;
+    live->device_pattern=snapshot; editor.Sync(live);
+    editor.Apply(EditorAction::NextChannel); editor.Apply(EditorAction::Right);
+    const auto before=*editor.Draft(); WindowsEditorInput input;
+    const auto key=[&](SDL_Keycode code,unsigned now,unsigned type=SDL_KEYDOWN,SDL_Keymod mod=KMOD_SHIFT,unsigned repeat=0) {
+        SDL_Event e{}; e.type=type; e.key.keysym.sym=code; e.key.keysym.mod=mod; e.key.repeat=repeat;
+        return input.Handle(e,now,editor);
+    };
+    CHECK(key(SDLK_DOWN,0)); CHECK(editor.Cursor().row==4);
+    key(SDLK_DOWN,100,SDL_KEYDOWN,KMOD_SHIFT,1); CHECK(editor.Cursor().row==4);
+    input.Tick(349,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==4);
+    input.Tick(350,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==8);
+    input.Tick(450,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==12);
+    input.Tick(1000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==16);
+    input.Tick(1059,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==16);
+    input.Tick(1060,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==20);
+    input.Tick(2000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==24);
+    input.Tick(2040,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==28);
+    input.Tick(10000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==28);
+    key(SDLK_LSHIFT,10001,SDL_KEYUP,KMOD_NONE); input.Tick(11000,KMOD_NONE,editor);
+    key(SDLK_DOWN,11001,SDL_KEYDOWN,KMOD_NONE,1); CHECK(editor.Cursor().row==28);
+    key(SDLK_DOWN,11002,SDL_KEYUP,KMOD_NONE); key(SDLK_DOWN,11003,SDL_KEYDOWN,KMOD_NONE);
+    CHECK(editor.Cursor().row==29);
+    key(SDLK_LSHIFT,11004); input.Tick(12000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==29);
+    key(SDLK_DOWN,12001,SDL_KEYUP); key(SDLK_UP,12002); CHECK(editor.Cursor().row==28);
+    key(SDLK_DOWN,12003); input.Tick(13000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==28);
+    key(SDLK_DOWN,13001,SDL_KEYUP); input.Tick(14000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==28);
+    key(SDLK_UP,14001,SDL_KEYUP); key(SDLK_UP,14002); CHECK(editor.Cursor().row==24);
+    SDL_Event focus{}; focus.type=SDL_WINDOWEVENT; focus.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    input.Handle(focus,14003,editor); focus.window.event=SDL_WINDOWEVENT_FOCUS_GAINED; input.Handle(focus,14004,editor);
+    input.Tick(15000,KMOD_SHIFT,editor); CHECK(editor.Cursor().row==24);
+    key(SDLK_UP,15001,SDL_KEYUP); key(SDLK_DOWN,15002); CHECK(editor.Cursor().row==28);
+    CHECK(editor.Cursor().channel==1 && editor.Cursor().field==EditField::Instrument);
+    CHECK(BroTracker::SamePattern(before,*editor.Draft())); CHECK(!editor.Dirty() && !editor.CanUndo());
+    return 0;
+}
+static int TempoRegression() {
+    WindowsTempoInput input; SDL_Event e{};
+    auto key=[&](SDL_Keycode code,unsigned type,unsigned now,unsigned repeat=0,SDL_Keymod mod=KMOD_NONE) {
+        e={};e.type=type;e.key.keysym.sym=code;e.key.repeat=repeat;e.key.keysym.mod=mod;
+        return input.Handle(e,now,true);
+    };
+    CHECK(!key(SDLK_PLUS,SDL_KEYDOWN,0));CHECK(!key(SDLK_MINUS,SDL_KEYDOWN,0));CHECK(!key(SDLK_EQUALS,SDL_KEYDOWN,0));
+    CHECK(key(SDLK_KP_PLUS,SDL_KEYDOWN,0));CHECK(input.TakeStep()==5);
+    CHECK(key(SDLK_KP_PLUS,SDL_KEYDOWN,100,1));CHECK(input.TakeStep()==0);
+    CHECK(input.Tick(399,true)==0);CHECK(input.Tick(400,true)==5);CHECK(input.Tick(1500,true)==25);CHECK(input.Tick(3000,true)==100);
+    CHECK(key(SDLK_KP_PLUS,SDL_KEYUP,3001));CHECK(input.Tick(10000,true)==0);
+    CHECK(key(SDLK_KP_MINUS,SDL_KEYDOWN,11000,0,KMOD_NUM));CHECK(input.TakeStep()==-5);
+    CHECK(key(SDLK_KP_PLUS,SDL_KEYDOWN,11001));CHECK(input.TakeStep()==0);CHECK(input.Tick(12000,true)==0);
+    key(SDLK_KP_PLUS,SDL_KEYUP,12001);key(SDLK_KP_MINUS,SDL_KEYUP,12002);
+    key(SDLK_KP_PLUS,SDL_KEYDOWN,13000);CHECK(input.TakeStep()==5);
+    e={};e.type=SDL_WINDOWEVENT;e.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(e,13001,true);
+    CHECK(input.Tick(14000,true)==0);
+    e.window.event=SDL_WINDOWEVENT_FOCUS_GAINED;input.Handle(e,14001,true);CHECK(input.Tick(15000,true)==0);
+    key(SDLK_KP_PLUS,SDL_KEYUP,15001);key(SDLK_KP_PLUS,SDL_KEYDOWN,15002);CHECK(input.TakeStep()==5);
+    CHECK(input.Tick(16000,false)==0);CHECK(input.Tick(17000,true)==0);
+    return 0;
+}
 int main() {
     CHECK(NavigationRegression()==0);
+    CHECK(BeatNavigationRegression()==0);
+    CHECK(TempoRegression()==0);
     for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
         SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
         CHECK(MapWindowsPublish(publish)==(mod==KMOD_NONE));

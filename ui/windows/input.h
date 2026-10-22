@@ -4,6 +4,7 @@
 #include "ui/local_pattern_editor.h"
 #include "ui/editor_step_input.h"
 #include "ui/navigation_repeat.h"
+#include "ui/tempo_repeat.h"
 inline bool MapWindowsPublish(const SDL_Event& event) {
     return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
         !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT));
@@ -14,7 +15,11 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
         (event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) return EditorAction::None;
     if (event.key.keysym.sym == SDLK_TAB)
         return event.key.keysym.mod & KMOD_SHIFT ? EditorAction::PreviousChannel : EditorAction::NextChannel;
-    if (event.key.keysym.mod & KMOD_SHIFT) return EditorAction::None;
+    if (event.key.keysym.mod & KMOD_SHIFT) {
+        if (event.key.keysym.sym == SDLK_UP) return EditorAction::PreviousBeat;
+        if (event.key.keysym.sym == SDLK_DOWN) return EditorAction::NextBeat;
+        return EditorAction::None;
+    }
     switch (event.key.keysym.sym) {
     case SDLK_UP: return EditorAction::Up;
     case SDLK_DOWN: return EditorAction::Down;
@@ -103,3 +108,28 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return BringUpAction::ResetStop;
     return BringUpAction::None;
 }
+
+class WindowsTempoInput {
+public:
+    void Cancel() noexcept { step_=0; repeat_.Cancel(); for(unsigned i=0;i<2;++i) if(held_[i]) blocked_[i]=true; }
+    bool Handle(const SDL_Event& event,std::uint32_t now,bool available) noexcept {
+        if(!available) Cancel();
+        if(event.type==SDL_WINDOWEVENT) {
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) {focused_=false;Cancel();}
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED) focused_=true;
+        }
+        if(event.type!=SDL_KEYDOWN && event.type!=SDL_KEYUP) return false;
+        int index=event.key.keysym.sym==SDLK_KP_MINUS?0:event.key.keysym.sym==SDLK_KP_PLUS?1:-1;
+        if(index<0) return false;
+        if(event.type==SDL_KEYUP) {held_[index]=blocked_[index]=false;repeat_.Cancel();return true;}
+        if(event.key.repeat || held_[index]) return true;
+        held_[index]=true;
+        if(held_[1-index]) {Cancel();return true;}
+        if(available && focused_ && !blocked_[index]) step_=repeat_.Begin(index?1:-1,now);
+        return true;
+    }
+    int TakeStep() noexcept {const auto step=step_;step_=0;return step;}
+    int Tick(std::uint32_t now,bool available) noexcept {if(!available || !focused_) {Cancel();return 0;} return repeat_.Tick(now);}
+private:
+    TempoRepeat repeat_; bool held_[2]{},blocked_[2]{},focused_=true; int step_=0;
+};

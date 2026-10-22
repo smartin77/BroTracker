@@ -12,6 +12,7 @@
 #include "bringup/pattern_publication.h"
 #include "bringup/pattern_preview.h"
 #include "bringup/pattern_gains.h"
+#include "bringup/pattern_tempo.h"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #include "sd_wav_inspection.h"
@@ -39,7 +40,7 @@ namespace
     }
     constexpr auto kSampleA = MakeSample(false);
     constexpr auto kSampleB = MakeSample(true);
-    constexpr std::uint32_t kTempoHundredths = 12753;
+    constexpr std::uint32_t kTempoHundredths = 12500;
     const RealtimePattern kPattern = MakeBeeperPattern();
     const SelectedPatternBindings kBindings = [] {
         SelectedPatternBindings bindings{}; bindings.count = 2;
@@ -48,7 +49,7 @@ namespace
         return bindings;
     }();
     #else
-    constexpr std::uint32_t kTempoHundredths = 12753;
+    constexpr std::uint32_t kTempoHundredths = 12500;
     const RealtimePattern kPattern = MakeDevelopmentPattern();
     const SelectedPatternBindings kBindings = SelectDevelopmentFixture({}).bindings;
     #endif
@@ -142,7 +143,7 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    constexpr std::size_t kTxCapacity = 16;
+    constexpr std::size_t kTxCapacity = 20;
     static_assert(kTxCapacity >= kPatternDiscoveryReplyCount + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -151,6 +152,7 @@ namespace
     PatternTelemetrySender g_telemetry;
     PatternPublication g_publication, g_preview;
     PatternPreviewReadback g_working;
+    std::uint32_t g_published_tempo=kTempoHundredths, g_reported_tempo=0;
     RealtimePattern g_snapshot_source; // Frozen per readback, never audio-owned.
     PatternSnapshotSender g_pattern_transfer(g_snapshot_source, kTempoHundredths);
     PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
@@ -180,6 +182,12 @@ namespace
         if(FormatPatternGainState(status.gains,status.applied_gain_id,status.next_gain_id,line,sizeof(line)))
             (void)QueueLine(line);
     }
+    void QueueTempo() {
+        const auto status=Snapshot(); char line[96];
+        if(FormatTempoState({status.settled_tempo_id,status.applied_tempo_id,status.next_tempo_id,
+            status.pending_tempo_id,status.tempo?status.tempo:kTempoHundredths,g_published_tempo},line,sizeof(line)))
+            (void)QueueLine(line);
+    }
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
@@ -200,6 +208,8 @@ namespace
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
         QueueGains(status);
+        if(advertise_snapshot) { (void)QueueLine("BTTEMPO1 CAP 1\n"); (void)QueueLine("BTPUBLISH1 TEMPOCAP 2\n"); }
+        QueueTempo();
         char preview_discovery[96];
         if (FormatPreviewDiscovery(g_preview,preview_discovery,sizeof(preview_discovery))) (void)QueueLine(preview_discovery);
         if (FormatPreviewState(status.published_id,status.working_id,status.pending_preview_id,
@@ -349,6 +359,7 @@ namespace
                     applied.result == PatternPlayerStatus::Success,g_active_pattern);
                 char reply[96];
                 if (synchronized && applied.result == PatternPlayerStatus::Success) {
+                    g_published_tempo=applied.tempo;
                     g_working.Published(g_active_pattern,applied.publication_id);
                     std::snprintf(reply,sizeof(reply),"BTPUBLISH1 APPLIED 1 %" PRIu32 "\n",applied.publication_id);
                 } else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
@@ -366,6 +377,11 @@ namespace
             if (g_protocol_connected) OfferPosition(Snapshot());
         }
         const auto status = Snapshot();
+        if(status.settled_tempo_id!=g_reported_tempo && g_tx_count<kTxCapacity) {
+            char reply[80]; std::snprintf(reply,sizeof(reply),"BTTEMPO1 %s 1 %" PRIu32 "\n",
+                status.settled_tempo_id==status.applied_tempo_id?"APPLIED":"CANCELLED",status.settled_tempo_id);
+            if(QueueLine(reply)) g_reported_tempo=status.settled_tempo_id;
+        }
         const auto now = static_cast<std::uint32_t>(millis());
         g_pattern_transfer.Tick(now);
         // Preserve timeout notifications under TX backpressure (do not Tick/drop).
@@ -439,6 +455,19 @@ namespace
                 else std::snprintf(reply,sizeof(reply),"BTAUDIO1 SELECTED 1 %s\n",AudioOutputName(g_output.Active()));
                 (void)QueueLine(reply);
             }
+            else if(!std::strncmp(line,"BTTEMPO1",8)) {
+                if(!std::strcmp(line,"BTTEMPO1 GET 1")) QueueTempo();
+                else {
+                    std::uint32_t f[2]{}; PatternRequestStatus result=PatternRequestStatus::InvalidRequest;
+                    const bool parsed=SnapshotFields(line,used,"BTTEMPO1 SET 1 ",f,2);
+                    if(parsed && g_protocol_connected && !g_publication.Busy()) {
+                        if(g_output.Active()==AudioOutputChoice::Default) (void)SelectAudio(AudioOutputChoice::Default);
+                        InterruptGuard guard; result=g_control.SubmitTempo(f[1],f[0]);
+                    }
+                    char reply[80];std::snprintf(reply,sizeof(reply),"BTTEMPO1 %s 1 %" PRIu32 "\n",
+                        result==PatternRequestStatus::Accepted?"SUBMITTED":"REJECTED",f[0]); (void)QueueLine(reply);
+                }
+            }
             else if (!std::strncmp(line,"BTGAIN1",7)) {
                 if(!std::strcmp(line,"BTGAIN1 GET 1")) QueueGains(Snapshot());
                 else {
@@ -486,6 +515,7 @@ namespace
                     (void)QueueLine("BTPREVIEW1 READERR 1\n");
                 } else {
                     g_snapshot_source=fields[1] ? g_working.pending : g_working.working;
+                    (void)g_pattern_transfer.SetTempo(latest.tempo?latest.tempo:kTempoHundredths);
                     (void)g_pattern_transfer.SetWorkingNamespace(true);
                     (void)g_pattern_transfer.Begin(fields[0],now,2);
                     char label[96];
@@ -508,7 +538,7 @@ namespace
                     if (result == PublicationStatus::Ready) {
                         (void)transfer.Freeze();
                         PatternRequestStatus accepted;
-                        { InterruptGuard guard; accepted = preview ? g_control.SubmitPreview(*transfer.Frozen(),transfer.Identity()) : g_control.SubmitPattern(*transfer.Frozen(),transfer.Identity()); }
+                        { InterruptGuard guard; accepted = preview ? g_control.SubmitPreview(*transfer.Frozen(),transfer.Identity()) : g_control.SubmitPattern(*transfer.Frozen(),transfer.Identity(),transfer.Tempo()); }
                         if (accepted != PatternRequestStatus::Accepted) {
                             transfer.Finish(); PublicationError(message.fields[0],PublicationStatus::QueueFull,preview);
                         } else {
@@ -530,6 +560,7 @@ namespace
                 const bool parsed=ParseSnapshotRequest(line, used, id, version);
                 if (parsed && !g_pattern_transfer.HasData() && !g_publication.Busy() && !g_preview.Busy()) {
                     g_snapshot_source=g_active_pattern;
+                    (void)g_pattern_transfer.SetTempo(g_published_tempo);
                     (void)g_pattern_transfer.SetWorkingNamespace(false);
                 }
                 if (!parsed || !g_pattern_transfer.Begin(id, now, version,g_publication.Busy() || g_preview.Busy()))

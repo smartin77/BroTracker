@@ -8,6 +8,66 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Beat-row cursor navigation (2026-10-22)
+
+* [x] Add shared highlighted-row destination logic and grid constants (origin 0,
+  every four rows, 32 visible rows), Windows Shift+Up/Down and handheld R1+Up/Down.
+  Respect active/visible bounds with no wrap or unhighlighted boundary landing;
+  preserve channel/field and all pattern/transport/tempo/publication state.
+* [x] Reuse bounded application navigation repeat and modifier/opposition/focus/
+  removal safeguards, including GameController and verified raw button/hat input.
+  Preserve Shift+Tab, L1 editing and R1 Left/Right tempo controls.
+* [x] Windows package with `-EmptyWindowTitle`: all eight suites pass. Existing
+  Eoan ARM64 application build: all seven suites and ABI/dependency checks pass.
+  See [actual validation and focused diff](../build/beat-navigation/validation.md).
+* [x] User confirmed Windows Shift+Up/Down beat-row navigation works as requested.
+* [ ] Manually verify physical handheld beat-navigation chords:
+  adjacent/strict beat destinations, boundary clamps, hold/release and modifier
+  changes without ordinary navigation leakage or data edits. Handheld validation
+  remains pending; earlier tempo/Synth validation records are unchanged.
+* [ ] Review a consistent directional/modifier scheme for beat and channel
+  navigation together with the final keyboard shortcut mapping. Observed workflow
+  issue: Shift+Up/Down is useful for sequencer beat navigation and Tab/Shift+Tab
+  is useful for channel navigation, but alternating between these combinations
+  interrupts fast editing. This is a future UX review, not a decided replacement
+  binding; keep the current shortcuts unchanged.
+
+### Live tempo control (2026-10-21)
+
+* [x] Implement [session-only live tempo control](LIVE_TEMPO_CONTROL.md): integer
+  hundredths, 125.00 development default, 0.05 taps, 32.00-300.00 clamp and integer
+  one-decimal display rounding. Retain intentional fractional test fixtures.
+* [x] Add keypad-only Windows +/- and consumed R1+Left/Right handheld controls,
+  shared controller/raw handling and bounded application repeat/acceleration.
+* [x] Anchor playback changes at the next unconsumed row boundary, preserving
+  position/voices and deferred NOTE OFF musical targets. Retain 96 ticks per row,
+  four rows per quarter and 384 ticks per quarter, as confirmed by the user.
+* [x] Add authoritative/coalesced tempo request/readback, coherent tempo-aware
+  Publish and published-baseline Restore. STOP/START and BTX reconnect retain
+  applied tempo; STOP cancels pending work. Reboot ends this session-only state.
+  No SD persistence, config rewrite, MIDI clock or sample stretching is added.
+* [x] Validate Windows BTX package and all eight Windows suites; clean Ubuntu
+  GCC 13 Release configure/build and all six CI suites. Build all six affected
+  Teensy environments and upload development firmware to discovered COM3 / Teensy
+  17681760. Bounded physical checks passed live/stopped/paused tempo, publication,
+  readback, Restore and reconnect/transport retention; 47 playing telemetry updates
+  advanced from tick 2 to 1855. Final applied/published tempo 125.00, playback
+  stopped, serial closed. See [actual validation evidence](../build/live-tempo/validation.md).
+* [x] Build/check the ARM64 application in the existing Eoan workflow: all seven
+  suites and application ABI/dependency checks pass. No SSH or handheld deployment.
+* [x] User confirmed all supplied Windows manual tempo checks: taps/rounding,
+  hold/release acceleration, live changes without restart, unchanged Synth pitch,
+  Pause/Continue, STOP/START, Publish/Restore and reconnect retention.
+* [ ] Teensy reboot/default-tempo restoration remains unconfirmed.
+* [ ] Physical handheld control/UX checks remain pending; ARM64 builds are not a
+  handheld pass.
+* [x] Replace the BPM pending asterisk with the editing frame orange on the
+  number only; preserve the existing pending indication lifecycle, with white
+  otherwise and no additional timer. User confirmed the Windows BPM pending
+  color indication works exactly as requested.
+
+
+
 * [ ] Review the proposed [UI screen map and staged direction](UI_SCREEN_MAP.md),
   resolve its pending design questions and backend dependencies before scheduling
   UI implementation. Planning only; no proposed screen is marked complete.

@@ -170,6 +170,7 @@ add_executable(BroTrackerTests
     tests/test_channel_state.cpp
     tests/test_wav_buffer_loader.cpp
     tests/test_ram_sample_voice.cpp
+    tests/test_live_tempo.cpp
     tests/test_sine_synth.cpp
     tests/test_variable_rate_sample_voice.cpp
     tests/test_variable_rate_voice_block_renderer.cpp

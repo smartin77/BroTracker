@@ -9,6 +9,7 @@
 #include "bringup/host_pattern_publication.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/host_channel_gains.h"
+#include "bringup/host_tempo.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -25,12 +26,25 @@ public:
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
     const char* PublicationStatus() const {
+        if(tempo_.Supported() && !tempo_.Synchronized() && !PublicationBusy()) {
+            if(tempo_.Phase()==BroTracker::HostTempoPhase::Uncertain) return "Tempo uncertain; reading device state";
+            std::snprintf(tempo_status_,sizeof(tempo_status_),"Tempo applied %u.%02u | desired %u.%02u (pending)",
+                unsigned(tempo_.State().tempo/100),unsigned(tempo_.State().tempo%100),unsigned(tempo_.Desired()/100),unsigned(tempo_.Desired()%100));
+            return tempo_status_;
+        }
         if(publish_queued_) return "Publication queued; waiting for preview";
         if(PublicationBusy() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
             publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
         return preview_.Supported() ? preview_.Status() : publication_.Status();
     }
     // Shared explicit request API. No editor, UI, dirty state or history mutation.
+    bool TempoAvailable() const { return connected_ && tempo_.Available() && !PublicationBusy() && !TransportPending(); }
+    bool StepTempo(int amount) { return TempoAvailable() && tempo_.Step(amount); }
+    bool RestoreTempo() {
+        const auto* published=pattern_assembler_.Snapshot();
+        return TempoAvailable() && published && tempo_.Request(published->tempo_hundredths);
+    }
+    const BroTracker::HostTempo& Tempo() const { return tempo_; }
     bool RequestChannelGains(const BroTracker::Pcm16ChannelGains& gains) {
         return connected_ && gains_.Request(gains);
     }
@@ -115,6 +129,8 @@ private:
     BroTracker::HostPatternPublication publication_;
     BroTracker::HostPatternPreview preview_;
     BroTracker::HostChannelGains gains_;
+    mutable char tempo_status_[96]{};
+    BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
     BroTracker::RealtimePattern observed_editor_;
