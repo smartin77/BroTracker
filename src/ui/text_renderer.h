@@ -46,3 +46,7 @@ void DrawCenteredFixedText(
 
 // Coverage in the fixed 6x9 cell, independent of framebuffer colors.
 bool FixedGlyphCovers(char digit,int x,int y) noexcept;
+
+// One fixed bitmap glyph expanded to exactly 2x nearest-neighbor pixels.
+void DrawDoubleFixedGlyph(Framebuffer& framebuffer,int x,int y,char glyph,Color color);
+bool DoubleFixedGlyphCovers(char glyph,int x,int y) noexcept;

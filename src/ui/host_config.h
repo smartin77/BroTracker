@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include "row_number_display.h"
 #include "bringup/audio_output_selection.h"
 #include <cstdint>
 #include <filesystem>
@@ -11,6 +12,8 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    RowNumbering row_numbering = RowNumbering::D1;
+    bool row_numbering_invalid = false;
     unsigned midi_output_channel = 12;
     bool midi_output_invalid = false;
     AudioOutputChoice audio_output = AudioOutputChoice::Default;
@@ -31,6 +34,8 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
 // Invalid nonempty MIDI channel warns once at startup and uses 12.
+// Optional [display]: row_numbering=d1/d0/h1/h0; absent/empty uses d1.
+// Invalid nonempty display mode warns once and uses d1.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.

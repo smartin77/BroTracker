@@ -24,11 +24,13 @@ controls tempo. Existing L1 controls remain; header value edits have no cell tar
 
 The shared production renderer draws confirmed device mask only. Pending, rejected,
 uncertain and unsupported states are separate status text, never optimistic marks.
-Selected header: orange outline inside existing border. Muted header: two crossing
+Selected header: orange outline inside existing border. Header digits now use the
+existing bitmap at exactly 2x nearest-neighbor scale, centered in unchanged headers.
+Muted header: two crossing
 one-pixel diagonal segments centered on its number, each with a six-pixel half-length.
 Equal X/Y steps form a square with four equal arms at 45, 135, 225 and 315 degrees,
 clear of the orange frame and borders, using row_header_bright (76,195,201). At digit-covered pixels the
-segment is background (16,16,16), using actual font bitmap coverage rather than
+segment is background (16,16,16), using actual scaled font bitmap coverage rather than
 incidental framebuffer RGB. Selection and cross coexist without touching borders.
 This artwork is temporary; no new background bands or pattern color changes.
 

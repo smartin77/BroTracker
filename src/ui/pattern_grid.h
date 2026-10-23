@@ -4,6 +4,8 @@
 
 namespace PatternGrid {
 constexpr int channel_x=30,channel_width=53,header_y=29,header_height=26;
+// 5x7 bitmap ink becomes 10x14, centered in the unchanged 53x26 header.
+constexpr int header_glyph_x=21,header_glyph_y=33,header_cross_x=26,header_cross_y=42,header_cross_half=6;
 inline int HeaderAt(int x,int y,unsigned channels=8) noexcept {
     if(y<header_y+1 || y>=header_y+header_height-1 || x<channel_x) return -1;
     const auto channel=(x-channel_x)/channel_width, dx=(x-channel_x)%channel_width;

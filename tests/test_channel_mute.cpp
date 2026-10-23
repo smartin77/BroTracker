@@ -130,7 +130,7 @@ TEST_CASE(HeaderMuteCrossUsesGlyphCoverageAndPreservesOrangeAndOuterBorders) {
     RenderMainScreen(base,tune,pattern,live,&editor);live.mute_mask=255;RenderMainScreen(muted,tune,pattern,live,&editor);
     unsigned cuts=0;
     for(unsigned ch=0;ch<8;++ch) {
-        const int left=30+53*ch,cx=left+25,cy=42;
+        const int left=30+53*ch,cx=left+26,cy=42;
         unsigned points=0,arms[4]{};
         for(int y=30;y<=54;++y) for(int x=left;x<=left+52;++x) {
             const auto& a=base.PixelData()[y*640+x];const auto& b=muted.PixelData()[y*640+x];
@@ -139,7 +139,7 @@ TEST_CASE(HeaderMuteCrossUsesGlyphCoverageAndPreservesOrangeAndOuterBorders) {
             if(cross) {
                 ++points;
                 if(dx) ++arms[(dx>0?0:2)+(dy>0?0:1)];
-                const bool glyph=FixedGlyphCovers(char('1'+ch),x-left-23,y-38);
+                const bool glyph=DoubleFixedGlyphCovers(char('1'+ch),x-left-21,y-33);
                 CHECK_EQ(b.r,glyph?16:76);CHECK_EQ(b.g,glyph?16:195);CHECK_EQ(b.b,glyph?16:201);
                 if(glyph && a.r!=16) ++cuts;
                 // Four pixels or more from the selected frame and outer borders.
@@ -203,4 +203,39 @@ TEST_CASE(MuteRejectedFrozenRequestPreservesIndependentLaterChannelToggles) {
     CHECK(rx("BTMUTE1 REJECTED 1 1"));CHECK(std::strstr(h.Status(),"rejected"));
     CHECK(rx("BTMUTE1 STATE 1 0 1 0"));CHECK(h.Begin());char line[96];std::size_t n=0;
     CHECK(h.FormatLine(line,sizeof(line),n));CHECK_EQ(std::string(line),"BTMUTE1 SET 1 2 2\n");
+}
+
+TEST_CASE(ChannelNumbersAreExactlyDoubleBitmapScaleAndCenteredWithSelectionClearance) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));auto live=MuteView();LocalPatternEditor editor;editor.Sync(live);editor.SelectHeader(6);
+    Tune tune;Pattern pattern;Framebuffer image(640,480);RenderMainScreen(image,tune,pattern,live,&editor);
+    for(unsigned channel=0;channel<8;++channel) {
+        const int left=30+53*channel;
+        unsigned pixels=0,source=0;
+        for(int sy=1;sy<=7;++sy) for(int sx=0;sx<5;++sx) if(FixedGlyphCovers(char('1'+channel),sx,sy)) ++source;
+        for(int y=34;y<=49;++y) for(int x=left+19;x<=left+32;++x) {
+            const auto& p=image.PixelData()[y*640+x];
+            const int dx=x-(left+21),dy=y-33;
+            const bool expected=dx>=0 && dy>=0 && FixedGlyphCovers(char('1'+channel),dx/2,dy/2);
+            CHECK_EQ(p.r,expected?130:16);CHECK_EQ(p.g,expected?130:16);CHECK_EQ(p.b,expected?196:16);
+            if(expected) ++pixels;
+        }
+        CHECK_EQ(pixels,4*source);
+        CHECK_EQ(21, (53-10)/2);CHECK_EQ(35,29+(26-14)/2);
+    }
+}
+TEST_CASE(ConfiguredRowModesUseSharedRowPathAndLeavePatternAndSelectionPixelsUnchanged) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));auto live=MuteView();LocalPatternEditor editor;editor.Sync(live);editor.SelectHeader(6);
+    Tune tune;Pattern pattern;Framebuffer baseline(640,480);RenderMainScreen(baseline,tune,pattern,live,&editor);
+    for(auto mode:{RowNumbering::D1,RowNumbering::D0,RowNumbering::H1,RowNumbering::H0}) {
+        HostPanelInformation host;host.row_numbering=mode;Framebuffer actual(640,480);RenderMainScreen(actual,tune,pattern,live,&editor,host);
+        Framebuffer expected(640,480);expected.Clear({16,16,16});
+        DrawCenteredFixedText(expected,0,29,38,RowNumberingName(mode),{76,195,201});
+        for(unsigned row=0;row<32;++row) {
+            const Color color=PatternGrid::IsBeatRow(row)?Color{130,130,196}:Color{78,78,118};
+            DrawCenteredFixedText(expected,0,29,64+13*row,FormatRowNumber(row,mode),color);
+        }
+        for(int y=38;y<=46;++y) for(int x=2;x<28;++x) CHECK(std::memcmp(actual.PixelData()+y*640+x,expected.PixelData()+y*640+x,sizeof(Color))==0);
+        for(int y=64;y<477;++y) for(int x=2;x<28;++x) CHECK(std::memcmp(actual.PixelData()+y*640+x,expected.PixelData()+y*640+x,sizeof(Color))==0);
+        for(int y=29;y<478;++y) for(int x=30;x<454;++x) CHECK(std::memcmp(actual.PixelData()+y*640+x,baseline.PixelData()+y*640+x,sizeof(Color))==0);
+    }
 }

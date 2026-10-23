@@ -1,26 +1,67 @@
-; Optional host settings. Merge into an existing user config; never overwrite it.
+; BroTracker host INI reference. TEMPLATE ONLY: never loaded automatically.
+; Merge chosen settings into your config.ini; BTX never creates/overwrites it.
 ; Windows: %APPDATA%/BroTracker/BroTracker Terminal/config.ini
 ; ArkOS/dArkOS: $XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini
-; If XDG_DATA_HOME is unset: $HOME/.local/share/BroTracker/BroTracker Terminal/config.ini
-; Restart BTX to reload. Restart Teensy to change an already activated route.
+; Without XDG_DATA_HOME: $HOME/.local/share/BroTracker/BroTracker Terminal/config.ini
+; Restart BTX to reload all settings. No runtime persistence or INI editor.
+; Case-sensitive names/values; decimal integers; whole-line ; or # comments.
+; No quotes, inline comments, unknown keys, duplicate keys or duplicate sections.
+; File limit: 4096 bytes including comments. Invalid structure rejects the whole
+; file and uses built-ins. Missing optional settings use their built-ins.
+; Required [btx] metadata below must occur once in a supplied config.ini.
+; Audio/MIDI/display invalid-value exceptions are documented with their keys.
+
 [btx]
+; Format version. Only decimal 1 accepted; built-in 1. Required in user files.
 schema_version=1
+; Future new-pattern length: 16, 32 or 64 rows; built-in 32. Required in user files.
+; Currently startup metadata only: does not resize device/current test patterns.
+; New-project tempo remains 125.00; development fixture is separately 155.00 BPM.
 new_pattern_length=32
 
 [logging]
+; basic: startup/config, connection/transport, errors/recovery/shutdown.
+; debug: basic plus protocol/edit/audio details and host system summary.
+; Accepted: basic/debug; built-in basic. This development example opts into debug.
+; Host observations/log timestamps do not prove physical audio timing.
 mode=debug
+; Keep 0..20 numbered previous startup logs; built-in 0. Example opts into 5.
+; Rotation only in debug with N>0, before log open; no runtime rotation.
+; basic or 0 replaces current log. Rotation failure preserves it by append.
+; BROTRACKER_APPEND_LOG=1 is an environment override, not an INI setting:
+; appends and skips rotation. Unrelated files are never retention targets.
 preserve_last=5
 
-; Note and numeric Instrument fields; OFF timing toggles are unaffected.
-; normal: PgUp increases, PgDn decreases. reversed: opposite value direction.
-; Deprecated alias: note_step_direction. Do not specify both names.
 [editing]
+; Numeric Note/Instrument step direction: normal/reversed; built-in normal.
+; normal: PgUp increases, PgDn decreases; reversed swaps value direction.
+; Does not invert navigation or change deferred/arrival OFF timing toggles.
+; Deprecated supported alias: note_step_direction (same choices/default).
+; Use only one name; specifying both rejects the whole configuration.
 value_step_direction=normal
 
-; Selects Teensy output, not the host playback device. Restart Teensy to change an active route.
+[display]
+; Row labels only: d1=decimal from01, d0=decimal from00,
+; h1=hexadecimal from01, h0=hexadecimal from00 (uppercase hex digits).
+; Lowercase d1/d0/h1/h0 accepted; built-in d1. Empty/missing uses d1.
+; Invalid value warns once and uses d1, retaining other valid settings.
+; Mode appears in row header. Indices, beats, cursor, timing and MIDI unchanged.
+row_numbering=d1
+
 [audio]
+; Teensy production route, not host sound-device selection: bridge/pt8211.
+; Built-in host choice is no override: retain activated route, otherwise firmware
+; default (development USB_BRIDGE). Empty/missing/invalid uses no override;
+; invalid warns once. This development example explicitly selects bridge.
+; Reconnect with same route is idempotent; changing an activated route requires
+; Teensy restart (and BTX restart to reload edited INI); never auto-starts playback.
 output=bridge
 
-; External MIDI: decimal 1-16; empty/missing/invalid uses 12.
 [midi]
+; USB MIDI device output channel: decimal 1..16; built-in 12.
+; Empty/missing uses 12; invalid warns once and uses 12, retaining other settings.
+; Capability-gated negotiation must be acknowledged before START; older firmware
+; reports unsupported. Changing an activated channel requires Teensy restart.
+; Reconnect with same channel never auto-starts. Does not detect external synths
+; or provide host routing, per-instrument channels, MIDI clock or compensation.
 output_channel=12

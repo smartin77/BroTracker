@@ -724,6 +724,23 @@ The primary visual language should remain text-based, using the BroTracker 6 × 
 mute indication shared by Windows/handheld. Selected headers use the existing
 orange edit outline inside their border; muted digits are crossed by two thin
 one-pixel turquoise square diagonals (six-pixel half-length, equal X/Y steps) with
-background cuts at actual glyph intersections.
+background cuts at actual scaled glyph intersections.
 The selection and cross coexist. No text X, background bands or pattern redesign.
 Manual visual/UX approval for this addition remains pending.
+
+## Header scale and startup row numbering (2026-10-23)
+
+All eight channel numbers use the existing 5x7 bitmap at exactly 2x nearest-neighbor
+scale (10x14 ink), centered in unchanged 53x26 headers. Hit areas/navigation and the
+orange selection outline are unchanged. Temporary mute diagonals remain one pixel
+thick with six-pixel half-length/four equal 45-degree arms; background cuts use the
+actual doubled glyph bitmap. Selected muted/unmuted headers coexist with row
+playback/selection indications. Manual visual approval of this enlargement is pending.
+
+Windows and ArkOS/dArkOS read [display] row_numbering=d1/d0/h1/h0 from user
+config.ini at startup. d1 is the built-in; missing/empty uses it; invalid values warn
+once and fall back to d1 while retaining other settings. The existing row-label
+path and mode indicator now support decimal/hex, one/zero-based labels; internal
+row indices, shared beat predicate, movement and playback are unchanged. No runtime
+selector or persistence. See the complete documented INI reference and TESTING.md
+for the requirement to update it whenever an option changes.

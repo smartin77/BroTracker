@@ -27,6 +27,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     if (text.size() > kMaxHostConfigBytes) return HostConfigStatus::TooLarge;
     HostConfig candidate;
     unsigned section=0;
+    bool display=false,numbering=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
@@ -38,11 +39,18 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         if(line=="[editing]") {if(editing) return HostConfigStatus::Invalid; editing=true; section=3; continue;}
         if(line=="[audio]") {if(audio) return HostConfigStatus::Invalid; audio=true; section=4; continue;}
         if(line=="[midi]") {if(midi) return HostConfigStatus::Invalid; midi=true; section=5; continue;}
+        if(line=="[display]") {if(display) return HostConfigStatus::Invalid; display=true; section=6; continue;}
         if(!section) return HostConfigStatus::Invalid;
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==5 && key=="output_channel" && !midi_channel) {
+        if(section==6 && key=="row_numbering" && !numbering) {
+            numbering=true;
+            if(raw=="d0") candidate.row_numbering=RowNumbering::D0;
+            else if(raw=="h1") candidate.row_numbering=RowNumbering::H1;
+            else if(raw=="h0") candidate.row_numbering=RowNumbering::H0;
+            else if(!raw.empty() && raw!="d1") candidate.row_numbering_invalid=true;
+        } else if(section==5 && key=="output_channel" && !midi_channel) {
             midi_channel=true;
             if(!raw.empty()) {
                 if(Decimal(raw,value) && value>=1 && value<=16) candidate.midi_output_channel=value;

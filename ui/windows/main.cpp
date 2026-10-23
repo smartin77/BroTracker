@@ -133,10 +133,11 @@ int main(int argc, char* argv[]) try {
         serial.SyncEditor(editor,SDL_GetTicks());
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
-        const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
+        HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+        panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;

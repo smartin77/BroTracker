@@ -10,6 +10,7 @@
 #pragma once
 
 #include "core/tune.h"
+#include "row_number_display.h"
 #include "renderer/framebuffer.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
@@ -22,6 +23,7 @@ struct HostPanelInformation
     std::string publication_status{};
     std::string diagnostic_status{};
     std::string midi_status{};
+    BroTracker::RowNumbering row_numbering=BroTracker::RowNumbering::D1;
 };
 
 void RenderMainScreen(

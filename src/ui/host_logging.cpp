@@ -165,6 +165,9 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
     HostLogf(file,HostLogLevel::Basic,"Configuration","audio.output=%s (Teensy production route)", AudioOutputName(config.config.audio_output));
     HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
+    HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
+    if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");
     if(config.config.midi_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration","Invalid [midi] output_channel; using 12 (expected decimal 1-16)");
     if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [audio] output: expected bridge or pt8211 (lowercase); ignoring audio override, retaining firmware default");

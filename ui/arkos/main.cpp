@@ -330,11 +330,12 @@ int main(int argc, char* argv[])
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
         serial.SyncEditor(editor,SDL_GetTicks());
-        const HostPanelInformation panel{serial.Status(),
+        HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
             serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
             serial.PublicationStatus(), {}, serial.MidiStatus()};
+        panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 
         if(diagnostic_status) DrawDiagnosticStatus(framebuffer,diagnostic_status);

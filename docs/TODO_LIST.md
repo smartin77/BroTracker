@@ -8,6 +8,25 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Header scale and documented host configuration (2026-10-23)
+
+* [x] Double channel-number bitmap scale exactly 2x in existing headers, retain thin
+  square mute cross with scaled-glyph cuts and orange selection outline.
+* [x] Add shared startup [display] row_numbering=d1/d0/h1/h0; keep d1 fallback,
+  bounded invalid-value warning and presentation-only semantics.
+* [x] Inventory/document every supported INI key and alias in the semicolon-commented
+  example; preserve debug/5 example preferences, built-in basic/0 and bridge route.
+  Record contributor requirement to update example with every INI option change.
+* [x] Focused rendering/config/input coverage passes with Windows8/8 and Eoan
+  ARM6420/20; production previews generated/inspected. Windows -EmptyWindowTitle
+  package built; complete ARM64 delivery refreshed with ABI/checksum/Git-visibility/
+  clean-install/upgrade/user-config-preservation checks, including custom h0.
+  [Complete diff, previews, delivery hashes and validation](../build/ui-config/validation.md).
+* [ ] Manual Windows/handheld approval of enlarged 1/7, selected/muted headers and
+  configured row labels pending. Severe console crackling unresolved; bridge
+  diagnostics paused; external MIDI delivery/audible alignment still unverified.
+
+
 ### Session channel mute (2026-10-22)
 
 * [x] Implement [header navigation and session-only mute](CHANNEL_MUTE.md): confirmed
@@ -1304,8 +1323,8 @@ design remains unchanged.
 * [ ] Evaluate the bright edited-channel background as a separate design option;
   current live mode retains only the orange field-edit border.
 
-* [ ] Add row-numbering display options for zero-based and hexadecimal views;
-  current `d1` is decimal one-based. No mode switching in the current change.
+* [x] Add startup INI row-numbering options d1/d0/h1/h0; labels and indicator only.
+  No runtime selector or persistence; default remains decimal one-based d1.
 
 * [x] Implement one-based user-visible instrument numbering: raw IDs 0/1 display
   `01`/`02`, 0xFF stays `--`, and numbers 100..255 expand to three digits without

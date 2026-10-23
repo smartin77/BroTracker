@@ -387,11 +387,11 @@ TEST_CASE(DevicePatternDisplayPadsEightChannelsThirtyTwoRowsOnly) {
             CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
     }
     // All headers and decimal one-based rows are present, even outside active data.
-    DrawCenteredFixedText(expected,30+7*53,53,38,"8",Color{130,130,196});
+    DrawDoubleFixedGlyph(expected,30+7*53+21,33,'8',Color{130,130,196});
     DrawCenteredFixedText(expected,0,29,62+31*13+2,"32",Color{78,78,118});
-    for(const auto region : {std::pair<int,int>{30+7*53+(53-6)/2,38},{(29-12)/2,62+31*13+2}})
-        for(int yy=region.second;yy<region.second+8;++yy)
-            for(int xx=region.first;xx<region.first+(region.first<29?12:6);++xx)
-                CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    for(int yy=35;yy<49;++yy) for(int xx=30+7*53+21;xx<30+7*53+31;++xx)
+        CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    for(int yy=467;yy<475;++yy) for(int xx=(29-12)/2;xx<(29-12)/2+12;++xx)
+        CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
     CHECK_EQ(live->device_pattern->pattern.active_rows,16);
 }

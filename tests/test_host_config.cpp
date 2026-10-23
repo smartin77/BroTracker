@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "temporary_directory.h"
 #include "ui/host_config.h"
+#include "ui/host_logging.h"
 #include <fstream>
 #include <string>
 using namespace BroTracker;
@@ -144,4 +145,52 @@ TEST_CASE(ProductionAudioRequestStrictParsing) {
     for(const auto bad : {"BTAUDIO1 SET 2 bridge","BTAUDIO1 SET 1 PT8211","BTAUDIO1 SET 1 shield",
                          "BTAUDIO1 SET 1 bridge extra","BTAUDIO1 SET 1 ","BTAUDIO1"})
         CHECK(!ParseAudioOutputRequest(bad,c));
+}
+
+TEST_CASE(RowNumberingConfigPrecedenceDefaultsInvalidAndTransitions) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c;CHECK(c.row_numbering==RowNumbering::D1);
+    struct Case {const char* name;RowNumbering mode;const char* labels[5];};
+    const Case cases[]={
+        {"d1",RowNumbering::D1,{"01","10","16","17","32"}},
+        {"d0",RowNumbering::D0,{"00","09","15","16","31"}},
+        {"h1",RowNumbering::H1,{"01","0A","10","11","20"}},
+        {"h0",RowNumbering::H0,{"00","09","0F","10","1F"}}};
+    for(const auto& item:cases) {
+        CHECK(ParseHostConfig(base+"[display]\nrow_numbering="+item.name,c)==HostConfigStatus::Loaded);
+        CHECK(c.row_numbering==item.mode);CHECK(!c.row_numbering_invalid);CHECK_EQ(std::string(RowNumberingName(c.row_numbering)),item.name);
+        unsigned index=0;for(unsigned row:{0u,9u,15u,16u,31u}) CHECK_EQ(FormatRowNumber(row,c.row_numbering),item.labels[index++]);
+        CHECK_EQ(c.new_pattern_length,64u);
+    }
+    for(const auto suffix:{"","[display]","[display]\nrow_numbering=","[display]\nrow_numbering= \t"}) {
+        CHECK(ParseHostConfig(base+suffix,c)==HostConfigStatus::Loaded);CHECK(c.row_numbering==RowNumbering::D1);CHECK(!c.row_numbering_invalid);
+    }
+    for(const auto value:{"D1","H0","hex","d2","1","d1 ; comment"}) {
+        CHECK(ParseHostConfig(base+"[display]\nrow_numbering="+value,c)==HostConfigStatus::Loaded);
+        CHECK(c.row_numbering==RowNumbering::D1);CHECK(c.row_numbering_invalid);CHECK_EQ(c.new_pattern_length,64u);
+    }
+    for(const auto suffix:{"[display]\nrow_numbering=d0\nrow_numbering=h1","[display]\n[display]","[display]\nunknown=h0"})
+        CHECK(ParseHostConfig(base+suffix,c)==HostConfigStatus::Invalid);
+}
+TEST_CASE(DocumentedExampleParsesWithinBoundAndNeverProvidesRuntimeFallback) {
+    std::ifstream source("config/config.ini.example",std::ios::binary);CHECK(bool(source));
+    const std::string text{std::istreambuf_iterator<char>(source),{}};CHECK(text.size()<=kMaxHostConfigBytes);
+    HostConfig c;CHECK(ParseHostConfig(text,c)==HostConfigStatus::Loaded);CHECK(c.audio_output==AudioOutputChoice::Bridge);
+    CHECK(c.row_numbering==RowNumbering::D1);CHECK(c.logging_mode==HostLogMode::Debug);CHECK_EQ(c.preserve_last,5u);
+    TemporaryTestDirectory dir;const auto config=dir.Path()/"config.ini";
+    {std::ofstream example(dir.Path()/"config.ini.example");example<<text;}
+    auto result=LoadHostConfig(config,false);CHECK(result.status==HostConfigStatus::Missing);
+    CHECK(result.config.logging_mode==HostLogMode::Basic);CHECK_EQ(result.config.preserve_last,0u);
+    CHECK(result.config.audio_output==AudioOutputChoice::Default);CHECK(!std::filesystem::exists(config));
+    {std::ofstream file(config);file<<"[btx]\nschema_version=1\nnew_pattern_length=32\n[display]\nrow_numbering=h0";}
+    result=LoadHostConfig(config,false);CHECK(result.config.row_numbering==RowNumbering::H0);
+    result=LoadHostConfig(config,true);CHECK(result.status==HostConfigStatus::SafeDefaults);CHECK(result.config.row_numbering==RowNumbering::D1);
+    std::ifstream unchanged(config);const std::string content{std::istreambuf_iterator<char>(unchanged),{}};CHECK(content.find("row_numbering=h0")!=std::string::npos);
+}
+TEST_CASE(InvalidRowNumberingHasUsefulBasicStartupWarning) {
+    FILE* file=std::tmpfile();CHECK(file!=nullptr);if(!file)return;
+    HostConfigResolution result;result.status=ParseHostConfig("[btx]\nschema_version=1\nnew_pattern_length=32\n[display]\nrow_numbering=bad",result.config);
+    ConfigureHostLogging(HostLogMode::Basic);LogHostStartup(file,"fixture",result,std::filesystem::absolute("config.ini"),{});
+    std::rewind(file);std::string log;char buffer[512];while(std::fgets(buffer,sizeof(buffer),file)) log+=buffer;std::fclose(file);
+    CHECK(log.find("expected lowercase d1/d0/h1/h0; using d1")!=std::string::npos);
 }
