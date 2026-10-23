@@ -65,6 +65,18 @@ pm_finish() {
 STUB
 cat > "$work/ports/brotracker/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
+if [[ "${1:-}" == --bridge-audible-config ]]; then
+    [[ ${LISTEN_CONFIG:-0} == 1 ]] || exit 2
+    printf '%s\n' "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/diagnostics/bridge-audible"
+    exit 0
+fi
+if [[ ${LISTEN_CONFIG:-0} == 1 ]]; then
+    [[ -f "$BROTRACKER_LISTEN_CONTROL" && $(stat -c %s "$BROTRACKER_LISTEN_CONTROL") == 4096 ]] || exit 87
+    [[ "$BROTRACKER_LISTEN_BASE" == "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/diagnostics/bridge-audible" ]] || exit 88
+    printf '%s\n' "$BROTRACKER_LISTEN_CONTROL" > "$TEST_DIR/listen-control-path"
+else
+    [[ -z ${BROTRACKER_LISTEN_CONTROL:-} && -z ${BROTRACKER_LISTEN_BASE:-} ]] || exit 89
+fi
 [[ "$BROTRACKER_APPEND_LOG" == 1 && "$SDL_GAMECONTROLLERCONFIG" == test-mapping ]] || exit 80
 [[ -z "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] || exit 84
 [[ "$XDG_DATA_HOME" == "$TEST_DIR/data" ]] || exit 85
@@ -213,6 +225,17 @@ run_case ready 30 terminate
 run_case ready 30 killed
 run_case fail 30 killed
 unset HELPER_INTERFERENCE
+# Opt-in uses a private control file, inherits no stale mapping, and removes only
+# temporary IPC on exit. Persistent recording storage survives launcher cleanup.
+export LISTEN_CONFIG=1 BROTRACKER_LISTEN_CONTROL=/stale/control BROTRACKER_LISTEN_BASE=/stale/base
+run_case ready 0.2 normal
+[[ ! -e "$(cat "$work/listen-control-path")" ]]
+[[ -d "$work/data/BroTracker/BroTracker Terminal/diagnostics/bridge-audible" ]]
+unset LISTEN_CONFIG
+export BROTRACKER_LISTEN_CONTROL=/stale/control BROTRACKER_LISTEN_BASE=/stale/base
+run_case ready 0.2 normal
+unset BROTRACKER_LISTEN_CONTROL BROTRACKER_LISTEN_BASE
+echo 'Listening opt-in/private IPC cleanup and disabled stale-environment checks passed'
 # Real supervisor with synthetic sysfs: no actual USB/ALSA access. Keep a
 # sixteen-second retry sleep so prompt arrival cannot be a timed retry.
 python3 - "$work" "$repo" <<'PYTHON'

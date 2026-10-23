@@ -69,6 +69,8 @@ public:
             && !PublicationBusy() && !pattern_assembler_.Active();
     }
     const char* ActiveAudioOutput() const { return audio_active_; }
+    // Optional host observer of confirmed transport replies; no serial ownership.
+    void SetTransportObserver(void (*fn)(void*,const char*,std::uint32_t),void* context) {observer_=fn;observer_context_=context;}
     bool Start();
     bool Stop();
     bool Pause();
@@ -89,6 +91,9 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
+    void* observer_context_=nullptr;
+    void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
     enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi };
     bool QueueTransport(Command command);
     const char* PublicationUnavailable(const LocalPatternEditor& editor) const;

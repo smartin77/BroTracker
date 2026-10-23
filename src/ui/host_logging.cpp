@@ -168,6 +168,10 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
     if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");
+    if(config.config.bridge_audible_test_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [diagnostics] bridge_audible_test: expected yes/on/true/1 or no/off/false/0; disabled");
+    if(config.config.bridge_audible_test) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "bridge_audible_test enabled for Linux bridge only; ignored by Windows");
     if(config.config.midi_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration","Invalid [midi] output_channel; using 12 (expected decimal 1-16)");
     if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [audio] output: expected bridge or pt8211 (lowercase); ignoring audio override, retaining firmware default");

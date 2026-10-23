@@ -9,7 +9,7 @@
 ; File limit: 4096 bytes including comments. Invalid structure rejects the whole
 ; file and uses built-ins. Missing optional settings use their built-ins.
 ; Required [btx] metadata below must occur once in a supplied config.ini.
-; Audio/MIDI/display invalid-value exceptions are documented with their keys.
+; Field-local invalid-value fallbacks are noted below.
 
 [btx]
 ; Format version. Only decimal 1 accepted; built-in 1. Required in user files.
@@ -65,3 +65,10 @@ output=bridge
 ; Reconnect with same channel never auto-starts. Does not detect external synths
 ; or provide host routing, per-instrument channels, MIDI clock or compensation.
 output_channel=12
+
+; Default no; yes/on/true/1 or no/off/false/0. Invalid warns/disables.
+; Cost: async PCM copies/queues + disk I/O; Windows ignores this setting.
+; Evidence: SDL user data/diagnostics/bridge-audible/bridge-*.
+; Cap: 180 s/stream or 1000000 records; incomplete at cap; audio continues.
+[diagnostics]
+bridge_audible_test=no

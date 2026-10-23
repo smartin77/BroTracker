@@ -35,6 +35,19 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;std::string events;
+          t.serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){*static_cast<std::string*>(context)+=std::string(event)+",";},&events);
+          t.Ready("BTTEST1 STATE IDLE\nBTPATTERN1 TRANSPORTCAP 1\n");events.clear();
+          CHECK(t.serial.Start());t.Send("BTTEST1 START\n");CHECK(events.empty());
+          t.Reply("BTTEST1 STARTED\n");CHECK(events=="START,");
+          CHECK(t.serial.Pause());t.Send("BTTEST1 PAUSE\n");t.Reply("BTTEST1 PAUSED\n");
+          CHECK(t.serial.Continue());t.Send("BTTEST1 CONTINUE\n");t.Reply("BTTEST1 CONTINUED\n");
+          CHECK(t.serial.Stop());t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");
+          CHECK(events=="START,PAUSE,CONTINUE,STOP,");
+          // Ignore unsolicited PAUSE replies; no fabricated recording transition.
+          t.Reply("BTTEST1 PAUSED\n");CHECK(events=="START,PAUSE,CONTINUE,STOP,");
+        }
+
         { Test t;t.Ready("BTTEST1 STATE PLAYING\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
           t.port->write_limit=3;CHECK(t.serial.ToggleChannelMute(0));
           t.Tick();t.Tick();CHECK(!t.port->outgoing.empty());

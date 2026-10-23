@@ -102,3 +102,14 @@ stepping (including held repeats), not logging, logical actions, instruments or
 OFF timing toggles. It is validated transactionally with `[btx]` and `[logging]`;
 invalid editing settings reject the complete file. See D0018 and the bring-up
 controls. Normal startup never rewrites configuration.
+
+## Opt-in Linux bridge listening evidence
+
+`[diagnostics] bridge_audible_test=no` is disabled by default. Lowercase
+`yes/on/true/1` enable; `no/off/false/0` disable; invalid values warn and disable
+this field. Windows recognizes the shared setting but does not record. Normal
+Ports launch uses the persistent SDL user-data diagnostics directory, with a
+separate log/manifest per confirmed playback segment. Observer overhead, bounds,
+Pause/Continue semantics and retrieval are documented in the
+[bridge guide](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch).
+No automatic playback or analysis at exit; this is not an audible-onset timestamp.

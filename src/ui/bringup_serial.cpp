@@ -25,6 +25,7 @@ void BringUpSerial::Log(const char* message, const char* detail)
 
 void BringUpSerial::Disconnect(const char* reason)
 {
+    Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
@@ -440,6 +441,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         // A superseded STATUS reply cannot acknowledge or override transport.
         if ((transport_queued_ != Command::None || pending_ == Command::Pause ||
              pending_ == Command::Continue) && std::strcmp(value, "ERROR")) return;
+        if(std::strcmp(state_,value)) Observe(!std::strcmp(value,"PLAYING")?"RECONNECT":!std::strcmp(value,"PAUSED")?"PAUSE":!std::strcmp(value,"ERROR")?"ERROR":"STOP",now);
         std::snprintf(state_, sizeof(state_), "%s", value);
         if (std::strcmp(value, "PLAYING") && std::strcmp(value, "PAUSED")) ClearPosition();
         if (!std::strcmp(value, "ERROR")) transport_queued_ = Command::None;
@@ -453,6 +455,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     else if (std::strcmp(line_, "BTTEST1 STARTED") == 0)
     {
         std::strcpy(state_, "PLAYING");
+        Observe("START",now);
         if (pending_ == Command::Start) pending_ = Command::None;
     }
     else if (std::strcmp(line_, "BTTEST1 PAUSED") == 0 || std::strcmp(line_, "BTTEST1 CONTINUED") == 0)
@@ -460,6 +463,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         const auto expected = !std::strcmp(line_, "BTTEST1 PAUSED") ? Command::Pause : Command::Continue;
         if (pending_ != expected) return;
         std::strcpy(state_, expected == Command::Pause ? "PAUSED" : "PLAYING");
+        Observe(expected==Command::Pause?"PAUSE":"CONTINUE",now);
         pending_ = Command::None;
         // Do not relabel pre-command telemetry as the applied position. Firmware
         // follows this ACK with a coherent fresh snapshot; wait for that barrier.
@@ -469,6 +473,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         ClearPosition();
         std::strcpy(state_, "IDLE");
+        Observe("STOP",now);
         if (pending_ == Command::Stop)
         {
             stopped_ = true;
@@ -479,10 +484,12 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         ClearPosition();
         std::strcpy(state_, "DONE");
+        Observe("STOP",now);
     }
     else if (std::strncmp(line_, "BTTEST1 ERROR ", 14) == 0)
     {
         std::strcpy(state_, "ERROR");
+        Observe("ERROR",now);
         ClearPosition();
         transport_queued_ = Command::None;
         if (pending_ == Command::Start || pending_ == Command::Pause || pending_ == Command::Continue) pending_ = Command::None;

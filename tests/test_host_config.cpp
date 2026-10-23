@@ -194,3 +194,24 @@ TEST_CASE(InvalidRowNumberingHasUsefulBasicStartupWarning) {
     std::rewind(file);std::string log;char buffer[512];while(std::fgets(buffer,sizeof(buffer),file)) log+=buffer;std::fclose(file);
     CHECK(log.find("expected lowercase d1/d0/h1/h0; using d1")!=std::string::npos);
 }
+
+TEST_CASE(BridgeAudibleConfigIsOptInSharedAndFieldLocalOnInvalidValues) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c;CHECK(!c.bridge_audible_test);
+    CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK(!c.bridge_audible_test);
+    for(auto value:{"yes","on","true","1"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(c.bridge_audible_test);CHECK(!c.bridge_audible_test_invalid);
+    }
+    for(auto value:{"no","off","false","0",""," \t"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(!c.bridge_audible_test);CHECK(!c.bridge_audible_test_invalid);
+    }
+    for(auto value:{"YES","True","2","-1","yes ; inline comment"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(!c.bridge_audible_test);CHECK(c.bridge_audible_test_invalid);CHECK_EQ(c.new_pattern_length,64u);
+    }
+    CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test=yes\nbridge_audible_test=no",c)==HostConfigStatus::Invalid);
+    CHECK(ParseHostConfig(base+"[diagnostics]\n[diagnostics]",c)==HostConfigStatus::Invalid);
+    CHECK(!LoadHostConfig({},true).config.bridge_audible_test);
+}

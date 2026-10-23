@@ -12,6 +12,8 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    bool bridge_audible_test = false;
+    bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
     bool row_numbering_invalid = false;
     unsigned midi_output_channel = 12;
@@ -34,6 +36,9 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
 // Invalid nonempty MIDI channel warns once at startup and uses 12.
+// Optional [diagnostics]: bridge_audible_test=yes/on/true/1 or no/off/false/0.
+// Missing/empty defaults disabled; invalid warns and disables this field only.
+// Linux bridge only; Windows recognizes configuration but does not record.
 // Optional [display]: row_numbering=d1/d0/h1/h0; absent/empty uses d1.
 // Invalid nonempty display mode warns once and uses d1.
 // Whole-line #/; comments and ASCII whitespace are allowed.

@@ -8,6 +8,24 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Opt-in bridge listening correlation (2026-10-23)
+
+* [x] Implement Linux-only [bridge listening evidence](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch)
+  from confirmed BTX transport events, private control handoff, bounded asynchronous
+  received/accepted WAVs and frame/timing/recovery evidence. No automatic playback,
+  test fixture or 60-second stop; Pause/Continue remain separate segments.
+* [x] Verify Eoan ARM64 delivery: 21/21 tests, ABI/dependency checks, matching
+  build/package hashes, all payload checksums and config-preserving installation.
+  Windows shared tests: 8/8. Synthetic listening/launcher checks pass.
+* [x] Correct evidence record budget after retained physical counts exceeded the
+  old 150000/minute cap: 1000000 records, below 576 MiB logical files per segment;
+  focused 60-second short-read/partial-write regression retains 276062 records.
+* [ ] Physical handheld and externally recorded audio validation pending.
+* [ ] User manually STARTs and STOPs after roughly 60 seconds, using a stopwatch only
+  as a reminder. Later alignment uses audio content and PCM coordinates, never
+  stopwatch/ACK onset labels. Console crackling and external MIDI/audio-sync issues
+  remain unresolved; this mode supplies evidence, not a diagnosis or compensation.
+
 ### Planned session storage and development fixtures
 
 Begin **after external MIDI validation and resulting bug fixes**. No functionality

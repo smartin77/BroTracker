@@ -1,3 +1,4 @@
+#include "tools/alsa_bridge/listening_control.h"
 /*
  * BroTracker
  *
@@ -80,6 +81,16 @@ int main(int argc, char* argv[])
     const auto config_path=config_directory ? std::filesystem::u8path(config_directory)/"config.ini" : std::filesystem::path{};
     SDL_free(config_directory);
     const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
+    if(argc==2 && !std::strcmp(argv[1],"--bridge-audible-config")) {
+        if(!host_config.config.bridge_audible_test) return 2;
+        const auto base=std::filesystem::weakly_canonical(config_path.parent_path()/"diagnostics"/"bridge-audible");
+        for(auto parent=base;!parent.empty();parent=parent.parent_path()) {
+            if(std::filesystem::exists(parent/".git")){std::fprintf(stderr,"Refusing listening evidence inside a Git checkout\n");return 2;}
+            if(parent==parent.parent_path())break;
+        }
+        std::puts(base.string().c_str());
+        return 0;
+    }
     if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-config")) {
         std::printf("path=%s\nroute=%s\ninvalid=%u\nstatus=%s\n",config_path.string().c_str(),
             BroTracker::AudioOutputName(host_config.config.audio_output),unsigned(host_config.config.audio_output_invalid),
@@ -276,7 +287,21 @@ int main(int argc, char* argv[])
     WriteBringUpDiagnostic(bring_up_log,kArkOSEditorHints);
     LogSdlHostDiagnostics(bring_up_log);
     { // Serial is closed before diagnostic serial-release status is published.
+    std::unique_ptr<listening::Mapping> audible;
+    if(host_config.config.bridge_audible_test && !diagnostic.Enabled()) {
+        audible=std::make_unique<listening::Mapping>();
+        BroTracker::HostLogf(bring_up_log,BroTracker::HostLogLevel::Basic,"Listening",
+            "evidence base=%s; control=%s; host replies are NOT audible onset",
+            (config_path.parent_path()/"diagnostics"/"bridge-audible").string().c_str(),audible->Enabled()?"available":"unavailable; launcher required");
+    }
     BringUpSerial serial(bring_up_log);
+    if(audible) serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){
+        const unsigned kind=!std::strcmp(event,"START")?listening::Start:!std::strcmp(event,"CONTINUE")?listening::Continue:
+            !std::strcmp(event,"PAUSE")?listening::Pause:!std::strcmp(event,"DISCONNECT")?listening::Disconnect:
+            !std::strcmp(event,"RECONNECT")?listening::Reconnect:!std::strcmp(event,"ERROR")?listening::Error:listening::Stop;
+        static_cast<listening::Mapping*>(context)->Publish(kind);
+    },audible.get());
+    std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     LocalPatternEditor editor;
@@ -291,6 +316,10 @@ int main(int argc, char* argv[])
     {
         controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
+        if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
+            next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
+            if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
+        }
         diagnostic.Tick(serial,SDL_GetTicks());
         if(diagnostic.Exit()) break;
         SDL_Event event;
@@ -350,6 +379,7 @@ int main(int argc, char* argv[])
         SDL_Delay(16);
     }
 
+    if(audible) audible->Publish(listening::Exit);
     } // BringUpControls and BringUpSerial destroyed: Linux Close() is synchronous.
     diagnostic.SerialReleased();
     if (game_controller != nullptr)
