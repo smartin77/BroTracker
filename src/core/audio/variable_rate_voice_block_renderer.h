@@ -18,6 +18,7 @@ namespace BroTracker
         Pcm16MonoView sample;
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
         Note synth_note = 69; // Raw Synth/MIDI pitch; never the display octave convention.
+        std::uint8_t sample_level_percent = 100;
     };
     struct VariableRateVoiceCommandBatch
     {
@@ -32,7 +33,7 @@ namespace BroTracker
     {
         Success, NotConfigured, InvalidSampleRate, InvalidCommandCount,
         InvalidChannel, InvalidAction, InvalidOffset, UnorderedOffsets,
-        InvalidDestination, RangeOverflow, InvalidSample, SampleRateMismatch, InvalidStep, InvalidNote
+        InvalidDestination, RangeOverflow, InvalidSample, SampleRateMismatch, InvalidStep, InvalidNote, InvalidGain
     };
 
     // Single-owner audio consumer of prepared sample/Synth commands; no scheduling,
@@ -111,6 +112,7 @@ namespace BroTracker
                 }
                 if (command.action == VariableRateVoiceAction::Trigger)
                 {
+                    if(command.sample_level_percent>100) return VariableRateBlockStatus::InvalidGain;
                     const auto status = probe.Trigger(command.sample, command.step_q32_32);
                     if (status == VariableVoiceStatus::InvalidStep) return VariableRateBlockStatus::InvalidStep;
                     if (status == VariableVoiceStatus::InvalidSample) return VariableRateBlockStatus::InvalidSample;
@@ -146,6 +148,7 @@ namespace BroTracker
                         if(channel.length<2) channel.length=2;
                     }
                     channel.synth=command.action == VariableRateVoiceAction::TriggerSynth;
+                    channel.sample_level_percent=command.sample_level_percent;
                     if(channel.synth) { voice.Reset(); (void)synth.Trigger(command.synth_note); }
                     else { synth.Reset(); (void)voice.Trigger(command.sample,command.step_q32_32); }
                 }
@@ -165,6 +168,10 @@ namespace BroTracker
                 auto* destination=output.channels[channel]+start;
                 if(!state.synth) {
                     (void)voices_[channel].Render(destination,count);
+                    if(state.sample_level_percent!=100) for(std::size_t i=0;i<count;++i) {
+                        const std::int32_t value=std::int32_t(destination[i])*state.sample_level_percent;
+                        destination[i]=static_cast<std::int16_t>((value+(value>=0?50:-50))/100);
+                    }
                     if(state.transition>=state.length && !state.release) { state.last=destination[count-1]; continue; }
                 }
                 for(std::size_t i=0;i<count;++i) {
@@ -184,6 +191,7 @@ namespace BroTracker
         }
         struct ChannelTransition {
             bool synth=false;
+            std::uint8_t sample_level_percent=100;
             std::uint32_t transition=0,length=0,release=0,release_length=0;
             float from=0,last=0;
         } channels_[kRealtimePatternChannelCapacity]{};

@@ -15,6 +15,8 @@ namespace BroTracker
         Note reference_note = 0;
         Pcm16MonoView sample;
         InstrumentType type = InstrumentType::Sample;
+        // Optional binding attenuation; ordinary instruments remain exact unity.
+        std::uint8_t sample_level_percent = 100;
     };
     struct VariableRateSampleBindings
     {
@@ -27,7 +29,7 @@ namespace BroTracker
         ReservedInstrument, DuplicateInstrument, InvalidReferenceNote,
         InvalidSample, SampleRateMismatch, RangeOverflow, InvalidEventCount,
         InvalidChannel, InvalidNote, UnorderedOffsets, MissingInstrument,
-        UnknownInstrument, InvalidNoteOffTiming
+        UnknownInstrument, InvalidNoteOffTiming, InvalidGain
     };
 
     // Bounded Sample/Synth command adapter with MIDI note commands for a separate output adapter.
@@ -78,6 +80,7 @@ namespace BroTracker
                     continue;
                 }
                 if(binding.type != InstrumentType::Sample) return VariableSampleCommandStatus::InvalidSample;
+                if(binding.sample_level_percent>100) return VariableSampleCommandStatus::InvalidGain;
                 const auto status = probe.Trigger(binding.sample, kSourceFrameStepUnity);
                 if (status == VariableVoiceStatus::InvalidSample) return VariableSampleCommandStatus::InvalidSample;
                 if (status == VariableVoiceStatus::SampleRateMismatch) return VariableSampleCommandStatus::SampleRateMismatch;
@@ -160,6 +163,7 @@ namespace BroTracker
                         return VariableSampleCommandStatus::InvalidReferenceNote;
                     command.action = VariableRateVoiceAction::Trigger;
                     command.sample = selected->sample;
+                    command.sample_level_percent = selected->sample_level_percent;
                 }
                 result.commands[result.count++] = command;
             }

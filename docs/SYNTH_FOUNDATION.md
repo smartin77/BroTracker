@@ -21,13 +21,32 @@ Preserve the existing one-based instrument display, as confirmed by the user:
 | 02 | 1 | MIDI | Reserved unsupported placeholder; no audio or MIDI events |
 | 03 | 2 | Synth | New realtime sine, equal-tempered tuning |
 | 04 | 3 | Sample | Retained independently loaded `Samples/test3.wav`, reference 60 |
+| 05 | 4 | Sample | `Samples/test.wav`, reference 60; binding foundation only; full SD loading deferred pending storage |
 
 IDs are instance identities, not type numbers. The binding stores `InstrumentType`
 separately; another project can bind Synth, Sample or MIDI at different IDs.
 The existing boot-time SD preparation and inspection are unchanged. Missing or
 invalid WAV views omit only that Sample binding; they never substitute another
-WAV or Synth. `Samples/test.wav` remains inspected/deferred, as before; it has not
-been discarded or silently rebound. The default 32-row/eight-channel development
+WAV or Synth. Raw4/display05 now accepts a separately validated test.wav view,
+but the development firmware cannot yet prepare its full contiguous buffer:
+retained SD inspection measured PCM16 mono/44100 Hz, 306970 frames (613940 bytes).
+That exceeds either internal RAM bank; the retained PSRAM probe reported 0 MB.
+These format figures are from the retained read-only SD inspection of 2026-10-15;
+fresh inspection remains pending. Storage changes were explicitly deferred by the user on 2026-10-23. Storage must
+be resolved before this instrument can play on that hardware;
+no truncation, substitution, SD streaming in rendering or PSRAM assumption was added.
+The editor already accepts displayed05 (existing editable range01..99); no new
+pattern notes or host assets are needed. Reference60 is the established C-3 anchor,
+not a measured musical pitch or loop-tempo inference.
+
+Temporary development-fixture Sample binding level is **80% of the prior unity
+level** for test2.wav, test3.wav and any validated test.wav binding. It applies after
+sample interpolation and before existing transition/release processing. PCM is
+immutable; general bindings retain exact unity, and channel/master gain, Synth,
+MIDI velocity, pitch, timing, tempo and mute policy are unchanged. Integer PCM
+rounding is nearest with ties away from zero. Listening approval remains pending.
+
+The default 32-row/eight-channel development
 pattern keeps the existing sparse note sequences on CH1 and CH2, both selecting
 Synth 03 explicitly. CH3?CH8 start empty; every channel can select Sample or Synth.
 16/32/64-row fixture sizing and the 32-row UI display remain unchanged.

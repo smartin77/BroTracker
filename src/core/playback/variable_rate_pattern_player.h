@@ -511,6 +511,7 @@ namespace BroTracker
             case VariableSampleCommandStatus::ReservedInstrument: return VariableRatePatternPlayerStatus::ReservedInstrument;
             case VariableSampleCommandStatus::DuplicateInstrument: return VariableRatePatternPlayerStatus::DuplicateInstrument;
             case VariableSampleCommandStatus::InvalidReferenceNote: return VariableRatePatternPlayerStatus::InvalidReferenceNote;
+            case VariableSampleCommandStatus::InvalidGain: return VariableRatePatternPlayerStatus::InvalidGain;
             case VariableSampleCommandStatus::InvalidSample: return VariableRatePatternPlayerStatus::InvalidSample;
             case VariableSampleCommandStatus::SampleRateMismatch: return VariableRatePatternPlayerStatus::SampleRateMismatch;
             case VariableSampleCommandStatus::RangeOverflow: return VariableRatePatternPlayerStatus::RangeOverflow;

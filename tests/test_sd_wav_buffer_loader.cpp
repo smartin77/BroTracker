@@ -248,6 +248,22 @@ TEST_CASE(ExactSdPathsDecodedBuffersBindingsCommandsAndVoiceRouting) {
     VariableRateVoiceBlockRenderer render; CHECK_EQ(render.Configure(44100),VariableRateBlockStatus::Success);
     CHECK_EQ(render.Render(outputs,12,commands),VariableRateBlockStatus::Success);
     CHECK_EQ(MixPcm16Mono(inputs,mixed,12),Pcm16MixStatus::Success);
-    const std::int16_t expected[]={1000,2000,-100,-200,-100,-200,900,1800,2700,3600,0,0};
+    const std::int16_t expected[]={800,1600,-80,-160,-80,-160,720,1440,2160,2880,0,0};
     for(unsigned i=0;i<12;++i) CHECK_EQ(mixed[i],expected[i]);
+}
+
+TEST_CASE(FifthDevelopmentSampleReusesCheckedSdLoaderWhenCallerStorageExists) {
+    Fixture(); FakeSd::on_open=FullRoutingPcmPerPath;
+    std::int16_t pcm[4]{}; SdWavPreparation test;
+    test.Prepare(true,kDevelopmentWavPaths[0],pcm,4);
+    CHECK_EQ(FakeSd::paths.size(),1u);CHECK_EQ(FakeSd::paths[0],"Samples/test.wav");
+    CHECK_EQ(test.result.status,SdWavBufferStatus::Success);
+    const auto fixture=SelectDevelopmentFixture({}, {}, test.view);
+    CHECK_EQ(fixture.bindings.count,3u);
+    const auto& binding=fixture.bindings.bindings[2];
+    CHECK_EQ(binding.instrument,4u);CHECK_EQ(binding.reference_note,60u);
+    CHECK(binding.type==InstrumentType::Sample);CHECK_EQ(binding.sample.data,pcm);
+    CHECK_EQ(binding.sample_level_percent,80u);
+    SdWavPreparation unavailable;unavailable.Prepare(false,kDevelopmentWavPaths[0],pcm,4);
+    CHECK_EQ(SelectDevelopmentFixture({}, {}, unavailable.view).bindings.count,2u);
 }

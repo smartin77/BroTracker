@@ -8,6 +8,24 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Temporary development Sample level / fifth binding (2026-10-23)
+
+* [x] Apply fixture-only 0.8 attenuation to Sample01/test2.wav and Sample04/test3.wav;
+  prepare the same level/reference60 binding for Sample05/raw4/test.wav. Preserve
+  existing IDs, default pattern, PCM, Synth/MIDI levels and user configuration.
+* [ ] User-approved deferral: full test.wav preparation/playback needs storage;
+  retained file is 306970 frames,
+  613940 contiguous PCM bytes, exceeding either internal RAM bank; last probe has
+  no PSRAM. No current WAV copy/Teensy for fresh inspection. Resolve storage separately;
+  do not claim instrument05 is loaded or audibly validated on the current board.
+* [x] Validate gain/defaults/Synth isolation, IDs, checked SD binding, unavailable
+  views, replacement/retrigger, partitioning and existing tempo/mute behavior:
+  Windows 8/8 and Eoan 21/21; development firmware builds (exit0), ABI/package/
+  checksum/config-preserving install checks pass. No WAV/pattern/config changes.
+* [ ] Listening approval and device upload/checks pending; final discovery found
+  no Teensy. Preserve the separate unresolved audio/MIDI-sync checks below.
+
+
 ### Runtime config location correction (2026-10-23)
 
 * [x] Resolve actual config/config.ini beside the loaded executable, with no CWD,

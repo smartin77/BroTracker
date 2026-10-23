@@ -8,6 +8,8 @@
 namespace BroTracker {
 // Development/test2.wav/test3.wav workload only; new projects retain kDefaultTempo (12500).
 constexpr std::uint32_t kDevelopmentFixtureTempo = 15500;
+// Temporary development WAV attenuation only: previous unity binding gain * 0.8.
+constexpr std::uint8_t kDevelopmentSampleLevelPercent = 80;
 constexpr std::uint8_t kPatternBringUpFixtureRows = BROTRACKER_PATTERN_FIXTURE_ROWS;
 static_assert(BROTRACKER_PATTERN_FIXTURE_ROWS == 16 || BROTRACKER_PATTERN_FIXTURE_ROWS == 32 ||
     BROTRACKER_PATTERN_FIXTURE_ROWS == 64, "Fixture rows must be 16, 32 or 64");
@@ -69,18 +71,20 @@ inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
 }
 // UI IDs are one-based; raw bytes remain unchanged: 0=Sample 01,
 // 1=MIDI 02, 2=Synth 03, 3=Sample 04 (test3.wav).
-// Sample 01 uses the existing test2.wav preparation; test.wav remains inspected/deferred.
+// Sample 01 uses test2.wav; Sample 05/raw4 uses test.wav when prepared storage is available.
 inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentFixture(
-    Pcm16MonoView test2, Pcm16MonoView test3={}) noexcept {
+    Pcm16MonoView test2, Pcm16MonoView test3={}, Pcm16MonoView test={}) noexcept {
     BasicPatternBringUpFixture<VariableRateSampleBindings> result{MakeDevelopmentPattern(),{}};
     auto& bindings=result.bindings;
     bindings.bindings[bindings.count++]={1,0,{},InstrumentType::MIDI};
     bindings.bindings[bindings.count++]={2,0,{},InstrumentType::Synth};
     RamSampleVoice validator; (void)validator.Configure(44100);
     if(validator.Trigger(test2)==RamVoiceStatus::Success)
-        bindings.bindings[bindings.count++]={0,60,test2,InstrumentType::Sample};
+        bindings.bindings[bindings.count++]={0,60,test2,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
     if(validator.Trigger(test3)==RamVoiceStatus::Success)
-        bindings.bindings[bindings.count++]={3,60,test3,InstrumentType::Sample};
+        bindings.bindings[bindings.count++]={3,60,test3,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
+    if(validator.Trigger(test)==RamVoiceStatus::Success)
+        bindings.bindings[bindings.count++]={4,60,test,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
     return result;
 }
 
