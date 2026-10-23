@@ -1,3 +1,6 @@
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+#include "bringup/midi_generation_gate.h"
+#endif
 #ifdef BROTRACKER_PATTERN_BRINGUP
 #include "pattern_bringup.h"
 #include "pattern_beeper_samples.h"
@@ -108,10 +111,12 @@ namespace
         // Same priority as AudioStream software update (208): neither preempts
         // the other. Only the USB ring reservation/submission excludes USB IRQ.
         const auto now=micros();
+        std::uint32_t generation;
         {
             // Keep completion and lifecycle observations coherent: USB reset
             // must not clear descriptors between the generation and idle reads.
             InterruptGuard guard;
+            generation=brotracker_midi_generation;
             g_midi.Lifecycle(brotracker_midi_ready && usb_configuration && (USB1_PORTSC1 & USB_PORTSC1_CCS) && !(USB1_PORTSC1 & USB_PORTSC1_SUSP),brotracker_midi_generation);
             // Cancel queued DMA as well as software events before any cleanup.
             // Cancellation is asynchronous; no USB waits in either IRQ.
@@ -125,13 +130,15 @@ namespace
             }
             if(brotracker_midi_tx_idle()) g_midi.ConfirmTransfers();
         }
-        g_midi.Service(now,[](const uint32_t* words,unsigned count) {
+        g_midi.Service(now,[generation](const uint32_t* words,unsigned count) {
             // PJRC schedule_transfer unconditionally enables PRIMASK. BASEPRI
             // keeps USB reset/configuration excluded until tx_head is committed.
             uint32_t mask, priority;
             asm volatile("mrs %0, primask\n\tmrs %1, basepri\n\tcpsid i\n\tmsr basepri_max, %2\n\tdsb\n\tisb"
                 : "=&r"(mask), "=&r"(priority) : "r"(16u) : "memory");
-            const bool accepted=brotracker_midi_try_submit(words,count,micros())!=0;
+            const bool accepted=SubmitMidiForGeneration(generation,brotracker_midi_generation,[&] {
+                return brotracker_midi_try_submit(words,count,micros())!=0;
+            });
             asm volatile("msr primask, %0\n\tmsr basepri, %1\n\tdsb\n\tisb" :: "r"(mask),"r"(priority) : "memory");
             return accepted;
         });

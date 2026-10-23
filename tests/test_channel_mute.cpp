@@ -239,3 +239,99 @@ TEST_CASE(ConfiguredRowModesUseSharedRowPathAndLeavePatternAndSelectionPixelsUnc
         for(int y=29;y<478;++y) for(int x=30;x<454;++x) CHECK(std::memcmp(actual.PixelData()+y*640+x,baseline.PixelData()+y*640+x,sizeof(Color))==0);
     }
 }
+
+TEST_CASE(MuteSessionBoundariesDuplicatesAndIdentityExhaustion) {
+    HostChannelMute h;auto rx=[&](const char* s){return h.Response(s,std::strlen(s));};
+    CHECK(rx("BTMUTE1 CAP 1"));CHECK(rx("BTMUTE1 STATE 1 7 8 3"));
+    CHECK(h.Toggle(2));CHECK(h.Begin());h.BeforeWrite(100);h.LineComplete();
+    CHECK(rx("BTMUTE1 SUBMITTED 1 8"));CHECK(rx("BTMUTE1 SUBMITTED 1 8"));
+    CHECK(rx("BTMUTE1 APPLIED 1 8"));CHECK(rx("BTMUTE1 STATE 1 8 9 7"));
+    CHECK(rx("BTMUTE1 STATE 1 8 9 7"));CHECK(!h.Begin());
+    CHECK(!rx("BTMUTE1 APPLIED 1 8"));CHECK_EQ(h.Mask(),7);
+    CHECK(h.Toggle(4));CHECK(h.Begin());h.BeforeWrite(101);h.LineComplete();
+    CHECK(!rx("BTMUTE1 REJECTED 1 8"));CHECK(!rx("BTMUTE1 APPLIED 1 8"));
+    // Old GET snapshot before request9 applies is legal in ordered CDC.
+    CHECK(rx("BTMUTE1 STATE 1 8 10 7"));CHECK_EQ(h.Mask(),7);
+    CHECK(rx("BTMUTE1 STATE 1 9 10 23"));CHECK_EQ(h.Mask(),23);CHECK(!h.Begin());
+    // A boot/connection boundary explicitly discards old identities and intent.
+    h.Disconnect();CHECK(!h.Known());CHECK(!rx("BTMUTE1 STATE 1 0 1 0"));
+    CHECK(rx("BTMUTE1 CAP 1"));CHECK(rx("BTMUTE1 STATE 1 0 1 0"));CHECK_EQ(h.Mask(),0);CHECK(!h.Begin());
+    h.Disconnect();CHECK(rx("BTMUTE1 CAP 1"));CHECK(rx("BTMUTE1 STATE 1 4294967294 4294967295 0"));
+    CHECK(h.Toggle(0));CHECK(h.Begin());h.LineComplete();
+    CHECK(rx("BTMUTE1 STATE 1 4294967295 0 1"));CHECK(!h.Toggle(1));CHECK(!h.Begin());
+    h.Disconnect();CHECK(rx("BTMUTE1 CAP 1"));CHECK(rx("BTMUTE1 STATE 1 0 1 0"));CHECK(h.Toggle(1));CHECK(h.Begin());
+}
+TEST_CASE(MuteGeneratedOrderedRepliesConvergeToIndependentParityModel) {
+    // Fixed LCG seed; reference is simply parity of user toggles, not host logic.
+    constexpr unsigned seed=0xB70C2026u;unsigned random=seed;
+    auto next=[&](){random=random*1664525u+1013904223u;return random;};
+    HostChannelMute h;auto rx=[&](const std::string& s){return h.Response(s.data(),s.size());};
+    CHECK(rx("BTMUTE1 CAP 1"));CHECK(rx("BTMUTE1 STATE 1 0 1 0"));
+    unsigned expected=0,id=0;
+    for(unsigned round=0;round<256;++round) {
+        for(unsigned n=1+next()%16;n;--n) {const auto ch=next()%8;expected^=1u<<ch;CHECK(h.Toggle(ch));}
+        if(!h.Begin()) {CHECK_EQ(h.Mask(),expected);continue;}
+        char line[96];std::size_t length=0;CHECK(h.FormatLine(line,sizeof(line),length));
+        unsigned frozen=0;CHECK_EQ(std::sscanf(line,"BTMUTE1 SET 1 %u %u",&id,&frozen),2);
+        h.BeforeWrite(round);h.LineComplete();
+        for(unsigned n=next()%16;n;--n) {const auto ch=next()%8;expected^=1u<<ch;CHECK(h.Toggle(ch));}
+        const auto applied="BTMUTE1 STATE 1 "+std::to_string(id)+" "+std::to_string(id+1)+" "+std::to_string(frozen);
+        CHECK(rx(applied));CHECK(rx(applied)); // duplicate must not discard later intent
+        if(h.Begin()) {
+            CHECK(h.FormatLine(line,sizeof(line),length));unsigned settled=0;
+            CHECK_EQ(std::sscanf(line,"BTMUTE1 SET 1 %u %u",&id,&settled),2);CHECK_EQ(settled,expected);h.LineComplete();
+            CHECK(rx("BTMUTE1 STATE 1 "+std::to_string(id)+" "+std::to_string(id+1)+" "+std::to_string(settled)));
+        }
+        CHECK_EQ(h.Mask(),expected);CHECK(!h.Begin());
+    }
+}
+
+TEST_CASE(GeneratedCoreActionsRemainPartitionIndependentAcrossMutePreviewTempoAndTransport) {
+    // xorshift32 uses mixed high bits; vary channels, pitches and tempos.
+    for(unsigned seed:{0xB70C2026u,0x13579BDFu,0xDEADBEEFu,0x51A7E123u}) {
+        unsigned random=seed;auto next=[&](){random^=random<<13;random^=random>>17;random^=random<<5;return random;};
+        const unsigned channel=(next()>>16)%8,pitch=60+(next()>>16)%24,tempo=15000+(next()>>16)%1000;
+        struct Result {std::vector<std::int16_t> pcm;std::vector<std::tuple<unsigned,unsigned,unsigned,unsigned>> events;};
+        auto run=[&](unsigned partition) {
+            RealtimePattern p;p.active_rows=4;p.active_channels=8;
+            for(unsigned c=0;c<8;++c) {
+                p.cells[0][c]={static_cast<Note>(pitch),1};p.cells[1][c]={NOTE_EMPTY,2};
+                p.cells[2][c]={72,kNoInstrumentUpdate};p.cells[3][c]={NOTE_OFF,kNoInstrumentUpdate};
+                p.note_off_timing[3][c]=NoteOffTiming::EndOfPosition;
+            }
+            VariableRatePatternPlayer player;CHECK_EQ(player.Configure(15500,44100,p,SelectDevelopmentFixture({}).bindings),VariableRatePatternPlayerStatus::Success);
+            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+            Result result;std::int16_t pcm[128];bool muted=false,retained=false;
+            const unsigned boundaries[]={3000,4250,4266,4300,9000,9200,20000,20500,40000};
+            for(unsigned wall=0;wall<40000;) {
+                if(wall==3000){CHECK_EQ(player.SetMuteMask(1u<<channel),VariableRatePatternPlayerStatus::Success);muted=true;}
+                if(wall==4250)CHECK_EQ(player.ReplaceWorkingPattern(p),VariableRatePatternPlayerStatus::Success);
+                if(wall==4266)CHECK_EQ(player.RequestTempo(tempo),VariableRatePatternPlayerStatus::Success);
+                if(wall==4300){CHECK_EQ(player.SetMuteMask(0),VariableRatePatternPlayerStatus::Success);muted=false;}
+                if(wall==9000)CHECK_EQ(player.Pause(),VariableRatePatternPlayerStatus::Success);
+                if(wall==9200)CHECK_EQ(player.Continue(),VariableRatePatternPlayerStatus::Success);
+                if(wall==20000)player.Stop();
+                if(wall==20500){CHECK_EQ(player.ReplacePattern(p),VariableRatePatternPlayerStatus::Success);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);}
+                unsigned count=std::min(partition,40000-wall);for(auto at:boundaries)if(at>wall){count=std::min(count,at-wall);break;}
+                CHECK_EQ(player.Render(pcm,count),VariableRatePatternPlayerStatus::Success);
+                result.pcm.insert(result.pcm.end(),pcm,pcm+count);const auto commands=player.TakeMidiCommands();
+                for(unsigned i=0;i<commands.count;++i){const auto& c=commands.commands[i];
+                    result.events.emplace_back(wall+c.sample_offset,c.channel,unsigned(c.action),unsigned(c.synth_note));
+                    if(muted && c.channel==channel)CHECK(c.action==VariableRateVoiceAction::Release);
+                    if(wall<9000 && c.channel==channel && c.synth_note==72){CHECK(c.action==VariableRateVoiceAction::TriggerMidi);retained=true;}
+                }
+                wall+=count;
+            }
+            CHECK(retained);
+            // Deferred row-end OFF must actually execute, not just be cancelled
+            // by the transport actions. At loop boundary OFF precedes retrigger.
+            bool boundary_off=false;
+            for(std::size_t i=0;i<result.events.size();++i) if(std::get<2>(result.events[i])==unsigned(VariableRateVoiceAction::Stop)) {
+                for(std::size_t j=i+1;j<result.events.size() && std::get<0>(result.events[j])==std::get<0>(result.events[i]);++j)
+                    if(std::get<1>(result.events[j])==std::get<1>(result.events[i]) && std::get<2>(result.events[j])==unsigned(VariableRateVoiceAction::TriggerMidi)) boundary_off=true;
+            }
+            CHECK(boundary_off);return result;
+        };
+        const auto reference=run(1);for(unsigned block:{17u,97u,128u}){const auto actual=run(block);CHECK(actual.pcm==reference.pcm);CHECK(actual.events==reference.events);}
+    }
+}

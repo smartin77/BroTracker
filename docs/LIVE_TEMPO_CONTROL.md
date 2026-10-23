@@ -162,16 +162,12 @@ an active transfer. No new cell format or on-disk format is introduced.
 
 ## Validation and manual checks
 
-See [actual validation report](../build/live-tempo/validation.md),
-[hardware transcript](../build/live-tempo/hardware.log),
-[hardware summary](../build/live-tempo/hardware.json) and
-[complete actual diff, including new files](../build/live-tempo/complete.diff).
 Windows package/eight suites, clean GCC 13 Release/six CI suites, ARM64 Eoan/seven
 suites and application ABI/dependencies, and all six Teensy builds passed.
 Development upload and bounded physical tempo/transport/publication/readback checks
 passed on COM3 / Teensy 17681760. Final applied/published tempo is 125.00 BPM,
 playback stopped and serial closed.
-These generated artifacts remain ignored. Automated results do not establish
+Automated results do not establish
 listening/UX approval, manual rapid-retrigger approval or a console-pop solution.
 The earlier user NOTE OFF confirmation through O/value stepping is preserved.
 

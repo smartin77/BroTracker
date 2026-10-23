@@ -1,3 +1,4 @@
+#include "bringup/midi_generation_gate.h"
 #include "test_framework.h"
 #include "bringup/midi_output.h"
 #include "bringup/pattern_fixture.h"
@@ -213,4 +214,37 @@ TEST_CASE(MidiTimerInitializationFailureIsExplicitAndQuarantinesAdmission) {
     CHECK_EQ(output.Reason(),MidiOutput::Fault::Timer);
     CHECK(output.Faulted()); CHECK(output.PendingCleanup());
     CHECK(!output.Enqueue(Command(0,69),0,0)); CHECK_EQ(output.Queued(),0);
+}
+
+TEST_CASE(MidiLifecycleBetweenObservationAndSubmissionCannotSendOldSessionPacket) {
+    unsigned submissions=0;
+    // Timer computed packet in generation7. USB reset/configuration preempts
+    // before the submission exclusion is acquired, producing generation9.
+    CHECK(!SubmitMidiForGeneration(7,9,[&]{++submissions;return true;}));
+    CHECK_EQ(submissions,0u);
+    CHECK(SubmitMidiForGeneration(9,9,[&]{++submissions;return true;}));
+    CHECK_EQ(submissions,1u);
+    CHECK(!SubmitMidiForGeneration(9,9,[]{return false;}));
+    CHECK(!SubmitMidiForGeneration(UINT32_MAX,0,[&]{++submissions;return true;}));
+    CHECK_EQ(submissions,1u);
+}
+
+TEST_CASE(MidiGenerationRaceRetainsQueueThenQuarantinesWithoutStaleOnAndRecoversExplicitly) {
+    MidiHarness h;h.Send(0,60);const auto delivered=h.words.size();
+    CHECK(h.output.Enqueue(Command(1,69),128,100));CHECK_EQ(h.output.Queued(),1u);
+    // Service observes A=1, then reset/configuration B=3 occurs before submit.
+    unsigned attempted=0;
+    h.output.Service(100,[&](const std::uint32_t* w,unsigned n) {
+        return SubmitMidiForGeneration(1,3,[&]{++attempted;h.words.insert(h.words.end(),w,w+n);return true;});
+    });
+    CHECK_EQ(attempted,0u);CHECK_EQ(h.words.size(),delivered);CHECK_EQ(h.output.Queued(),1u);
+    h.output.Lifecycle(true,3);CHECK(h.output.Faulted());CHECK_EQ(h.output.Queued(),0u);
+    CHECK(!h.output.Recover(false));CHECK(!h.output.Enqueue(Command(1,72),256,200));
+    CHECK(h.output.TakeAbortRequest());h.Service(200); // bounded OFF for submitted60 only
+    for(std::size_t i=delivered;i<h.words.size();++i) CHECK_EQ((h.words[i]>>8)&0xf0u,0x80u);
+    CHECK(!h.output.PendingCleanup());CHECK(!h.output.Recover(false));
+    h.output.Reset();CHECK(h.output.TakeAbortRequest());h.Service(300);
+    CHECK(h.output.Recover(true)); // platform maps this to explicit stopped START
+    const auto fresh=h.words.size();h.Send(1,72);CHECK_EQ(h.words.size(),fresh+1);
+    CHECK_EQ(h.words.back(),h.output.Pack(true,72));
 }

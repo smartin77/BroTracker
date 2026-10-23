@@ -8,6 +8,15 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### MIDI lifecycle and session follow-up
+
+* [x] Guard MIDI submission against USB-generation changes; regression coverage
+  models queue refusal, quarantine, cleanup and explicit recovery. Hardware IRQ
+  exclusion remains inspection-based; see [MIDI lifecycle](MIDI_FOUNDATION.md#usb-lifecycle-review-2026-10-23).
+* [ ] Design explicit boot/session identity: an undetected reboot without a
+  connection boundary cannot reliably establish a new protocol session. Retain
+  disconnect/renegotiation as the supported boundary; no protocol change yet.
+
 ### Header scale and documented host configuration (2026-10-23)
 
 * [x] Double channel-number bitmap scale exactly 2x in existing headers, retain thin
@@ -21,11 +30,10 @@ Items may be added during development to record agreed next steps or work that n
   ARM6420/20; production previews generated/inspected. Windows -EmptyWindowTitle
   package built; complete ARM64 delivery refreshed with ABI/checksum/Git-visibility/
   clean-install/upgrade/user-config-preservation checks, including custom h0.
-  [Complete diff, previews, delivery hashes and validation](../build/ui-config/validation.md).
-* [ ] Manual Windows/handheld approval of enlarged 1/7, selected/muted headers and
+* [x] User confirms Windows mouse mute, header navigation and enlarged numbers.
+* [ ] Keyboard mute confirmation, example-config review, physical handheld checks and
   configured row labels pending. Severe console crackling unresolved; bridge
   diagnostics paused; external MIDI delivery/audible alignment still unverified.
-
 
 ### Session channel mute (2026-10-22)
 
@@ -39,11 +47,10 @@ Items may be added during development to record agreed next steps or work that n
   Refresh complete ARM64 Git package with ABI/checksum/install/config-preservation
   checks and Windows -EmptyWindowTitle package. Retain passed firmware/upload,
   memory and bounded Teensy mute results; mask0, original155.00 pattern, stopped,
-  serial closed. See [actual diff, hashes and results](../build/channel-mute/validation.md).
+  serial closed.
 * [ ] Manual Windows/handheld UX and listening validation pending; use the linked
   checklist. External MIDI playback and audible synchronization remain unverified.
   Bridge diagnostics paused; no SSH/console deployment.
-
 
 ### Development fixture tempo and physical confirmation (2026-10-22)
 
@@ -65,7 +72,6 @@ Items may be added during development to record agreed next steps or work that n
   dev firmware to discovered Teensy 17681760 / COM3; bounded tempo/publication,
   MIDI capture and Synth helpers pass. Initial/final applied and published tempo
   verified 155.00; original fixture restored, playback stopped, handles closed.
-  See [focused diff, delivery hashes and validation](../build/fixture-tempo/validation.md).
 * [ ] External MIDI equipment/playback and measured combined-audio alignment
   remain pending. Severe crackling remains unresolved; bridge diagnostics paused.
 
@@ -95,8 +101,7 @@ Items may be added during development to record agreed next steps or work that n
   on ArkOS, with no external MIDI equipment connected (see bounded claim above).
 * [ ] Other ArkOS isolation/recovery cases remain unconfirmed;
   record the reported MIDI reason. Do not infer the 40 ms watchdog or absent
-  external equipment was the original trigger. See [repair design](MIDI_FOUNDATION.md)
-  and [actual validation](../build/midi-isolation/validation.md).
+  external equipment was the original trigger. See [repair design](MIDI_FOUNDATION.md).
 * [ ] External MIDI playback and measured internal/external audible alignment remain
   unverified. Severe console crackling remains unresolved; diagnostics stay paused.
 
@@ -114,8 +119,7 @@ Items may be added during development to record agreed next steps or work that n
   selection: orange outline, no obsolete selection fill, an empty channel and a
   three-cell sparse channel. Generate/inspect 640x480 output in ignored build storage.
 * [x] User visually approved the actual Windows BTX beat-readability changes.
-* [ ] Handheld visual approval remains pending. See
-  [preview and validation](../build/beat-readability/validation.md).
+* [ ] Handheld visual approval remains pending.
 * [ ] User reports severe audible crackling on the console; cause unresolved.
   No audio changes or diagnostic development in this visual task. Bridge diagnostics
   remain paused. Keep external MIDI/combined-audio measurements separately pending.
@@ -150,7 +154,6 @@ Items may be added during development to record agreed next steps or work that n
   Preserve Shift+Tab, L1 editing and R1 Left/Right tempo controls.
 * [x] Windows package with `-EmptyWindowTitle`: all eight suites pass. Existing
   Eoan ARM64 application build: all seven suites and ABI/dependency checks pass.
-  See [actual validation and focused diff](../build/beat-navigation/validation.md).
 * [x] User confirmed Windows Shift+Up/Down beat-row navigation works as requested.
 * [x] User confirms handheld R1+Up/Down beat navigation works during playback
   and the supplied handheld control test passed (2026-10-22).
@@ -184,7 +187,7 @@ Items may be added during development to record agreed next steps or work that n
   17681760. Bounded physical checks passed live/stopped/paused tempo, publication,
   readback, Restore and reconnect/transport retention; 47 playing telemetry updates
   advanced from tick 2 to 1855. Final applied/published tempo 125.00, playback
-  stopped, serial closed. See [actual validation evidence](../build/live-tempo/validation.md).
+  stopped, serial closed.
 * [x] Build/check the ARM64 application in the existing Eoan workflow: all seven
   suites and application ABI/dependency checks pass. No SSH or handheld deployment.
 * [x] User confirmed all supplied Windows manual tempo checks: taps/rounding,
@@ -199,7 +202,6 @@ Items may be added during development to record agreed next steps or work that n
   number only; preserve the existing pending indication lifecycle, with white
   otherwise and no additional timer. User confirmed the Windows BPM pending
   color indication works exactly as requested.
-
 
 
 * [ ] Review the proposed [UI screen map and staged direction](UI_SCREEN_MAP.md),
@@ -1422,7 +1424,6 @@ design remains unchanged.
   oscillator/envelope/filter controls. No editor is implemented by this step.
 * [ ] Separate later modular Synth2 work; MIDI playback/backend remains unimplemented.
 
-
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 
   * Keep it available as a Teensy audio hardware verification tool.
@@ -1471,7 +1472,6 @@ design remains unchanged.
   edits/preview/publication, native-rate and variable-rate paths; inspect linker
   RAM/stack headroom and remeasure callback cost. Prior 16-row hardware records do
   not validate this change. Add paging/scrolling before exposing all 64 rows in UI.
-
 
 Follow [D0056](ARCHITECTURE_DECISIONS.md#d0056--pattern-length-and-playback-flow):
 stored pattern length, playback flow and visible row count are separate.

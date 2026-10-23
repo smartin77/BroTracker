@@ -91,11 +91,7 @@ locks or host-dependent time is used.
 
 ## Validation
 
-See the actual ignored [validation report](../build/synth-foundation/validation.md),
-[reference WAV](../build/synth-foundation/reference.wav),
-[reference measurements](../build/synth-foundation/reference.json) and
-[complete diff including new files](../build/synth-foundation/complete.diff).
-Generated artifacts remain under the existing ignored `build/` directory.
+Detailed reference recordings, measurements and execution logs are retained separately.
 
 Native coverage checks note tuning/extremes/invalid inputs, one-second envelope
 endpoints, monotonic attack/decay, release endpoints, exact command offsets,

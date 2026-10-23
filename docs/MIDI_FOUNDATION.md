@@ -187,8 +187,7 @@ completes transfers, rather than equating USB configuration with a consumer. Mix
 Sample/Synth/MIDI rendering stays bit-identical to a reference and advances the
 same timeline across repeated notes/loops; tests cover cancellation, stalled flush,
 busy/deadline/capacity faults, ownership/disconnect, uncertain cleanup and explicit
-recovery. See [actual repair validation and diff](../build/midi-isolation/validation.md)
-for build/package/hardware results. A native stall is not proof of the initiating
+recovery. A native stall is not proof of the initiating
 ArkOS hardware trigger. External MIDI playback and combined-audio alignment
 remain unverified; the separate severe crackling report remains unresolved.
 
@@ -296,8 +295,7 @@ The updated development firmware was built/uploaded to discovered Teensy
 published fixture tempo 155.00; tempo/publication, Windows MIDI capture and Synth
 helpers pass and leave the original fixture restored, playback stopped and handles
 closed. Windows 8/8 and Eoan ARM64 20/20 suites plus package checks pass. These
-PC checks add no external-delivery or audible-sync claim. See
-[actual fixture update validation](../build/fixture-tempo/validation.md).
+PC checks add no external-delivery or audible-sync claim.
 
 ## Actual routing prerequisites
 
@@ -358,10 +356,6 @@ constant offset and jitter; do not conceal variable jitter with fixed delay.
 
 ## Validation and manual checks
 
-See [actual results](../build/midi-foundation/validation.md),
-[hardware transcript](../build/midi-foundation/hardware.log),
-[capture and summary](../build/midi-foundation/hardware.json), and
-[complete actual diff including new files](../build/midi-foundation/complete.diff).
 Generated captures, logs and review exports remain ignored; ARM64 binaries and
 required package assets are intentional Git delivery. The initial Eoan build
 validation did not refresh deploy/arkos. Use the corrected
@@ -400,3 +394,22 @@ Manual checklist:
 - Perform the two-channel measurement above before judging audible synchronization.
 - Keep inherited physical handheld tempo/Synth/beat-navigation validation pending;
   no SSH or handheld deployment has been performed.
+
+## USB lifecycle review (2026-10-23)
+
+Timer service captures the USB generation with its lifecycle observation. The
+nonblocking submit adapter rechecks that generation inside the existing USB IRQ
+exclusion, through DMA submission. This prevents a reset/reconfiguration between
+observation and submission from accepting a packet computed for the old session.
+Refusal leaves work for the next lifecycle observation to quarantine/discard, with
+the uncertainty ledger retained for bounded cleanup. Queue-level regression models
+refused submission without queue commit, next-observation quarantine, OFF-only
+cleanup and explicit stopped recovery before fresh commands. Production wiring
+and hardware interrupt exclusion were inspected against the installed Teensy core;
+the model does not execute the interrupt controller or physically inject this race.
+Neither model nor PC MIDI capture establishes audible synchronization.
+
+Protocol identities reset only at a detected connection/session boundary. Without
+a boot/session identity, an undetected device reboot on a surviving host connection
+cannot reliably establish a new protocol session. Explicit disconnect and fresh
+negotiation/readback remain required; no protocol change is implemented.

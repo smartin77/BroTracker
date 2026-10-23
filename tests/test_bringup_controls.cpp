@@ -6,6 +6,7 @@
 struct FakeTransport : SerialTransport {
     bool online = true;
     bool hold_write = false;
+    unsigned write_limit=UINT32_MAX;
     std::string incoming, outgoing;
     bool Open(FILE*, const char*) override { return online; }
     void Close() override {}
@@ -14,7 +15,7 @@ struct FakeTransport : SerialTransport {
         unsigned count = std::min(size, static_cast<unsigned>(incoming.size()));
         std::memcpy(data, incoming.data(), count); incoming.erase(0, count); return count;
     }
-    int Write(const char* data, unsigned size) override { if (hold_write) return 0; outgoing.append(data, size); return size; }
+    int Write(const char* data, unsigned size) override { if (hold_write) return 0; size=std::min(size,write_limit); outgoing.append(data, size); return size; }
     const char* Error() const override { return "fake disconnect"; }
     void Expect(const char* value) { if(outgoing != value) std::fprintf(stderr,"expected [%s], received [%s]\n",value,outgoing.c_str()); CHECK(outgoing == value); outgoing.clear(); }
 };
@@ -34,6 +35,14 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;t.Ready("BTTEST1 STATE PLAYING\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
+          t.port->write_limit=3;CHECK(t.serial.ToggleChannelMute(0));
+          t.Tick();t.Tick();CHECK(!t.port->outgoing.empty());
+          t.Action(BringUpAction::Stop);
+          for(unsigned n=0;n<32;++n)t.Tick();
+          t.port->Expect("BTMUTE1 SET 1 1 1\nBTTEST1 STOP\n");
+        }
+
         { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
           CHECK(t.serial.MuteAvailable());CHECK(t.serial.ToggleChannelMute(0));CHECK(t.serial.ToggleChannelMute(1));
           CHECK(t.serial.PlaybackView(t.now)->mute_mask==0);t.Send("BTMUTE1 SET 1 1 3\n");

@@ -1,8 +1,9 @@
 # Session channel mute
 
 Implemented on feature/midi-foundation, following D0036. Prior Windows/ArkOS
-version was user-confirmed working; this new mute UX/listening needs manual
-validation. External MIDI hardware/playback and audible alignment remain pending.
+version was user-confirmed working. Windows mouse mute, header navigation and
+enlarged numbers are now user-confirmed. Keyboard mute, example-config review,
+listening and physical handheld checks remain unconfirmed. External MIDI hardware/playback and audible alignment remain pending.
 Bridge diagnostics stay paused. No persistence, solo or Mixer screen is added.
 
 ## Input and presentation
@@ -114,7 +115,6 @@ unavailable while ordinary controls remain usable. Boot defaults all unmuted.
 
 ## Validation and manual checklist
 
-See [actual results, memory, delivery hashes and complete diff](../build/channel-mute/validation.md).
 The preview uses the real editor and renderer: empty channel 8, sparse channel 7,
 muted headers 1/7, selected-muted header 7 and ordinary unmuted headers.
 
