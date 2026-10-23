@@ -4,7 +4,7 @@
 
 The project targets **Teensy 4.1** as the realtime engine and Linux-based handheld devices as the user interface.
 
-**Teensy-powered (HW). AI-assisted (OpenAI).**
+**Teensy-powered (HW). Human driven, AI-assisted (OpenAI).**
 
 The project is designed and developed with AI assistance (OpenAI), under human direction, review and hardware validation.
 

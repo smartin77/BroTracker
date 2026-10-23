@@ -2,6 +2,26 @@
 
 BroTracker uses three related formats for tunes, projects and project distribution.
 
+## Project/data workspace and host paths
+
+The **Teensy SD card is always BroTracker's project/data workspace**. Tune/project
+and Sample references below belong to that storage domain. ArkOS/dArkOS and
+Windows are UI hosts; their application directory and process working directory
+are not the BroTracker project workspace.
+
+Host runtime configuration is separate: `<executable-directory>/config/config.ini`,
+resolved independently of the process working directory on both hosts. Windows
+delivery is portable; its location is not a project-storage root. Existing host
+logs and diagnostic evidence retain their documented paths; see
+[host path/deployment boundaries](PLATFORM_DEPLOYMENT.md#application-location).
+
+This workspace decision does not imply that the Teensy SD card is mounted as a
+host drive, or that file browsing, planned module/session persistence or new
+storage operations are implemented. Existing SD WAV inspection/preparation and the
+[planned session contract](#planned-working-session-separate-from-tunesprojects)
+retain their documented implementation status. Format descriptions below remain
+design contracts, not proof of implemented persistence.
+
 ## BTT — BroTracker Tune
 
 BTT is a lightweight BroTracker tune/module representation.

@@ -83,65 +83,39 @@ Exact controller and launcher integration remains under active bring-up.
 
 ## Application Location
 
-The current development checkout may live under a user's home directory.
-This is appropriate for development but is not the deployment location.
+ArkOS/dArkOS and Windows are UI hosts. Their process working directory is not
+BroTracker's project workspace: the **Teensy SD card is always the project/data
+workspace**, separate from the host application's files.
 
-On Linux systems, the canonical BroTracker application root is:
+Windows delivery is portable: BroTrackerTerminal.exe may run from any suitable
+disk location without installation, with its required runtime files/assets beside
+it. `deploy/windows` is the repository's delivery location, not a required runtime
+path or project-storage root.
 
-    /opt/BroTracker
+On both hosts runtime configuration is
+`<executable-directory>/config/config.ini`, resolved independently of the shell
+working directory. Current ArkOS/dArkOS remains
+`/roms/ports/brotracker/config/config.ini`. Missing config uses built-in defaults;
+the example is template-only. Existing host log and diagnostic paths remain
+unchanged; see [Logging](LOGGING.md) and the
+[listening-evidence location](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch).
 
-BroTracker must not depend directly on platform-specific locations such as:
-
-- `/home/ark/BroTracker`
-- `/roms`
-- `/roms/ports`
-- `/ports`
-
-The physical storage backing `/opt/BroTracker` may differ between platforms.
-
-On a conventional Linux installation, BroTracker may be installed directly
-under `/opt/BroTracker`.
-
-On platforms such as ArkOS, the actual BroTracker files may reside on
-persistent storage such as the Ports/EASYROMS filesystem. The platform
-installation process may then expose that installation through
-`/opt/BroTracker`, for example by using an appropriate filesystem mapping or
-symbolic link.
-
-This keeps the application-visible path stable while allowing each platform
-to choose the physical storage appropriate for its environment.
-
-Application resources should therefore be addressed relative to
-`/opt/BroTracker` rather than through ArkOS-specific, distribution-specific
-or user-home paths.
+A future Linux distribution may expose application files through `/opt/BroTracker`;
+that is an optional deployment mapping, not a current canonical path requirement.
+Application logic must resolve its own resources without treating the process
+working directory or a host application mapping as project storage.
 
 ## Persistent Storage
 
-Persistent BroTracker data depends on the runtime architecture.
+Project data, Tunes and Samples belong to the Teensy SD workspace. Host runtime
+config, logs and diagnostic recordings are separate host files, not substitutes
+for that workspace. See [File Formats](FILE_FORMATS.md#projectdata-workspace-and-host-paths)
+for the storage boundary and planned session/module contracts.
 
-For the primary Teensy-based BroTracker architecture, persistent Tune data,
-projects, samples, configuration and other content required by the realtime
-system are stored on the SD card attached to the Teensy. The Linux handheld
-must not become the authoritative storage location for this data.
-
-Persistent data stored by the Linux host is primarily relevant to BroTracker
-configurations that run without a Teensy, such as future standalone desktop
-or handheld versions where the complete BroTracker engine runs locally.
-
-Such host-side persistent data may include:
-
-- Tunes and projects;
-- samples;
-- user configuration;
-- downloaded or installed modules;
-- other user-created or user-installed content.
-
-On ArkOS-class systems running a host-only BroTracker configuration, persistent
-storage may naturally live on the storage area used for Ports and other user
-content rather than inside the replaceable Linux root filesystem.
-
-The exact directory layout and synchronization or transfer model between a
-Linux UI and Teensy storage are not yet fixed.
+This decision neither mounts the Teensy SD card as a host drive nor establishes
+implemented file browsing, module/session persistence or new storage operations.
+Existing SD access and planned transfer/persistence features retain their documented
+status; no host filesystem mapping or synchronization mechanism is implied.
 
 ## Application Data and User Data
 
@@ -163,15 +137,15 @@ Persistent user data may include:
 - configuration;
 - user-installed modules.
 
-These groups may live together on some platforms and on separate filesystems
-or partitions on others.
-
-BroTracker should not require them to share the same physical location.
+For BroTracker, project/data workspace content stays on the Teensy SD card;
+host configuration/logs/diagnostics follow their separate host path contracts.
+These categories do not imply that project data and application files share a
+filesystem or are visible through the same host path.
 
 ## Platform Storage Mapping
 
-The BroTracker application uses `/opt/BroTracker` as its canonical Linux
-application root.
+A future Linux deployment may use `/opt/BroTracker` as an application mapping;
+current executable-relative paths do not require it.
 
 This does not require the application files to be physically stored on the
 root filesystem.
@@ -193,8 +167,8 @@ transparent to BroTracker application logic.
 
 ## Dedicated Boot-Only System
 
-A dedicated BroTracker system should use the same `/opt/BroTracker`
-application root exposed to BroTracker.
+A future dedicated BroTracker system could expose application files through
+`/opt/BroTracker`; its project/data workspace still belongs to the Teensy SD card.
 
 Its physical implementation may differ from a conventional Linux
 installation. For example, `/opt/BroTracker` could be backed by a dedicated
@@ -207,7 +181,7 @@ conventions such as `/roms` or `/roms/ports`.
 ## Recovery and Reinstallation
 
 A useful deployment goal is that replacing or reflashing the operating system
-does not require rebuilding the user's BroTracker workspace.
+does not require rebuilding the user's Teensy SD project/data workspace.
 
 Where supported by the platform, application/user storage should therefore be
 separable from disposable system storage.
@@ -221,8 +195,8 @@ The following areas remain intentionally undecided:
 
 - physical backing location for `/opt/BroTracker` on each supported platform;
 - mechanism used to expose persistent platform storage as `/opt/BroTracker`;
-- whether application binaries and persistent data share the same storage;
-- exact configuration directory;
+- placement of host application files and host-only logs/diagnostics, separate from Teensy SD project data;
+- future host-path extensions, preserving the current executable-relative config contract;
 - module installation locations;
 - handling of read-only application storage;
 - boot-only system partition layout;
