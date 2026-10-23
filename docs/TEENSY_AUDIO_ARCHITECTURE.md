@@ -15,6 +15,184 @@ channel gains/mixing and paused bridge diagnostics remain unchanged. Historical
 native-rate pattern environments retain their diagnostic PCM fixtures as regression
 workloads; they are not the current project instrument list.
 
+## Shared engine and output-backend planning
+
+The Teensy remains authoritative for scheduling, Sample/Synth rendering, musical
+DSP and MIDI timing. Eight tracker channels are logical voices, not eight physical
+outputs. Today the engine renders mono PCM and duplicates it into left/right for
+the selected PT8211 or USB route; the bridge route uses MQS as its hardware update
+owner. Future shared stereo mixing/effects could feed PT8211, Audio Shield or USB,
+but stereo rendering/effects and Shield input/output integration are not implemented.
+
+At most one hardware audio module is attached: PT8211 or an Audio Shield. Explicit
+config may still select the USB bridge while that module is installed; there is
+no module priority hierarchy. Current config supports bridge/pt8211, not a new
+Shield setting. Existing route retention/restart rules and USB_BRIDGE default stay
+unchanged; module attachment does not choose a route automatically.
+
+| Backend/capability | Audio connections | Processing/control boundary |
+| --- | --- | --- |
+| [PT8211](https://www.pjrc.com/store/pt8211_kit.html) | Stereo DAC, line-level output; no analog input | No configurable codec DSP or hardware volume control; engine-side levels remain software responsibilities |
+| [Audio Shield / SGTL5000](https://www.pjrc.com/store/teensy3_audio.html) | Stereo headphone/line output; stereo line input **or** mono microphone input | I2S audio, I2C control; codec capabilities below; physical integration/input support pending |
+| [USB Audio bridge](https://www.pjrc.com/teensy/td_libs_Audio.html) | Teensy PCM over USB Audio, then host playback | Host buffering, scheduling and physical output remain part of latency and failure behavior |
+
+Adding a Shield supplies neither more Teensy CPU capacity nor general-purpose RAM.
+The existing manual confirmations remain recorded in the linked instrument/output
+docs; they do not validate an unattached Shield or future processing paths.
+
+### Optional SGTL5000 processing boundary
+
+PJRC's [SGTL5000 control reference](https://www.pjrc.com/teensy/gui/?info=AudioControlSGTL5000)
+([underlying help text](https://github.com/PaulStoffregen/Audio/blob/master/gui/index.html))
+describes codec-side automatic volume control (compressor/expander or limiter),
+surround, bass enhancement, then frequency shaping in a hardware-defined order.
+Frequency shaping selects alternative seven-band parametric EQ, five-band graphic
+EQ or bass/treble tone-control modes; these are not three simultaneous EQ stages.
+Processing runs in the codec, not as Teensy CPU DSP; its input-preprocessing versus
+output-postprocessing routing and fixed stage order constrain reuse.
+
+Treat this as a future capability/optimization candidate only. Codec output
+post-processing is downstream of Teensy's outgoing PCM and does not automatically
+appear in USB PCM or PT8211 output. Shared musical effects belonging to the
+tune/project should remain consistent across backends; distinguish them from
+hardware-specific output conditioning. No effects, presets or offload policy are
+enabled/selected here. Shield hardware and its processing/latency still require
+physical validation.
+
+### PJRC graph integration and optimization boundaries
+
+The [Audio System Design Tool](https://www.pjrc.com/teensy/gui/) is a reference and
+source of reusable components, not authorization to replace BroTracker's scheduler
+or sample-positioned events with generated graphs. Standard Audio Library data is
+[PCM16 / 44.1 kHz](https://www.pjrc.com/teensy/td_libs_Audio.html), in
+[128-sample blocks](https://www.pjrc.com/teensy/td_libs_AudioConnection.html).
+Block transport does not permit quantizing tracker events to block boundaries.
+
+Inspect the installed implementation for every proposed graph. The installed
+`AudioStream` construction/update list follows object creation order; a backward
+connection can defer consumption to another update/block and retain extra blocks.
+`receiveWritable()` can allocate/copy a shared block. These inspected mechanisms
+are not a universal latency prediction for every graph or future library version.
+Review copies, intermediate precision, clipping/headroom, audio-block pool maxima,
+[CPU maxima](https://www.pjrc.com/teensy/td_libs_AudioProcessorUsage.html) and measured
+latency before choosing optimizations. Stock objects are candidates, not automatic
+proof of compatibility with bounded allocation/I/O and timing constraints.
+
+Maintain one intended audio clock/update owner for the selected route, preserving
+the existing guarded activation boundary. Later MIDI/audio alignment measurements
+must separate fixed route/effect latency from jitter for the measured topology.
+No compensation values are established. External MIDI/audible synchronization,
+bridge crackling and other pending physical checks remain unresolved; this plan
+does not reopen bridge diagnostics.
+
+For the bare-board eight-channel baseline, optional memory capacity and shared
+bandwidth constraints, use the [streaming outline](#future-sd-streamed-sample-playback)
+and [PSRAM partition plan](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels).
+More memory alone does not supply more DSP throughput or higher audio resolution;
+future "HD" Sample formats remain unspecified.
+
+## Future SD-streamed Sample playback
+
+Design outline only: production tracker Sample streaming is **not implemented**.
+Priority and implementation order remain undecided. Current Sample voices retain
+immutable, fully prepared RAM PCM views; keep that path for short samples.
+Streaming could support samples beyond available contiguous RAM, including the
+existing test.wav with retained metadata of **613940 PCM bytes**. Its full loading
+remains [deferred](SYNTH_FOUNDATION.md#identity-and-default-pattern). Preserve
+01/raw0=test2.wav, 02/raw1=MIDI, 03/raw2=Synth, 04/raw3=test3.wav and the
+05/raw4=test.wav binding foundation, reference-note convention and temporary
+fixture-only 0.8 Sample gain. The user confirmed uploading the updated development
+firmware and hearing quieter Samples with the sine Synth easier to hear alongside
+them (2026-10-23); no automated device checks followed that user upload. The observed
+05-99 selections continuing Sample04 are accepted temporarily, not proof of valid
+bindings or test.wav loading. Full test.wav playback, other hardware/listening
+checks, external MIDI delivery/audio synchronization and bridge crackling remain
+open.
+
+### Ownership and realtime boundary
+
+Separate four responsibilities: a storage owner manages file handles and SD read
+ownership; preparation validates the container, format and PCM extent; a bounded
+buffer service fills fixed-size read-ahead buffers outside audio/timing ISRs; voices
+consume published ready spans and render PCM. No filesystem operations, allocation,
+waiting for storage or blocking locks belong in the audio callback. Storage
+completion must never advance, delay or become the authority for the Teensy-owned
+sample timeline. Publish buffer availability through a bounded ownership handoff;
+a buffer cannot be refilled while retained by a renderer.
+
+Each simultaneous voice needs its own source-frame position, fractional phase,
+end/release state and request generation, even when several voices reference the
+same sample. Sharing immutable sample metadata is separate from sharing mutable
+file cursors or buffered spans. Independent handles versus serialized positional
+reads, and per-voice buffers versus a shared cache, are unresolved design choices.
+
+Pitched playback changes source consumption per output frame. Read-ahead must
+cover the supported maximum rate, including skipped source frames, and retain the
+interpolation endpoints across buffer wrap/refill edges and at end-of-file. Do not
+assume native-rate sequential consumption or reset interpolation phase at buffer
+boundaries. Reference pitch, source rate and musical tempo remain independent;
+see [Sample Format](SAMPLE_FORMAT.md).
+
+Retrigger, seeking and future loop jumps need explicit prefetch/invalidation rules
+so late reads cannot publish data for a replaced voice. NOTE OFF, mute release and
+STOP must preserve the existing release/monophonic replacement semantics and
+retained-span lifetime until rendering releases ownership. Future forward,
+backward and ping-pong loops require endpoint/wrap interpolation and discontinuous
+read planning; format-level loop fields do not establish implemented playback.
+
+### Failure, SD coordination and capacity
+
+Underrun, short read, unexpected EOF and permanent I/O failure need explicit,
+bounded status. Preserve scheduler timing and unaffected voices. Whether the
+starved voice emits silence, releases/stops, or skips missing source frames, and
+whether/how it resumes, remain policy choices requiring review; do not invent
+recovery that replays a stale backlog or silently moves musical events. Distinguish
+normal end-of-sample from lost data and define retry limits outside the ISR.
+
+[D0046](ARCHITECTURE_DECISIONS.md#d0046--sd-readwrite-exclusivity) forbids concurrent
+SD reads/writes and SD writes during playback. Coordinate streamed readers with
+[planned session/module storage](FILE_FORMATS.md#planned-working-session-separate-from-tunesprojects):
+future saves must defer or use an explicitly reviewed stopped/released-read phase,
+not bypass exclusivity. Define cancellation, handle lifetime and read-owner release
+before granting a writer. This outline does not change those storage formats.
+
+Measure available internal RAM/stack margins, maximum simultaneous voices,
+aggregate pitched source-byte demand, seek/refill latency, service cadence and
+worst observed storage stalls before selecting buffer sizes or admitting voices.
+Baseline **eight tracker channels must operate on bare Teensy 4.1 without PSRAM**.
+Design baseline streaming buffers within internal RAM. Supported formats, pitch
+ranges and concurrent streaming workloads must be defined and measured; eight
+logical channels do not promise arbitrary eight-stream performance. Budget
+metadata, endpoint retention, in-flight buffers and safety margin as well as PCM;
+average throughput alone is insufficient. The existing
+[reference SD benchmarks](REFERENCE_SD_CARD.md#streaming-benchmark-results) are
+prior evidence, not proof of worst-case latency or safe production capacity.
+[Optional PSRAM partitions](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels)
+are a separate full-sample/cache possibility, not a baseline streaming dependency.
+That plan defines 0/8/16 MiB behavior and the proposed DSP/Sample reservations;
+no external-memory bandwidth isolation or unspecified "HD" support is implied.
+
+Existing diagnostic/legacy WAV streaming and simulated streaming benchmarks are
+separate from tracker Sample voices. They do not prove production integration,
+pitched multi-voice correctness, lifecycle behavior or audible continuity.
+
+### Possible milestones and validation
+
+Candidates below are neither prioritized nor an agreed implementation sequence:
+
+- Specify ownership, memory/throughput budgets, failure and lifecycle policies.
+- Prototype bounded storage-to-buffer handoff with deterministic fake delays,
+  short reads, errors, cancellation and wrap; keep filesystem work outside ISRs.
+- Exercise per-voice/shared-sample cursors, pitched interpolation, retrigger,
+  NOTE OFF/mute release, seeks and future loop edges against RAM/reference outcomes.
+  Compare different audio-block partitions for identical sample-positioned actions;
+  verify an affected voice cannot disturb timing or other voices.
+- Later stress real SD cards with fragmented files, concurrent readers, high pitch,
+  repeated seeks/retriggers and long runs. Measure latency distributions and
+  underruns under realistic CPU load; test read/write exclusion and recovery before
+  selecting supported capacities. Keep physical/listening approval separate from
+  deterministic test success.
+
 ## Reference Platform
 
 Teensy 4.1 is the reference realtime audio platform for BroTracker.
@@ -970,30 +1148,10 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 
 ### SD-Backed Sample Streaming
 
-Sample storage is not part of the realtime audio path.
-
-WAV/sample data that cannot be kept fully in realtime RAM shall be streamed from SD using bounded prefetch buffers.
-
-The architecture separates SD data production from audio consumption:
-
-    KernelRun() / non-realtime context
-        |
-        | SD reads / prefetch
-        v
-   sample buffer
-        |
-        v
-AudioStream::update()
-        |
-        | buffered sample data only
-        v
-   audio output
-
-AudioStream::update() must not perform SD I/O or block waiting for storage.
-
-SD latency must never affect scheduler advancement or tracker timing. Buffer underruns are treated as an audio-storage fault, not a timing fault.
-
-The initial implementation will validate this model with a single streaming sample before introducing multi-voice streaming or more complex buffering policies.
+See the [future Sample streaming outline](#future-sd-streamed-sample-playback) and
+[D0039](ARCHITECTURE_DECISIONS.md#d0039--sd-backed-sample-streaming) for the single
+storage/realtime boundary. Production tracker streaming is not implemented;
+possible milestones have no assigned priority or implementation order.
 
 ## Implemented MIDI output boundary
 

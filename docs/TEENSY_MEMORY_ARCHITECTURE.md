@@ -143,8 +143,48 @@ The intended behaviour is:
   - The available PSRAM capacity may influence which optional features are enabled.
 
 This creates a capability-based memory model rather than a hardware requirement.
+Detection alone does not establish an allocation budget; apply the capability-level
+policies below before enabling enhancements.
 
 The practical value of PSRAM will be evaluated by measuring whether the additional memory enables useful BroTracker features or significantly increases their capacity. The goal is not to make PSRAM mandatory, but to make an optional PSRAM upgrade provide a clear and tangible benefit to users who choose to install it.
+
+### Proposed PSRAM partitions and capability levels
+
+Future design only; no memory partitioning/allocation is implemented by this plan.
+Bare Teensy 4.1 **without PSRAM must support the baseline eight tracker channels**.
+Keep baseline Sample streaming buffers within internal RAM, alongside required
+realtime state and headroom. Define and measure supported formats, pitch ranges
+and simultaneous streaming workloads before selecting sizes or voice limits;
+this requirement does not prove arbitrary eight-stream throughput. See the
+[streaming plan](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
+
+The optional expansion target is **two 8 MiB chips, 16 MiB total**, supported as a
+hardware arrangement by [PJRC's PSRAM reference](https://www.pjrc.com/store/psram.html).
+The intended software partition reserves one 8 MiB region for future DSP working
+data (for example delay/reverb buffers) and the other 8 MiB for large/high-quality
+Samples, streaming cache or additional-channel buffers. "HD" formats are unspecified
+future scope; capacity is not proof of greater audio resolution or DSP throughput.
+
+| Detected capacity | Planned behavior / unresolved policy |
+| --- | --- |
+| 0 MiB | No PSRAM access. Baseline eight-channel operation uses bounded internal RAM; no hidden fallback that exhausts internal memory. Large resources remain unavailable when their reviewed storage path cannot accommodate them. |
+| 8 MiB / one chip | Baseline remains independent of it. Optional allocation policy is undecided; detecting memory does not authorize Sample/cache use of the intended DSP reservation, or an implicit split/reassignment. Review the budget before enabling enhancements. |
+| 16 MiB / two 8 MiB chips | Proposed 8 MiB DSP-data reservation plus 8 MiB Sample/cache/additional-buffer reservation, with explicit bounds and accounting. No automatic borrowing from the DSP region. |
+
+These are software capacity reservations, **not independent bandwidth domains**.
+Both chips use FlexSPI2: the installed core's `teensy4/startup.c` configures both
+through that controller (see [PJRC core source](https://github.com/PaulStoffregen/cores/blob/master/teensy4/startup.c)).
+The installed `imxrt1062_t41.ld` collects `.externalram` into ERAM; `EXTMEM` alone
+is not a per-chip placement contract (see [linker source](https://github.com/PaulStoffregen/cores/blob/master/teensy4/imxrt1062_t41.ld)).
+Verify active toolchain/linker placement, chip/address mapping and actual detected
+capacity before promising chip-specific regions. Treat other optional memory
+uses above as candidates needing explicit budget review, not an additional pool.
+
+Keep latency-critical DSP state and immediate audio buffers in suitable internal
+RAM where required. Verify cache/DMA access/coherency constraints and benchmark
+simultaneous external-memory/cache traffic, SD refill and audio processing before
+adoption. Separate capacities do not provide realtime isolation. PSRAM remains an
+optional enhancement, never a requirement for the baseline eight-channel engine.
 
 ### Experimental Result
 
@@ -224,11 +264,8 @@ The current working model is:
         ├── DMA buffers
         └── display buffers
 
-    PSRAM
-    ├── samples
-    ├── wavetables
-    ├── patterns / project data
-    └── large caches
+    PSRAM (optional)
+    └── explicitly reviewed partitions described above
 
 This layout is provisional and must not be treated as a final allocation policy.
 

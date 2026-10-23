@@ -8,6 +8,32 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Future SD-streamed Sample playback
+
+* [ ] Explore [production Sample streaming](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
+  Design outline only; priority and implementation order remain undecided. Preserve
+  short-sample RAM playback, the current test.wav deferral/binding IDs, temporary
+  fixture gain, its user-confirmed listening balance and remaining hardware/listening
+  validation. No streaming code or
+  buffer-size decision is authorized by this planning item.
+
+### Future output capabilities and memory review
+
+Priority and implementation order remain undecided; these are planning items only.
+
+* [ ] Review [shared output backends and SGTL5000 capabilities](TEENSY_AUDIO_ARCHITECTURE.md#shared-engine-and-output-backend-planning):
+  shared musical DSP versus codec output conditioning; no new routes/effects enabled.
+* [ ] Profile candidate PJRC components/graphs for copies, precision/headroom,
+  block/CPU maxima, update ownership and fixed latency versus jitter; preserve
+  sample-positioned scheduling and pending external MIDI/audio alignment checks.
+* [ ] Validate Audio Shield output/input/control and optional codec processing on
+  physical hardware; preserve current PT8211/USB confirmations and bridge-crackling
+  uncertainty without restarting bridge diagnostic development.
+* [ ] Review [0/8/16 MiB memory policies](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels):
+  bare-board eight-channel internal-RAM baseline; optional two-chip 8+8 MiB DSP and
+  Sample/cache reservations. Measure supported streaming workloads, placement,
+  cache/DMA constraints and shared FlexSPI2 contention; one-chip policy stays open.
+
 ### Temporary development Sample level / fifth binding (2026-10-23)
 
 * [x] Apply fixture-only 0.8 attenuation to Sample01/test2.wav and Sample04/test3.wav;
@@ -16,14 +42,21 @@ Items may be added during development to record agreed next steps or work that n
 * [ ] User-approved deferral: full test.wav preparation/playback needs storage;
   retained file is 306970 frames,
   613940 contiguous PCM bytes, exceeding either internal RAM bank; last probe has
-  no PSRAM. No current WAV copy/Teensy for fresh inspection. Resolve storage separately;
+  no PSRAM. Fresh file/storage inspection remains pending. Resolve storage separately;
   do not claim instrument05 is loaded or audibly validated on the current board.
 * [x] Validate gain/defaults/Synth isolation, IDs, checked SD binding, unavailable
   views, replacement/retrigger, partitioning and existing tempo/mute behavior:
   Windows 8/8 and Eoan 21/21; development firmware builds (exit0), ABI/package/
   checksum/config-preserving install checks pass. No WAV/pattern/config changes.
-* [ ] Listening approval and device upload/checks pending; final discovery found
-  no Teensy. Preserve the separate unresolved audio/MIDI-sync checks below.
+* [x] User confirmed uploading the updated development firmware and listening
+  (2026-10-23): Sample playback is quieter and the sine Synth is easier to hear
+  alongside it. This confirms the requested relative gain adjustment only; no
+  automated device checks were performed after the user's upload.
+* [x] Record user observation: selecting displayed instruments 05-99 currently
+  continues playing Sample04. Accepted temporarily without a fix; this does not
+  establish test.wav loading or valid bindings for those IDs.
+* [ ] Keep full test.wav playback, external MIDI delivery/audio synchronization,
+  bridge crackling and other unconfirmed hardware/listening checks open.
 
 
 ### Runtime config location correction (2026-10-23)

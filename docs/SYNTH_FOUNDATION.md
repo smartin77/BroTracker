@@ -44,7 +44,19 @@ level** for test2.wav, test3.wav and any validated test.wav binding. It applies 
 sample interpolation and before existing transition/release processing. PCM is
 immutable; general bindings retain exact unity, and channel/master gain, Synth,
 MIDI velocity, pitch, timing, tempo and mute policy are unchanged. Integer PCM
-rounding is nearest with ties away from zero. Listening approval remains pending.
+rounding is nearest with ties away from zero.
+
+User confirmation (2026-10-23): the user uploaded the updated development firmware
+and heard quieter Sample playback, making the sine Synth easier to hear alongside
+it. This confirms the relative gain adjustment, not general listening quality or
+external MIDI/audio synchronization. No automated device checks were performed
+after that user upload.
+
+The user also observed that selecting displayed instruments 05-99 currently
+continues playing Sample04. This behavior is accepted temporarily without a fix.
+It does not establish that test.wav is loaded, that those IDs have valid bindings,
+or that they are intentional aliases for Sample04. Full test.wav playback remains
+deferred pending storage; bridge crackling and other unconfirmed checks stay open.
 
 The default 32-row/eight-channel development
 pattern keeps the existing sparse note sequences on CH1 and CH2, both selecting
@@ -144,7 +156,8 @@ physical output route, listening quality or UX.
 
 ## Manual checks and later work
 
-User listening/UX approval is pending:
+Remaining listening/UX checks are pending; the specific relative-gain listening
+confirmation above does not close these:
 
 - Listen to Synth 03 at low volume: clean sine tuning, gentle onset, one-second
   decay and silence afterward; compare A-3 against a 440 Hz reference.

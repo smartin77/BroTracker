@@ -975,7 +975,13 @@ The design shall separate storage access from realtime audio processing:
 - Longer samples are streamed from SD through bounded buffers.
 - Underruns must never stall the audio callback or scheduler and must be explicitly measurable.
 
-The initial implementation is a single-sample streaming proof-of-concept. Buffer size, underrun behaviour, multi-voice streaming, and final sample/voice architecture will be validated and decided incrementally based on measurements on Teensy 4.1.
+A single-sample streaming proof-of-concept is a possible milestone, not an assigned
+implementation order. Current priority and implementation order remain undecided;
+see the [future streaming outline](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
+Buffer sizes, underrun behaviour, supported multi-voice workloads and the final
+Sample/voice architecture require measured validation on Teensy 4.1. Baseline eight
+tracker channels must not require PSRAM; this does not establish arbitrary
+eight-stream production performance.
 
 The PJRC `AudioPlaySdWav` implementation is used as a reference for bounded SD streaming, but its blocking SD access from the audio update callback is not adopted for BroTracker.
 
