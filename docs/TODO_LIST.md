@@ -8,6 +8,64 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Planned session storage and development fixtures
+
+Begin **after external MIDI validation and resulting bug fixes**. No functionality
+or parser support is implemented by this plan. Split into small buildable milestones:
+
+* [ ] **Published-state contract and module foundation:** use the inspected
+  [Publish inventory and session boundaries](FILE_FORMATS.md#planned-working-session-separate-from-tunesprojects).
+  Persist only the coherent published baseline, never unpublished/preview edits.
+  Module/tune saving remains a separate explicit operation; do not finalize a module
+  format or expand BTP/BTT semantics as part of session storage.
+* [ ] **SD session save/load:** Teensy owns canonical `/BroTracker`, creating it
+  if missing without disturbing existing files. Verify directory lookup/case behavior
+  against the actual SD library/filesystem; do not assume differently cased names
+  designate distinct directories. Provisional file: `/BroTracker/current.btsession`.
+  Reuse existing SD read/write benchmark tools/results as prior evidence, including
+  [reference-card limits](REFERENCE_SD_CARD.md) and D0046 read/write exclusivity;
+  benchmark throughput does not establish durability or playback-safe write latency.
+  Design a versioned, validated format, compatibility/sample-reference ownership and
+  safe replacement that retains the last valid copy after failed/interrupted writes.
+  Review actual filesystem flush/rename/power-loss guarantees during implementation.
+  Serialization and SD I/O stay outside audio/timing ISRs; use a coherent fixed-memory
+  snapshot/handoff and bounded realtime work. Release SD reads before writes under
+  D0046; do not block the engine or write during playback.
+* [ ] **Manual persisted-session restore first:** choose/document a shortcut that
+  does not collide with current in-memory Restore. Define validation, clear diagnostics
+  and non-destructive fallback for missing/corrupt/unsupported/incompatible files.
+  Specify how successful restore replaces the device published baseline and host
+  draft, including handling an existing dirty draft. Never automatically START.
+* [ ] **Orderly exit and optional startup restore:** proposed `[session]`
+  `save_on_exit=yes` (default yes), `restore_on_startup=no` (default no).
+  These keys are **planned, not accepted by the current parser**. Normal Windows
+  window-close and supported handheld exits should request Teensy to save only its
+  published baseline, without implicit Publish or module/tune saving. Review explicit
+  STOP/save/acknowledgment/USB-close ordering, bounded wait and visible failure/exit
+  handling when Teensy or SD is unavailable. Power loss, USB removal, crashes and
+  forced termination cannot guarantee this save; this is not crash-safe recovery.
+  Explicit startup restore=yes waits for device/storage readiness, retains saved
+  tempo and takes precedence over development-fixture initialization on success.
+  Define failed/missing-session startup fallback separately; never silently overwrite
+  the stored session or START playback.
+* [ ] **Development fixture selection after user-supplied contents:** proposed
+  development-only `[development] startup_pattern=sine`, not yet a parser option.
+  `sine` preserves the current two-channel sine melody (within the eight-channel
+  grid); `drums` uses two drum-loop channels; `midi` adds MIDI notes on two additional
+  channels. The user will supply exact drums/MIDI cells, values and which preceding
+  material the MIDI fixture includes; do not invent notes, samples or arrangement.
+  All three fixtures use **155.00 BPM**; sine is the default when selection is absent.
+  In the current development startup model with restore_on_startup=no, use the
+  selected fixture (absent selection means sine). Future normal startup without
+  restore opens an empty new pattern at **125.00 BPM**, with fixtures an explicit
+  testing option. Successful startup session restore overrides fixture initialization
+  and keeps saved tempo; define fallback/precedence before implementation so neither
+  path silently replaces the other. Fixture selection is neither module loading nor
+  persistence. Document every implemented key, including development-only keys,
+  with choices/defaults/comments in `config/config.ini.example` in the same change;
+  leave the runnable example unchanged until support exists.
+
+
 ### MIDI lifecycle and session follow-up
 
 * [x] Guard MIDI submission against USB-generation changes; regression coverage

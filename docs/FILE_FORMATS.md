@@ -171,3 +171,40 @@ The BroTracker realtime core does not depend on any of these external container 
 The exact binary layout, headers, versioning, offsets, field sizes, checksums and compatibility rules are intentionally not defined yet.
 
 These details shall be specified separately once the internal data model and storage requirements have stabilized.
+
+## Planned working session: separate from tunes/projects
+
+Future Teensy-owned working-session persistence is scheduled after external MIDI
+validation and resulting fixes; see the [implementation milestones](TODO_LIST.md#planned-session-storage-and-development-fixtures).
+Canonical SD directory `/BroTracker` and working file `/BroTracker/current.btsession`
+are planned. This is not an explicitly saved BTT tune, BTP project or BTM module;
+existing format semantics and their unresolved binary specifications stay unchanged.
+
+The current Publish snapshot is one pattern: active row/channel dimensions, each
+active cell's raw note (including empty/OFF) and raw instrument ID (including no
+update), per-cell arrival/end-of-position NOTE OFF timing, and published tempo in
+integer hundredths of BPM. The current version-2 publication includes tempo;
+version-1 pattern-only compatibility is not a reason to omit published tempo from
+persistence. Publish freezes coherent data and acknowledges device application.
+Protocol transfer/revision IDs and checksums identify/validate transactions, not
+additional musical content to restore as live request identities.
+
+Session saving must capture this published baseline coherently, not the host draft,
+live working preview or an independently changed live tempo. Mute mask, transport
+position/running state, gains, host settings, MIDI channel negotiation/ownership and
+other state outside Publish are excluded. Bindings, instrument definitions and
+sample PCM/paths are not supplied by the current Publish snapshot. Resolve their
+ownership, references and compatibility explicitly before save/load: serializing
+pattern bytes alone does not make a session self-contained.
+
+Use a versioned validated session format and safe replacement of the previous valid
+copy; filesystem durability and interrupted-write recovery require implementation-
+time review. SD access obeys D0046 read/write exclusivity, with serialization/I/O
+outside audio/timing ISRs and coherent fixed-memory handoff rather than ISR file work.
+
+Three operations remain distinct: current **Restore** returns to the in-memory
+published baseline; future **session restore** loads the validated working-session
+file into a defined device-baseline/host-draft state without starting playback;
+**module/tune load/save** is a separate explicit future operation with its own
+sample/format contract. Proposed session/development INI keys are planning only,
+not supported options or changes to the runnable example.
