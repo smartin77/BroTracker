@@ -16,6 +16,7 @@
 
 #include "ui/bringup_serial.h"
 #include "ui/host_config.h"
+#include "ui/sdl/host_paths.h"
 #include "ui/host_logging.h"
 #include "ui/sdl/host_diagnostics.h"
 #include "ui/bringup_controls.h"
@@ -77,13 +78,24 @@ int main(int argc, char* argv[])
     const char* diagnostic_directory=argc==3 && !std::strcmp(argv[1],"--offline-click-diagnostic") ? argv[2]:nullptr;
     OfflineClickMode diagnostic(diagnostic_directory);
     const char* diagnostic_status=diagnostic.Enabled()?std::getenv("BROTRACKER_DIAGNOSTIC_STATUS_FILE"):nullptr;
-    char* config_directory=SDL_GetPrefPath("BroTracker","BroTracker Terminal");
-    const auto config_path=config_directory ? std::filesystem::u8path(config_directory)/"config.ini" : std::filesystem::path{};
-    SDL_free(config_directory);
+    const auto config_path=RuntimeConfigPath();
     const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
+    // Evidence retains its established per-user storage, independently of config.
+    std::filesystem::path audible_base;
+    if(host_config.config.bridge_audible_test) {
+        char* evidence_directory=SDL_GetPrefPath("BroTracker","BroTracker Terminal");
+        if(evidence_directory) {
+            std::error_code error;
+            audible_base=std::filesystem::weakly_canonical(
+                std::filesystem::u8path(evidence_directory)/"diagnostics"/"bridge-audible",error);
+            if(error) audible_base.clear(); // Evidence setup must not prevent normal playback.
+        }
+        SDL_free(evidence_directory);
+    }
     if(argc==2 && !std::strcmp(argv[1],"--bridge-audible-config")) {
         if(!host_config.config.bridge_audible_test) return 2;
-        const auto base=std::filesystem::weakly_canonical(config_path.parent_path()/"diagnostics"/"bridge-audible");
+        const auto& base=audible_base;
+        if(!base.is_absolute()) return 2;
         for(auto parent=base;!parent.empty();parent=parent.parent_path()) {
             if(std::filesystem::exists(parent/".git")){std::fprintf(stderr,"Refusing listening evidence inside a Git checkout\n");return 2;}
             if(parent==parent.parent_path())break;
@@ -92,9 +104,9 @@ int main(int argc, char* argv[])
         return 0;
     }
     if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-config")) {
-        std::printf("path=%s\nroute=%s\ninvalid=%u\nstatus=%s\n",config_path.string().c_str(),
+        std::printf("path=%s\nroute=%s\ninvalid=%u\nstatus=%s\nrow_numbering=%s\n",config_path.string().c_str(),
             BroTracker::AudioOutputName(host_config.config.audio_output),unsigned(host_config.config.audio_output_invalid),
-            BroTracker::HostConfigDiagnostic(host_config.status));
+            BroTracker::HostConfigDiagnostic(host_config.status),BroTracker::RowNumberingName(host_config.config.row_numbering));
         return (host_config.status==BroTracker::HostConfigStatus::Loaded || host_config.status==BroTracker::HostConfigStatus::Missing)
             && !host_config.config.audio_output_invalid && host_config.config.audio_output!=BroTracker::AudioOutputChoice::Pt8211 ? 0:2;
     }
@@ -292,7 +304,7 @@ int main(int argc, char* argv[])
         audible=std::make_unique<listening::Mapping>();
         BroTracker::HostLogf(bring_up_log,BroTracker::HostLogLevel::Basic,"Listening",
             "evidence base=%s; control=%s; host replies are NOT audible onset",
-            (config_path.parent_path()/"diagnostics"/"bridge-audible").string().c_str(),audible->Enabled()?"available":"unavailable; launcher required");
+            audible_base.empty()?"unavailable":audible_base.string().c_str(),audible->Enabled()?"available":"unavailable; launcher required");
     }
     BringUpSerial serial(bring_up_log);
     if(audible) serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){

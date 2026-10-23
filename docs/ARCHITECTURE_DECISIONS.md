@@ -1784,13 +1784,14 @@ Built-in defaults are always available: schema version 1 and new-pattern length
 future creation; it does not resize existing patterns, change the 16-row device
 fixture/realtime capacity or implement project creation.
 
-Windows and ArkOS resolve `config.ini` through
-`SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`, independent of launch working
-directory. Windows normally uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`.
-ArkOS uses `$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, or
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
-is unset. The resolved path is logged. No file is created, rewritten or deleted
-automatically; SDL may create the preference directory.
+Windows and ArkOS resolve `config/config.ini` beside the loaded executable using
+SDL_GetBasePath, independent of launch working directory (location corrected
+2026-10-23). ArkOS/dArkOS uses `/roms/ports/brotracker/config/config.ini`; the Windows
+delivery uses `deploy/windows/config/config.ini`. There is no preference-directory,
+XDG, HOME or example fallback. The absolute path and load/error status are logged.
+No actual config is created, rewritten or deleted automatically; installers preserve
+it byte-for-byte. Diagnostic evidence and Windows logs retain their independent
+per-user locations, so existing evidence does not move with configuration.
 
 Schema 1 requires one `[btx]` section and exactly one each of `schema_version=1`
 and `new_pattern_length=16`, `32` or `64`. Keys/section names are case-sensitive.
@@ -1843,7 +1844,7 @@ startup. `BROTRACKER_APPEND_LOG=1` skips rotation and reports that decision. No 
 rotation/compression or arbitrary cleanup occurs.
 
 Windows retains its SDL per-user terminal log directory; ArkOS retains the documented
-`/tmp/brotracker-arkos.log`, while configuration remains per-user per D0057. `/tmp`
+`/tmp/brotracker-arkos.log`, while configuration is executable-relative per D0057. `/tmp`
 is not durable evidence storage. See [BTX logging](LOGGING.md) for exact paths and
 validation. Manual Windows/ArkOS validation remains pending.
 

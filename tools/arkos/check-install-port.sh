@@ -10,9 +10,7 @@ cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTr
 # Change only the destination in a disposable copy; production paths stay fixed.
 sed "s|^ports=/roms/ports$|ports=$work/ports|" "$repo/tools/arkos/install-port.sh" > "$work/repo/tools/arkos/install-port.sh"
 export HOME="$work/user-home" XDG_DATA_HOME="$work/persistent-data"
-mkdir -p "$XDG_DATA_HOME/BroTracker/BroTracker Terminal"
-printf '[btx]\nschema_version=1\nnew_pattern_length=64\n[logging]\nmode=debug\npreserve_last=5\n[editing]\nvalue_step_direction=reversed\n[audio]\noutput=pt8211\n[midi]\noutput_channel=9\n[display]\nrow_numbering=h0\n[diagnostics]\nbridge_audible_test=yes\n' > "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini"
-cp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+printf '[btx]\nschema_version=1\nnew_pattern_length=64\n[logging]\nmode=debug\npreserve_last=5\n[editing]\nvalue_step_direction=reversed\n[audio]\noutput=pt8211\n[midi]\noutput_channel=9\n[display]\nrow_numbering=h0\n[diagnostics]\nbridge_audible_test=yes\n' > "$work/config-original"
 installer="$work/repo/tools/arkos/install-port.sh"
 app="$work/ports/brotracker"
 new_launcher="$work/ports/BroTracker Terminal.sh"
@@ -28,7 +26,8 @@ for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.
     cmp "$repo/deploy/arkos/$file" "$app/$file"
 done
 (cd "$app" && sha256sum -c SHA256SUMS)
-cmp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+[[ ! -e "$app/config/config.ini" ]]
+cp "$work/config-original" "$app/config/config.ini"
 # Remove only fixture launchers so the upgrade backup assertions start as before.
 rm -- "$new_launcher" "$work/ports/BroTracker Diagnostics.sh"
 # Missing config must fail preflight; the test must never repair the package.
@@ -129,5 +128,5 @@ PATH="$work/advisory-bin:$PATH" TEST_NO_DIALOUT=1 SUDO_USER=ark USER=root bash "
 PATH="$work/advisory-bin:$PATH" SUDO_USER=root USER=root bash "$installer" > "$work/unknown-user" 2>&1
 grep -q 'runtime user is unknown' "$work/unknown-user"
 cmp "$work/repo/deploy/arkos/config/config.ini.example" "$app/config/config.ini.example"
-cmp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
-echo 'Installer/package upgrade and persistent user-config preservation checks passed (isolated temporary destination)'
+cmp "$app/config/config.ini" "$work/config-original"
+echo 'Installer/package upgrade and executable-relative user-config preservation checks passed (isolated temporary destination)'

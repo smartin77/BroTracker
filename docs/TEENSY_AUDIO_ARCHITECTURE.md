@@ -73,10 +73,10 @@ This boundary allows the same audio engine architecture to run on Teensy and on 
 ## Current manual production output selection
 
 BTX reads the existing user `config.ini` once at host startup. The authoritative
-path is logged, resolved with `SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`:
-Windows normally `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`; Linux/ArkOS
-`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, otherwise
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini`.
+path is logged, resolved from the executable directory with SDL_GetBasePath:
+`config/config.ini` beside Windows BroTrackerTerminal.exe, or
+`/roms/ports/brotracker/config/config.ini` on ArkOS/dArkOS. There is no fallback to
+the former per-user location. Missing config uses built-in defaults.
 `config/config.ini.example` is the distributed template; retain its required
 `[btx]` settings. Add:
 

@@ -8,6 +8,18 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Runtime config location correction (2026-10-23)
+
+* [x] Resolve actual config/config.ini beside the loaded executable, with no CWD,
+  legacy user-directory or example fallback. Keep logs/listening evidence at their
+  established independent locations. Preserve installed config bytes on update.
+* [x] Verify Windows 8/8 and Eoan 21/21 tests, actual ARM64 different-CWD
+  pt8211/h0 loading, missing/defaults/example+legacy exclusion, unchanged evidence
+  base, ABI/checksums and config-preserving installation. Both deliveries refreshed.
+* [ ] Manual console confirmation of existing pt8211/h0 config use remains pending;
+  preserve separate handheld/audio/MIDI-sync validation below.
+
+
 ### Opt-in bridge listening correlation (2026-10-23)
 
 * [x] Implement Linux-only [bridge listening evidence](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch)
@@ -349,7 +361,7 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   on COM3 / Teensy 17681760 (2026-10-19): selection/default/rejection, START/STOP,
   telemetry, idle reconnect and playing reconnect (ticks 1099 -> 2956). Leave stopped.
   Preserve successful and failed test-script evidence under build/activation-review.
-* [x] Export persistent SDL config path through ArkOS/dArkOS launchers; ship only an
+* [x] Use executable-relative config/config.ini on Windows/ArkOS/dArkOS; ship only an
   example, never overwrite user settings. Shared parsing/negotiation and isolated
   installer/launcher preservation checks cover bridge and pt8211 preferences.
 * [x] User hardware confirmation (2026-10-19): PT8211 is physically attached to
@@ -362,7 +374,7 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   This validates the new selection mechanism separately from the isolated smoke
   test. USB_BRIDGE remains the development default.
 * [x] Locally cross-build the ArkOS Eoan ARM64 host using the existing QEMU root;
-  all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged SDL paths
+  all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged executable-relative paths
   and byte-preserved settings. This is build-root validation, not a handheld pass.
 * [ ] Physically validate ArkOS INI path, bridge playback, controls and reconnect
   when a handheld is available. No ArkOS deployment/test performed in this task.
@@ -1603,7 +1615,7 @@ to 32 active rows. Single-pattern looping remains unchanged.
 
 * [x] Implement optional bounded schema-1 `config.ini` parsing and Windows/ArkOS
   startup loading with built-ins (new-pattern length 32), transactional validation,
-  predictable SDL per-user paths, diagnostics and `--safe-config` bypass. See
+  executable-relative config paths, independent evidence storage, diagnostics and `--safe-config` bypass. See
   [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
   and `config/config.ini.example`. Host tests cover lengths, malformed/duplicate
   settings, size limits, rollback, missing/unreadable files and safe recovery.

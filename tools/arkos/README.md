@@ -17,17 +17,22 @@ this is not dArkOS validation or a timing/performance measurement. The reference
 supersedes the legacy L1/B and R1/X bindings in historical observations below.
 Final configurable input profiles remain future work.
 
-## Persistent user configuration (ArkOS and dArkOS)
+## Installed runtime configuration (ArkOS and dArkOS)
 
-The same parser and serial audio negotiation as Windows read the runtime user's
-persistent SDL preference path, independent of the working directory or package:
-`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, falling back to
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
-is unset. For HOME=/home/ark with no XDG override this is
-`/home/ark/.local/share/BroTracker/BroTracker Terminal/config.ini`.
-The launcher exports the effective XDG_DATA_HOME; the application logs the actual
-SDL-resolved path. Run as the normal Ports user, not sudo/root. Windows normally
-uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini` and logs its resolved path.
+BTX reads `/roms/ports/brotracker/config/config.ini` directly, resolved relative to
+the installed executable with SDL_GetBasePath. Launching from another shell working
+directory does not change it. Windows likewise reads `config/config.ini` beside
+BroTrackerTerminal.exe (`deploy/windows/config/config.ini` in this checkout).
+There is no SDL preference, XDG or HOME fallback for runtime config. Startup logs
+the resolved absolute path and load/error status. Missing config uses built-ins;
+the example is never loaded automatically. Restart BTX after editing.
+
+Run as the normal Ports user using the existing writable installation; no sudo,
+chmod 777 or unrelated permission changes are needed. Installation/update copies
+only the example and preserves an existing `config/config.ini` byte-for-byte.
+The console's existing `output=pt8211` and `row_numbering=h0` file is used directly.
+Logging and diagnostic recordings keep their existing locations; the per-user
+listening evidence directory is independent of the installed config directory.
 
 Merge into the existing file without removing [btx], [logging], [editing] or
 other existing settings (keep required schema fields):
@@ -48,7 +53,7 @@ with restart-required. PT8211 is manual only; no presence detection is enabled.
 
 Packages/installations carry `config/config.ini.example` as an example
 inside the application tree. Neither launcher nor installer creates or overwrites
-the persistent user config. Merge the example manually if a user file exists.
+the actual runtime config. Merge the example manually if a user file exists.
 `--safe-config` on direct invocation bypasses the file; the direct launcher
 forwards arguments. Shared Linux tests are not physical handheld tests: ArkOS
 and dArkOS hardware checks remain separate and pending for this integration.
@@ -57,9 +62,10 @@ and dArkOS hardware checks remain separate and pending for this integration.
 
 The existing Eoan ARM64 QEMU root was available; all 10 CTest cases and the
 ARM64 interpreter/dependency/symbol-version/relocation checks passed. The rebuilt terminal
-loaded both bridge and pt8211 preferences headlessly, logged the effective SDL
-paths and preserved all test INI bytes (including btx/logging/editing settings).
-Launcher/installer fixture tests passed persistent-path export/fallback and
+loaded both bridge and pt8211 preferences headlessly, logged the then-current SDL
+paths (superseded by executable-relative config above) and preserved all test INI
+bytes (including btx/logging/editing settings).
+Launcher/installer fixture tests passed then-current preference-path export/fallback and
 preservation checks. No new package was staged and no handheld was contacted.
 ArkOS physical bridge/listening/reconnect checks remain pending. dArkOS physical
 checks remain independently pending; local ABI/host tests validate neither device.
@@ -195,7 +201,7 @@ bash tools/arkos/check-install-port.sh
 The installer validates all package sources and checksums before destination
 writes. Its isolated test copies only the delivered package; it never fills
 missing files from the source tree. Missing config and corrupt binary cases
-must fail preflight. Clean/repeated installations preserve persistent user config
+must fail preflight. Clean/repeated installations preserve executable-relative user config
 (including MIDI settings), user data and launcher backups.
 
 ARM64 package binaries/assets intentionally travel through Git; Windows generated
@@ -533,7 +539,7 @@ still the user's task; a local package check is not a handheld retest.
 After the reviewed repair has been committed/published by the maintainer, update
 from the existing **feature/midi-foundation checkout on the console**. Preserve
 an untracked example manually copied as a workaround before pulling the new
-tracked example (this is not the persistent user config):
+tracked example (this is not the runtime user config):
 
 ```sh
 if [ -f deploy/arkos/config/config.ini.example ] &&

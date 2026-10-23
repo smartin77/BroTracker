@@ -53,6 +53,9 @@ struct HostConfigResolution {
 // Read at most limit+1 bytes; never write/delete config. Safe mode does no I/O.
 // This host-only non-realtime loader always returns usable built-in defaults
 // when configuration cannot be loaded. Callers supply an absolute path.
+// Pass the installed executable directory (SDL_GetBasePath), never argv[0]/CWD.
+// Failure to resolve an absolute base yields an unreadable path, with no fallback.
+std::filesystem::path ExecutableConfigPath(const std::filesystem::path& directory);
 HostConfigResolution LoadHostConfig(const std::filesystem::path& path, bool safe) noexcept;
 const char* HostConfigDiagnostic(HostConfigStatus status) noexcept;
 } // namespace BroTracker

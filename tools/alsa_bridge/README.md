@@ -807,7 +807,7 @@ No kernel or firmware change was made for this option. Diagnostics are paused.
 
 ## Manual listening correlation (normal Ports launch)
 
-Opt in through the real per-user BTX `config.ini`, retaining its required `[btx]`
+Opt in through the executable-relative BTX `config/config.ini`, retaining its required `[btx]`
 metadata and existing settings:
 
 ```ini
@@ -839,6 +839,8 @@ consumes these without restarting/reopening ALSA. Each START/CONTINUE gets a uni
 ${XDG_DATA_HOME:-$HOME/.local/share}/BroTracker/BroTracker Terminal/diagnostics/bridge-audible/
 ```
 
+This evidence base is resolved independently of the executable-relative runtime
+config; moving config does not move or delete existing recordings.
 The resolved absolute base and each run path are logged in `/tmp/brotracker-arkos.log`.
 A Git-checkout destination is refused. Recordings are not written into the Ports
 installation or launcher directory; an unavailable destination disables evidence,

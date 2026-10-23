@@ -203,11 +203,9 @@ trap 'cleanup 143' TERM
 trap 'cleanup 129' HUP
 launcher_pid=$BASHPID
 
-# Resolve configuration in the runtime user's persistent SDL preference tree.
-# Never copy a packaged example over user settings. Log the launch-time candidate;
-# the application logs the authoritative SDL-resolved path after startup.
-export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
-printf 'Launcher: persistent config candidate=%s/BroTracker/BroTracker Terminal/config.ini\n' "$XDG_DATA_HOME"
+# Config is executable-relative. XDG above serves PortMaster/evidence only.
+# BTX logs the authoritative absolute path and load status; no config is created.
+printf 'Launcher: executable-relative config=%s/config/config.ini\n' "$app_dir"
 # The shared parser decides opt-in. Never inherit a stale private control mapping.
 unset BROTRACKER_LISTEN_CONTROL BROTRACKER_LISTEN_BASE
 # No serial or ALSA access by this query.

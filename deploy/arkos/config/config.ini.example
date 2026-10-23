@@ -1,8 +1,8 @@
 ; BroTracker host INI reference. TEMPLATE ONLY: never loaded automatically.
 ; Merge chosen settings into your config.ini; BTX never creates/overwrites it.
-; Windows: %APPDATA%/BroTracker/BroTracker Terminal/config.ini
-; ArkOS/dArkOS: $XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini
-; Without XDG_DATA_HOME: $HOME/.local/share/BroTracker/BroTracker Terminal/config.ini
+; Windows: config/config.ini beside BroTrackerTerminal.exe.
+; ArkOS/dArkOS: /roms/ports/brotracker/config/config.ini (executable-relative).
+; No old-location fallback. Restart BTX to reload; missing file uses built-ins.
 ; Restart BTX to reload all settings. No runtime persistence or INI editor.
 ; Case-sensitive names/values; decimal integers; whole-line ; or # comments.
 ; No quotes, inline comments, unknown keys, duplicate keys or duplicate sections.

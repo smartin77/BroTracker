@@ -1702,8 +1702,8 @@ pending; linear interpolation aliasing and pitch/duration limitations still appl
 
 ### Optional host configuration and recovery
 
-Windows and ArkOS load an optional `config.ini` from SDL's per-user preference
-path, never the launch directory. See [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
+Windows and ArkOS load optional `config/config.ini` beside the installed executable,
+never from the launch working directory or the former per-user preference location. See [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
 for exact paths and grammar. Copy `config/config.ini.example` manually if needed.
 Schema 1 exposes only `new_pattern_length` (16/32/64, default 32) for future
 creation; current device patterns/playback and input controls are unchanged.

@@ -80,7 +80,7 @@ fi
 [[ "$BROTRACKER_APPEND_LOG" == 1 && "$SDL_GAMECONTROLLERCONFIG" == test-mapping ]] || exit 80
 [[ -z "${BROTRACKER_DIAGNOSTICS_DIR:-}" ]] || exit 84
 [[ "$XDG_DATA_HOME" == "$TEST_DIR/data" ]] || exit 85
-printf '%s\n' "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" > "$TEST_DIR/config-path"
+printf '%s\n' "$TEST_DIR/ports/brotracker/config/config.ini" > "$TEST_DIR/config-path"
 echo $$ > "$TEST_DIR/ui.pid"
 echo 'stub UI append' >> /tmp/brotracker-arkos.log
 child=
@@ -189,6 +189,8 @@ run_case() {
     [[ "$result" == "$expected" ]] || { cat "$log"; echo "wrong exit $result"; exit 1; }
     [[ -f "$work/finished" && ! -f "$work/orphan" && ! -f "$work/duplicate" && ! -d "$work/bridge-active" ]] || { cat "$log"; echo 'cleanup failure'; exit 1; }
     grep -q 'Launcher: starting' "$log"
+    grep -Fq "Launcher: executable-relative config=$work/ports/brotracker/config/config.ini" "$log"
+    [[ $(cat "$work/config-path") == "$work/ports/brotracker/config/config.ini" ]]
     grep -q 'stub UI append' "$log"
     grep -q 'stub platform helper' "$log"
     grep -q 'Launcher: children reaped; UI/launcher status=' "$log"
@@ -345,17 +347,17 @@ PYTHON
 mv "$work/ports/brotracker/BroTrackerAlsaBridge" "$work/bridge-disabled"
 run_case ready 0.2 normal
 grep -q 'missing/not executable' "$log"
-# Direct launcher fallback uses persistent HOME, forwards arguments, never writes config.
-mkdir -p "$work/direct" "$work/home/.local/share/BroTracker/BroTracker Terminal"
+# Direct launcher forwards arguments and preserves executable-relative config.
+mkdir -p "$work/direct/config" "$work/home"
 cp "$repo/tools/arkos/launch.sh" "$work/direct/launch.sh"
-printf '[audio]\noutput=bridge\n' > "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini"
-cp "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+printf '[audio]\noutput=bridge\n' > "$work/direct/config/config.ini"
+cp "$work/direct/config/config.ini" "$work/config-original"
 cat > "$work/direct/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
 [[ "$XDG_DATA_HOME" == "$TEST_DIR/home/.local/share" && "$1" == --safe-config ]] || exit 86
 STUB
 chmod +x "$work/direct/BroTrackerTerminal"
 env -u XDG_DATA_HOME HOME="$work/home" bash "$work/direct/launch.sh" --safe-config
-cmp "$work/home/.local/share/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
-echo 'Persistent config fallback/export, argument forwarding and preservation checks passed'
+cmp "$work/direct/config/config.ini" "$work/config-original"
+echo 'Executable-relative config, evidence XDG export, argument forwarding and preservation checks passed'
 echo 'All launcher retry/log/cleanup/exit checks passed'

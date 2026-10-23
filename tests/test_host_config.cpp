@@ -215,3 +215,33 @@ TEST_CASE(BridgeAudibleConfigIsOptInSharedAndFieldLocalOnInvalidValues) {
     CHECK(ParseHostConfig(base+"[diagnostics]\n[diagnostics]",c)==HostConfigStatus::Invalid);
     CHECK(!LoadHostConfig({},true).config.bridge_audible_test);
 }
+
+TEST_CASE(ExecutableRelativeConfigIgnoresLaunchDirectoryAndExample) {
+    TemporaryTestDirectory temp;
+    const auto installed=temp.Path()/"installed";
+    const auto elsewhere=temp.Path()/"other-working-directory";
+    std::filesystem::create_directories(installed/"config");
+    std::filesystem::create_directories(elsewhere/"config");
+    struct RestoreCwd { std::filesystem::path original=std::filesystem::current_path();
+        ~RestoreCwd(){std::filesystem::current_path(original);} } restore;
+    std::filesystem::current_path(elsewhere);
+    {std::ofstream example(installed/"config/config.ini.example");example<<"invalid example";}
+    {std::ofstream unrelated(elsewhere/"config/config.ini");unrelated<<"invalid CWD config";}
+    const auto path=ExecutableConfigPath(installed);
+    CHECK(path==installed/"config/config.ini");CHECK(path.is_absolute());
+    auto result=LoadHostConfig(path,false);
+    CHECK(result.status==HostConfigStatus::Missing);
+    CHECK(result.config.row_numbering==RowNumbering::D1);
+    CHECK(result.config.audio_output==AudioOutputChoice::Default);
+    CHECK(!std::filesystem::exists(path));
+    const std::string bytes="[btx]\r\nschema_version=1\r\nnew_pattern_length=32\r\n[audio]\r\noutput=pt8211\r\n[display]\r\nrow_numbering=h0\r\n";
+    {std::ofstream actual(path,std::ios::binary);actual<<bytes;}
+    result=LoadHostConfig(path,false);CHECK(result.status==HostConfigStatus::Loaded);
+    CHECK(result.config.audio_output==AudioOutputChoice::Pt8211);
+    CHECK(result.config.row_numbering==RowNumbering::H0);
+    std::ifstream unchanged(path,std::ios::binary);
+    CHECK_EQ(std::string(std::istreambuf_iterator<char>(unchanged),{}),bytes);
+    CHECK(ExecutableConfigPath({}).empty());
+    CHECK(ExecutableConfigPath("relative-executable-directory").empty());
+    CHECK(LoadHostConfig(ExecutableConfigPath({}),false).status==HostConfigStatus::Unreadable);
+}

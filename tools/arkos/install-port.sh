@@ -87,4 +87,5 @@ rm -f -- "$obsolete"
 
 echo "Installed BroTracker Terminal (BTX) in $app"
 echo "Ports launcher: $port_launcher"
+echo "Runtime config: $app/config/config.ini (missing uses built-in defaults; never created or overwritten)."
 echo "Config example only: $app/config/config.ini.example; existing user config is never overwritten."

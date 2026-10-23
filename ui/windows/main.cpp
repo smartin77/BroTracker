@@ -8,6 +8,7 @@
 #include "input.h"
 #include "serial_service_limits.h"
 #include "ui/host_config.h"
+#include "ui/sdl/host_paths.h"
 #include "diagnostics.h"
 #include "ui/sdl/host_diagnostics.h"
 #include "audio_bridge.h"
@@ -37,7 +38,7 @@ int main(int argc, char* argv[]) try {
     if (!preference_path) return ReportFailure(nullptr, std::string("No writable log location: ") + SDL_GetError(), "");
     const std::filesystem::path log_path = std::filesystem::u8path(preference_path) / "brotracker-terminal.log";
     SDL_free(preference_path);
-    const auto config_path=log_path.parent_path()/"config.ini";
+    const auto config_path=RuntimeConfigPath();
     const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
     BroTracker::ConfigureHostLogging(host_config.config.logging_mode);
     const char* append=std::getenv("BROTRACKER_APPEND_LOG");

@@ -44,6 +44,18 @@ evidence and useful build caches. Do not archive obsolete packages or binaries.
 Create backups only when explicitly requested. The executable finds its packaged
 assets beside itself, regardless of the initial working directory.
 
+## Runtime configuration
+
+Edit `config/config.ini` beside BroTrackerTerminal.exe. For the normal delivery,
+the exact path is `deploy/windows/config/config.ini`, resolved from the loaded
+executable, regardless of the launch working directory. Restart BTX after edits.
+No SDL preference/APPDATA file is loaded as a fallback. Missing config uses built-in
+defaults; the packaged `config/config.ini.example` is a template only. Copy/merge it
+manually if needed, retaining the required `[btx]` fields. Packaging never creates
+or overwrites the actual user config and verifies an existing file is unchanged.
+Startup logs the resolved absolute config path and load/error status. Logs retain
+their existing SDL user-data location; changing config location does not move logs.
+
 ## Controls and connection
 
 - **Space:** START when ready/stopped/finished; RESTART while playing.

@@ -92,6 +92,10 @@ bool UseSafeConfig(int argc, char* const argv[]) noexcept {
         if (argv[i] && std::string_view(argv[i]) == "--safe-config") return true;
     return false;
 }
+std::filesystem::path ExecutableConfigPath(const std::filesystem::path& directory) {
+    if(!directory.is_absolute()) return {};
+    return (directory/"config"/"config.ini").lexically_normal();
+}
 HostConfigResolution LoadHostConfig(const std::filesystem::path& path, bool safe) noexcept {
     HostConfigResolution result;
     if (safe) { result.status = HostConfigStatus::SafeDefaults; return result; }

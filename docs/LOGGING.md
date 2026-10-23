@@ -20,13 +20,19 @@ bypasses external config and uses Basic/0. Startup never creates/rewrites config
 The example opts into Debug/5. On explicit authorization, the Windows user file
 was created (none previously existed) with schema 1, new-pattern length 32, Debug/5.
 
-Windows config: `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`.
-Windows log: the same resolved SDL directory, `brotracker-terminal.log`.
-ArkOS config: SDL preference path, normally
-`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, or
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini`.
+Runtime config is `config/config.ini` beside the installed executable on both
+hosts, resolved from SDL_GetBasePath, never the shell working directory.
+ArkOS/dArkOS: `/roms/ports/brotracker/config/config.ini`.
+Windows delivery: `deploy/windows/config/config.ini` beside BroTrackerTerminal.exe.
+Missing config uses built-ins; `config.ini.example` and the former per-user config
+are never runtime fallbacks. Startup logs the absolute config path and load/error
+status. Packages/installers preserve an existing config byte-for-byte.
+
+Windows logs retain their SDL user-data directory, normally
+`%APPDATA%\BroTracker\BroTracker Terminal\brotracker-terminal.log`.
 ArkOS log remains `/tmp/brotracker-arkos.log`; this is not permanent evidence storage.
-Paths are independent of the launch working directory.
+Listening evidence retains its existing SDL/XDG user-data location independently
+of config (see the bridge guide); existing recordings are never moved or deleted.
 
 ## Modes and timestamps
 
