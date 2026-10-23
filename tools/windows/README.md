@@ -290,3 +290,12 @@ Build with the existing empty-title preference, then start:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin -EmptyWindowTitle
 .\deploy\windows\BroTrackerTerminal.exe
 ```
+
+## Session channel mute
+
+Up or Shift+Up from the first row/beat enters its header; Down or Shift+Down returns
+to row 1 with the Note/Instrument field retained. Header Left/Right clamps channels;
+Tab/Shift+Tab keeps channel navigation. Left-click a header once to toggle mute
+using actual framebuffer/viewport coordinates. Holding/dragging/outside clicks do
+not toggle. Crossed digits show confirmed mute, orange outline shows selection;
+pending/rejected/unsupported states are separate. See [design and manual checklist](../../docs/CHANNEL_MUTE.md).

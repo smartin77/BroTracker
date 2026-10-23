@@ -2,9 +2,13 @@
 
 #include "core/playback/native_rate_pattern_player.h"
 #include "pattern_performance.h"
+#include <type_traits>
+#include <utility>
 
 namespace BroTracker
 {
+    template<class T,class=void> struct SupportsChannelMute : std::false_type {};
+    template<class T> struct SupportsChannelMute<T,std::void_t<decltype(std::declval<T&>().SetMuteMask(0u))>> : std::true_type {};
     constexpr std::size_t kPatternRequestCapacity = 8;
     enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded, Gains, Tempo };
     enum class PatternRequestStatus { Accepted, Full, InvalidRequest, InvalidGain, Identity, InvalidTempo };
@@ -22,6 +26,7 @@ namespace BroTracker
         // dimensions belong together. Copy only under platform interrupt exclusion.
         PatternPerformance performance;
         Pcm16ChannelGains gains;
+        unsigned mute_mask=0; std::uint32_t applied_mute_id=0,next_mute_id=1;
         std::uint32_t applied_gain_id = 0, next_gain_id = 1;
         std::uint32_t tempo=0,published_tempo=0,settled_tempo_id=0,applied_tempo_id=0,pending_tempo_id=0,next_tempo_id=1;
         bool running = false;
@@ -49,6 +54,11 @@ namespace BroTracker
     class BasicPatternBringUpControl
     {
     public:
+        [[nodiscard]] PatternRequestStatus SubmitMute(unsigned mask,std::uint32_t id) noexcept {
+            if(!SupportsChannelMute<Player>::value || mask>255 || !id || id<=highest_mute_id_) return PatternRequestStatus::InvalidRequest;
+            pending_mute_mask_=mask; pending_mute_id_=highest_mute_id_=id;
+            return PatternRequestStatus::Accepted;
+        }
         void OutputFailure() noexcept { Fail(PatternFault::Render,PatternPlayerStatus::ComponentError); Publish(); }
         Player& OutputPlayer() noexcept { return player_; } // Platform audio owner only.
         // Audio owner only; main loop snapshots this under the existing exclusion.
@@ -120,6 +130,7 @@ namespace BroTracker
         }
         PatternBringUpStatus Snapshot() const noexcept {
             auto result=status_;
+            result.next_mute_id=highest_mute_id_==UINT32_MAX?0:highest_mute_id_+1;
             result.next_tempo_id=highest_tempo_id_==UINT32_MAX?0:highest_tempo_id_+1;
             if(highest_tempo_id_>result.settled_tempo_id) result.pending_tempo_id=highest_tempo_id_;
             result.next_gain_id=highest_gain_id_==UINT32_MAX ? 0 : highest_gain_id_+1;
@@ -153,6 +164,13 @@ namespace BroTracker
         // This is an explicit bring-up fail-stop policy, not a final underrun policy.
         void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available) noexcept
         {
+            // Separate latest slot applies before the transport/publication FIFO.
+            if constexpr(SupportsChannelMute<Player>::value) if(pending_mute_id_) {
+                const auto result=player_.SetMuteMask(pending_mute_mask_);
+                if(result==PatternPlayerStatus::Success) { status_.mute_mask=pending_mute_mask_; status_.applied_mute_id=pending_mute_id_; }
+                else Fail(PatternFault::Render,result);
+                pending_mute_id_=0;
+            }
             for (std::size_t budget = 0; budget < kPatternRequestCapacity &&
                 request_count_ != 0 && !deferred_notification_ && applied_count_ < kPatternRequestCapacity; ++budget)
             {
@@ -284,6 +302,8 @@ namespace BroTracker
             status_.active_rows = player_.GetActiveRows();
             status_.active_channels = player_.GetActiveChannels();
         }
+        unsigned pending_mute_mask_=0;
+        std::uint32_t pending_mute_id_=0,highest_mute_id_=0;
         Player player_;
         PatternBringUpStatus status_;
         struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; std::uint32_t tempo=0; };

@@ -8,6 +8,7 @@
  */
 
 #include "sdl_display_backend.h"
+#include "ui/pattern_grid.h"
 
 #include <SDL.h>
 
@@ -226,4 +227,13 @@ void SdlDisplayBackend::Shutdown()
 
     width_ = 0;
     height_ = 0;
+}
+
+bool SdlDisplayBackend::WindowToFramebuffer(int x,int y,int& fx,int& fy) const {
+    if(!window_ || !renderer_) return false;
+    int ww,wh,ow,oh;SDL_Rect viewport;
+    SDL_GetWindowSize(window_,&ww,&wh);
+    if(SDL_GetRendererOutputSize(renderer_,&ow,&oh)) return false;
+    SDL_RenderGetViewport(renderer_,&viewport);
+    return PatternGrid::WindowToFrame(x,y,ww,wh,ow,oh,viewport.x,viewport.y,viewport.w,viewport.h,fx,fy);
 }

@@ -56,7 +56,8 @@ TEST_CASE(LocalEditorNavigationAndRawFields) {
     CHECK(!editor.Apply(EditorAction::Increment));
     auto live = ConnectedDraft(); editor.Sync(live);
     CHECK(editor.Ready()); CHECK(!editor.Dirty());
-    CHECK(!editor.Apply(EditorAction::Up)); CHECK(!editor.Apply(EditorAction::Left));
+    CHECK(editor.Apply(EditorAction::Up)); CHECK(editor.Cursor().header); CHECK(!editor.Apply(EditorAction::Left));
+    CHECK(editor.Apply(EditorAction::Down)); CHECK(!editor.Cursor().header);
     CHECK(editor.Apply(EditorAction::Increment)); CHECK(editor.Dirty());
     CHECK(editor.Apply(EditorAction::Decrement)); CHECK(!editor.Dirty());
     CHECK(!editor.Apply(EditorAction::SetValue, 128));
@@ -799,7 +800,7 @@ TEST_CASE(BeatNavigationUsesHighlightedRowsVisibleBoundsAndPreservesEditorData) 
                         if (r-1 < PatternGrid::visible_rows && PatternGrid::IsBeatRow(r-1)) { expected = r-1; break; }
                 }
                 editor.SetLocked(true); // Publication locks data, not navigation.
-                CHECK_EQ(editor.Apply(forward ? EditorAction::NextBeat : EditorAction::PreviousBeat), expected != origin);
+                CHECK_EQ(editor.Apply(forward ? EditorAction::NextBeat : EditorAction::PreviousBeat), expected != origin || (!forward && !origin));
                 CHECK_EQ(editor.Cursor().row, expected);
                 CHECK_EQ(editor.Cursor().channel, cursor.channel); CHECK(editor.Cursor().field == cursor.field);
                 CHECK(BroTracker::SamePattern(before, *editor.Draft()));
@@ -807,6 +808,7 @@ TEST_CASE(BeatNavigationUsesHighlightedRowsVisibleBoundsAndPreservesEditorData) 
                 BroTracker::SparsePreviewCell captured;
                 for (unsigned i = 0; i < BroTracker::kSparsePreviewCellCapacity; ++i)
                     CHECK(!editor.TakeCapturedCell(i, captured));
+                if(editor.Cursor().header) CHECK(editor.Apply(EditorAction::Down));
                 while (editor.Cursor().row < origin) CHECK(editor.Apply(EditorAction::Down));
                 while (editor.Cursor().row > origin) CHECK(editor.Apply(EditorAction::Up));
             }

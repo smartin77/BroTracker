@@ -43,3 +43,6 @@ void DrawCenteredFixedText(
     int y,
     const std::string& text,
     Color color);
+
+// Coverage in the fixed 6x9 cell, independent of framebuffer colors.
+bool FixedGlyphCovers(char digit,int x,int y) noexcept;

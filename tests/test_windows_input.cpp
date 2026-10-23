@@ -131,7 +131,20 @@ static int TempoRegression() {
     CHECK(input.Tick(16000,false)==0);CHECK(input.Tick(17000,true)==0);
     return 0;
 }
+static int HeaderMouseRegression() {
+    WindowsHeaderInput input;SDL_Event e{};e.type=SDL_MOUSEBUTTONDOWN;e.button.button=SDL_BUTTON_LEFT;
+    CHECK(input.Handle(e,56,42,true)==0);CHECK(input.Handle(e,109,42,true)==-1);
+    e.type=SDL_MOUSEMOTION;CHECK(input.Handle(e,109,42,true)==-1);
+    e.type=SDL_MOUSEBUTTONUP;input.Handle(e,109,42,true);
+    e.type=SDL_MOUSEBUTTONDOWN;CHECK(input.Handle(e,109,42,true)==1);
+    e.type=SDL_WINDOWEVENT;e.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(e,0,0,false);
+    e.type=SDL_MOUSEBUTTONDOWN;e.button.button=SDL_BUTTON_LEFT;CHECK(input.Handle(e,56,42,true)==-1);
+    e.type=SDL_MOUSEBUTTONUP;input.Handle(e,0,0,false);
+    e.type=SDL_MOUSEBUTTONDOWN;CHECK(input.Handle(e,56,42,false)==-1);
+    return 0;
+}
 int main() {
+    CHECK(HeaderMouseRegression()==0);
     CHECK(NavigationRegression()==0);
     CHECK(BeatNavigationRegression()==0);
     CHECK(TempoRegression()==0);

@@ -206,8 +206,10 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    constexpr std::size_t kTxCapacity = 20;
-    static_assert(kTxCapacity >= kPatternDiscoveryReplyCount + 1, "Discovery must fit TX FIFO");
+    // Full production HELLO is 21 lines including MIDI health and mute CAP/STATE.
+    constexpr std::size_t kDiscoveryReserve = 21;
+    constexpr std::size_t kTxCapacity = 24;
+    static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
@@ -253,6 +255,13 @@ namespace
     }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     unsigned g_reported_midi=UINT32_MAX;
+    std::uint32_t g_reported_mute=0;
+    void QueueMuteState() {
+        const auto status=Snapshot(); char reply[80];
+        std::snprintf(reply,sizeof(reply),"BTMUTE1 STATE 1 %lu %lu %u\n",
+            (unsigned long)status.applied_mute_id,(unsigned long)status.next_mute_id,status.mute_mask);
+        (void)QueueLine(reply);
+    }
     void QueueMidiOutput(bool force=false) {
         unsigned state;
         { InterruptGuard guard;
@@ -276,6 +285,8 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         QueueMidiOutput(true);
+        if(advertise_snapshot) (void)QueueLine("BTMUTE1 CAP 1\n");
+        QueueMuteState();
 #endif
         OfferPosition(status);
         if (advertise_snapshot) {
@@ -466,6 +477,11 @@ namespace
             if (g_protocol_connected) OfferPosition(Snapshot());
         }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        const auto mute=Snapshot();
+        if(mute.applied_mute_id!=g_reported_mute && g_tx_count+2<kTxCapacity) {
+            char reply[64]; std::snprintf(reply,sizeof(reply),"BTMUTE1 APPLIED 1 %lu\n",(unsigned long)mute.applied_mute_id);
+            if(QueueLine(reply)) {g_reported_mute=mute.applied_mute_id;QueueMuteState();}
+        }
         QueueMidiOutput(); // Change-only, bounded; counters remain explicit GET.
 #endif
         const auto status = Snapshot();
@@ -499,7 +515,7 @@ namespace
         }
         // Bounded RX and at most one complete protocol line per service. Queue
         // saturation backpressures RX; request overflow receives explicit ERROR.
-        for (unsigned int budget = 0; budget < 128 && g_tx_count + kPatternDiscoveryReplyCount + 1 <= kTxCapacity; ++budget)
+        for (unsigned int budget = 0; budget < 128 && g_tx_count + kDiscoveryReserve + 1 <= kTxCapacity; ++budget)
         {
             const int raw = Serial.read();
             if (raw < 0) break;
@@ -539,6 +555,17 @@ namespace
 #endif
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            else if (!std::strncmp(line,"BTMUTE1",7)) {
+                if(!std::strcmp(line,"BTMUTE1 GET 1")) QueueMuteState();
+                else {
+                    std::uint32_t f[2]{}; bool accepted=false;
+                    if(g_protocol_connected && SnapshotFields(line,used,"BTMUTE1 SET 1 ",f,2) && f[1]<=255) {
+                        InterruptGuard guard; accepted=g_control.SubmitMute(f[1],f[0])==PatternRequestStatus::Accepted;
+                    }
+                    char reply[64];std::snprintf(reply,sizeof(reply),"BTMUTE1 %s 1 %lu\n",accepted?"SUBMITTED":"REJECTED",(unsigned long)f[0]);
+                    (void)QueueLine(reply);
+                }
+            }
             else if (!std::strncmp(line,"BTMIDI1",7)) {
                 char reply[192];
                 if(!std::strcmp(line,"BTMIDI1 GET 1")) {

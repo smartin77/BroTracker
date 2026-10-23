@@ -90,6 +90,7 @@ int main(int argc, char* argv[]) try {
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
     BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F4 Restore; F5 stopped/paused Publish; capability-gated automatic preview\n");
+    WindowsHeaderInput header_input;
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
@@ -102,6 +103,11 @@ int main(int argc, char* argv[]) try {
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            int mouse_x=0,mouse_y=0;
+            const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
+            const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
+            const int header=header_input.Handle(event,mouse_x,mouse_y,mapped);
+            if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
                 continue;

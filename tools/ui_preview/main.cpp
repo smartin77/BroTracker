@@ -87,6 +87,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     for (unsigned row=0; row<12; ++row) editor.Apply(EditorAction::Down);
+    if(beat_fixture) {editor.SelectHeader(6); live.mute_mask=65; live.mute_status="Mute synchronized (fixture)";}
     RenderMainScreen(framebuffer, tune, pattern, live, &editor);
 
     const std::filesystem::path output_path = beat_fixture ? argv[2] : "assets/ui_main_screen.bmp";

@@ -885,7 +885,11 @@ This behaviour applies to all supported BroTracker instrument types and is not l
 
 Channel mute is not an audio mute and does not constitute a separate performance mode.
 
-The exact behaviour of instrument changes occurring in pattern data while the channel is muted remains open for further design evaluation.
+Session-mute decision (2026-10-22): pattern instrument changes are suppressed;
+the last actual pre-mute selection is retained. Unmute has no catch-up or automatic
+trigger. Entering mute explicitly releases the current voice; this is separate
+from a blanket renderer/gain mute and preserves the future manual-input path.
+See [session mute ordering, release and protocol](CHANNEL_MUTE.md).
 
 ## D0037 — Reusable Library Structure
 

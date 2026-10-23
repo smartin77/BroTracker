@@ -717,3 +717,13 @@ The guiding principle is:
 UI/UX decisions should favour direct access, stable visual focus, predictable navigation and high information density without sacrificing readability.
 
 The primary visual language should remain text-based, using the BroTracker 6 × 8 bitmap font as its foundation. Apparent graphical complexity should be achieved through carefully designed frames, special glyphs, margins, padding and spacing rather than through conventional graphical widgets.
+
+## Session channel headers (2026-10-22)
+
+[Channel mute](CHANNEL_MUTE.md) adds a real header navigation target and confirmed
+mute indication shared by Windows/handheld. Selected headers use the existing
+orange edit outline inside their border; muted digits are crossed by two thin
+one-pixel turquoise square diagonals (six-pixel half-length, equal X/Y steps) with
+background cuts at actual glyph intersections.
+The selection and cross coexist. No text X, background bands or pattern redesign.
+Manual visual/UX approval for this addition remains pending.

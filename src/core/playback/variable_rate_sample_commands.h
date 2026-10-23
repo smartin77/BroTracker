@@ -91,6 +91,8 @@ namespace BroTracker
 
         // Explicit reset retains configuration/bindings. No reset at loop/row zero.
         void Reset() noexcept { state_.Reset(); }
+        void PreserveChannels(const VariableRateSampleCommandPreparer& other,unsigned mask) noexcept { state_.PreserveChannels(other.state_,mask); }
+        void ReleaseChannel(unsigned channel) noexcept { state_.ReleaseChannel(channel); }
         // Read-only snapshot; invalid channel leaves output unchanged.
         [[nodiscard]] ChannelStateStatus GetChannel(std::uint32_t channel,
             LogicalChannelState& output) const noexcept { return state_.GetChannel(channel, output); }

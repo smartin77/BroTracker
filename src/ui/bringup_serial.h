@@ -9,6 +9,7 @@
 #include "bringup/host_pattern_publication.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/host_channel_gains.h"
+#include "bringup/host_channel_mute.h"
 #include "bringup/host_tempo.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
@@ -45,6 +46,8 @@ public:
         return TempoAvailable() && published && tempo_.Request(published->tempo_hundredths);
     }
     const BroTracker::HostTempo& Tempo() const { return tempo_; }
+    bool ToggleChannelMute(unsigned channel) { return connected_ && mute_.Toggle(channel); }
+    bool MuteAvailable() const {return connected_ && mute_.Available();}
     bool RequestChannelGains(const BroTracker::Pcm16ChannelGains& gains) {
         return connected_ && gains_.Request(gains);
     }
@@ -137,6 +140,7 @@ private:
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
+    BroTracker::HostChannelMute mute_; bool tx_mute_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
     BroTracker::RealtimePattern observed_editor_;

@@ -30,6 +30,7 @@ void BringUpSerial::Disconnect(const char* reason)
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
+    mute_.Disconnect(); tx_mute_=false;
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
     publication_.Disconnect();
     preview_.Disconnect(); tx_preview_=false;
@@ -293,6 +294,8 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
         view.tempo_hundredths=tempo_.State().tempo; view.desired_tempo=tempo_.Desired();
         view.tempo_pending=!tempo_.Synchronized();
     }
+    if(mute_.Known()) view.mute_mask=mute_.Mask();
+    view.mute_status=mute_.Status();
     view.gains_supported=gains_.Supported();
     view.gain_status=gains_.Status();
     if(const auto* applied=gains_.Authoritative()) view.channel_gains=*applied;
@@ -364,6 +367,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
             live_.callback_performance=report; performance_at_=now;
         }
     }
+    else if (!std::strncmp(line_,"BTMUTE1",7)) { if(connected_) (void)mute_.Response(line_,used_); }
     else if (!std::strncmp(line_,"BTGAIN1",7)) {
         if(connected_) (void)gains_.Response(line_,used_,now);
     }
@@ -501,6 +505,7 @@ void BringUpSerial::Tick(std::uint32_t now)
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
     tempo_.Tick(now);
+    mute_.Tick(now);
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -524,6 +529,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     }
     if(tx_preview_ && tx_offset_==0 && !tx_write_attempted_ && (!preview_.Sending() || TransportPending())) { tx_size_=0; tx_preview_=false; }
     if(tx_tempo_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_tempo_=false; }
+    if(tx_mute_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_mute_=false; }
     if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if (tx_offset_ < tx_size_)
     {
@@ -532,6 +538,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if (pending_ == Command::Start) start_write_attempted_ = true;
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
+        if(tx_mute_) mute_.BeforeWrite(now);
         if(tx_gains_) gains_.BeforeWrite(now);
         if(tx_tempo_) tempo_.BeforeWrite(now);
         tx_write_attempted_=true;
@@ -545,6 +552,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
+                if(tx_mute_) {mute_.LineComplete();tx_mute_=false;}
                 if(tx_gains_) { gains_.LineComplete(); tx_gains_=false; }
                 if(tx_tempo_) { tempo_.LineComplete(); tx_tempo_=false; }
             }
@@ -652,6 +660,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 std::strcpy(tx_,"BTTEMPO1 GET 1\n"); tx_size_=static_cast<unsigned>(std::strlen(tx_)); tx_offset_=0; tempo_.ReadSent(now);
             } else {
                 std::size_t size=0; if(tempo_.FormatLine(tx_,sizeof(tx_),size)) {tx_size_=size;tx_offset_=0;tx_tempo_=true;}
+            }
+        }
+        else if(connected_ && !PublicationBusy() && !pattern_assembler_.Active() &&
+            (mute_.NeedsRead(now) || mute_.Sending() || mute_.Begin())) {
+            if(mute_.NeedsRead(now) && !mute_.Sending()) {
+                std::strcpy(tx_,"BTMUTE1 GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;mute_.ReadSent(now);
+            } else {
+                std::size_t size=0;if(mute_.FormatLine(tx_,sizeof(tx_),size)) {tx_size_=size;tx_offset_=0;tx_mute_=true;}
             }
         }
         else if (connected_ && gains_.Supported() && !PublicationBusy() &&

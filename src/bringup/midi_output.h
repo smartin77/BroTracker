@@ -76,7 +76,7 @@ public:
         for(unsigned i=0;i<batch.count;++i) {
             const auto& c=batch.commands[i];
             const bool midi=c.action==VariableRateVoiceAction::TriggerMidi;
-            const bool valid_action=midi || c.action==VariableRateVoiceAction::Stop ||
+            const bool valid_action=midi || c.action==VariableRateVoiceAction::Release || c.action==VariableRateVoiceAction::Stop ||
                 c.action==VariableRateVoiceAction::Trigger || c.action==VariableRateVoiceAction::TriggerSynth;
             if(!valid_action || (midi && !IsPitchedPatternNote(c.synth_note)) ||
                c.channel>=8 || c.sample_offset>=128 || base>UINT64_MAX-c.sample_offset ||

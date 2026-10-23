@@ -301,8 +301,9 @@ controls become actionable; this is not authorization to implement the features.
 - Resolve order repetition representation, transition/flow conflict rules, sequence
   end and sounding-note/OFF behavior before arrangement implementation. Define
   project dirty baselines, save/recovery transactions, sample sharing and undo
-  before persistence/destructive editors. Mute-time instrument-change policy
-  remains open in D0036.
+  before persistence/destructive editors. Mute-time instrument changes
+  now preserve actual selection by suppressing pattern updates; see D0036 and
+  [session channel mute](CHANNEL_MUTE.md).
 - Decide screen access placement beyond OPT/INS/MIX, final parameter ranges and
   display units, resource budgets, audio metering sources, export render scope and
   settings write/apply behavior as their backends mature. These questions do not

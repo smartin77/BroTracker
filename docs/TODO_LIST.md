@@ -8,6 +8,24 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Session channel mute (2026-10-22)
+
+* [x] Implement [header navigation and session-only mute](CHANNEL_MUTE.md): confirmed
+  eight-channel device mask, bounded host coalescing/readback/reconnect, audio-owned
+  block-boundary event suppression, retained selections and targeted voice release.
+* [x] Add shared temporary crossed-digit artwork plus orange header selection;
+  preserve pattern geometry/beat colors, manual-input separation and MIDI failure isolation.
+* [x] Complete native Windows8/8, fresh GCC13 Release6/6 and Eoan ARM6420/20;
+  final host rejection/coalescing regression and square45-degree pixel checks pass.
+  Refresh complete ARM64 Git package with ABI/checksum/install/config-preservation
+  checks and Windows -EmptyWindowTitle package. Retain passed firmware/upload,
+  memory and bounded Teensy mute results; mask0, original155.00 pattern, stopped,
+  serial closed. See [actual diff, hashes and results](../build/channel-mute/validation.md).
+* [ ] Manual Windows/handheld UX and listening validation pending; use the linked
+  checklist. External MIDI playback and audible synchronization remain unverified.
+  Bridge diagnostics paused; no SSH/console deployment.
+
+
 ### Development fixture tempo and physical confirmation (2026-10-22)
 
 * [x] User physically confirms on ArkOS that adding a MIDI instrument 02 note no

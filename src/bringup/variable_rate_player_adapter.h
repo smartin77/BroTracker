@@ -12,6 +12,7 @@ public:
         const RealtimePattern& pattern, const VariableRateSampleBindings& bindings) noexcept {
         return Map(player_.Configure(tempo_hundredths,rate,pattern,bindings));
     }
+    PatternPlayerStatus SetMuteMask(unsigned mask) noexcept { return Map(player_.SetMuteMask(mask)); }
     std::uint32_t GetTempo() const noexcept { return player_.GetTempo(); }
     bool HasPendingTempo() const noexcept { return player_.HasPendingTempo(); }
     void CancelTempo() noexcept { player_.CancelTempo(); }

@@ -84,6 +84,7 @@ namespace BroTracker
             renderer_ = renderer;
             midi_reset_=true; midi_commands_.count=0;
             gains_ = {}; // Successful configuration restores exact unity.
+            mute_mask_=mute_releases_=mute_history_=0;
             configured_ = true;
             transport_ = VariableRatePatternTransportState::Stopped;
             next_sample_ = 0;
@@ -91,6 +92,18 @@ namespace BroTracker
             return VariableRatePatternPlayerStatus::Success;
         }
 
+        unsigned MuteMask() const noexcept { return mute_mask_; }
+        // Audio owner at block boundary, before pattern generation. No output I/O.
+        [[nodiscard]] VariableRatePatternPlayerStatus SetMuteMask(unsigned mask) noexcept {
+            if(mask>255) return VariableRatePatternPlayerStatus::InvalidGain;
+            if(!configured_) return VariableRatePatternPlayerStatus::NotConfigured;
+            const auto entered=mask & ~mute_mask_;
+            mute_releases_|=entered; mute_history_|=entered;
+            for(unsigned c=0;c<8;++c) if(entered & (1u<<c)) {
+                pending_.entries[c].active=false; preparer_.ReleaseChannel(c);
+            }
+            mute_mask_=mask; return VariableRatePatternPlayerStatus::Success;
+        }
         std::uint32_t GetTempo() const noexcept { return tempo_hundredths_; }
         bool HasPendingTempo() const noexcept { return pending_tempo_!=0; }
         [[nodiscard]] VariableRatePatternPlayerStatus RequestTempo(std::uint32_t value) noexcept {
@@ -173,11 +186,13 @@ namespace BroTracker
                 const auto absolute_row = position_.absolute_tick / kTicksPerRow;
                 const auto prefix = absolute_row % pattern.active_rows;
                 const auto rows = (absolute_row / pattern.active_rows ? pattern.active_rows : 0) + prefix;
-                const auto reconstruction = ApplyLogicalRows(pattern, tentative, rows);
+                const auto reconstruction = ApplyLogicalRows(pattern, tentative, rows, mute_mask_|mute_history_);
+                tentative.PreserveChannels(preparer_,mute_mask_|mute_history_);
                 if (reconstruction != VariableRatePatternPlayerStatus::Success) return reconstruction;
             }
             preview_pending_ = false;
             pattern_ = pattern;
+            tentative.PreserveChannels(preparer_,mute_mask_|mute_history_);
             preparer_ = tentative;
             renderer_.Reset();
             pending_ = {};
@@ -233,7 +248,8 @@ namespace BroTracker
             preview_pending_ = false;
             pending_ = {};
             renderer_.Reset();
-            preparer_.Reset();
+            auto selected=preparer_; preparer_.Reset(); preparer_.PreserveChannels(selected,mute_mask_);
+            mute_releases_=0; mute_history_ &= mute_mask_;
             pending_tempo_=0;
             if (configured_) (void)cursor_.Configure(tempo_hundredths_,sample_rate_hz_);
             transport_ = VariableRatePatternTransportState::Stopped;
@@ -336,6 +352,8 @@ namespace BroTracker
             if (begin == TickCursorStatus::ArithmeticExhausted) return VariableRatePatternPlayerStatus::ArithmeticExhausted;
             if (begin != TickCursorStatus::Success) return VariableRatePatternPlayerStatus::ComponentError;
             VariableRateVoiceCommandBatch commands{};
+            for(unsigned c=0;c<8;++c) if(mute_releases_ & (1u<<c))
+                commands.commands[commands.count++]={c,0,VariableRateVoiceAction::Release,{}};
             // At most eight pending entries. Emit by absolute sample, then channel;
             // consume before row commands at a tie. No backlog scan or allocation.
             const auto flush = [&](std::uint64_t limit, bool inclusive) {
@@ -379,7 +397,8 @@ namespace BroTracker
                     const auto absolute_row = tick.tick_index / kTicksPerRow;
                     const auto prefix = absolute_row % preview_pattern_.active_rows;
                     const auto rows = (absolute_row / preview_pattern_.active_rows ? preview_pattern_.active_rows : 0) + prefix;
-                    const auto reconstruction = ApplyLogicalRows(preview_pattern_, rebuilt, rows);
+                    const auto reconstruction = ApplyLogicalRows(preview_pattern_, rebuilt, rows, mute_mask_|mute_history_);
+                    rebuilt.PreserveChannels(preparer,mute_mask_|mute_history_);
                     if (reconstruction != VariableRatePatternPlayerStatus::Success) return reconstruction;
                     working_pattern = preview_pattern_;
                     preparer = rebuilt;
@@ -391,6 +410,7 @@ namespace BroTracker
                 RowEventBatch rows{};
                 if (GenerateRowEvents(tick, working_pattern, rows) != RowEventStatus::Success)
                     return VariableRatePatternPlayerStatus::ComponentError;
+                SuppressRows(rows,mute_mask_);
                 for (std::size_t i = 0; i < rows.count; ++i) {
                     const auto& event = rows.events[i];
                     if (event.note != NOTE_OFF || event.note_off_timing != NoteOffTiming::EndOfPosition) continue;
@@ -438,7 +458,7 @@ namespace BroTracker
             tempo_hundredths_=tempo; pending_tempo_=next_tempo;
             preparer_ = preparer;
             renderer_ = renderer;
-            midi_commands_=commands;
+            midi_commands_=commands; mute_releases_=0;
             position_ = position;
             // BeginBlock checked the absolute block end for uint64_t overflow.
             next_sample_ += frame_count;
@@ -446,13 +466,19 @@ namespace BroTracker
             return VariableRatePatternPlayerStatus::Success;
         }
     private:
+        static void SuppressRows(RowEventBatch& rows,unsigned mask) noexcept {
+            unsigned n=0;
+            for(unsigned i=0;i<rows.count;++i) if(!(mask & (1u<<rows.events[i].channel))) rows.events[n++]=rows.events[i];
+            rows.count=n;
+        }
         static VariableRatePatternPlayerStatus ApplyLogicalRows(const RealtimePattern& pattern,
-            VariableRateSampleCommandPreparer& preparer, std::uint64_t row_count) noexcept {
+            VariableRateSampleCommandPreparer& preparer, std::uint64_t row_count,unsigned mask=0) noexcept {
             for (std::uint64_t row=0; row<row_count; ++row) {
                 RowEventBatch events{};
                 const MusicalTick tick{row * kTicksPerRow, 0, 0};
                 if (GenerateRowEvents(tick,pattern,events) != RowEventStatus::Success)
                     return VariableRatePatternPlayerStatus::ComponentError;
+                SuppressRows(events,mask);
                 VariableRateVoiceCommandBatch ignored{};
                 const auto result = preparer.Prepare(events,ignored);
                 if (result != VariableSampleCommandStatus::Success) return SampleStatus(result);
@@ -499,6 +525,7 @@ namespace BroTracker
         struct DeferredStop { bool active = false; std::uint64_t sample = 0, tick = 0; };
         struct PendingStops { DeferredStop entries[kRealtimePatternChannelCapacity]{}; } pending_;
         std::uint32_t tempo_hundredths_ = 0, sample_rate_hz_ = 0, pending_tempo_=0;
+        unsigned mute_mask_=0,mute_releases_=0,mute_history_=0;
         Pcm16ChannelGains gains_;
         RealtimePattern pattern_;
         RealtimePattern preview_pattern_; // Single bounded pending volatile candidate.

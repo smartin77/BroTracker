@@ -172,6 +172,7 @@ add_executable(BroTrackerTests
     tests/test_ram_sample_voice.cpp
     tests/test_live_tempo.cpp
     tests/test_sine_synth.cpp
+    tests/test_channel_mute.cpp
     tests/test_midi_foundation.cpp
     tests/test_midi_usb_core.cpp
     tests/test_variable_rate_sample_voice.cpp

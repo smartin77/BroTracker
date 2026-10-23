@@ -227,3 +227,9 @@ void DrawCenteredFixedText(
         text,
         color);
 }
+
+bool FixedGlyphCovers(char digit,int x,int y) noexcept {
+    if(x<0 || x>=5 || y<1 || y>7) return false;
+    const auto* glyph=ui_font.Find(static_cast<unsigned char>(digit));
+    return glyph && (glyph->bitmap[y-1] & (1u<<(x+2)));
+}

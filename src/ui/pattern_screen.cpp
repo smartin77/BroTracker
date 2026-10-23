@@ -580,7 +580,7 @@ namespace
     void DrawPattern(
         Framebuffer& framebuffer,
         const Pattern& pattern,
-        const PatternDisplayState& display, const LocalPatternEditor* editor)
+        const PatternDisplayState& display, const LocalPatternEditor* editor, unsigned mute_mask=0)
     {
         DrawPatternFrame(framebuffer);
 
@@ -606,9 +606,27 @@ namespace
         DrawPatternChannels(
             framebuffer,
             pattern, display, editor);
+        for(unsigned channel=0;channel<display.channels;++channel) if(mute_mask & (1u<<channel)) {
+            const int left=layout.channel_start_x+channel*layout.channel_width;
+            // Square diagonals: equal X/Y steps, centered on the digit bitmap.
+            constexpr int half_length=6, center_y=42;
+            const int center_x=left+25;
+            for(int step=-half_length;step<=half_length;++step) {
+                for(int direction:{-1,1}) {
+                    const int x=center_x+step,y=center_y+direction*step;
+                    const bool glyph=FixedGlyphCovers(char('1'+channel),x-(left+23),y-38);
+                    framebuffer.SetPixel(x,y,glyph?background:row_header_bright);
+                }
+            }
+        }
         if (display.device_pattern && editor && editor->Ready())
         {
             const auto& cursor = editor->Cursor();
+            if(cursor.header) {
+                framebuffer.Rectangle(layout.channel_start_x+cursor.channel*layout.channel_width+2,31,
+                    layout.channel_width-4,22,editing_frame);
+                return;
+            }
             const int x = layout.channel_start_x + static_cast<int>(cursor.channel) * layout.channel_width +
                 (layout.channel_width - 36) / 2 + (cursor.field == EditField::Instrument ? 24 : 0);
             framebuffer.Rectangle(x - 2, layout.first_row_y + static_cast<int>(cursor.row) * layout.row_height,
@@ -810,7 +828,7 @@ static void RenderPatternScreen(
 
     DrawPattern(
         framebuffer,
-        pattern, display, editor);
+        pattern, display, editor, live && live->mute_mask?*live->mute_mask:0);
 
     if (!display.device_mode) DrawCurrentEventEdit(framebuffer);
 
@@ -833,6 +851,7 @@ static void RenderPatternScreen(
         if (!host.publication_status.empty()) info(host.publication_status, header_value);
         if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
         if (!host.midi_status.empty()) info(host.midi_status, header_value);
+        if(live && !live->mute_status.empty()) info(live->mute_status,header_value);
         if (display.device_mode)
         {
             if(live->callback_performance && live->callback_performance->steady_callbacks && live->callback_performance->budget_cycles) {

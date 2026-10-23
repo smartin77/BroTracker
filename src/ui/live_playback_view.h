@@ -17,6 +17,7 @@ struct LivePlaybackView
     std::optional<BroTracker::DevicePatternSnapshot> device_pattern = std::nullopt;
     bool pattern_loading = false, pattern_failed = false;
     bool preview_supported = false;
+    std::optional<unsigned> mute_mask; std::string mute_status;
     bool gains_supported = false;
     std::optional<BroTracker::HostGainState> channel_gains;
     std::optional<BroTracker::Pcm16ChannelGains> desired_gains;

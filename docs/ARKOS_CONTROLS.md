@@ -155,3 +155,14 @@ playback, and the supplied handheld control test passed. Individual unreported
 boundary/modifier/hold edge cases remain unconfirmed. No console installation or
 SSH was performed in this visual task. Windows uses Shift+Up/Down with identical
 destinations; see [Windows controls](../tools/windows/README.md).
+
+## Session channel mute
+
+Up / R1+Up from the first row/beat selects the channel header. Down / R1+Down
+returns to row 1; Up in a header stays there. Header Left/Right clamps channels
+and preserves Note/Instrument field for return. No last-row wrap to headers.
+A in a header requests mute and is consumed before Publish; A in rows keeps its
+existing Publish action. R1+Left/Right tempo works in either target. The turquoise
+cross indicates confirmed mute; orange indicates selected header. See
+[protocol, pending state and manual checklist](CHANNEL_MUTE.md). This new handheld
+UX/listening has not yet been manually approved.

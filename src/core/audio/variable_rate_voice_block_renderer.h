@@ -1,6 +1,7 @@
 #pragma once
 
 #include "variable_rate_sample_voice.h"
+#include <algorithm>
 #include "sine_synth_voice.h"
 #include "core/playback/row_events.h"
 
@@ -8,7 +9,7 @@ namespace BroTracker
 {
     // Initial command implementation capacity, not a permanent pattern-format limit.
     constexpr std::size_t kVariableRateVoiceCommandCapacity = 16;
-    enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, TriggerMidi };
+    enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, TriggerMidi, Release };
     struct VariableRateVoiceCommand
     {
         std::uint32_t channel = 0;
@@ -98,7 +99,8 @@ namespace BroTracker
                 const auto& command = batch.commands[i];
                 if (command.channel >= kRealtimePatternChannelCapacity) return VariableRateBlockStatus::InvalidChannel;
                 if (command.action != VariableRateVoiceAction::Trigger && command.action != VariableRateVoiceAction::Stop &&
-                    command.action != VariableRateVoiceAction::TriggerSynth && command.action != VariableRateVoiceAction::TriggerMidi)
+                    command.action != VariableRateVoiceAction::TriggerSynth && command.action != VariableRateVoiceAction::TriggerMidi &&
+                    command.action != VariableRateVoiceAction::Release)
                     return VariableRateBlockStatus::InvalidAction;
                 if (command.sample_offset >= frame_count) return VariableRateBlockStatus::InvalidOffset;
                 if (i != 0 && command.sample_offset < batch.commands[i - 1].sample_offset)
@@ -126,11 +128,15 @@ namespace BroTracker
                 auto& voice = voices_[command.channel];
                 auto& channel = channels_[command.channel];
                 auto& synth = synths_[command.channel];
-                if(command.action == VariableRateVoiceAction::TriggerMidi) {
+                if(command.action == VariableRateVoiceAction::Release) {
+                    if(channel.synth) synth.Release();
+                    else { channel.release_length=std::max<std::uint32_t>(2,(sample_rate_hz_+499)/500); channel.release=channel.release_length; }
+                } else if(command.action == VariableRateVoiceAction::TriggerMidi) {
                     voice.Reset(); synth.Reset(); channel={}; // MIDI contributes no local PCM.
                 } else if(command.action == VariableRateVoiceAction::Stop) {
                     if(channel.synth) synth.Release(); else voice.Stop();
                 } else {
+                    channel.release=channel.release_length=0;
                     // Fixed 2 ms smoothstep crossfade from the last emitted value.
                     // A repeated trigger captures the current mixed value; no tail stack.
                     // Sample-to-sample replacement keeps its established semantics.
@@ -159,7 +165,7 @@ namespace BroTracker
                 auto* destination=output.channels[channel]+start;
                 if(!state.synth) {
                     (void)voices_[channel].Render(destination,count);
-                    if(state.transition>=state.length) { state.last=destination[count-1]; continue; }
+                    if(state.transition>=state.length && !state.release) { state.last=destination[count-1]; continue; }
                 }
                 for(std::size_t i=0;i<count;++i) {
                     float value=state.synth ? synths_[channel].Next() : float(destination[i]);
@@ -167,6 +173,10 @@ namespace BroTracker
                         const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
                         value=state.from*(1.0f-weight)+value*weight;
                     }
+                    if(state.release) {
+                        value*=float(state.release-1)/float(state.release_length-1);
+                        if(!--state.release) voices_[channel].Stop();
+                    } else if(!state.synth && state.release_length) value=0;
                     destination[i]=static_cast<std::int16_t>(std::lround(value));
                     state.last=destination[i];
                 }
@@ -174,7 +184,7 @@ namespace BroTracker
         }
         struct ChannelTransition {
             bool synth=false;
-            std::uint32_t transition=0,length=0;
+            std::uint32_t transition=0,length=0,release=0,release_length=0;
             float from=0,last=0;
         } channels_[kRealtimePatternChannelCapacity]{};
         SineSynthVoice synths_[kRealtimePatternChannelCapacity]{};

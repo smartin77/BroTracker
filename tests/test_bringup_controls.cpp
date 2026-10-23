@@ -34,6 +34,17 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
+          CHECK(t.serial.MuteAvailable());CHECK(t.serial.ToggleChannelMute(0));CHECK(t.serial.ToggleChannelMute(1));
+          CHECK(t.serial.PlaybackView(t.now)->mute_mask==0);t.Send("BTMUTE1 SET 1 1 3\n");
+          t.Reply("BTMUTE1 SUBMITTED 1 1\nBTMUTE1 APPLIED 1 1\nBTMUTE1 STATE 1 1 2 3\n");
+          CHECK(t.serial.PlaybackView(t.now)->mute_mask==3);CHECK(t.serial.ToggleChannelMute(7));
+          t.port->online=false;t.Tick();t.port->online=true;t.now+=1001;
+          t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+          t.Reply("BTTEST1 STATE IDLE\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 1 2 3\n");
+          t.Tick();t.port->Expect("");CHECK(t.serial.PlaybackView(t.now)->mute_mask==3);
+        }
+        { Test t;t.Ready("BTTEST1 STATE IDLE\n");CHECK(!t.serial.MuteAvailable());CHECK(!t.serial.ToggleChannelMute(0)); }
         for(unsigned channel:{1u,12u,16u}) {
             Test t; t.serial.SetMidiOutputChannel(channel);
             t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
