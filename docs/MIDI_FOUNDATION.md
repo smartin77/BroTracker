@@ -318,9 +318,42 @@ and is satisfied with this topology. Exact offset, jitter and drift remain
 unmeasured: this is listening acceptance, not measured synchronization proof.
 No compensation is introduced or inferred for another topology.
 
-H4MIDI/DIN and handheld routing remain unverified. The newly replaced SD bass
+Windows H4MIDI/DIN playback is separately confirmed below; handheld routing
+remains unverified. The newly replaced SD bass
 fixture was verified by authoritative readback, not auditioned during provisioning;
 this manual confirmation does not relabel that run as a listening test.
+
+### User-confirmed Windows H4MIDI/DIN routes (2026-10-24)
+
+For all four combinations, Windows BTX controls Teensy 4.1. MIDI-OX routes
+**"Teensy MIDI/Audio" input directly to the H4MIDI output**. H4MIDI connects to
+Windows through its USB-C device/client port; **H4MIDI DIN OUT1 -> Behringer WASP
+MIDI DIN IN**. WASP is separately powered and its USB connection is disconnected.
+Configured MIDI output and WASP receive channel are **12**. Teensy sends USB MIDI;
+H4MIDI provides USB-to-DIN conversion/output, not a Teensy DIN implementation.
+
+| User-tested combination | PC/USB attachment | Hub B external power | H4MIDI separate external power | User-confirmed result |
+| --- | --- | --- | --- | --- |
+| Direct PC | Teensy and H4MIDI on separate front-panel PC ports; Hub B bypassed | Not in route | No | **WORKS** |
+| Powered Hub B | Hub B on front USB panel; Teensy and H4MIDI both on B | Yes | No | **WORKS** |
+| Unpowered Hub B, powered H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | Yes | **WORKS** |
+| Unpowered Hub B and H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | No | **FAILS**: playback failed; HxMIDI Tools and MIDI-OX hangs observed during attempts |
+
+**Warning: this tested shared-hub setup fails when neither Hub B nor H4MIDI has
+external power.** Either externally powering Hub B or separately powering H4MIDI
+produced working playback. The user's conclusion is that power availability caused
+the failure in this setup. No electrical measurements were performed, and this is
+not a power requirement inferred for every USB hub. Each row is a separate
+user-confirmed physical result, not an automated test or long-term stability test.
+The earlier pure-USB OFF/envelope and subjective timing acceptance applies only to
+that USB topology; it is not transferred to these DIN routes. Measured
+offset/jitter/drift and handheld routing remain open; no compensation is introduced.
+
+![H4MIDI saved USB-to-DIN routing reference](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)
+
+Saved USB-to-DIN routing reference ([source image](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)).
+The image illustrates OUT1/OUT2 routing; only DIN **OUT1** playback is confirmed.
+OUT2 was not tested.
 
 ### Earlier automated capture and other routing prerequisites
 
@@ -329,9 +362,9 @@ WinMM input capture**. Windows enumerated `Teensy MIDI/Audio`. No CME output was
 present in the observed WinMM output list (only Microsoft GS and Teensy).
 No external synth or two-channel audio measurement was available to this run.
 
-For the separate, still-unverified PC/CME/DIN topology, connect Teensy and the CME's USB **client/device**
-port separately to the PC. Configure a host MIDI routing application (for
-example a user-chosen MIDI-OX route) from Teensy MIDI input to the appropriate
+For the confirmed PC/CME/DIN route above, connect Teensy and the CME's USB
+**client/device** port to the PC, directly or through a tested powered arrangement.
+Configure a host MIDI routing application (for example a user-chosen MIDI-OX route) from Teensy MIDI input to the appropriate
 CME MIDI output, then connect that CME DIN OUT to synth DIN IN. Confirm the
 CME's saved routing/filtering, output port, synth receive channel and patch.
 Neither Windows USB attachment nor BroTracker config creates that route. No

@@ -56,8 +56,8 @@ Priority and implementation order remain undecided; these are planning items onl
   continues playing Sample04. Accepted temporarily without a fix; this does not
   establish test.wav loading or valid bindings for those IDs.
 * [ ] Keep full test.wav playback, measured external/internal audio alignment,
-  H4MIDI/DIN/handheld routing, bridge crackling and other unconfirmed checks open.
-  Windows/MIDI-OX/WASP USB playback/listening acceptance is confirmed below.
+  handheld routing, bridge crackling and other unconfirmed checks open. Windows
+  WASP USB listening and separate H4MIDI/DIN playback are confirmed below.
 
 
 ### Runtime config location correction (2026-10-23)
@@ -210,7 +210,8 @@ implemented; automatic startup/shutdown/configuration integration remains separa
 * [ ] Keyboard mute confirmation, example-config review, physical handheld checks and
   configured row labels pending. Severe console crackling unresolved; bridge
   diagnostics paused. Windows/MIDI-OX/WASP USB playback/listening is accepted;
-  exact offset/jitter/drift and other routing topologies remain unverified.
+  Windows H4MIDI/DIN playback is separately confirmed below; exact offset/jitter/drift
+  and handheld routing remain unverified.
 
 ### Session channel mute (2026-10-22)
 
@@ -227,7 +228,8 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   serial closed.
 * [ ] Remaining Windows/handheld mute UX and listening cases pending; use the linked
   checklist. Separate Windows USB MIDI playback/listening is confirmed below;
-  measured audible alignment and other routing topologies remain unverified.
+  Windows H4MIDI/DIN playback is separately confirmed below; measured audible
+  alignment and handheld routing remain unverified.
   Bridge diagnostics paused; no SSH/console deployment.
 
 ### Development fixture tempo and physical confirmation (2026-10-22)
@@ -318,9 +320,21 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   timing difference heard versus internal Samples/Synth; user satisfied with this
   topology. This is manual listening, not automated or measured synchronization.
   See [confirmed route and limits](MIDI_FOUNDATION.md#user-confirmed-windows-usb-route-2026-10-24).
-* [ ] Verify separate H4MIDI/DIN and handheld routing. Earlier automated capture
-  observed only Teensy on Windows, without a CME output or external audio; the
-  later manual WASP USB result does not validate those other topologies.
+* [x] User manual H4MIDI/DIN confirmation (2026-10-24): Windows BTX controls
+  Teensy; MIDI-OX routes Teensy MIDI/Audio directly to H4MIDI USB-C client output,
+  DIN OUT1 -> separately powered WASP DIN IN (WASP USB disconnected), channel 12.
+  Separate results: direct front PC ports, no H4MIDI external supply: WORKS;
+  both devices on front-connected externally powered Hub B, no H4MIDI supply: WORKS;
+  same hub unpowered, H4MIDI separately powered: WORKS; neither externally powered:
+  FAILS, with HxMIDI Tools/MIDI-OX hangs during attempts. User concludes power
+  availability caused this shared-hub failure: **do not use that setup with neither
+  externally powered**. Either power arrangement worked; no electrical measurement
+  or universal hub requirement is claimed. See the [routing matrix and reference](MIDI_FOUNDATION.md#user-confirmed-windows-h4mididin-routes-2026-10-24).
+  These are user playback confirmations, not automated or long-term stability tests;
+  no DIN timing/listening acceptance is inferred from the separate pure-USB result.
+* [ ] Verify handheld routing and H4MIDI OUT2 if needed. Earlier automated capture
+  lacked a CME output/external audio; subsequent user playback results above are
+  separate evidence. Exact offset/jitter/drift remain unmeasured for both routes.
 * [ ] Measure simultaneous internal/external audio on two recording channels;
   separate constant offset from jitter and patch attack, state topology and
   agree tolerance before declaring audible synchronization verified.
