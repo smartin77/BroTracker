@@ -55,8 +55,9 @@ Priority and implementation order remain undecided; these are planning items onl
 * [x] Record user observation: selecting displayed instruments 05-99 currently
   continues playing Sample04. Accepted temporarily without a fix; this does not
   establish test.wav loading or valid bindings for those IDs.
-* [ ] Keep full test.wav playback, external MIDI delivery/audio synchronization,
-  bridge crackling and other unconfirmed hardware/listening checks open.
+* [ ] Keep full test.wav playback, measured external/internal audio alignment,
+  H4MIDI/DIN/handheld routing, bridge crackling and other unconfirmed checks open.
+  Windows/MIDI-OX/WASP USB playback/listening acceptance is confirmed below.
 
 
 ### Runtime config location correction (2026-10-23)
@@ -113,6 +114,13 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   Deployed Windows BTX with executable-relative startup_pattern=midi loaded the SD
   MIDI fixture and returned the matching stopped baseline; no START. AppData config
   unchanged. No session SAVE/RESTORE or current.btsession replacement in setup.
+* [x] **Accepted pattern3 CH5 bass:** updated provisioning definition and the existing
+  MIDI SD file using explicit MIDI-only candidate/rollback replacement. Normal SEED
+  remains no-overwrite. Built/uploaded firmware after rediscovery/STOP/CDC closure;
+  LOAD/readback verified all 256 cells, complete OFF metadata, unchanged other 224
+  cells and tempo15500/15500. Stopped/CDC released; no START, theme/session/Sample/log
+  writes or host runtime/config changes. Bass fixture was readback-verified, not
+  auditioned during provisioning; separate Windows USB listening confirmation below.
 * [ ] **Remaining physical storage checks:** session SAVE/RESTORE/rollback, failure
   recovery, directory case behavior and power-loss behavior remain unverified.
   Prior throughput evidence does not establish durability. Handheld application
@@ -172,7 +180,8 @@ implemented; automatic startup/shutdown/configuration integration remains separa
 * [x] User confirms Windows mouse mute, header navigation and enlarged numbers.
 * [ ] Keyboard mute confirmation, example-config review, physical handheld checks and
   configured row labels pending. Severe console crackling unresolved; bridge
-  diagnostics paused; external MIDI delivery/audible alignment still unverified.
+  diagnostics paused. Windows/MIDI-OX/WASP USB playback/listening is accepted;
+  exact offset/jitter/drift and other routing topologies remain unverified.
 
 ### Session channel mute (2026-10-22)
 
@@ -187,8 +196,9 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   checks and Windows -EmptyWindowTitle package. Retain passed firmware/upload,
   memory and bounded Teensy mute results; mask0, original155.00 pattern, stopped,
   serial closed.
-* [ ] Manual Windows/handheld UX and listening validation pending; use the linked
-  checklist. External MIDI playback and audible synchronization remain unverified.
+* [ ] Remaining Windows/handheld mute UX and listening cases pending; use the linked
+  checklist. Separate Windows USB MIDI playback/listening is confirmed below;
+  measured audible alignment and other routing topologies remain unverified.
   Bridge diagnostics paused; no SSH/console deployment.
 
 ### Development fixture tempo and physical confirmation (2026-10-22)
@@ -272,8 +282,16 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   idempotent reconnect and restart-required channel changes; retain old firmware.
 * [x] Add native timing/ownership/deadline/transport/protocol coverage and bounded
   Teensy USB MIDI capture. See the linked foundation for actual validation.
-* [ ] Configure/confirm the user's PC -> CME -> external synth routing; this run
-  observed only Teensy MIDI on Windows, without a CME output or external audio.
+* [x] User manual confirmation (2026-10-24): Windows BTX -> Teensy USB MIDI ->
+  MIDI-OX -> WASP DELUXE USB plays successfully. MIDI-OX routes Teensy directly
+  to WASP; Event Port disconnected. Without OFF the note stays held; OFF releases
+  it and WASP finishes its envelope tail, accepted by the user. No objectionable
+  timing difference heard versus internal Samples/Synth; user satisfied with this
+  topology. This is manual listening, not automated or measured synchronization.
+  See [confirmed route and limits](MIDI_FOUNDATION.md#user-confirmed-windows-usb-route-2026-10-24).
+* [ ] Verify separate H4MIDI/DIN and handheld routing. Earlier automated capture
+  observed only Teensy on Windows, without a CME output or external audio; the
+  later manual WASP USB result does not validate those other topologies.
 * [ ] Measure simultaneous internal/external audio on two recording channels;
   separate constant offset from jitter and patch attack, state topology and
   agree tolerance before declaring audible synchronization verified.

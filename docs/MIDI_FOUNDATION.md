@@ -152,7 +152,9 @@ is cancelled and remains uncertain, with no endless accepted-transfer retry loop
 STOP/Pause/restart/reset may explicitly request a new bounded cleanup pass.
 No broad controller reset is sent. Cleanup uncertainty clears only after the
 cleanup pass's USB transfers complete, never merely because cancellation leaves
-an idle endpoint or while disconnected. External release is still unverified.
+an idle endpoint or while disconnected. External release following these fault/
+disconnect cleanup paths remains unverified; the manual normal-OFF confirmation
+below is a separate result.
 
 Normal internal playback can START/Continue while MIDI is faulted. **MIDI recovery
 requires explicit STOP, completed cancellation and cleanup, then START while the
@@ -188,8 +190,9 @@ Sample/Synth/MIDI rendering stays bit-identical to a reference and advances the
 same timeline across repeated notes/loops; tests cover cancellation, stalled flush,
 busy/deadline/capacity faults, ownership/disconnect, uncertain cleanup and explicit
 recovery. A native stall is not proof of the initiating
-ArkOS hardware trigger. External MIDI playback and combined-audio alignment
-remain unverified; the separate severe crackling report remains unresolved.
+ArkOS hardware trigger. Those checks did not verify external playback or
+combined-audio alignment; see the later manual Windows confirmation below.
+The separate severe crackling report remains unresolved.
 
 Windows hardware checks on the discovered Teensy 4.1 (serial 17681760, COM3)
 observed completion-stall reason 8 when no WinMM application input was opened,
@@ -287,8 +290,9 @@ The current development/test2.wav/test3.wav fixture now starts at exactly
 155.00 BPM (applied and published); firmware fixture initialization, host dummy
 tune and preview metadata agree. New projects still default to exactly 125.00 BPM.
 This changes no WAV bytes, sample rate, pitch, stretching, MIDI dispatch or voice
-policy. Bridge diagnostics remain paused. External hardware/playback and physical
-combined-audio measurements remain pending.
+policy. Bridge diagnostics remain paused. External hardware/playback was not
+checked in that run; the later Windows USB route is manually confirmed below.
+Physical combined-audio measurements remain pending.
 
 The updated development firmware was built/uploaded to discovered Teensy
 17681760 / COM3. Bounded serial checks verify both initial and final applied /
@@ -299,12 +303,33 @@ PC checks add no external-delivery or audible-sync claim.
 
 ## Actual routing prerequisites
 
-The measured automated topology is **Teensy USB device -> Windows USB host ->
+### User-confirmed Windows USB route (2026-10-24)
+
+The user manually confirmed successful playback through **Windows BTX -> Teensy
+USB MIDI -> MIDI-OX -> WASP DELUXE USB**. BTX controls Teensy; MIDI-OX routes
+Teensy directly to WASP. **MIDI-OX Event Port was disconnected.** This is a
+user-reported physical/listening result, separate from automated USB capture
+and SD readback checks.
+
+Without an explicit OFF the note stays held. OFF releases it, after which WASP
+completes its envelope tail; the user accepts this behavior. The user heard no
+objectionable timing difference between external MIDI and internal Samples/Synth
+and is satisfied with this topology. Exact offset, jitter and drift remain
+unmeasured: this is listening acceptance, not measured synchronization proof.
+No compensation is introduced or inferred for another topology.
+
+H4MIDI/DIN and handheld routing remain unverified. The newly replaced SD bass
+fixture was verified by authoritative readback, not auditioned during provisioning;
+this manual confirmation does not relabel that run as a listening test.
+
+### Earlier automated capture and other routing prerequisites
+
+The earlier automated topology was **Teensy USB device -> Windows USB host ->
 WinMM input capture**. Windows enumerated `Teensy MIDI/Audio`. No CME output was
 present in the observed WinMM output list (only Microsoft GS and Teensy).
 No external synth or two-channel audio measurement was available to this run.
 
-For the current PC/BTX setup, connect Teensy and the CME's USB **client/device**
+For the separate, still-unverified PC/CME/DIN topology, connect Teensy and the CME's USB **client/device**
 port separately to the PC. Configure a host MIDI routing application (for
 example a user-chosen MIDI-OX route) from Teensy MIDI input to the appropriate
 CME MIDI output, then connect that CME DIN OUT to synth DIN IN. Confirm the
@@ -391,7 +416,8 @@ Manual checklist:
   no automatic START and check `BTMIDI1 GET 1` for faults/pending cleanup.
 - Change channel in config, restart BTX, confirm restart-required, then restart
   Teensy and confirm the new acknowledgment before playback.
-- Perform the two-channel measurement above before judging audible synchronization.
+- Perform the two-channel measurement above before claiming measured alignment
+  or choosing compensation; topology-specific listening acceptance is recorded above.
 - Keep inherited physical handheld tempo/Synth/beat-navigation validation pending;
   no SSH or handheld deployment has been performed.
 

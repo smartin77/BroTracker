@@ -63,7 +63,7 @@ TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
         CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")!=load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
         const auto view=serial.PlaybackView(1600);CHECK(view);CHECK(view->device_pattern);CHECK_EQ(view->device_pattern->tempo_hundredths,15500u);
-        CHECK_EQ(view->device_pattern->pattern.cells[2][4].note,selection==DevelopmentPattern::Midi?64:NOTE_EMPTY);CHECK(!serial.Playing());
+        CHECK_EQ(view->device_pattern->pattern.cells[0][4].note,selection==DevelopmentPattern::Midi?36:NOTE_EMPTY);CHECK(!serial.Playing());
         wire->healthy=false;serial.Tick(1700);Pump(serial,140,220);CHECK_EQ(wire->Loads(),1u); // no reconnect replay
     }
 }

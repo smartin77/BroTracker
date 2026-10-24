@@ -437,6 +437,8 @@ namespace
             result=g_pattern_files.SaveSession(g_storage_backend,g_storage_pattern,g_published_tempo);
         } else if(op==StorageOperation::SeedTheme || op==StorageOperation::SeedMidi) {
             result=g_pattern_files.CreateDevelopment(g_storage_backend,op==StorageOperation::SeedMidi,g_storage_pattern);
+        } else if(op==StorageOperation::ReplaceMidi) {
+            result=g_pattern_files.ReplaceDevelopmentMidi(g_storage_backend,g_storage_pattern);
         } else {
             std::uint32_t tempo=0;
             result=g_pattern_files.Load(g_storage_backend,op==StorageOperation::Restore?kSessionPath:

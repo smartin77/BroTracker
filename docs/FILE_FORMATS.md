@@ -297,6 +297,7 @@ initialization returns `sd-unavailable`. No interrupt exclusion spans SD I/O.
 | --- | --- |
 | `BTSTORE1 SEED 1 theme` | Create `/BroTracker/development/theme.btdev` only if absent |
 | `BTSTORE1 SEED 1 midi` | Create `/BroTracker/development/midi.btdev` only if absent |
+| `BTSTORE1 REPLACE 1 midi` | Explicitly update only CH5 in the existing MIDI fixture, with validated candidate/rollback |
 | `BTSTORE1 LOAD 1 theme` / `midi` | Read that SD file and submit validated stopped publication |
 | `BTSTORE1 SAVE 1` | Save coherent device-owned published pattern + published tempo |
 | `BTSTORE1 RESTORE 1` | Load `/BroTracker/current.btsession` through stopped publication |
@@ -304,8 +305,10 @@ initialization returns `sd-unavailable`. No interrupt exclusion spans SD I/O.
 `theme.btdev` is exactly the existing 32-row/eight-channel CH1+CH2 sine theme at
 155.00 BPM; CH3–CH8 are empty. `midi.btdev` retains that theme/tempo and adds raw
 instrument 1 (displayed MIDI 02) on CH5 at zero-based rows/raw notes:
-2/64, 6/67, 10/71, 14/67, 18/69, 22/72, 26/69, 30/67. Every following row has an
-explicit arrival OFF with no instrument update. Other channels remain empty.
+0/36, 6/43, 8/48, 12/43, 16/41, 22/48, 24/41, 28/43. Explicit arrival OFFs with
+no instrument update occur at rows 3, 7, 11, 15, 19, 23, 27, 31. Every other CH5
+cell is empty, with default arrival timing metadata. Provisioned other channels
+remain empty except the unchanged CH1/CH2 theme.
 Pattern2 is reserved for user-supplied CH3/CH4 drums: no substitute is created.
 Seed code is provisioning only; LOAD reads/validates files, never regenerates them.
 New projects still default to 125.00 BPM. Existing bindings, gains, notes, timing,
@@ -321,7 +324,7 @@ from the boot publication namespace, not loaded from disk. Existing in-memory
 Restore/F4 remains distinct. No voices, MIDI ownership, PCM, transport position,
 channel gains, negotiation or external state are persisted.
 
-Replies are `BTSTORE1 RESULT 1 <operation> <status> <revision>`; SAVE/SEED use revision
+Replies are `BTSTORE1 RESULT 1 <operation> <status> <revision>`; SAVE/SEED/REPLACE use revision
 0. LOAD/RESTORE first send `BTSTORE1 SUBMITTED 1 <operation> <revision>`; this is not
 success. Final `ok` follows normal publication ACK and readback synchronization;
 `application-rejected` leaves baseline/tempo unchanged. Statuses also include
@@ -362,6 +365,42 @@ inspect/copy the reserved candidate/previous/current files with an offline SD re
 before choosing a valid file or removing leftovers. No automatic recovery browser
 or backup selection is implemented. Native fault fixtures model these paths; real
 SD failure/power-interruption validation remains pending.
+
+### Explicit MIDI-fixture bass update
+
+`python tools/storage/device_storage.py replace-midi --port <discovered-port>`
+issues only `BTSTORE1 REPLACE 1 midi`. This deliberately narrow operation requires
+an existing valid development file with dimensions 32×8 and tempo 15500; missing,
+invalid or incompatible files are rejected. It reads the actual SD file, clears
+all CH5 cells/OFF metadata and installs the bass part above, retaining every other
+cell, metadata and tempo. It does not regenerate other channels from seed code.
+Normal SEED continues to return `exists` without overwriting existing files.
+
+The existing main-context, stopped/settled and shared SD ownership gates apply.
+Replacement uses `midi.btdev.candidate` and `midi.btdev.previous` with the same
+full-write/sync/close/reopen validation, rename/rollback, stale-file rejection and
+failure reporting described for session SAVE. Current is not deleted first. No
+atomicity or power-loss guarantee is added. Only this fixed MIDI path is supported;
+there is no REPLACE theme/session/arbitrary-path command. The active/published
+pattern is unchanged until a separate explicit `load-midi` succeeds.
+
+The accepted bass definition and existing SD file were updated on 2026-10-24.
+Firmware was built/uploaded after rediscovery, STOP/IDLE and CDC closure. Reviewed
+tooling returned `replace-midi ok`; explicit LOAD and independent authoritative
+readback checked all 256 cells, every OFF timing value and tempo 15500/15500.
+All 224 non-CH5 cells matched a pre-upload SD-loaded snapshot exactly. CH1/CH2
+matched the original theme; CH5 had eight notes, eight arrival OFFs and sixteen
+empty cells. Final transport was IDLE; CDC released, no START. No operation targeted
+theme.btdev, current.btsession, Samples or SD logs. Windows executable-relative
+startup_pattern=midi config and both host deliveries remained unchanged: this
+change affects provisioning firmware/tooling/tests, not host application inputs.
+Native tests cover replacement preservation, missing/invalid/busy cases, failed
+writes/sync/promotion/rollback and retained normal SEED no-overwrite behavior.
+This provisioning run verified readback only; the new bass fixture was not
+auditioned during it. The user's separate 2026-10-24 Windows/MIDI-OX/WASP USB
+playback and listening acceptance is recorded in [MIDI status](MIDI_FOUNDATION.md#user-confirmed-windows-usb-route-2026-10-24).
+Exact offset/jitter/drift, H4MIDI/DIN/handheld routing and interrupted-write physical
+checks remain unverified. Private captures are retained under ignored build storage.
 
 ### Provisioning and manual validation
 

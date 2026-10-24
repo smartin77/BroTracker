@@ -59,7 +59,13 @@ TEST_CASE(DevelopmentFilesExplicitNoOverwriteMissingAndExactSeedContents) {
         auto theme=MakeDevelopmentPattern(32);for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c){
             if(c!=4 || !midi){CHECK_EQ(target.cells[r][c].note,theme.cells[r][c].note);CHECK_EQ(target.cells[r][c].instrument,theme.cells[r][c].instrument);}
         }
-        if(midi){constexpr unsigned notes[]={64,67,71,67,69,72,69,67};for(unsigned i=0;i<8;++i){CHECK_EQ(target.cells[2+4*i][4].note,notes[i]);CHECK_EQ(target.cells[2+4*i][4].instrument,1);CHECK_EQ(target.cells[3+4*i][4].note,NOTE_OFF);CHECK_EQ(target.note_off_timing[3+4*i][4],NoteOffTiming::Arrival);}}
+        if(midi){
+            constexpr unsigned rows[]={0,6,8,12,16,22,24,28},notes[]={36,43,48,43,41,48,41,43},offs[]={3,7,11,15,19,23,27,31};
+            for(unsigned r=0;r<32;++r){unsigned note=NOTE_EMPTY,instrument=255;
+                for(unsigned i=0;i<8;++i){if(r==rows[i]){note=notes[i];instrument=1;}if(r==offs[i])note=NOTE_OFF;}
+                CHECK_EQ(target.cells[r][4].note,note);CHECK_EQ(target.cells[r][4].instrument,instrument);CHECK_EQ(target.note_off_timing[r][4],NoteOffTiming::Arrival);
+            }
+        }
     }
     CHECK(!FakePatternSd::files.count("/BroTracker/development/pattern2.btdev"));Released();
 }
@@ -151,4 +157,42 @@ TEST_CASE(SessionCanonicalDirectoryIsNotRenamedOrReplaced) {
     FakePatternSd::files[kSessionPath].directory=true;const auto p=MakeDevelopmentPattern();
     CHECK_EQ(store.SaveSession(backend,p,15500),PatternFileResult::Io);
     CHECK(FakePatternSd::files[kSessionPath].directory);CHECK_EQ(FakePatternSd::rename_calls,0u);CHECK(!FakePatternSd::files.count(kSessionCandidatePath));Released();
+}
+TEST_CASE(ExplicitMidiReplacementPreservesOtherColumnsAndSeedNoOverwrite) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
+    auto old=MakeDevelopmentPattern(32);
+    for(unsigned r=0;r<32;++r){old.cells[r][4]={90,8};old.note_off_timing[r][4]=NoteOffTiming::EndOfPosition;}
+    old.cells[5][7]={77,2};old.note_off_timing[5][7]=NoteOffTiming::EndOfPosition;
+    std::array<std::uint8_t,kPatternFileCapacity> bytes{};std::size_t n=0;
+    CHECK_EQ(EncodePatternFile(PatternFileKind::Development,old,15500,bytes.data(),bytes.size(),n),PatternFileResult::Ok);
+    FakePatternSd::files[kDevelopmentMidiPath]={false,{bytes.begin(),bytes.begin()+n}};
+    FakePatternSd::files[kDevelopmentThemePath]={false,{1,2,3}};FakePatternSd::files[kSessionPath]={false,{4,5,6}};
+    const auto theme=FakePatternSd::files[kDevelopmentThemePath].bytes,session=FakePatternSd::files[kSessionPath].bytes;
+    RealtimePattern scratch,loaded;std::uint32_t tempo=0;
+    CHECK_EQ(store.ReplaceDevelopmentMidi(backend,scratch),PatternFileResult::Ok);
+    CHECK_EQ(store.Load(backend,kDevelopmentMidiPath,PatternFileKind::Development,loaded,tempo),PatternFileResult::Ok);CHECK_EQ(tempo,15500u);
+    auto expected=old;SetDevelopmentMidiBassPart(expected);Same(loaded,expected);
+    for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c)if(c!=4){CHECK_EQ(loaded.cells[r][c].note,old.cells[r][c].note);CHECK_EQ(loaded.cells[r][c].instrument,old.cells[r][c].instrument);CHECK_EQ(loaded.note_off_timing[r][c],old.note_off_timing[r][c]);}
+    CHECK(FakePatternSd::files[kDevelopmentThemePath].bytes==theme);CHECK(FakePatternSd::files[kSessionPath].bytes==session);
+    const auto replaced=FakePatternSd::files[kDevelopmentMidiPath].bytes;
+    CHECK_EQ(store.CreateDevelopment(backend,true,scratch),PatternFileResult::Exists);CHECK(FakePatternSd::files[kDevelopmentMidiPath].bytes==replaced);
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 REPLACE 1 midi"),StorageOperation::ReplaceMidi);
+    for(const auto* bad:{"BTSTORE1 REPLACE 1 theme","BTSTORE1 REPLACE 1 midi extra","BTSTORE1 REPLACE 2 midi"})CHECK_EQ(ParseStorageOperation(bad),StorageOperation::Invalid);Released();
+}
+TEST_CASE(ExplicitMidiReplacementMissingInvalidBusyAndFailedPromotion) {
+    for(unsigned mode=0;mode<8;++mode){
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;RealtimePattern scratch;
+        if(mode==0){CHECK_EQ(store.ReplaceDevelopmentMidi(backend,scratch),PatternFileResult::Missing);CHECK(FakePatternSd::files.empty());continue;}
+        auto old=MakeDevelopmentPattern(mode==1?16:32);old.cells[2][4]={64,1};
+        std::array<std::uint8_t,kPatternFileCapacity> b{};std::size_t n=0;CHECK_EQ(EncodePatternFile(PatternFileKind::Development,old,mode==2?15501:15500,b.data(),b.size(),n),PatternFileResult::Ok);
+        FakePatternSd::files[kDevelopmentMidiPath]={false,{b.begin(),b.begin()+n}};const auto original=FakePatternSd::files[kDevelopmentMidiPath].bytes;
+        if(mode==3)FakePatternSd::short_write=true;if(mode==4)FakePatternSd::fail_sync=true;
+        if(mode==5)FakePatternSd::fail_rename_mask=1u<<2;if(mode==6)FakePatternSd::fail_rename_mask=(1u<<2)|(1u<<3);
+        if(mode==7)CHECK(SdAccess::AcquireRead());
+        const auto result=store.ReplaceDevelopmentMidi(backend,scratch);CHECK(result!=PatternFileResult::Ok);
+        if(mode==7){CHECK_EQ(result,PatternFileResult::Busy);SdAccess::ReleaseRead();}
+        if(mode==6){CHECK_EQ(result,PatternFileResult::RecoveryRequired);CHECK(FakePatternSd::files["/BroTracker/development/midi.btdev.previous"].bytes==original);}
+        else CHECK(FakePatternSd::files[kDevelopmentMidiPath].bytes==original);
+        Released();
+    }
 }

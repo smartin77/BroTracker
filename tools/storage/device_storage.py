@@ -9,6 +9,7 @@ from pathlib import Path
 COMMANDS = {
     "seed-theme": "BTSTORE1 SEED 1 theme", "seed-midi": "BTSTORE1 SEED 1 midi",
     "load-theme": "BTSTORE1 LOAD 1 theme", "load-midi": "BTSTORE1 LOAD 1 midi",
+    "replace-midi": "BTSTORE1 REPLACE 1 midi",
     "save": "BTSTORE1 SAVE 1", "restore": "BTSTORE1 RESTORE 1",
 }
 

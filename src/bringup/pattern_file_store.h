@@ -9,16 +9,23 @@ constexpr const char* kDevelopmentMidiPath="/BroTracker/development/midi.btdev";
 constexpr const char* kSessionPath="/BroTracker/current.btsession";
 constexpr const char* kSessionCandidatePath="/BroTracker/current.btsession.candidate";
 constexpr const char* kSessionPreviousPath="/BroTracker/current.btsession.previous";
+inline void SetDevelopmentMidiBassPart(RealtimePattern& p) noexcept {
+    // Replace the entire CH5 column, including otherwise ignored OFF metadata.
+    for(unsigned row=0;row<32;++row) {
+        p.cells[row][4]={NOTE_EMPTY,kNoInstrumentUpdate};
+        p.note_off_timing[row][4]=NoteOffTiming::Arrival;
+    }
+    constexpr unsigned rows[]={0,6,8,12,16,22,24,28};
+    constexpr unsigned notes[]={36,43,48,43,41,48,41,43};
+    constexpr unsigned offs[]={3,7,11,15,19,23,27,31};
+    for(unsigned i=0;i<8;++i) {
+        p.cells[rows[i]][4]={static_cast<Note>(notes[i]),1};
+        p.cells[offs[i]][4]={NOTE_OFF,kNoInstrumentUpdate};
+    }
+}
 inline void MakeStoredDevelopmentPattern(RealtimePattern& p,bool midi) noexcept {
     p=MakeDevelopmentPattern(32);
-    if(midi) {
-        constexpr unsigned notes[]={64,67,71,67,69,72,69,67};
-        for(unsigned i=0;i<8;++i) {
-            const unsigned row=2+4*i; p.cells[row][4]={static_cast<Note>(notes[i]),1};
-            p.cells[row+1][4]={NOTE_OFF,kNoInstrumentUpdate};
-            p.note_off_timing[row+1][4]=NoteOffTiming::Arrival;
-        }
-    }
+    if(midi) SetDevelopmentMidiBassPart(p);
 }
 // Replay validated storage through the existing publication validator/identity namespace.
 // The resulting frozen staging retains its usual lifetime through audio-owner ACK.
@@ -57,6 +64,18 @@ public:
     }
     PatternFileResult SaveSession(Backend& b,const RealtimePattern& published,std::uint32_t tempo) noexcept {
         return Write(b,kSessionPath,kSessionCandidatePath,kSessionPreviousPath,PatternFileKind::Session,published,tempo);
+    }
+    // Explicit narrowly scoped migration: read actual SD data, preserve every
+    // non-CH5 cell, require the known development dimensions/tempo. Never SEED.
+    PatternFileResult ReplaceDevelopmentMidi(Backend& b,RealtimePattern& scratch) noexcept {
+        std::uint32_t tempo=0;
+        const auto result=Load(b,kDevelopmentMidiPath,PatternFileKind::Development,scratch,tempo);
+        if(result!=PatternFileResult::Ok) return result;
+        if(scratch.active_rows!=32 || scratch.active_channels!=8 || tempo!=kDevelopmentFixtureTempo)
+            return PatternFileResult::Invalid;
+        SetDevelopmentMidiBassPart(scratch);
+        return Write(b,kDevelopmentMidiPath,"/BroTracker/development/midi.btdev.candidate",
+            "/BroTracker/development/midi.btdev.previous",PatternFileKind::Development,scratch,tempo);
     }
 private:
     struct Lease {
