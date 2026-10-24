@@ -185,7 +185,7 @@ TEST_CASE(DevelopmentTest2AndTest3BindingsIndependentAndChannelsEmpty) {
             VariableRatePatternPlayer player; CHECK_EQ(player.Configure(12753,44100,pattern,f.bindings),VariableRatePatternPlayerStatus::Success);
             CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success); std::int16_t pcm[4];
             CHECK_EQ(player.Render(pcm,4),VariableRatePatternPlayerStatus::Success);
-            CHECK_EQ(pcm[0],binding.instrument==0?100:300); CHECK_EQ(pcm[1],binding.instrument==0?200:400);
+            CHECK_EQ(pcm[0],binding.instrument==0?80:240); CHECK_EQ(pcm[1],binding.instrument==0?160:320);
             CHECK_EQ(pcm[2],0); CHECK_EQ(pcm[3],0);
         }
     }
@@ -195,7 +195,7 @@ TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) 
     const std::int16_t sample2[]={1000,2000,3000,4000},sample3[]={-100,-200,-300,-400};
     const auto fixture=SelectDevelopmentFixture({sample2,4,44100},{sample3,4,44100});
     const unsigned times[]={0,2,4,6,6},channels[]={0,0,0,0,1},instruments[]={0,3,3,0,3};
-    const std::int16_t expected[]={1000,2000,-100,-200,-100,-200,900,1800,2700,3600,0,0};
+    const std::int16_t expected[]={800,1600,-80,-160,-80,-160,720,1440,2160,2880,0,0};
     for(const auto partitions:{std::vector<unsigned>{4},std::vector<unsigned>{1,3,2,1,5}}) {
         VariableRateSampleCommandPreparer prepare; VariableRateVoiceBlockRenderer render;
         CHECK_EQ(prepare.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);

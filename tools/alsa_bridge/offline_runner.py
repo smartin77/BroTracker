@@ -254,7 +254,7 @@ class Experiment:
         save(self.root/'automatic-metadata.json',collect(self.repo))
         cfg=subprocess.run([str(self.terminal),'--offline-diagnostic-config'],cwd=self.package,capture_output=True,timeout=10)
         (self.root/'config-preflight.txt').write_bytes(cfg.stdout+cfg.stderr)
-        if cfg.returncode: raise Failure('persistent configuration incompatible; choose bridge or leave output absent; no config changed')
+        if cfg.returncode: raise Failure('installed configuration incompatible; choose bridge or leave output absent; no config changed')
         values=dict(line.split('=',1) for line in cfg.stdout.decode().splitlines() if '=' in line)
         self.config_path=Path(values['path']); self.config_before=sha(self.config_path) if self.config_path.exists() else None
         if self.config_before: (self.root/'config-original.ini').write_bytes(self.config_path.read_bytes())
@@ -577,7 +577,7 @@ class Experiment:
             shutil.copyfile('/tmp/brotracker-arkos.log',self.active_dir/'btx-internal.log')
         if self.recording_error: errors.append('runner timeline evidence incomplete')
         if self.config_path is not None and (sha(self.config_path) if self.config_path.exists() else None)!=self.config_before:
-            errors.append('persistent user config changed; original retained, not overwritten')
+            errors.append('runtime user config changed; original retained, not overwritten')
         # Emergency/failed runs must not synchronously analyze large partial dumps.
         # Preserve raw/partial reports and explicitly defer optional offline replay.
         for trace in self.root.glob('*/bridge-*'):

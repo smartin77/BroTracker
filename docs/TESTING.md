@@ -72,3 +72,25 @@ paths identify local evidence, not repository deliverables.
 Report build/test outcomes in the response and relevant tracked documentation.
 Reusable diagnostic tools may be deliberately maintained under `tools/`.
 Do not add source-code comments merely to record individual test runs.
+
+## MIDI foundation
+
+See [MIDI foundation](MIDI_FOUNDATION.md) and its linked actual validation record.
+`tools/midi/check_hardware.py --hardware` is an opt-in bounded Windows WinMM/CDC
+check; it temporarily publishes a MIDI test tune, captures message content/order,
+restores the original tune, stops and closes its owned handles. It requires
+pyserial and an otherwise available Teensy MIDI input; it never closes another
+application. Native tests also compile the actual isolated core MIDI extension
+against mocked DMA operations, including full-ring refusal and final-OFF error/
+completion-stall detection. USB capture is not an audible alignment test.
+
+## INI option changes
+
+When adding or changing a supported INI option, update
+[config/config.ini.example](../config/config.ini.example) in the same change.
+Inventory the shared parser and actual consumers: document accepted values, built-in
+(default versus example) values, limitations and reload/restart behavior. Keep the
+whole documented example within the parser's 4096-byte bound and exercise it in the
+configuration tests. Refresh the ARM64 package copy with prepare-package.sh and
+verify equality; never copy a template over user config.ini or add runtime fallback
+to an example. Command-line flags/environment overrides are not INI keys.

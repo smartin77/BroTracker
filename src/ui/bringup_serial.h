@@ -4,11 +4,13 @@
 #include <cstdio>
 #include "serial_transport.h"
 #include "bringup/audio_output_selection.h"
+#include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
 #include "bringup/host_pattern_publication.h"
 #include "bringup/host_pattern_preview.h"
 #include "bringup/host_channel_gains.h"
+#include "bringup/host_channel_mute.h"
 #include "bringup/host_tempo.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
@@ -45,6 +47,8 @@ public:
         return TempoAvailable() && published && tempo_.Request(published->tempo_hundredths);
     }
     const BroTracker::HostTempo& Tempo() const { return tempo_; }
+    bool ToggleChannelMute(unsigned channel) { return connected_ && mute_.Toggle(channel); }
+    bool MuteAvailable() const {return connected_ && mute_.Available();}
     bool RequestChannelGains(const BroTracker::Pcm16ChannelGains& gains) {
         return connected_ && gains_.Request(gains);
     }
@@ -56,6 +60,13 @@ public:
     bool ChannelGainsSynchronized() const { return connected_ && gains_.Synchronized(); }
     const char* ChannelGainStatus() const { return gains_.Status(); }
     // Set once at host startup, before the first Tick. Default sends no override.
+    void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
+    // App config resolution always calls this, including missing/empty => None.
+    // Standalone protocol clients may omit startup initialization entirely.
+    void SetStartupPattern(std::string_view value) { startup_selection_enabled_=true; if(!startup_pattern_.Assign(value))startup_failed_=true; }
+    void SetStartupPattern(const BroTracker::DevelopmentPattern& value) { SetStartupPattern(std::string_view(value.stem)); }
+    bool StartupPatternReady() const {return !startup_selection_enabled_ || startup_editor_ready_;}
+    const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
@@ -64,6 +75,8 @@ public:
             && !PublicationBusy() && !pattern_assembler_.Active();
     }
     const char* ActiveAudioOutput() const { return audio_active_; }
+    // Optional host observer of confirmed transport replies; no serial ownership.
+    void SetTransportObserver(void (*fn)(void*,const char*,std::uint32_t),void* context) {observer_=fn;observer_context_=context;}
     bool Start();
     bool Stop();
     bool Pause();
@@ -84,7 +97,15 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio };
+    void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
+    void* observer_context_=nullptr;
+    void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, Storage };
+    BroTracker::DevelopmentPattern startup_pattern_;
+    bool storage_supported_=false,startup_attempted_=false,startup_applied_=false,startup_done_=false,startup_failed_=false;
+    bool startup_context_cleared_=false,startup_editor_ready_=false;
+    bool startup_selection_enabled_=false;
+    std::uint32_t startup_revision_=0;
     bool QueueTransport(Command command);
     const char* PublicationUnavailable(const LocalPatternEditor& editor) const;
     Command transport_queued_ = Command::None;
@@ -112,6 +133,10 @@ private:
     char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
+    unsigned midi_channel_=12;
+    char midi_output_status_[96]{};
+    unsigned midi_output_state_=UINT32_MAX;
+    bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
     char audio_active_[8]="unknown";
     bool connected_ = false;
@@ -131,6 +156,7 @@ private:
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
+    BroTracker::HostChannelMute mute_; bool tx_mute_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
     BroTracker::RealtimePattern observed_editor_;

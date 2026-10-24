@@ -434,7 +434,17 @@ one beat occupies four pattern rows:
 05  C-4 01   <- next beat start
 ```
 
-Beat-start rows are displayed using the **bright** colour variant.
+Beat-start rows are displayed using the **bright** colour variant across all eight
+note/instrument columns. The shared `PatternGrid::IsBeatRow` predicate also drives
+row numbering and beat navigation (zero-based origin 0, step 4). Empty fields are
+dimmed independently, including a missing note beside a populated instrument.
+NOTE OFF timing remains a populated semantic value, not an empty instrument field.
+
+Base beat colours do not override inverse selection text, playback-position
+background/marker, the edit frame, or pending/error indications. No background
+bands, geometry, typography, row numbering or pattern data change. Implemented
+2026-10-22; user visually approved the actual Windows BTX changes. Handheld
+visual approval remains pending.
 
 Therefore, with `LPB = 4` and `d1`, the bright beat positions are:
 
@@ -614,9 +624,17 @@ The initial BroTracker colour scheme uses:
 
 Each colour has a normal and bright variant.
 
-The current visual prototype treats full white as the bright white level.
+The shared pattern renderer uses these RGB foreground levels (ordinary / beat):
 
-The existing purple is used as the normal purple level. If required, a lighter purple variant will be used for bright purple.
+| Field | Ordinary row | Beat row |
+| --- | --- | --- |
+| Populated note | 208,208,208 | 255,255,255 |
+| Empty note | 104,104,104 | 152,152,152 |
+| Populated instrument | 130,130,196 | 174,174,232 |
+| Empty instrument | 66,66,100 | 104,104,156 |
+
+Full white is the bright note level; instruments retain their purple family.
+Existing row-number colours and semantic overrides are unchanged.
 
 The final colour values remain configurable during visual prototyping.
 
@@ -699,3 +717,30 @@ The guiding principle is:
 UI/UX decisions should favour direct access, stable visual focus, predictable navigation and high information density without sacrificing readability.
 
 The primary visual language should remain text-based, using the BroTracker 6 × 8 bitmap font as its foundation. Apparent graphical complexity should be achieved through carefully designed frames, special glyphs, margins, padding and spacing rather than through conventional graphical widgets.
+
+## Session channel headers (2026-10-22)
+
+[Channel mute](CHANNEL_MUTE.md) adds a real header navigation target and confirmed
+mute indication shared by Windows/handheld. Selected headers use the existing
+orange edit outline inside their border; muted digits are crossed by two thin
+one-pixel turquoise square diagonals (six-pixel half-length, equal X/Y steps) with
+background cuts at actual scaled glyph intersections.
+The selection and cross coexist. No text X, background bands or pattern redesign.
+Manual visual/UX approval for this addition remains pending.
+
+## Header scale and startup row numbering (2026-10-23)
+
+All eight channel numbers use the existing 5x7 bitmap at exactly 2x nearest-neighbor
+scale (10x14 ink), centered in unchanged 53x26 headers. Hit areas/navigation and the
+orange selection outline are unchanged. Temporary mute diagonals remain one pixel
+thick with six-pixel half-length/four equal 45-degree arms; background cuts use the
+actual doubled glyph bitmap. Selected muted/unmuted headers coexist with row
+playback/selection indications. Manual visual approval of this enlargement is pending.
+
+Windows and ArkOS/dArkOS read [display] row_numbering=d1/d0/h1/h0 from user
+config.ini at startup. d1 is the built-in; missing/empty uses it; invalid values warn
+once and fall back to d1 while retaining other settings. The existing row-label
+path and mode indicator now support decimal/hex, one/zero-based labels; internal
+row indices, shared beat predicate, movement and playback are unchanged. No runtime
+selector or persistence. See the complete documented INI reference and TESTING.md
+for the requirement to update it whenever an option changes.

@@ -227,3 +227,17 @@ void DrawCenteredFixedText(
         text,
         color);
 }
+
+bool FixedGlyphCovers(char digit,int x,int y) noexcept {
+    if(x<0 || x>=5 || y<1 || y>7) return false;
+    const auto* glyph=ui_font.Find(static_cast<unsigned char>(digit));
+    return glyph && (glyph->bitmap[y-1] & (1u<<(x+2)));
+}
+
+bool DoubleFixedGlyphCovers(char glyph,int x,int y) noexcept {
+    return x>=0 && y>=0 && FixedGlyphCovers(glyph,x/2,y/2);
+}
+void DrawDoubleFixedGlyph(Framebuffer& framebuffer,int x,int y,char glyph,Color color) {
+    for(int row=2;row<16;++row) for(int column=0;column<10;++column)
+        if(DoubleFixedGlyphCovers(glyph,column,row)) framebuffer.SetPixel(x+column,y+row,color);
+}

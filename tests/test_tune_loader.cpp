@@ -17,6 +17,7 @@
 
 #include "core/note.h"
 #include "core/tune_loader.h"
+#include "bringup/pattern_fixture.h"
 
 TEST_CASE(LoadTuneFromJson_ParsesDummyTune)
 {
@@ -24,7 +25,9 @@ TEST_CASE(LoadTuneFromJson_ParsesDummyTune)
     const Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
 
     CHECK_EQ(tune.title, std::string("my_tune"));
-    CHECK_EQ(tune.tempo_hundredths, 14050);
+    CHECK_EQ(tune.tempo_hundredths, BroTracker::kDevelopmentFixtureTempo);
+    CHECK_EQ(tune.tempo_hundredths, 15500u);
+    CHECK_EQ(Tune{}.tempo_hundredths, 12500u);
     CHECK(!tune.patterns.empty());
 
     const Pattern& pattern = tune.patterns.front();

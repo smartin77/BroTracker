@@ -162,8 +162,20 @@ HostLogOpenPlan PrepareHostLog(const std::filesystem::path& path,const HostConfi
 void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& config,
     const std::filesystem::path& path,const HostLogOpenPlan& plan) noexcept {
     HostLogf(file,HostLogLevel::Basic,"Terminal","BTX application start; platform=%s; build=%s %s; device firmware build identity unavailable",platform,__DATE__,__TIME__);
-    HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
+    HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.empty()?"unavailable (executable directory resolution failed)":path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
     HostLogf(file,HostLogLevel::Basic,"Configuration","audio.output=%s (Teensy production route)", AudioOutputName(config.config.audio_output));
+    HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
+    HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
+    if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); using clean 32x8 baseline at 125.00 BPM");
+    HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
+    if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");
+    if(config.config.bridge_audible_test_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [diagnostics] bridge_audible_test: expected yes/on/true/1 or no/off/false/0; disabled");
+    if(config.config.bridge_audible_test) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "bridge_audible_test enabled for Linux bridge only; ignored by Windows");
+    if(config.config.midi_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration","Invalid [midi] output_channel; using 12 (expected decimal 1-16)");
     if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [audio] output: expected bridge or pt8211 (lowercase); ignoring audio override, retaining firmware default");
     HostLogf(file,HostLogLevel::Basic,"Logging","mode=%s preserve_last=%u; %s; timestamps describe host observation, not physical audio timing",

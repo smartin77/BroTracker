@@ -127,7 +127,10 @@ controller removal, release or opposite directions cancel repeat.
 L1 editing and transport remain unchanged. L1+Y Restore restores the published
 pattern and tempo baseline; A Publish freezes pattern plus applied tempo while
 stopped/paused. See [retention and manual checks](LIVE_TEMPO_CONTROL.md).
-Automated input/ARM64 checks do not establish physical handheld UX approval.
+On 2026-10-22 the user confirmed R1+Left/Right tempo changes work smoothly
+while playing, and the supplied handheld control test passed. Other unreported
+cases remain unconfirmed; this does not establish audio quality or MIDI alignment.
+Automated input/ARM64 checks alone do not establish physical handheld UX approval.
 
 ## Beat-row cursor navigation (2026-10-22)
 
@@ -147,6 +150,19 @@ Releasing R1 cancels and blocks held directions until physical release. Opposite
 directions, focus loss, removal/disconnect and L1 changes cancel the old stream.
 R1 vertical chords take precedence over L1 editing; R1 Left/Right tempo is unchanged.
 
-Physical handheld validation of these new chords remains pending. No console
-installation or SSH was performed. Windows uses Shift+Up/Down with identical
+On 2026-10-22 the user confirmed R1+Up/Down beat navigation works during
+playback, and the supplied handheld control test passed. Individual unreported
+boundary/modifier/hold edge cases remain unconfirmed. No console installation or
+SSH was performed in this visual task. Windows uses Shift+Up/Down with identical
 destinations; see [Windows controls](../tools/windows/README.md).
+
+## Session channel mute
+
+Up / R1+Up from the first row/beat selects the channel header. Down / R1+Down
+returns to row 1; Up in a header stays there. Header Left/Right clamps channels
+and preserves Note/Instrument field for return. No last-row wrap to headers.
+A in a header requests mute and is consumed before Publish; A in rows keeps its
+existing Publish action. R1+Left/Right tempo works in either target. The turquoise
+cross indicates confirmed mute; orange indicates selected header. See
+[protocol, pending state and manual checklist](CHANNEL_MUTE.md). This new handheld
+UX/listening has not yet been manually approved.

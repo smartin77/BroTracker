@@ -152,3 +152,47 @@ if bash "$(dirname -- "${BASH_SOURCE[0]}")/run-clicks.sh" on "$binary" "$work/se
 fi
 [[ $(find "$work/sessions" -name exit-status | wc -l) == 3 ]]
 echo 'Standalone on/off run helper checks passed; failed startup preserved.'
+
+# Listening mode uses the same running bridge; simulated BTX acknowledgments only.
+mkdir "$work/listening"
+python3 - "$work/listen-control" <<'PY'
+import sys,struct,time
+with open(sys.argv[1],'wb') as f:
+    data=bytearray(4096)
+    struct.pack_into('<IIII',data,0,1,0,0,1)
+    struct.pack_into('<QQII',data,16,time.monotonic_ns(),0,1,15500)
+    f.write(data)
+PY
+BROTRACKER_LISTEN_CONTROL="$work/listen-control" BROTRACKER_LISTEN_BASE="$work/listening" ALSA_CONFIG_PATH="$work/alsa.conf" "$binary" test_capture test_playback > "$work/listening.log" 2>&1 &
+child=$!
+for ((i=0;i<150;++i)); do
+    if grep -q 'Queue capacity:' "$work/listening.log"; then break; fi
+    sleep 0.02
+done
+sleep 0.3
+python3 - "$work/listen-control" <<'PY'
+import sys,struct,time,mmap
+with open(sys.argv[1],'r+b') as f:
+    m=mmap.mmap(f.fileno(),4096)
+    struct.pack_into('<QQII',m,40,time.monotonic_ns(),0,3,15500)
+    struct.pack_into('<I',m,12,3)
+    struct.pack_into('<I',m,0,2)
+    m.close()
+PY
+sleep 0.2
+kill -TERM "$child"; wait "$child"; child=
+python3 - "$work/listening" "$work/input.raw" <<'PY'
+from pathlib import Path
+import sys,json,wave
+base=Path(sys.argv[1]);runs=list(base.glob('bridge-*'));assert len(runs)==1,runs
+run=runs[0];expected=Path(sys.argv[2]).read_bytes()
+for name in ('received.wav','accepted.wav'):
+    with wave.open(str(run/name),'rb') as w:
+        assert w.getparams()[:3]==(2,2,44100)
+        assert w.readframes(w.getnframes())==expected,name
+assert not json.loads((run/'manifest.json').read_text())['incomplete']
+assert not json.loads((run/'completion.json').read_text())['incomplete']
+assert (run/'alsa-parameters.txt').is_file()
+PY
+cmp "$work/input.raw" "$work/output.raw"
+echo 'Listening file/null bridge integration preserves exact received/accepted PCM'

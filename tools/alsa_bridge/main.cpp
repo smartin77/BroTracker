@@ -16,6 +16,7 @@
 #include "click_diagnostics.h"
 #include "read_integrity.h"
 #include "capture_holdback.h"
+#include "listening.h"
 
 namespace
 {
@@ -214,6 +215,7 @@ void OpenAutomatic(Pcm& destination, const std::vector<discovery::Endpoint>& end
 
 struct Bridge
 {
+    listening::Observer audible; // Fork evidence worker BEFORE any ALSA handle/thread opens.
     Pcm capture, playback;
     std::unique_ptr<recording::Recorder> recorder;
     std::unique_ptr<clicks::Trace> trace;
@@ -228,17 +230,18 @@ struct Bridge
               const void* pcm=nullptr, uint32_t step=0, int64_t avail=0,
               int64_t delay=0, uint32_t state=0) noexcept
     {
-        if (!trace) return;
+        if (!trace && !audible.Enabled()) return;
         clicks::Record r;
         r.kind=kind; r.requested=requested; r.result=result; r.step=step;
         r.captured=captured; r.played=played; r.discarded=discarded; r.queued=queued;
         r.source=kind==clicks::Write ? played+discarded : captured;
         r.avail=avail; r.delay=delay; r.state=state;
-        trace->Emit(r,pcm);
+        if(trace)trace->Emit(r,pcm);
+        if(kind!=clicks::Service) audible.Emit(r,pcm);
     }
     void SampleStatus() noexcept
     {
-        if (!trace) return;
+        if (!trace && !audible.Enabled()) return;
         const auto now=clicks::Now();
         if(now<next_status) return;
         next_status=now+20000000; // at most 50 status pairs/second, no catch-up loop
@@ -313,6 +316,7 @@ struct Bridge
 
     ~Bridge()
     {
+        audible.Poll(captured,played,discarded,queued);
         if(holdback) {
             // Outside the service loop. Do not drain/re-read the reserved tail;
             // report the final unread snapshot rather than hiding shutdown loss.
@@ -406,6 +410,18 @@ struct Bridge
                 catch(const std::exception& e) { std::fprintf(stderr,"Read integrity unavailable: %s; evidence UNKNOWN\n",e.what()); }
             }
         }
+        if(audible.Enabled()) {
+            snd_pcm_uframes_t cb=0,cp=0,pb=0,pp=0;
+            snd_pcm_get_params(capture.handle,&cb,&cp);snd_pcm_get_params(playback.handle,&pb,&pp);
+            char parameters[1024];std::snprintf(parameters,sizeof(parameters),
+                "capture=%s playback=%s rate=44100 channels=2 format=S16_LE frame_bytes=4\n"
+                "capture_buffer=%lu capture_period=%lu playback_buffer=%lu playback_period=%lu\n"
+                "avail_min=1 capture_start_threshold=1 playback_start_threshold=%lu stop_threshold=buffer\n"
+                "queue_frames=8192 chunk_frames=256 capture_holdback_frames=%u alsa=%s\n",
+                snd_pcm_name(capture.handle),snd_pcm_name(playback.handle),(unsigned long)cb,(unsigned long)cp,
+                (unsigned long)pb,(unsigned long)pp,(unsigned long)(pb/2),holdback?unsigned(capture_holdback::kFrames):0,snd_asoundlib_version());
+            audible.Parameters(parameters);
+        }
         const int start_result=snd_pcm_start(capture.handle);
         Note(clicks::Start,0,start_result);
         if(start_result<0) {
@@ -415,6 +431,7 @@ struct Bridge
         if(recorder) recorder->CaptureStarted(); // bounded notes only, no file I/O
         while (!stopped)
         {
+            audible.Poll(captured,played,discarded,queued);
             Note(clicks::Service);
             SampleStatus();
             bool progress = false;

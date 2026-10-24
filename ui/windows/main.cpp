@@ -8,6 +8,7 @@
 #include "input.h"
 #include "serial_service_limits.h"
 #include "ui/host_config.h"
+#include "ui/sdl/host_paths.h"
 #include "diagnostics.h"
 #include "ui/sdl/host_diagnostics.h"
 #include "audio_bridge.h"
@@ -37,7 +38,7 @@ int main(int argc, char* argv[]) try {
     if (!preference_path) return ReportFailure(nullptr, std::string("No writable log location: ") + SDL_GetError(), "");
     const std::filesystem::path log_path = std::filesystem::u8path(preference_path) / "brotracker-terminal.log";
     SDL_free(preference_path);
-    const auto config_path=log_path.parent_path()/"config.ini";
+    const auto config_path=RuntimeConfigPath();
     const auto host_config=BroTracker::LoadHostConfig(config_path,BroTracker::UseSafeConfig(argc,argv));
     BroTracker::ConfigureHostLogging(host_config.config.logging_mode);
     const char* append=std::getenv("BROTRACKER_APPEND_LOG");
@@ -81,6 +82,8 @@ int main(int argc, char* argv[]) try {
     }
     BringUpSerial serial(log_file);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
+    serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
+    serial.SetStartupPattern(host_config.config.startup_pattern);
     BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
@@ -89,6 +92,7 @@ int main(int argc, char* argv[]) try {
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
     BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F4 Restore; F5 stopped/paused Publish; capability-gated automatic preview\n");
+    WindowsHeaderInput header_input;
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
@@ -101,6 +105,11 @@ int main(int argc, char* argv[]) try {
         if (audio) audio->PollDiagnostics();
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            int mouse_x=0,mouse_y=0;
+            const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
+            const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
+            const int header=header_input.Handle(event,mouse_x,mouse_y,mapped);
+            if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
                 continue;
@@ -126,10 +135,11 @@ int main(int argc, char* argv[]) try {
         serial.SyncEditor(editor,SDL_GetTicks());
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
-        const HostPanelInformation panel{serial.Status(), controls.StopPending() ?
+        HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status()};
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+        panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;

@@ -133,3 +133,19 @@ public:
 private:
     TempoRepeat repeat_; bool held_[2]{},blocked_[2]{},focused_=true; int step_=0;
 };
+
+class WindowsHeaderInput {
+public:
+    int Handle(const SDL_Event& event,int x,int y,bool mapped) noexcept {
+        if(event.type==SDL_WINDOWEVENT) {
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) focused_=false;
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED) focused_=true;
+            return -1;
+        }
+        if(event.type==SDL_MOUSEBUTTONUP && event.button.button==SDL_BUTTON_LEFT) held_=false;
+        if(event.type!=SDL_MOUSEBUTTONDOWN || event.button.button!=SDL_BUTTON_LEFT) return -1;
+        const bool old=held_;held_=true;
+        return !old && mapped && focused_ ? PatternGrid::HeaderAt(x,y) : -1;
+    }
+private: bool held_=false,focused_=true;
+};

@@ -8,7 +8,7 @@ enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
     Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat };
-struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; };
+struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; bool header=false; };
 constexpr unsigned kEditableInstrumentMaximum = 98; // Displayed 99; wire IDs remain unrestricted.
 
 // Host-only, fixed-capacity connection-scoped draft. No transport or publication.
@@ -58,6 +58,7 @@ public:
         draft_=pattern; ClearCaptured(); return true;
     }
     bool Ready() const noexcept { return ready_; }
+    bool SelectHeader(unsigned channel) noexcept {if(!ready_ || channel>=draft_.active_channels) return false;cursor_.channel=channel;cursor_.header=true;cursor_.row=0;return true;}
     const EditCursor& Cursor() const noexcept { return cursor_; }
     const BroTracker::RealtimePattern* Draft() const noexcept { return ready_ ? &draft_ : nullptr; }
     std::optional<LocalNoteOffTiming> OffTiming(unsigned row, unsigned channel) const noexcept
@@ -129,31 +130,36 @@ private:
         auto next = cursor_;
         switch (action)
         {
-        case EditorAction::Up: if (!next.row) return false; --next.row; break;
-        case EditorAction::Down: if (next.row + 1 >= draft_.active_rows) return false; ++next.row; break;
+        case EditorAction::Up: if(next.header) return false; if(!next.row) next.header=true; else --next.row; break;
+        case EditorAction::Down: if(next.header) {next.header=false;next.row=0;break;} if (next.row + 1 >= draft_.active_rows) return false; ++next.row; break;
         case EditorAction::PreviousBeat: case EditorAction::NextBeat:
+            if(next.header) {if(action==EditorAction::PreviousBeat) return false;next.header=false;next.row=0;break;}
+            if(!next.row && action==EditorAction::PreviousBeat) {next.header=true;break;}
             next.row = PatternGrid::BeatDestination(next.row, draft_.active_rows, action == EditorAction::NextBeat);
             if (next.row == cursor_.row) return false;
             break;
         case EditorAction::Left:
+            if(next.header) {if(!next.channel) return false;--next.channel;break;}
             if (next.field == EditField::Instrument) next.field = EditField::Note;
             else { if (!next.channel) return false; --next.channel; next.field = EditField::Instrument; }
             break;
         case EditorAction::Right:
+            if(next.header) {if(next.channel+1>=draft_.active_channels) return false;++next.channel;break;}
             if (next.field == EditField::Note) next.field = EditField::Instrument;
             else { if (next.channel + 1 >= draft_.active_channels) return false; ++next.channel; next.field = EditField::Note; }
             break;
         case EditorAction::NextChannel:
-            next.channel = (next.channel + 1) % draft_.active_channels; next.field = EditField::Note; break;
+            next.channel = (next.channel + 1) % draft_.active_channels; if(!next.header) next.field = EditField::Note; break;
         case EditorAction::PreviousChannel:
             next.channel = (next.channel + draft_.active_channels - 1) % draft_.active_channels;
-            next.field = EditField::Note; break;
+            if(!next.header) next.field = EditField::Note; break;
         case EditorAction::Restore:
             draft_ = baseline_.pattern;
             return true;
         case EditorAction::Increment: case EditorAction::Decrement:
         case EditorAction::SetValue: case EditorAction::NoteOff: case EditorAction::Clear:
         {
+            if(next.header) return false;
             auto& cell = draft_.cells[next.row][next.channel];
             const bool note = next.field == EditField::Note;
             auto& timing = draft_.note_off_timing[next.row][next.channel];

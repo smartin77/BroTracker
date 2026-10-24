@@ -47,6 +47,10 @@ namespace BroTracker
             return ChannelStateStatus::Success;
         }
 
+        void PreserveChannels(const ChannelPlaybackState& other, unsigned mask) noexcept {
+            for(unsigned c=0;c<8;++c) if(mask & (1u<<c)) channels_[c]=other.channels_[c];
+        }
+        void ReleaseChannel(unsigned channel) noexcept { if(channel<8) channels_[channel].note=NOTE_OFF; }
         // Validate channel and note before mutation. On failure all state and
         // result are unchanged. Empty fields preserve their previous state;
         // NOTE_OFF updates note only, and instrument-only updates never imply

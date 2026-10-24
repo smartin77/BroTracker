@@ -5,3 +5,13 @@ deploy/arkos/assets/fonts/*.btf text eol=lf
 tools/alsa_bridge/*.sh text eol=lf
 tools/arkos/port/*.sh text eol=lf
 /assets/hardware_diagnostics/** -text
+
+# Git-delivered ARM64 checksums must describe the bytes received on Linux.
+/deploy/arkos/BroTrackerTerminal -text
+/deploy/arkos/BroTrackerAlsaBridge -text
+/deploy/arkos/assets/fonts/*.bfm -text
+/deploy/arkos/assets/*.json text eol=lf
+/deploy/arkos/config/*.example text eol=lf
+/deploy/arkos/*.json text eol=lf
+/deploy/arkos/SHA256SUMS text eol=lf
+/config/config.ini.example text eol=lf

@@ -172,6 +172,9 @@ add_executable(BroTrackerTests
     tests/test_ram_sample_voice.cpp
     tests/test_live_tempo.cpp
     tests/test_sine_synth.cpp
+    tests/test_channel_mute.cpp
+    tests/test_midi_foundation.cpp
+    tests/test_midi_usb_core.cpp
     tests/test_variable_rate_sample_voice.cpp
     tests/test_variable_rate_voice_block_renderer.cpp
     tests/test_note_playback_step.cpp
@@ -193,6 +196,7 @@ add_executable(BroTrackerTests
     tests/test_host_pattern_preview.cpp
     tests/test_sparse_preview.cpp
     tests/test_local_pattern_editor.cpp
+    tests/test_pattern_beat_colors.cpp
     tests/test_host_logging.cpp
     tests/test_host_config.cpp
     src/ui/font.cpp
@@ -242,6 +246,10 @@ if(BROTRACKER_BUILD_ALSA_BRIDGE)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/alsa_bridge/check.sh
             $<TARGET_FILE:BroTrackerAlsaBridge>)
     set_tests_properties(BroTrackerAlsaBridgeChecks PROPERTIES TIMEOUT 30)
+    add_executable(BroTrackerListeningTests tools/alsa_bridge/listening_test.cpp)
+    target_link_libraries(BroTrackerListeningTests PRIVATE Threads::Threads)
+    add_test(NAME BroTrackerListeningTests COMMAND BroTrackerListeningTests ${CMAKE_CURRENT_BINARY_DIR}/listening-tests)
+    set_tests_properties(BroTrackerListeningTests PROPERTIES TIMEOUT 45)
     add_executable(BroTrackerRecordingTests tools/alsa_bridge/recording_test.cpp)
     target_link_libraries(BroTrackerRecordingTests PRIVATE Threads::Threads)
     add_test(NAME BroTrackerRecordingTests COMMAND BroTrackerRecordingTests)
@@ -292,7 +300,17 @@ endif()
 # Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,
 # without exposing the fake Arduino/SD API to other production/host targets.
 add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
+    tests/test_pattern_storage.cpp
+    libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
+    libraries/scheduler/src/pattern_position.cpp
     libraries/sd_access/src/sd_access.cpp)
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
+
+add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
+    src/ui/serial_unavailable.cpp)
+target_link_libraries(BroTrackerStartupStorageTests PRIVATE BroTrackerBringUp BroTrackerCore)
+target_include_directories(BroTrackerStartupStorageTests PRIVATE tests)
+add_test(NAME BroTrackerStartupStorageTests COMMAND BroTrackerStartupStorageTests)

@@ -11,7 +11,7 @@ Use the existing MSYS2 **UCRT64 MinGW** compiler, CMake, make and SDL2 developme
 files. No installer or firmware upload is involved. From the checkout in PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin -EmptyWindowTitle
 ```
 
 The helper uses the existing `build/` CMake layout, enables
@@ -29,9 +29,32 @@ Launch, or double-click the executable:
 .\deploy\windows\BroTrackerTerminal.exe
 ```
 
-The executable finds packaged assets beside itself, regardless of the initial
-working directory. Running `build/BroTrackerTerminal.exe` from the repository root
-also works. Keep the DLLs and assets beside the packaged executable.
+The user exclusively runs `.\deploy\windows\BroTrackerTerminal.exe`.
+`deploy/windows/` is the Windows delivery location. Every package build must refresh
+it through this helper, including the validated executable, required runtime DLLs,
+canonical assets and license notices; the newest usable application must never be
+left only under `build/`. Keep the DLLs and assets beside the delivered executable.
+Generated delivery assets must match the validated package even when an inherited
+copy is tracked; review and report such changes rather than silently restoring a
+stale asset. User `config.ini` is never overwritten by packaging.
+
+After verifying delivery hashes and runtime completeness, remove redundant Windows
+packages and duplicate application executables under `build/`; retain unique test
+evidence and useful build caches. Do not archive obsolete packages or binaries.
+Create backups only when explicitly requested. The executable finds its packaged
+assets beside itself, regardless of the initial working directory.
+
+## Runtime configuration
+
+Edit `config/config.ini` beside BroTrackerTerminal.exe. For the normal delivery,
+the exact path is `deploy/windows/config/config.ini`, resolved from the loaded
+executable, regardless of the launch working directory. Restart BTX after edits.
+No SDL preference/APPDATA file is loaded as a fallback. Missing config uses built-in
+defaults; the packaged `config/config.ini.example` is a template only. Copy/merge it
+manually if needed, retaining the required `[btx]` fields. Packaging never creates
+or overwrites the actual user config and verifies an existing file is unchanged.
+Startup logs the resolved absolute config path and load/error status. Logs retain
+their existing SDL user-data location; changing config location does not move logs.
 
 ## Controls and connection
 
@@ -290,3 +313,12 @@ Build with the existing empty-title preference, then start:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin -EmptyWindowTitle
 .\deploy\windows\BroTrackerTerminal.exe
 ```
+
+## Session channel mute
+
+Up or Shift+Up from the first row/beat enters its header; Down or Shift+Down returns
+to row 1 with the Note/Instrument field retained. Header Left/Right clamps channels;
+Tab/Shift+Tab keeps channel navigation. Left-click a header once to toggle mute
+using actual framebuffer/viewport coordinates. Holding/dragging/outside clicks do
+not toggle. Crossed digits show confirmed mute, orange outline shows selection;
+pending/rejected/unsupported states are separate. See [design and manual checklist](../../docs/CHANNEL_MUTE.md).

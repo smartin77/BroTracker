@@ -17,17 +17,22 @@ this is not dArkOS validation or a timing/performance measurement. The reference
 supersedes the legacy L1/B and R1/X bindings in historical observations below.
 Final configurable input profiles remain future work.
 
-## Persistent user configuration (ArkOS and dArkOS)
+## Installed runtime configuration (ArkOS and dArkOS)
 
-The same parser and serial audio negotiation as Windows read the runtime user's
-persistent SDL preference path, independent of the working directory or package:
-`$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, falling back to
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
-is unset. For HOME=/home/ark with no XDG override this is
-`/home/ark/.local/share/BroTracker/BroTracker Terminal/config.ini`.
-The launcher exports the effective XDG_DATA_HOME; the application logs the actual
-SDL-resolved path. Run as the normal Ports user, not sudo/root. Windows normally
-uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini` and logs its resolved path.
+BTX reads `/roms/ports/brotracker/config/config.ini` directly, resolved relative to
+the installed executable with SDL_GetBasePath. Launching from another shell working
+directory does not change it. Windows likewise reads `config/config.ini` beside
+BroTrackerTerminal.exe (`deploy/windows/config/config.ini` in this checkout).
+There is no SDL preference, XDG or HOME fallback for runtime config. Startup logs
+the resolved absolute path and load/error status. Missing config uses built-ins;
+the example is never loaded automatically. Restart BTX after editing.
+
+Run as the normal Ports user using the existing writable installation; no sudo,
+chmod 777 or unrelated permission changes are needed. Installation/update copies
+only the example and preserves an existing `config/config.ini` byte-for-byte.
+The console's existing `output=pt8211` and `row_numbering=h0` file is used directly.
+Logging and diagnostic recordings keep their existing locations; the per-user
+listening evidence directory is independent of the installed config directory.
 
 Merge into the existing file without removing [btx], [logging], [editing] or
 other existing settings (keep required schema fields):
@@ -46,9 +51,9 @@ Reconnect resends the preference but never starts playback or resets an unchange
 route. The acknowledged route must match; a different locked route is rejected
 with restart-required. PT8211 is manual only; no presence detection is enabled.
 
-Future packages/installations carry `config/config.ini.example` as an example
+Packages/installations carry `config/config.ini.example` as an example
 inside the application tree. Neither launcher nor installer creates or overwrites
-the persistent user config. Merge the example manually if a user file exists.
+the actual runtime config. Merge the example manually if a user file exists.
 `--safe-config` on direct invocation bypasses the file; the direct launcher
 forwards arguments. Shared Linux tests are not physical handheld tests: ArkOS
 and dArkOS hardware checks remain separate and pending for this integration.
@@ -57,9 +62,10 @@ and dArkOS hardware checks remain separate and pending for this integration.
 
 The existing Eoan ARM64 QEMU root was available; all 10 CTest cases and the
 ARM64 interpreter/dependency/symbol-version/relocation checks passed. The rebuilt terminal
-loaded both bridge and pt8211 preferences headlessly, logged the effective SDL
-paths and preserved all test INI bytes (including btx/logging/editing settings).
-Launcher/installer fixture tests passed persistent-path export/fallback and
+loaded both bridge and pt8211 preferences headlessly, logged the then-current SDL
+paths (superseded by executable-relative config above) and preserved all test INI
+bytes (including btx/logging/editing settings).
+Launcher/installer fixture tests passed then-current preference-path export/fallback and
 preservation checks. No new package was staged and no handheld was contacted.
 ArkOS physical bridge/listening/reconnect checks remain pending. dArkOS physical
 checks remain independently pending; local ABI/host tests validate neither device.
@@ -127,11 +133,27 @@ checkout, with /proc and /dev available only for the lifetime of the command.
 It clears inherited host environment variables. QEMU must be registered with
 binfmt_misc so ARM64 subprocesses execute inside chroot.
 
-## Build and check
+## Build, check and prepare Git delivery
+
+From WSL/Linux in the repository:
 
 ```sh
-bash tools/arkos/run-in-eoan.sh
+sudo update-binfmts --enable qemu-aarch64
+bash tools/arkos/prepare-package.sh
 ```
+
+This is the complete delivery command: it builds/tests in the established Eoan
+root, checks ABI/dependencies, refreshes **deploy/arkos**, verifies the packaged
+executables against the build, refreshes artifact identity metadata, writes
+SHA256SUMS, and tests clean installation plus user-config preservation. It does
+not stage, commit, push, SSH, install on a handheld or upload firmware. Existing
+bridge diagnostic metadata is refreshed for the new binary identities; no
+physical audio diagnostics are run.
+
+`bash tools/arkos/run-in-eoan.sh` alone is compilation/testing and staging in the
+build root, **not repository/Git delivery**. Do not stop there when preparing a
+console update. The lower-level build behavior is documented below.
+
 
 This enables the ArkOS terminal and standalone ALSA bridge, builds all enabled
 CMake targets in /build/brotracker and runs CTest. The existing
@@ -159,23 +181,33 @@ These are build/ABI checks, not proof that the console display or input works.
 The old aarch64-toolchain.cmake is not used by this method: compilation runs
 with Eoan's ARM64 GCC under emulation, with no cross-toolchain/sysroot override.
 
-## Copy the checked package into the repository
+## Review the prepared repository package
 
-After a successful build, from WSL in the checkout:
+`prepare-package.sh` copies the complete verified package into `deploy/arkos`
+after successful build checks. Required delivery files are both ARM64 executables,
+launch.sh, config/config.ini.example, the tune, both font files, SHA256SUMS and
+the existing artifact identity JSON. The package checker verifies source assets,
+ARM64 headers, MIDI negotiation format, checksums, Git visibility and unchanged
+bytes through Git filters. It allows new untracked delivery files for review;
+they must be included with the tracked binary updates in the eventual Git delivery.
+
+Run these again without rebuilding when reviewing a prepared package:
 
 ```sh
-mkdir -p deploy/arkos
-cp -a "$BROTRACKER_EOAN_ROOT/package/arkos/." deploy/arkos/
-# After the new package has passed checks and been copied:
-rm -f -- deploy/arkos/BroTrackerArkOSUI
+bash tools/arkos/check-package.sh
+bash tools/arkos/check-install-port.sh
 ```
 
-The package includes the current working-tree sources, including any uncommitted
-edits. Review the source and package together before a later commit and
-repository transfer. Committing or pushing is not part of the build scripts.
-When later adding the package to Git from Windows, record executable modes for
-BroTrackerTerminal, BroTrackerAlsaBridge and launch.sh with git update-index --chmod=+x after git add.
-The LF attributes also cover the packaged launcher and BTF descriptor.
+The installer validates all package sources and checksums before destination
+writes. Its isolated test copies only the delivered package; it never fills
+missing files from the source tree. Missing config and corrupt binary cases
+must fail preflight. Clean/repeated installations preserve executable-relative user config
+(including MIDI settings), user data and launcher backups.
+
+ARM64 package binaries/assets intentionally travel through Git; Windows generated
+packages remain untracked. Review current sources and **all** package changes
+together before a later commit/transfer. No Git index write occurs in these tools.
+Existing executable modes for both binaries and launch.sh are retained.
 
 On the console, run from the transferred checkout:
 
@@ -256,8 +288,7 @@ cat /tmp/brotracker-arkos.log
 The source launcher is `tools/arkos/port/BroTracker Terminal.sh`, installed as
 `/roms/ports/BroTracker Terminal.sh`. The application directory remains
 `/roms/ports/brotracker/`. The installer saves unique backups of any existing
-new or legacy `BroTracker.sh` launcher, installs the six packaged application
-files and new launcher, then removes the legacy launcher only after successful
+new or legacy `BroTracker.sh` launcher, installs the complete checksummed application package and new launcher, then removes the legacy launcher only after successful
 installation. Repeated updates leave one active BroTracker Ports entry and
 preserve previous backups. It also removes only the obsolete application
 executable `/roms/ports/brotracker/BroTrackerArkOSUI`.
@@ -494,3 +525,39 @@ Short hardware collection procedure after separate review/transfer:
 Do not delay START beyond the 180-second capture cap; silence counts. The
 manifest and filenames remove the need to remember boot counts. No new
 handheld tools, SSH or keyboard are needed during collection.
+
+## MIDI package delivery repair (2026-10-22)
+
+The Oct 20 BTX was still tracked under deploy/arkos after later Eoan builds passed:
+those builds had not copied their artifacts into the delivery directory. The
+missing config example was not ignored; it had never been delivered/tracked.
+The installer test masked this by injecting a source-tree copy into its fixture.
+The delivery command and regression checks above close both gaps. Firmware START
+requirements and MIDI negotiation are unchanged. Physical console validation is
+still the user's task; a local package check is not a handheld retest.
+
+After the reviewed repair has been committed/published by the maintainer, update
+from the existing **feature/midi-foundation checkout on the console**. Preserve
+an untracked example manually copied as a workaround before pulling the new
+tracked example (this is not the runtime user config):
+
+```sh
+if [ -f deploy/arkos/config/config.ini.example ] &&
+   ! git ls-files --error-unmatch deploy/arkos/config/config.ini.example >/dev/null 2>&1; then
+    backup=$(mktemp /tmp/brotracker-config-example.XXXXXX)
+    mv deploy/arkos/config/config.ini.example "$backup"
+    printf 'Manual example saved as %s\n' "$backup"
+fi
+git pull --ff-only origin feature/midi-foundation
+(cd deploy/arkos && sha256sum -c SHA256SUMS)
+bash tools/arkos/install-port.sh
+(cd /roms/ports/brotracker && sha256sum -c SHA256SUMS)
+bash "/roms/ports/BroTracker Terminal.sh"
+```
+
+After exit, inspect `/tmp/brotracker-arkos.log` for the current build and transport
+result. With existing `[logging] mode=debug`, the wire log also shows
+`BTMIDI1 SET 1 channel` and its matching `BTMIDI1 SELECTED 1 channel` before
+START; basic logging can omit these wire/acknowledgment lines. Keep all other
+existing runtime config; absent
+[midi] uses channel 12. No console compiler or Teensy upload is needed.

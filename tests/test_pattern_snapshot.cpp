@@ -381,17 +381,17 @@ TEST_CASE(DevicePatternDisplayPadsEightChannelsThirtyTwoRowsOnly) {
     // Exact glyph/color regions, outside active dimensions, in the same one-pass grid.
     for(const auto cell : {std::pair<int,int>{16,0},{31,7},{0,2}}) {
         const int x=30+cell.second*53+(53-36)/2, y=62+cell.first*13+2;
-        DrawFixedText(expected,x,y,"---",Color{192,192,192});
-        DrawFixedText(expected,x+24,y,"--",Color{78,78,118});
+        DrawFixedText(expected,x,y,"---",cell.first%4==0 ? Color{152,152,152} : Color{104,104,104});
+        DrawFixedText(expected,x+24,y,"--",cell.first%4==0 ? Color{104,104,156} : Color{66,66,100});
         for(int yy=y;yy<y+8;++yy) for(int xx=x;xx<x+36;++xx)
             CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
     }
     // All headers and decimal one-based rows are present, even outside active data.
-    DrawCenteredFixedText(expected,30+7*53,53,38,"8",Color{130,130,196});
+    DrawDoubleFixedGlyph(expected,30+7*53+21,33,'8',Color{130,130,196});
     DrawCenteredFixedText(expected,0,29,62+31*13+2,"32",Color{78,78,118});
-    for(const auto region : {std::pair<int,int>{30+7*53+(53-6)/2,38},{(29-12)/2,62+31*13+2}})
-        for(int yy=region.second;yy<region.second+8;++yy)
-            for(int xx=region.first;xx<region.first+(region.first<29?12:6);++xx)
-                CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    for(int yy=35;yy<49;++yy) for(int xx=30+7*53+21;xx<30+7*53+31;++xx)
+        CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
+    for(int yy=467;yy<475;++yy) for(int xx=(29-12)/2;xx<(29-12)/2+12;++xx)
+        CHECK(std::memcmp(&fb.PixelData()[yy*640+xx],&expected.PixelData()[yy*640+xx],sizeof(Color))==0);
     CHECK_EQ(live->device_pattern->pattern.active_rows,16);
 }

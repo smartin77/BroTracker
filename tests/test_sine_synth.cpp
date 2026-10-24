@@ -132,10 +132,10 @@ TEST_CASE(SynthFixtureIdentitySampleSelectionMidiSilenceAndTypeIndependentOfId) 
     RowEventBatch rows; rows.count=2; rows.events[0]={0,0,0,0,0,0,60,0}; rows.events[1]={7,0,0,0,0,0,69,2};
     VariableRateVoiceCommandBatch commands; CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
     CHECK_EQ(commands.commands[0].sample.data,sample); CHECK_EQ(commands.commands[1].action,VariableRateVoiceAction::TriggerSynth);
-    Harness h; h.Render(1500,commands); CHECK_EQ(h.pcm[0][0],1000); CHECK(h.pcm[7][700]!=0);
+    Harness h; h.Render(1500,commands); CHECK_EQ(h.pcm[0][0],800); CHECK(h.pcm[7][700]!=0);
     rows.count=1; rows.events[0]={7,0,0,0,0,0,69,1};
     CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
-    CHECK_EQ(commands.commands[0].action,VariableRateVoiceAction::UnsupportedMIDI); h.Render(128,commands);
+    CHECK_EQ(commands.commands[0].action,VariableRateVoiceAction::TriggerMidi); h.Render(128,commands);
     for(unsigned i=0;i<128;++i) CHECK_EQ(h.pcm[7][i],0);
     // Another project can bind Synth at an arbitrary identity.
     auto bindings=fixture.bindings; bindings.bindings[1].instrument=42;
@@ -207,4 +207,42 @@ TEST_CASE(SynthBindingsRejectInvalidTypesRatesDuplicatesAndMissingSampleWithoutF
     VariableRateVoiceCommandBatch commands;
     CHECK_EQ(p.Prepare(rows,commands),VariableSampleCommandStatus::Success); // Previous valid table retained.
     CHECK_EQ(commands.commands[0].sample.data,pcm);
+}
+
+TEST_CASE(DevelopmentSampleGainAndFifthBindingLeaveGeneralDefaultsAndSynthUnchanged) {
+    const std::int16_t pcm[]={10000,-10000,1,-1,32767,-32768};
+    const auto fixture=SelectDevelopmentFixture({pcm,6,44100},{pcm,6,44100},{pcm,6,44100});
+    CHECK_EQ(fixture.bindings.count,5u);
+    CHECK_EQ(FormatInstrument(4),"05");
+    for(unsigned r=0;r<fixture.pattern.active_rows;++r) for(unsigned c=0;c<8;++c)
+        CHECK(fixture.pattern.cells[r][c].instrument!=4);
+    VariableRateSampleCommandPreparer prepare;
+    CHECK_EQ(prepare.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);
+    for(unsigned id:{0u,3u,4u}) {
+        RowEventBatch rows;rows.count=1;rows.events[0]={0,0,0,0,0,0,60,static_cast<std::uint8_t>(id)};
+        VariableRateVoiceCommandBatch commands;
+        CHECK_EQ(prepare.Prepare(rows,commands),VariableSampleCommandStatus::Success);
+        CHECK_EQ(commands.commands[0].sample_level_percent,80u);
+        CHECK_EQ(commands.commands[0].step_q32_32,kSourceFrameStepUnity);
+        Harness h;h.Render(6,commands);
+        const int expected[]={8000,-8000,1,-1,26214,-26214};
+        for(unsigned i=0;i<6;++i)CHECK_EQ(h.pcm[0][i],expected[i]);
+    }
+    CHECK_EQ(pcm[0],10000);CHECK_EQ(pcm[5],-32768);
+    VariableRateVoiceCommandBatch unity;unity.count=1;
+    unity.commands[0].action=VariableRateVoiceAction::Trigger;
+    unity.commands[0].sample={pcm,6,44100};
+    Harness ordinary;ordinary.Render(6,unity);
+    for(unsigned i=0;i<6;++i)CHECK_EQ(ordinary.pcm[0][i],pcm[i]);
+    // Sample attenuation cannot affect Synth output, even with a non-unity unused field.
+    unity.commands[0]=Synth(0,0,69);Harness a;a.Render(1000,unity);
+    unity.commands[0].sample_level_percent=80;Harness b;b.Render(1000,unity);
+    for(unsigned i=0;i<1000;++i)CHECK_EQ(a.pcm[0][i],b.pcm[0][i]);
+    auto invalid=fixture.bindings;invalid.bindings[2].sample_level_percent=101;
+    CHECK_EQ(prepare.Configure(44100,invalid),VariableSampleCommandStatus::InvalidGain);
+    unity.commands[0].action=VariableRateVoiceAction::Trigger;
+    unity.commands[0].sample={pcm,6,44100};unity.commands[0].sample_level_percent=101;
+    CHECK_EQ(b.renderer.Render(b.outputs,6,unity),VariableRateBlockStatus::InvalidGain);
+    CHECK_EQ(SelectDevelopmentFixture({}, {}, {nullptr,6,44100}).bindings.count,2u);
+    CHECK_EQ(SelectDevelopmentFixture({}, {}, {pcm,6,48000}).bindings.count,2u);
 }

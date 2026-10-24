@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "temporary_directory.h"
 #include "ui/host_config.h"
+#include "ui/host_logging.h"
 #include <fstream>
 #include <string>
 using namespace BroTracker;
@@ -144,4 +145,114 @@ TEST_CASE(ProductionAudioRequestStrictParsing) {
     for(const auto bad : {"BTAUDIO1 SET 2 bridge","BTAUDIO1 SET 1 PT8211","BTAUDIO1 SET 1 shield",
                          "BTAUDIO1 SET 1 bridge extra","BTAUDIO1 SET 1 ","BTAUDIO1"})
         CHECK(!ParseAudioOutputRequest(bad,c));
+}
+
+TEST_CASE(RowNumberingConfigPrecedenceDefaultsInvalidAndTransitions) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c;CHECK(c.row_numbering==RowNumbering::D1);
+    struct Case {const char* name;RowNumbering mode;const char* labels[5];};
+    const Case cases[]={
+        {"d1",RowNumbering::D1,{"01","10","16","17","32"}},
+        {"d0",RowNumbering::D0,{"00","09","15","16","31"}},
+        {"h1",RowNumbering::H1,{"01","0A","10","11","20"}},
+        {"h0",RowNumbering::H0,{"00","09","0F","10","1F"}}};
+    for(const auto& item:cases) {
+        CHECK(ParseHostConfig(base+"[display]\nrow_numbering="+item.name,c)==HostConfigStatus::Loaded);
+        CHECK(c.row_numbering==item.mode);CHECK(!c.row_numbering_invalid);CHECK_EQ(std::string(RowNumberingName(c.row_numbering)),item.name);
+        unsigned index=0;for(unsigned row:{0u,9u,15u,16u,31u}) CHECK_EQ(FormatRowNumber(row,c.row_numbering),item.labels[index++]);
+        CHECK_EQ(c.new_pattern_length,64u);
+    }
+    for(const auto suffix:{"","[display]","[display]\nrow_numbering=","[display]\nrow_numbering= \t"}) {
+        CHECK(ParseHostConfig(base+suffix,c)==HostConfigStatus::Loaded);CHECK(c.row_numbering==RowNumbering::D1);CHECK(!c.row_numbering_invalid);
+    }
+    for(const auto value:{"D1","H0","hex","d2","1","d1 ; comment"}) {
+        CHECK(ParseHostConfig(base+"[display]\nrow_numbering="+value,c)==HostConfigStatus::Loaded);
+        CHECK(c.row_numbering==RowNumbering::D1);CHECK(c.row_numbering_invalid);CHECK_EQ(c.new_pattern_length,64u);
+    }
+    for(const auto suffix:{"[display]\nrow_numbering=d0\nrow_numbering=h1","[display]\n[display]","[display]\nunknown=h0"})
+        CHECK(ParseHostConfig(base+suffix,c)==HostConfigStatus::Invalid);
+}
+TEST_CASE(DocumentedExampleParsesWithinBoundAndNeverProvidesRuntimeFallback) {
+    std::ifstream source("config/config.ini.example",std::ios::binary);CHECK(bool(source));
+    const std::string text{std::istreambuf_iterator<char>(source),{}};CHECK(text.size()<=kMaxHostConfigBytes);
+    HostConfig c;CHECK(ParseHostConfig(text,c)==HostConfigStatus::Loaded);CHECK(c.audio_output==AudioOutputChoice::Bridge);
+    CHECK(c.row_numbering==RowNumbering::D1);CHECK(c.logging_mode==HostLogMode::Debug);CHECK_EQ(c.preserve_last,5u);
+    TemporaryTestDirectory dir;const auto config=dir.Path()/"config.ini";
+    {std::ofstream example(dir.Path()/"config.ini.example");example<<text;}
+    auto result=LoadHostConfig(config,false);CHECK(result.status==HostConfigStatus::Missing);
+    CHECK(result.config.logging_mode==HostLogMode::Basic);CHECK_EQ(result.config.preserve_last,0u);
+    CHECK(result.config.audio_output==AudioOutputChoice::Default);CHECK(!std::filesystem::exists(config));
+    {std::ofstream file(config);file<<"[btx]\nschema_version=1\nnew_pattern_length=32\n[display]\nrow_numbering=h0";}
+    result=LoadHostConfig(config,false);CHECK(result.config.row_numbering==RowNumbering::H0);
+    result=LoadHostConfig(config,true);CHECK(result.status==HostConfigStatus::SafeDefaults);CHECK(result.config.row_numbering==RowNumbering::D1);
+    std::ifstream unchanged(config);const std::string content{std::istreambuf_iterator<char>(unchanged),{}};CHECK(content.find("row_numbering=h0")!=std::string::npos);
+}
+TEST_CASE(InvalidRowNumberingHasUsefulBasicStartupWarning) {
+    FILE* file=std::tmpfile();CHECK(file!=nullptr);if(!file)return;
+    HostConfigResolution result;result.status=ParseHostConfig("[btx]\nschema_version=1\nnew_pattern_length=32\n[display]\nrow_numbering=bad",result.config);
+    ConfigureHostLogging(HostLogMode::Basic);LogHostStartup(file,"fixture",result,std::filesystem::absolute("config.ini"),{});
+    std::rewind(file);std::string log;char buffer[512];while(std::fgets(buffer,sizeof(buffer),file)) log+=buffer;std::fclose(file);
+    CHECK(log.find("expected lowercase d1/d0/h1/h0; using d1")!=std::string::npos);
+}
+
+TEST_CASE(BridgeAudibleConfigIsOptInSharedAndFieldLocalOnInvalidValues) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c;CHECK(!c.bridge_audible_test);
+    CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK(!c.bridge_audible_test);
+    for(auto value:{"yes","on","true","1"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(c.bridge_audible_test);CHECK(!c.bridge_audible_test_invalid);
+    }
+    for(auto value:{"no","off","false","0",""," \t"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(!c.bridge_audible_test);CHECK(!c.bridge_audible_test_invalid);
+    }
+    for(auto value:{"YES","True","2","-1","yes ; inline comment"}) {
+        CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test="+value,c)==HostConfigStatus::Loaded);
+        CHECK(!c.bridge_audible_test);CHECK(c.bridge_audible_test_invalid);CHECK_EQ(c.new_pattern_length,64u);
+    }
+    CHECK(ParseHostConfig(base+"[diagnostics]\nbridge_audible_test=yes\nbridge_audible_test=no",c)==HostConfigStatus::Invalid);
+    CHECK(ParseHostConfig(base+"[diagnostics]\n[diagnostics]",c)==HostConfigStatus::Invalid);
+    CHECK(!LoadHostConfig({},true).config.bridge_audible_test);
+}
+
+TEST_CASE(ExecutableRelativeConfigIgnoresLaunchDirectoryAndExample) {
+    TemporaryTestDirectory temp;
+    const auto installed=temp.Path()/"installed";
+    const auto elsewhere=temp.Path()/"other-working-directory";
+    std::filesystem::create_directories(installed/"config");
+    std::filesystem::create_directories(elsewhere/"config");
+    struct RestoreCwd { std::filesystem::path original=std::filesystem::current_path();
+        ~RestoreCwd(){std::filesystem::current_path(original);} } restore;
+    std::filesystem::current_path(elsewhere);
+    {std::ofstream example(installed/"config/config.ini.example");example<<"invalid example";}
+    {std::ofstream unrelated(elsewhere/"config/config.ini");unrelated<<"invalid CWD config";}
+    const auto path=ExecutableConfigPath(installed);
+    CHECK(path==installed/"config/config.ini");CHECK(path.is_absolute());
+    auto result=LoadHostConfig(path,false);
+    CHECK(result.status==HostConfigStatus::Missing);
+    CHECK(result.config.row_numbering==RowNumbering::D1);
+    CHECK(result.config.audio_output==AudioOutputChoice::Default);
+    CHECK(!std::filesystem::exists(path));
+    const std::string bytes="[btx]\r\nschema_version=1\r\nnew_pattern_length=32\r\n[audio]\r\noutput=pt8211\r\n[display]\r\nrow_numbering=h0\r\n";
+    {std::ofstream actual(path,std::ios::binary);actual<<bytes;}
+    result=LoadHostConfig(path,false);CHECK(result.status==HostConfigStatus::Loaded);
+    CHECK(result.config.audio_output==AudioOutputChoice::Pt8211);
+    CHECK(result.config.row_numbering==RowNumbering::H0);
+    std::ifstream unchanged(path,std::ios::binary);
+    CHECK_EQ(std::string(std::istreambuf_iterator<char>(unchanged),{}),bytes);
+    CHECK(ExecutableConfigPath({}).empty());
+    CHECK(ExecutableConfigPath("relative-executable-directory").empty());
+    CHECK(LoadHostConfig(ExecutableConfigPath({}),false).status==HostConfigStatus::Unreadable);
+}
+TEST_CASE(HostDevelopmentStartupPatternConfiguration) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=32\n";
+    HostConfig c;CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK_EQ(std::string(c.startup_pattern.stem),"none");
+    for(const std::string value:std::vector<std::string>{"","none","NONE","patern4","patern4.btdev","none.btdev","ambient_Take-7","4",std::string(24,'a'),"../x","x/y","x\\y","x.btdev","\"patern4\"","has space",std::string(25,'a')}) {
+        CHECK(ParseHostConfig(base+"[development]\nstartup_pattern="+value,c)==HostConfigStatus::Loaded);
+        const bool valid=value.empty() || ValidDevelopmentSelection(value);
+        CHECK_EQ(c.startup_pattern_invalid,!valid);
+        CHECK_EQ(std::string(c.startup_pattern.stem),!valid || value.empty()?"none":value);
+    }
+    CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=patern4\nstartup_pattern=patern1",c)==HostConfigStatus::Invalid);
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft
+Initial USB device note-output foundation implemented; see [MIDI foundation](MIDI_FOUNDATION.md) for the current scope, timing design and remaining physical alignment measurement. Other capabilities below remain planned.
 
 ## Purpose
 
@@ -68,21 +68,12 @@ During initial hardware development, BroTracker will use USB connectivity.
 
 The primary external MIDI routing hardware is the CME H4MIDI.
 
-The initial development path is:
-
-Teensy 4.1
-    |
-   USB
-    |
-CME H4MIDI
-    |
- DIN MIDI
-    |
-External MIDI hardware
-
-This configuration avoids requiring direct DIN MIDI circuitry on the Teensy during the initial development phase.
-
-Direct physical DIN MIDI IN/OUT on Teensy hardware is deferred until a later stage.
+The current controllable route is Teensy USB device -> PC host MIDI router ->
+CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices
+do not route between themselves. The H4MIDI WC USB-A host port is a different
+physical topology and does not automatically preserve BTX's Teensy CDC control.
+See [routing prerequisites and measurement procedure](MIDI_FOUNDATION.md#actual-routing-prerequisites).
+Direct physical DIN MIDI circuitry on Teensy remains deferred.
 
 ## MIDI Input
 

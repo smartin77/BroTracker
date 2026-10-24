@@ -415,3 +415,20 @@ TEST_CASE(ArkOSBeatVerifiedRawButtonAndHatPaths) {
         f.input.Handle(removed,1100,true,f.editor); f.input.Tick(1500,true,f.editor); CHECK_EQ(f.editor.Cursor().row,4);
     }
 }
+
+TEST_CASE(ArkOSHeaderAConsumesPublishAndRetainsTempoIncludingVerifiedRaw) {
+    InputFixture f;
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK(f.editor.Cursor().header);
+    const auto result=f.Tap(SDL_CONTROLLER_BUTTON_A);CHECK_EQ(result.mute_channel,0);CHECK(!result.publish);
+    f.Edge(SDL_CONTROLLER_BUTTON_A);CHECK_EQ(f.Edge(SDL_CONTROLLER_BUTTON_A).mute_channel,-1);f.Edge(SDL_CONTROLLER_BUTTON_A,false);
+    f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);CHECK_EQ(f.input.TakeTempoStep(),5);f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);CHECK_EQ(f.editor.Cursor().channel,0);
+    f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN);CHECK(!f.editor.Cursor().header);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);CHECK(!f.editor.Dirty());CHECK(!f.editor.CanUndo());
+    SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+    bindings[SDL_CONTROLLER_BUTTON_A].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[SDL_CONTROLLER_BUTTON_A].value.button=9;
+    f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);CHECK(f.editor.SelectHeader(1));
+    SDL_Event e{};e.type=SDL_JOYBUTTONDOWN;e.jbutton.which=7;e.jbutton.button=9;
+    const auto raw=f.input.Handle(e,0,true,f.editor);CHECK_EQ(raw.mute_channel,1);CHECK(!raw.publish);
+    CHECK_EQ(f.input.Handle(e,1,true,f.editor).mute_channel,-1);
+}

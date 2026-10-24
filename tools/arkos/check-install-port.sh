@@ -9,24 +9,40 @@ cp -a "$repo/deploy/arkos" "$work/repo/deploy/"
 cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/repo/tools/arkos/port/"
 # Change only the destination in a disposable copy; production paths stay fixed.
 sed "s|^ports=/roms/ports$|ports=$work/ports|" "$repo/tools/arkos/install-port.sh" > "$work/repo/tools/arkos/install-port.sh"
-# The source template is copied only into the disposable package fixture.
-mkdir -p "$work/repo/deploy/arkos/config"
-cp "$repo/config/config.ini.example" "$work/repo/deploy/arkos/config/"
 export HOME="$work/user-home" XDG_DATA_HOME="$work/persistent-data"
-mkdir -p "$XDG_DATA_HOME/BroTracker/BroTracker Terminal"
-printf '[btx]\nschema_version=1\nnew_pattern_length=64\n[logging]\nmode=debug\npreserve_last=5\n[editing]\nvalue_step_direction=reversed\n[audio]\noutput=pt8211\n' > "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini"
-cp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
+printf '[btx]\nschema_version=1\nnew_pattern_length=64\n[logging]\nmode=debug\npreserve_last=5\n[editing]\nvalue_step_direction=reversed\n[audio]\noutput=pt8211\n[midi]\noutput_channel=9\n[display]\nrow_numbering=h0\n[diagnostics]\nbridge_audible_test=yes\n' > "$work/config-original"
 installer="$work/repo/tools/arkos/install-port.sh"
 app="$work/ports/brotracker"
 new_launcher="$work/ports/BroTracker Terminal.sh"
 legacy_launcher="$work/ports/BroTracker.sh"
 printf "preserved backup\n" > "$work/ports/BroTracker.sh.bak.saved"
-printf 'old launcher\n' > "$legacy_launcher"
-printf 'old executable\n' > "$app/BroTrackerArkOSUI"
 printf 'user data\n' > "$app/user-song.json"
 printf 'unrelated executable\n' > "$app/custom-tool"
 cp "$app/user-song.json" "$work/user-original"
 cp "$app/custom-tool" "$work/tool-original"
+# A genuinely clean install must succeed using only delivered package files.
+bash "$installer" > "$work/clean-install" 2>&1
+for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm; do
+    cmp "$repo/deploy/arkos/$file" "$app/$file"
+done
+(cd "$app" && sha256sum -c SHA256SUMS)
+[[ ! -e "$app/config/config.ini" ]]
+cp "$work/config-original" "$app/config/config.ini"
+# Remove only fixture launchers so the upgrade backup assertions start as before.
+rm -- "$new_launcher" "$work/ports/BroTracker Diagnostics.sh"
+# Missing config must fail preflight; the test must never repair the package.
+mv "$work/repo/deploy/arkos/config/config.ini.example" "$work/template.saved"
+if bash "$installer" > "$work/missing-config" 2>&1; then echo 'Accepted missing config example' >&2; exit 1; fi
+grep -q 'Package file is missing: config/config.ini.example' "$work/missing-config"
+mv "$work/template.saved" "$work/repo/deploy/arkos/config/config.ini.example"
+# Corruption must also reject before replacing anything.
+printf 'corrupt executable' >> "$work/repo/deploy/arkos/BroTrackerTerminal"
+if bash "$installer" > "$work/corrupt-package" 2>&1; then echo 'Accepted corrupt package' >&2; exit 1; fi
+grep -q 'Package checksum verification failed' "$work/corrupt-package"
+cp "$repo/deploy/arkos/BroTrackerTerminal" "$work/repo/deploy/arkos/BroTrackerTerminal"
+# Restore the legacy fixture after clean installation.
+printf 'old launcher\n' > "$legacy_launcher"
+printf 'old executable\n' > "$app/BroTrackerArkOSUI"
 # Simulate sudo installation for a non-root runtime account, without group changes.
 mkdir -p "$work/advisory-bin"
 cat > "$work/advisory-bin/getent" <<'STUB'
@@ -50,7 +66,7 @@ backups=("$work/ports/"BroTracker.sh.bak.*)
 [[ -f "$new_launcher" ]]
 old_backup=$(find "$work/ports" -name 'BroTracker.sh.bak.*' ! -name '*.saved')
 printf 'old launcher\n' | cmp - "$old_backup"
-for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm; do
+for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm; do
     cmp "$repo/deploy/arkos/$file" "$app/$file"
 done
 for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh; do
@@ -112,5 +128,5 @@ PATH="$work/advisory-bin:$PATH" TEST_NO_DIALOUT=1 SUDO_USER=ark USER=root bash "
 PATH="$work/advisory-bin:$PATH" SUDO_USER=root USER=root bash "$installer" > "$work/unknown-user" 2>&1
 grep -q 'runtime user is unknown' "$work/unknown-user"
 cmp "$work/repo/deploy/arkos/config/config.ini.example" "$app/config/config.ini.example"
-cmp "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini" "$work/config-original"
-echo 'Installer/package upgrade and persistent user-config preservation checks passed (isolated temporary destination)'
+cmp "$app/config/config.ini" "$work/config-original"
+echo 'Installer/package upgrade and executable-relative user-config preservation checks passed (isolated temporary destination)'

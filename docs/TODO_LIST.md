@@ -8,6 +8,341 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Future SD-streamed Sample playback
+
+* [ ] Explore [production Sample streaming](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
+  Design outline only; priority and implementation order remain undecided. Preserve
+  short-sample RAM playback, the current test.wav deferral/binding IDs, temporary
+  fixture gain, its user-confirmed listening balance and remaining hardware/listening
+  validation. No streaming code or
+  buffer-size decision is authorized by this planning item.
+
+### Future output capabilities and memory review
+
+Priority and implementation order remain undecided; these are planning items only.
+
+* [ ] Review [shared output backends and SGTL5000 capabilities](TEENSY_AUDIO_ARCHITECTURE.md#shared-engine-and-output-backend-planning):
+  shared musical DSP versus codec output conditioning; no new routes/effects enabled.
+* [ ] Profile candidate PJRC components/graphs for copies, precision/headroom,
+  block/CPU maxima, update ownership and fixed latency versus jitter; preserve
+  sample-positioned scheduling and pending external MIDI/audio alignment checks.
+* [ ] Validate Audio Shield output/input/control and optional codec processing on
+  physical hardware; preserve current PT8211/USB confirmations and bridge-crackling
+  uncertainty without restarting bridge diagnostic development.
+* [ ] Review [0/8/16 MiB memory policies](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels):
+  bare-board eight-channel internal-RAM baseline; optional two-chip 8+8 MiB DSP and
+  Sample/cache reservations. Measure supported streaming workloads, placement,
+  cache/DMA constraints and shared FlexSPI2 contention; one-chip policy stays open.
+
+### Temporary development Sample level / fifth binding (2026-10-23)
+
+* [x] Apply fixture-only 0.8 attenuation to Sample01/test2.wav and Sample04/test3.wav;
+  prepare the same level/reference60 binding for Sample05/raw4/test.wav. Preserve
+  existing IDs, default pattern, PCM, Synth/MIDI levels and user configuration.
+* [ ] User-approved deferral: full test.wav preparation/playback needs storage;
+  retained file is 306970 frames,
+  613940 contiguous PCM bytes, exceeding either internal RAM bank; last probe has
+  no PSRAM. Fresh file/storage inspection remains pending. Resolve storage separately;
+  do not claim instrument05 is loaded or audibly validated on the current board.
+* [x] Validate gain/defaults/Synth isolation, IDs, checked SD binding, unavailable
+  views, replacement/retrigger, partitioning and existing tempo/mute behavior:
+  Windows 8/8 and Eoan 21/21; development firmware builds (exit0), ABI/package/
+  checksum/config-preserving install checks pass. No WAV/pattern/config changes.
+* [x] User confirmed uploading the updated development firmware and listening
+  (2026-10-23): Sample playback is quieter and the sine Synth is easier to hear
+  alongside it. This confirms the requested relative gain adjustment only; no
+  automated device checks were performed after the user's upload.
+* [x] Record user observation: selecting displayed instruments 05-99 currently
+  continues playing Sample04. Accepted temporarily without a fix; this does not
+  establish test.wav loading or valid bindings for those IDs.
+* [ ] Keep full test.wav playback, measured external/internal audio alignment,
+  handheld routing, bridge crackling and other unconfirmed checks open. Windows
+  WASP USB listening and separate H4MIDI/DIN playback are confirmed below.
+
+
+### Runtime config location correction (2026-10-23)
+
+* [x] Resolve actual config/config.ini beside the loaded executable, with no CWD,
+  legacy user-directory or example fallback. Keep logs/listening evidence at their
+  established independent locations. Preserve installed config bytes on update.
+* [x] Verify Windows 8/8 and Eoan 21/21 tests, actual ARM64 different-CWD
+  pt8211/h0 loading, missing/defaults/example+legacy exclusion, unchanged evidence
+  base, ABI/checksums and config-preserving installation. Both deliveries refreshed.
+* [ ] Manual console confirmation of existing pt8211/h0 config use remains pending;
+  preserve separate handheld/audio/MIDI-sync validation below.
+
+
+### Opt-in bridge listening correlation (2026-10-23)
+
+* [x] Implement Linux-only [bridge listening evidence](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch)
+  from confirmed BTX transport events, private control handoff, bounded asynchronous
+  received/accepted WAVs and frame/timing/recovery evidence. No automatic playback,
+  test fixture or 60-second stop; Pause/Continue remain separate segments.
+* [x] Verify Eoan ARM64 delivery: 21/21 tests, ABI/dependency checks, matching
+  build/package hashes, all payload checksums and config-preserving installation.
+  Windows shared tests: 8/8. Synthetic listening/launcher checks pass.
+* [x] Correct evidence record budget after retained physical counts exceeded the
+  old 150000/minute cap: 1000000 records, below 576 MiB logical files per segment;
+  focused 60-second short-read/partial-write regression retains 276062 records.
+* [ ] Physical handheld and externally recorded audio validation pending.
+* [ ] User manually STARTs and STOPs after roughly 60 seconds, using a stopwatch only
+  as a reminder. Later alignment uses audio content and PCM coordinates, never
+  stopwatch/ACK onset labels. Console crackling and external MIDI/audio-sync issues
+  remain unresolved; this mode supplies evidence, not a diagnosis or compensation.
+
+### Planned session storage and development fixtures
+
+Explicit SD development-pattern and basic working-session operations are now
+implemented; automatic startup/shutdown/configuration integration remains separate.
+
+* [x] **Published-state contract and bounded storage:** versioned, CRC-validated
+  temporary `BTDP`/`BTSS` files preserve active pattern cells, both OFF semantics
+  and published tempo; no compiler struct dumps or unpublished host/preview state.
+  See [format, replacement limits and tooling](FILE_FORMATS.md#working-session-separate-from-tunesprojects).
+* [x] **Explicit SD session SAVE/RESTORE:** `/BroTracker/current.btsession`, candidate
+  verification and previous-file rollback; existing SD ownership; stopped/settled
+  operations only. RESTORE uses normal audio-owner publication, stays stopped,
+  updates baseline/readback and preserves mute. No power-loss/atomicity promise.
+  Existing in-memory Restore/F4 and module/tune saving remain distinct.
+* [x] **Initial development provisioning/loading (historical names, now migrated):**
+  numbered patterns1/3, 32 rows/eight channels/155.00 BPM. MIDI uses supplied CH5 notes
+  and following-row arrival OFFs. No silent overwrite or boot reseed. Pattern2
+  Numbered migration preserves those files; patterns2/4 supersede the prior reserved-drum plan.
+* [x] **Physical development-file provisioning/readback (2026-10-24):** development
+  firmware uploaded after STOP/IDLE and CDC closure; tooling created theme/midi
+  files, then LOAD/readback matched every active cell and tempo 15500/15500.
+  Deployed Windows BTX with executable-relative the then-current descriptive selector for pattern3 loaded the SD
+  MIDI fixture and returned the matching stopped baseline; no START. AppData config
+  unchanged. No session SAVE/RESTORE or current.btsession replacement in setup.
+* [x] **Accepted pattern3 CH5 bass:** updated provisioning definition and the existing
+  MIDI SD file using explicit MIDI-only candidate/rollback replacement. Normal SEED
+  remains no-overwrite. Built/uploaded firmware after rediscovery/STOP/CDC closure;
+  LOAD/readback verified all 256 cells, complete OFF metadata, unchanged other 224
+  cells and tempo15500/15500. Stopped/CDC released; no START, theme/session/Sample/log
+  writes or host runtime/config changes. Bass fixture was readback-verified, not
+  auditioned during provisioning; separate Windows USB listening confirmation below.
+* [ ] **Remaining physical storage checks:** session SAVE/RESTORE/rollback, failure
+  recovery, directory case behavior and power-loss behavior remain unverified.
+  Prior throughput evidence does not establish durability. Handheld application
+  startup selection remains manual validation; packaging is not installation.
+* [ ] **Manual storage UI:** decide a shortcut distinct from in-memory Restore;
+  only explicit serial tooling is currently implemented. Keep final module/tune
+  formats and embedded Sample availability outside this bounded session format.
+* [ ] **Orderly exit and optional startup restore:** proposed `[session]`
+  `save_on_exit=yes` (default yes), `restore_on_startup=no` (default no).
+  These keys are **planned, not accepted by the current parser**. Normal Windows
+  window-close and supported handheld exits should request Teensy to save only its
+  published baseline, without implicit Publish or module/tune saving. Review explicit
+  STOP/save/acknowledgment/USB-close ordering, bounded wait and visible failure/exit
+  handling when Teensy or SD is unavailable. Power loss, USB removal, crashes and
+  forced termination cannot guarantee this save; this is not crash-safe recovery.
+  Explicit startup restore=yes waits for device/storage readiness, retains saved
+  tempo and takes precedence over development-fixture initialization on success.
+  Define failed/missing-session startup fallback separately; never silently overwrite
+  the stored session or START playback.
+* [x] **Configured startup editor/preview barrier:** lock note/instrument/OFF edits,
+  discard pre-load captured data and block automatic preview writes through LOAD,
+  authoritative baseline and working-state recovery. Failed/uncertain selection
+  stays blocked; STOP/exit remain usable. Real Tick+SyncEditor regressions cover
+  delayed replies, normal editing after clean initialization and reconnect draft retention
+  without SD reload. Host packages refreshed; no firmware/SD operation required.
+* [x] **Host SD startup fixture selection:** shared `[development] startup_pattern`
+  a bounded filename stem/optional .btdev, default exact none (empty32x8/12500). Explicit selection waits for setup/stopped storage
+  capability, loads SD (never regenerates), then validates baseline readback before
+  START is available. No automatic retry/reconnect replay or playback; failures
+  remain visible. Windows midi selection physically verified; ArkOS package prepared
+  for later manual check. Example updated; new projects remain 125.00 BPM, fixtures
+  155.00 BPM. Session startup/shutdown config remains a follow-up.
+
+
+* [x] **Numbered fixture definitions and clean initialization (retained):** patern1..4.btdev;
+  provisioning helpers use1..4; generic filename LOAD supersedes numeric selection. Pattern2 has exact CH3/CH4 raw60 Sample
+  triggers with instrument selection only at row0. Pattern3 unchanged. Pattern4
+  adds accepted bass, every note raw1, no CH5 OFFs. None explicitly applies/publishes
+  empty32x8/12500 through normal publication, no SD write/session restore. Barrier,
+  stopped behavior and no reconnect replay retained. Legacy descriptive paths are
+  migration-only with validation/equality before removal; no silent destination overwrite.
+* [x] **Numbered delivery/physical checks (2026-10-24):** preserved authoritative
+  working revision26/tempo locally without Publish/session SAVE before upload.
+  Migrated1/3 with exact-byte verification before old-source removal; created2/4.
+  Every numbered file and clean none matched all256 cells/OFFs/tempo by readback.
+  Final deployed Windows startup4 verified (also clean none), IDLE/BTX closed/CDC
+  released. Windows9/9, Eoan22/22, ABI/checksum/install checks and complete deliveries
+  refreshed. No START, session/Sample/log writes or handheld installation. New
+  fixtures were readback-verified, not auditioned; other manual checks remain open.
+
+* [x] **Filename-based startup/load correction:** normal config/LOAD accepts bounded
+  ASCII names (24-byte stem, optional .btdev;30 total), no numeric enum/alias or
+  inferred content/tempo. Only exact unquoted none is clean125; none.btdev is a
+  real file. No quotes, separators, traversal, invalid dots or silent truncation.
+  Provisioning may keep numbered definitions. Existing SD fixtures unchanged.
+* [x] **Filename delivery/readback (2026-10-24):** Windows package (9/9 tests) and
+  Eoan ARM64 delivery (22/22, ABI/checksums/config-preserving install) refreshed.
+  Uploaded development firmware; existing patern4 and patern4.btdev each matched
+  all256 cells/OFFs and applied/published15500 by device readback. Deployed Windows
+  config=patern4 completed baseline/editor recovery. Stopped, BTX/CDC closed; no
+  fixture/session writes or handheld installation. Physical none.btdev and new
+  arbitrary-name files were not created; those semantics have native coverage.
+
+### MIDI lifecycle and session follow-up
+
+* [x] Guard MIDI submission against USB-generation changes; regression coverage
+  models queue refusal, quarantine, cleanup and explicit recovery. Hardware IRQ
+  exclusion remains inspection-based; see [MIDI lifecycle](MIDI_FOUNDATION.md#usb-lifecycle-review-2026-10-23).
+* [ ] Design explicit boot/session identity: an undetected reboot without a
+  connection boundary cannot reliably establish a new protocol session. Retain
+  disconnect/renegotiation as the supported boundary; no protocol change yet.
+
+### Header scale and documented host configuration (2026-10-23)
+
+* [x] Double channel-number bitmap scale exactly 2x in existing headers, retain thin
+  square mute cross with scaled-glyph cuts and orange selection outline.
+* [x] Add shared startup [display] row_numbering=d1/d0/h1/h0; keep d1 fallback,
+  bounded invalid-value warning and presentation-only semantics.
+* [x] Inventory/document every supported INI key and alias in the semicolon-commented
+  example; preserve debug/5 example preferences, built-in basic/0 and bridge route.
+  Record contributor requirement to update example with every INI option change.
+* [x] Focused rendering/config/input coverage passes with Windows8/8 and Eoan
+  ARM6420/20; production previews generated/inspected. Windows -EmptyWindowTitle
+  package built; complete ARM64 delivery refreshed with ABI/checksum/Git-visibility/
+  clean-install/upgrade/user-config-preservation checks, including custom h0.
+* [x] User confirms Windows mouse mute, header navigation and enlarged numbers.
+* [ ] Keyboard mute confirmation, example-config review, physical handheld checks and
+  configured row labels pending. Severe console crackling unresolved; bridge
+  diagnostics paused. Windows/MIDI-OX/WASP USB playback/listening is accepted;
+  Windows H4MIDI/DIN playback is separately confirmed below; exact offset/jitter/drift
+  and handheld routing remain unverified.
+
+### Session channel mute (2026-10-22)
+
+* [x] Implement [header navigation and session-only mute](CHANNEL_MUTE.md): confirmed
+  eight-channel device mask, bounded host coalescing/readback/reconnect, audio-owned
+  block-boundary event suppression, retained selections and targeted voice release.
+* [x] Add shared temporary crossed-digit artwork plus orange header selection;
+  preserve pattern geometry/beat colors, manual-input separation and MIDI failure isolation.
+* [x] Complete native Windows8/8, fresh GCC13 Release6/6 and Eoan ARM6420/20;
+  final host rejection/coalescing regression and square45-degree pixel checks pass.
+  Refresh complete ARM64 Git package with ABI/checksum/install/config-preservation
+  checks and Windows -EmptyWindowTitle package. Retain passed firmware/upload,
+  memory and bounded Teensy mute results; mask0, original155.00 pattern, stopped,
+  serial closed.
+* [ ] Remaining Windows/handheld mute UX and listening cases pending; use the linked
+  checklist. Separate Windows USB MIDI playback/listening is confirmed below;
+  Windows H4MIDI/DIN playback is separately confirmed below; measured audible
+  alignment and handheld routing remain unverified.
+  Bridge diagnostics paused; no SSH/console deployment.
+
+### Development fixture tempo and physical confirmation (2026-10-22)
+
+* [x] User physically confirms on ArkOS that adding a MIDI instrument 02 note no
+  longer stops internal playback. No external MIDI equipment was connected.
+  Confirms failure isolation only, not external delivery, fault-free MIDI output,
+  external-device presence or audible synchronization.
+* [x] User exercised different instrument types within one tracker channel.
+* [ ] Future POC/experiment: investigate allowing an already sounding Sample/Synth
+  voice to continue when a MIDI note arrives on that tracker channel. Exploration
+  only; no voice-policy change approved. Retain current monophonic replacement
+  and NOTE OFF semantics until separately reviewed.
+* [x] Set only the current development/test fixture to 155.00 BPM for the existing
+  test2.wav/test3.wav workload; align firmware, dummy-tune/preview metadata and
+  hardware helpers. New projects retain exactly 125.00 BPM. WAV data, pitch,
+  sample rate and tempo-stretching behavior are unchanged.
+* [x] Validate fixture/default/publication tests: Windows `-EmptyWindowTitle` 8/8,
+  Eoan ARM64 20/20 plus complete package/ABI/checksum/install checks. Build/upload
+  dev firmware to discovered Teensy 17681760 / COM3; bounded tempo/publication,
+  MIDI capture and Synth helpers pass. Initial/final applied and published tempo
+  verified 155.00; original fixture restored, playback stopped, handles closed.
+* [ ] External MIDI equipment/playback and measured combined-audio alignment
+  remain pending. Severe crackling remains unresolved; bridge diagnostics paused.
+
+### MIDI output failure isolation (2026-10-22)
+
+* [x] Record the failed physical ArkOS case: MIDI 02 on tracker channel 3 stops
+  playback; removing the note does not recover, USB reconnect does. BTX responsive.
+  Supplied log: CONTINUED then 410 ms later fault=2/code=21/alloc=0; later preview
+  applies but ERROR persists; ALSA zero XRUNs/discards. Initiating MIDI reason absent.
+* [x] Isolate MIDI faults from core/audio transport; discard stale software/DMA
+  work, retain targeted cleanup ownership and first initiating reason, expose
+  separate bounded MIDI health and allow internal playback with MIDI quarantined.
+* [x] Define safe MIDI recovery: STOP, completed USB cancellation/cleanup, then
+  explicit START from stopped. Retain acknowledged channel setup/restart rules.
+* [x] Validate native DMA-stall/mixed-PCM isolation, deadlines/capacity/disconnect,
+  first-reason retention, partial cleanup failure and explicit recovery. Windows
+  `-EmptyWindowTitle`: 8/8 suites; clean GCC 13 Release CI: 6/6; Eoan ARM64: 20/20,
+  ABI/package/checksum/install and persistent user-config preservation checks pass.
+* [x] Build all eight affected firmware variants (trace cache failure passes on
+  sequential retry); upload final dev image to discovered Teensy 17681760 / COM3.
+  Windows no-WinMM-consumer run observes completion-stall reason 8 while mixed
+  playback advances ticks 85..2268. Consumer appearance emits no stale NOTE ON;
+  STOP cleanup completes, START emits a fresh note. Original pattern restored,
+  playback stopped, owned serial/MIDI handles closed. This is not an ArkOS trigger
+  diagnosis or external audio measurement. Refresh the complete ARM64 Git package.
+* [x] User physically confirms adding MIDI 02 no longer stops internal playback
+  on ArkOS, with no external MIDI equipment connected (see bounded claim above).
+* [ ] Other ArkOS isolation/recovery cases remain unconfirmed;
+  record the reported MIDI reason. Do not infer the 40 ms watchdog or absent
+  external equipment was the original trigger. See [repair design](MIDI_FOUNDATION.md).
+* [ ] External MIDI playback and measured internal/external audible alignment remain
+  unverified. Severe console crackling remains unresolved; diagnostics stay paused.
+
+### Pattern beat readability (2026-10-22)
+
+* [x] Use the shared beat-row predicate across all eight note/instrument columns:
+  full-white beat notes, dimmer neutral ordinary notes, subdued empty fields and
+  corresponding purple instrument levels. Preserve geometry and semantic indicators.
+* [x] Add focused pixel coverage for populated/empty fields, playback and selection;
+  generate and inspect a representative 640x480 preview with several beats.
+* [x] Windows `-EmptyWindowTitle` build: all eight suites pass. Refresh the complete
+  Eoan ARM64 Git package with `prepare-package.sh`: all 20 suites, ABI, checksums,
+  clean-install/upgrade and persistent user-config preservation checks pass.
+* [x] Update BMP preview tooling to use the production renderer and real editor
+  selection: orange outline, no obsolete selection fill, an empty channel and a
+  three-cell sparse channel. Generate/inspect 640x480 output in ignored build storage.
+* [x] User visually approved the actual Windows BTX beat-readability changes.
+* [ ] Handheld visual approval remains pending.
+* [ ] User reports severe audible crackling on the console; cause unresolved.
+  No audio changes or diagnostic development in this visual task. Bridge diagnostics
+  remain paused. Keep external MIDI/combined-audio measurements separately pending.
+
+### MIDI instrument foundation (2026-10-22)
+
+* [x] Implement [instrument 02 USB MIDI foundation](MIDI_FOUNDATION.md): shared
+  sample-targeted engine events, bounded nonblocking timer dispatch, raw pitch,
+  velocity 100, monophonic tracker ownership and explicit duplicate-note limits.
+* [x] Add shared config channel resolution, capability-gated acknowledged setup,
+  idempotent reconnect and restart-required channel changes; retain old firmware.
+* [x] Add native timing/ownership/deadline/transport/protocol coverage and bounded
+  Teensy USB MIDI capture. See the linked foundation for actual validation.
+* [x] User manual confirmation (2026-10-24): Windows BTX -> Teensy USB MIDI ->
+  MIDI-OX -> WASP DELUXE USB plays successfully. MIDI-OX routes Teensy directly
+  to WASP; Event Port disconnected. Without OFF the note stays held; OFF releases
+  it and WASP finishes its envelope tail, accepted by the user. No objectionable
+  timing difference heard versus internal Samples/Synth; user satisfied with this
+  topology. This is manual listening, not automated or measured synchronization.
+  See [confirmed route and limits](MIDI_FOUNDATION.md#user-confirmed-windows-usb-route-2026-10-24).
+* [x] User manual H4MIDI/DIN confirmation (2026-10-24): Windows BTX controls
+  Teensy; MIDI-OX routes Teensy MIDI/Audio directly to H4MIDI USB-C client output,
+  DIN OUT1 -> separately powered WASP DIN IN (WASP USB disconnected), channel 12.
+  Separate results: direct front PC ports, no H4MIDI external supply: WORKS;
+  both devices on front-connected externally powered Hub B, no H4MIDI supply: WORKS;
+  same hub unpowered, H4MIDI separately powered: WORKS; neither externally powered:
+  FAILS, with HxMIDI Tools/MIDI-OX hangs during attempts. User concludes power
+  availability caused this shared-hub failure: **do not use that setup with neither
+  externally powered**. Either power arrangement worked; no electrical measurement
+  or universal hub requirement is claimed. See the [routing matrix and reference](MIDI_FOUNDATION.md#user-confirmed-windows-h4mididin-routes-2026-10-24).
+  These are user playback confirmations, not automated or long-term stability tests;
+  no DIN timing/listening acceptance is inferred from the separate pure-USB result.
+* [ ] Verify handheld routing and H4MIDI OUT2 if needed. Earlier automated capture
+  lacked a CME output/external audio; subsequent user playback results above are
+  separate evidence. Exact offset/jitter/drift remain unmeasured for both routes.
+* [ ] Measure simultaneous internal/external audio on two recording channels;
+  separate constant offset from jitter and patch attack, state topology and
+  agree tolerance before declaring audible synchronization verified.
+* [ ] Review output compensation separately only if measurements justify it;
+  assess MIDI lookahead versus internal audio delay and live-edit/input latency.
+* [ ] Retain remaining unconfirmed parent-branch physical handheld validations below.
+  Bridge diagnostics remain paused; no SSH or handheld deployment in this milestone.
+
 ### Beat-row cursor navigation (2026-10-22)
 
 * [x] Add shared highlighted-row destination logic and grid constants (origin 0,
@@ -19,12 +354,12 @@ Items may be added during development to record agreed next steps or work that n
   Preserve Shift+Tab, L1 editing and R1 Left/Right tempo controls.
 * [x] Windows package with `-EmptyWindowTitle`: all eight suites pass. Existing
   Eoan ARM64 application build: all seven suites and ABI/dependency checks pass.
-  See [actual validation and focused diff](../build/beat-navigation/validation.md).
 * [x] User confirmed Windows Shift+Up/Down beat-row navigation works as requested.
-* [ ] Manually verify physical handheld beat-navigation chords:
-  adjacent/strict beat destinations, boundary clamps, hold/release and modifier
-  changes without ordinary navigation leakage or data edits. Handheld validation
-  remains pending; earlier tempo/Synth validation records are unchanged.
+* [x] User confirms handheld R1+Up/Down beat navigation works during playback
+  and the supplied handheld control test passed (2026-10-22).
+* [ ] Unreported individual edge cases remain unconfirmed: strict destinations,
+  boundary clamps, hold/release and modifier transitions without navigation leakage
+  or data edits. Do not infer these separately from the overall control-test pass.
 * [ ] Review a consistent directional/modifier scheme for beat and channel
   navigation together with the final keyboard shortcut mapping. Observed workflow
   issue: Shift+Up/Down is useful for sequencer beat navigation and Tab/Shift+Tab
@@ -35,8 +370,8 @@ Items may be added during development to record agreed next steps or work that n
 ### Live tempo control (2026-10-21)
 
 * [x] Implement [session-only live tempo control](LIVE_TEMPO_CONTROL.md): integer
-  hundredths, 125.00 development default, 0.05 taps, 32.00-300.00 clamp and integer
-  one-decimal display rounding. Retain intentional fractional test fixtures.
+  hundredths, 125.00 new-project default (development fixture now 155.00), 0.05 taps,
+  32.00-300.00 clamp and integer one-decimal display rounding. Retain intentional fractional test fixtures.
 * [x] Add keypad-only Windows +/- and consumed R1+Left/Right handheld controls,
   shared controller/raw handling and bounded application repeat/acceleration.
 * [x] Anchor playback changes at the next unconsumed row boundary, preserving
@@ -52,20 +387,21 @@ Items may be added during development to record agreed next steps or work that n
   17681760. Bounded physical checks passed live/stopped/paused tempo, publication,
   readback, Restore and reconnect/transport retention; 47 playing telemetry updates
   advanced from tick 2 to 1855. Final applied/published tempo 125.00, playback
-  stopped, serial closed. See [actual validation evidence](../build/live-tempo/validation.md).
+  stopped, serial closed.
 * [x] Build/check the ARM64 application in the existing Eoan workflow: all seven
   suites and application ABI/dependency checks pass. No SSH or handheld deployment.
 * [x] User confirmed all supplied Windows manual tempo checks: taps/rounding,
   hold/release acceleration, live changes without restart, unchanged Synth pitch,
   Pause/Continue, STOP/START, Publish/Restore and reconnect retention.
 * [ ] Teensy reboot/default-tempo restoration remains unconfirmed.
-* [ ] Physical handheld control/UX checks remain pending; ARM64 builds are not a
-  handheld pass.
+* [x] User confirms handheld R1+Left/Right tempo changes work smoothly during
+  playback and the supplied handheld control test passed (2026-10-22).
+* [ ] Other unreported handheld cases remain unconfirmed; the above confirmation
+  does not establish reboot restoration, Synth/audio quality or MIDI alignment.
 * [x] Replace the BPM pending asterisk with the editing frame orange on the
   number only; preserve the existing pending indication lifecycle, with white
   otherwise and no additional timer. User confirmed the Windows BPM pending
   color indication works exactly as requested.
-
 
 
 * [ ] Review the proposed [UI screen map and staged direction](UI_SCREEN_MAP.md),
@@ -137,7 +473,7 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   on COM3 / Teensy 17681760 (2026-10-19): selection/default/rejection, START/STOP,
   telemetry, idle reconnect and playing reconnect (ticks 1099 -> 2956). Leave stopped.
   Preserve successful and failed test-script evidence under build/activation-review.
-* [x] Export persistent SDL config path through ArkOS/dArkOS launchers; ship only an
+* [x] Use executable-relative config/config.ini on Windows/ArkOS/dArkOS; ship only an
   example, never overwrite user settings. Shared parsing/negotiation and isolated
   installer/launcher preservation checks cover bridge and pt8211 preferences.
 * [x] User hardware confirmation (2026-10-19): PT8211 is physically attached to
@@ -150,7 +486,7 @@ output selection documented in `TEENSY_AUDIO_ARCHITECTURE.md`.
   This validates the new selection mechanism separately from the isolated smoke
   test. USB_BRIDGE remains the development default.
 * [x] Locally cross-build the ArkOS Eoan ARM64 host using the existing QEMU root;
-  all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged SDL paths
+  all 10 Eoan tests and ABI checks pass. Run actual AArch64 headless bridge/pt8211 config loads with logged executable-relative paths
   and byte-preserved settings. This is build-root validation, not a handheld pass.
 * [ ] Physically validate ArkOS INI path, bridge playback, controls and reconnect
   when a handheld is available. No ArkOS deployment/test performed in this task.
@@ -1189,8 +1525,8 @@ design remains unchanged.
 * [ ] Evaluate the bright edited-channel background as a separate design option;
   current live mode retains only the orange field-edit border.
 
-* [ ] Add row-numbering display options for zero-based and hexadecimal views;
-  current `d1` is decimal one-based. No mode switching in the current change.
+* [x] Add startup INI row-numbering options d1/d0/h1/h0; labels and indicator only.
+  No runtime selector or persistence; default remains decimal one-based d1.
 
 * [x] Implement one-based user-visible instrument numbering: raw IDs 0/1 display
   `01`/`02`, 0xFF stays `--`, and numbers 100..255 expand to three digits without
@@ -1288,7 +1624,6 @@ design remains unchanged.
   oscillator/envelope/filter controls. No editor is implemented by this step.
 * [ ] Separate later modular Synth2 work; MIDI playback/backend remains unimplemented.
 
-
 * [ ] Move the current `AudioTestSource` test path from `firmware/teensy/BroTracker/` to `tools/teensy_diagnostics/`.
 
   * Keep it available as a Teensy audio hardware verification tool.
@@ -1302,10 +1637,10 @@ design remains unchanged.
   following, edit-cursor independence and usability on Windows and the ArkOS
   handheld. The existing page/region navigation decision remains in effect pending
   this comparison; no scrolling implementation is requested now.
-* [ ] Render completely empty cells/rows at lower brightness, distinguishing them
-  from notes and non-note events such as NOTE_OFF or instrument-only updates.
-  Preserve readable playback highlighting and the separate edit cursor; no visual
-  implementation is included now.
+* [x] Render empty note/instrument fields at lower brightness, with beat/normal
+  levels and populated NOTE_OFF/instrument-only fields kept distinct. Playback
+  highlighting and the separate edit cursor are preserved. Actual Windows BTX changes are visually
+  approved by the user; handheld approval remains pending. See Pattern beat readability above.
 
 ### PCM Playback Validation
 
@@ -1337,7 +1672,6 @@ design remains unchanged.
   edits/preview/publication, native-rate and variable-rate paths; inspect linker
   RAM/stack headroom and remeasure callback cost. Prior 16-row hardware records do
   not validate this change. Add paging/scrolling before exposing all 64 rows in UI.
-
 
 Follow [D0056](ARCHITECTURE_DECISIONS.md#d0056--pattern-length-and-playback-flow):
 stored pattern length, playback flow and visible row count are separate.
@@ -1393,7 +1727,7 @@ to 32 active rows. Single-pattern looping remains unchanged.
 
 * [x] Implement optional bounded schema-1 `config.ini` parsing and Windows/ArkOS
   startup loading with built-ins (new-pattern length 32), transactional validation,
-  predictable SDL per-user paths, diagnostics and `--safe-config` bypass. See
+  executable-relative config paths, independent evidence storage, diagnostics and `--safe-config` bypass. See
   [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
   and `config/config.ini.example`. Host tests cover lengths, malformed/duplicate
   settings, size limits, rollback, missing/unreadable files and safe recovery.

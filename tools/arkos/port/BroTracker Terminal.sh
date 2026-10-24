@@ -9,6 +9,7 @@ exec >> "$log" 2>&1
 printf 'Launcher: starting BroTracker Terminal (BTX) and audio\n'
 ui_pid=
 audio_pid=
+listen_temp=
 cleanup() {
     result=$1
     set +e
@@ -22,6 +23,9 @@ cleanup() {
     if [[ -n "$ui_pid" ]]; then
         kill -TERM "$ui_pid" 2>/dev/null || true
         wait "$ui_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$listen_temp" ]]; then
+        rm -f -- "$listen_temp/control"; rmdir -- "$listen_temp" 2>/dev/null || true
     fi
     printf 'Launcher: children reaped; UI/launcher status=%s\n' "$result"
     if type pm_finish >/dev/null 2>&1; then pm_finish || true; fi
@@ -199,11 +203,26 @@ trap 'cleanup 143' TERM
 trap 'cleanup 129' HUP
 launcher_pid=$BASHPID
 
-# Resolve configuration in the runtime user's persistent SDL preference tree.
-# Never copy a packaged example over user settings. Log the launch-time candidate;
-# the application logs the authoritative SDL-resolved path after startup.
-export XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
-printf 'Launcher: persistent config candidate=%s/BroTracker/BroTracker Terminal/config.ini\n' "$XDG_DATA_HOME"
+# Config is executable-relative. XDG above serves PortMaster/evidence only.
+# BTX logs the authoritative absolute path and load status; no config is created.
+printf 'Launcher: executable-relative config=%s/config/config.ini\n' "$app_dir"
+# The shared parser decides opt-in. Never inherit a stale private control mapping.
+unset BROTRACKER_LISTEN_CONTROL BROTRACKER_LISTEN_BASE
+# No serial or ALSA access by this query.
+if audible_base=$(./BroTrackerTerminal --bridge-audible-config); then
+    ports_storage=$(cd -- "$launcher_dir" && pwd -P)
+    if [[ "$audible_base" == /* && "$audible_base" != "$ports_storage" && "$audible_base" != "$ports_storage/"* ]] && mkdir -p -- "$audible_base"; then
+        listen_temp=$(mktemp -d /tmp/brotracker-listen.XXXXXXXX)
+        if [[ -n "$listen_temp" ]] && (umask 077; truncate -s 4096 "$listen_temp/control"); then
+            export BROTRACKER_LISTEN_CONTROL="$listen_temp/control" BROTRACKER_LISTEN_BASE="$audible_base"
+            printf 'Listening evidence base: %s\n' "$audible_base"
+        else
+            printf 'Listening setup failed; normal playback remains available\n'
+        fi
+    else
+        printf 'Listening evidence directory unavailable; normal playback remains available\n'
+    fi
+fi
 # Direct UI runs keep their normal fresh log; only this launch appends.
 BROTRACKER_APPEND_LOG=1 ./BroTrackerTerminal &
 ui_pid=$!

@@ -8,6 +8,8 @@ $emptyTitle = if ($EmptyWindowTitle) { "ON" } else { "OFF" }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $build = [IO.Path]::GetFullPath((Join-Path $repo $BuildDirectory))
 $package = Join-Path $repo "deploy/windows"
+$userConfig = Join-Path $package "config/config.ini"
+$originalConfigHash = if (Test-Path -LiteralPath $userConfig -PathType Leaf) { (Get-FileHash -LiteralPath $userConfig -Algorithm SHA256).Hash } else { $null }
 $env:PATH = "$ToolchainBin;$env:PATH"
 function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Command failed: $LASTEXITCODE" } }
 & "$ToolchainBin/cmake.exe" -S $repo -B $build -G "MinGW Makefiles" `
@@ -49,7 +51,7 @@ while ($queue.Count) {
         $queue.Enqueue((Join-Path $package $dll))
     }
 }
-foreach ($asset in @("assets/dummy_my_tune.json", "assets/fonts/brotracker.btf", "assets/fonts/brotracker.bfm")) {
+foreach ($asset in @("config/config.ini.example", "assets/dummy_my_tune.json", "assets/fonts/brotracker.btf", "assets/fonts/brotracker.bfm")) {
     $destination = Join-Path $package $asset
     New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo $asset) -Destination $destination
@@ -58,6 +60,10 @@ Copy-Item -LiteralPath "$repo/LICENSE" -Destination $package
 New-Item -ItemType Directory -Force "$package/licenses" | Out-Null
 foreach ($license in @("SDL2", "gcc-libs", "libwinpthread")) {
     Copy-Item -LiteralPath "$ToolchainBin/../share/licenses/$license" -Destination "$package/licenses" -Recurse -Force
+}
+if ($originalConfigHash -and (!(Test-Path -LiteralPath $userConfig -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $userConfig -Algorithm SHA256).Hash -ne $originalConfigHash)) {
+    throw "Packaging changed the actual user config: $userConfig"
 }
 Write-Host "Runnable package: $package/BroTrackerTerminal.exe"
 Get-FileHash -Algorithm SHA256 "$package/BroTrackerTerminal.exe"

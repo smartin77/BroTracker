@@ -12,6 +12,7 @@ diagnostic_launcher="$ports/BroTracker Diagnostics.sh"
 legacy_launcher="$ports/BroTracker.sh"
 obsolete="$app/BroTrackerArkOSUI"
 files=(
+    SHA256SUMS
     BroTrackerTerminal
     BroTrackerAlsaBridge
     launch.sh
@@ -46,6 +47,7 @@ fi
 for file in "${files[@]}"; do
     [[ -f "$package/$file" ]] || fail "Package file is missing: $file"
 done
+(cd "$package" && sha256sum --check --status SHA256SUMS) || fail "Package checksum verification failed; update the complete checkout/package"
 for dir in "$app" "$app/assets" "$app/assets/fonts" "$app/config"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
@@ -85,4 +87,5 @@ rm -f -- "$obsolete"
 
 echo "Installed BroTracker Terminal (BTX) in $app"
 echo "Ports launcher: $port_launcher"
+echo "Runtime config: $app/config/config.ini (missing uses built-in defaults; never created or overwritten)."
 echo "Config example only: $app/config/config.ini.example; existing user config is never overwritten."

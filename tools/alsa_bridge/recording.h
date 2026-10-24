@@ -42,6 +42,13 @@ inline void Event(const char* dir, const char* event, const std::string& details
     else std::perror("Timeline lock");
     close(fd);
 }
+inline std::array<unsigned char,44> PcmHeader(uint32_t written) {
+        std::array<unsigned char,44> h{};
+        auto put=[&](int i,uint32_t v,int n){for(int k=0;k<n;++k)h[i+k]=static_cast<unsigned char>(v>>(k*8));};
+        std::memcpy(h.data(),"RIFF",4);put(4,36+written,4);std::memcpy(h.data()+8,"WAVEfmt ",8);
+        put(16,16,4);put(20,1,2);put(22,2,2);put(24,44100,4);put(28,176400,4);put(32,4,2);put(34,16,2);
+        std::memcpy(h.data()+36,"data",4);put(40,written,4);return h;
+    }
 constexpr size_t kCapacity=2*1024*1024;
 constexpr uint64_t kFrames=7938000;
 static_assert(kFrames == 180ULL * 44100, "180-second recording cap");
@@ -63,13 +70,7 @@ class Recorder {
     const size_t capacity;
     ssize_t (*write_fn)(int,const void*,size_t);
     void (*empty_queue_hook)();
-    std::array<unsigned char,44> Header() {
-        std::array<unsigned char,44> h{};
-        auto put=[&](int i,uint32_t v,int n){for(int k=0;k<n;++k)h[i+k]=static_cast<unsigned char>(v>>(k*8));};
-        std::memcpy(h.data(),"RIFF",4);put(4,36+written,4);std::memcpy(h.data()+8,"WAVEfmt ",8);
-        put(16,16,4);put(20,1,2);put(22,2,2);put(24,44100,4);put(28,176400,4);put(32,4,2);put(34,16,2);
-        std::memcpy(h.data()+36,"data",4);put(40,written,4);return h;
-    }
+    std::array<unsigned char,44> Header() { return PcmHeader(static_cast<uint32_t>(written)); }
     void WriteNotes() {
         unsigned out=note_out.load(std::memory_order_relaxed), in=note_in.load(std::memory_order_acquire);
         while(out!=in) { const auto& n=notes[out%notes.size()]; Event(directory,n.event,n.text,n.stamp); ++out; note_out.store(out,std::memory_order_release); }

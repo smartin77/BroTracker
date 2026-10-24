@@ -483,10 +483,10 @@ on **2026-10-10** after the mapping correction. Both Enter keys share modifier
 handling (Ctrl/Alt/GUI suppress the action) and ignore OS-repeat events.
 ArkOS and all outstanding hardware timing/performance checks remain open.
 
-The row-numbering header is `d1` in device and standalone modes: decimal,
-one-based displayed rows (01..16 for the fixture), with zero-based internal
-indices. Planned zero-based and hexadecimal display options remain deferred;
-no numbering-mode switch is implemented.
+Row-numbering defaults to `d1` (decimal one-based). Host startup config now accepts
+`[display] row_numbering=d1/d0/h1/h0`, including decimal/hex zero-based labels and
+an accurate mode indicator. Standalone previews default to d1. This changes only
+presentation; internal indices remain zero-based. No runtime mode selector.
 
 Instrument numbers are one-based decimal: raw ID 0 displays as `01`, raw ID 1
 as `02`; `00` is never an editable/displayed instrument number. Empty remains
@@ -1702,8 +1702,8 @@ pending; linear interpolation aliasing and pitch/duration limitations still appl
 
 ### Optional host configuration and recovery
 
-Windows and ArkOS load an optional `config.ini` from SDL's per-user preference
-path, never the launch directory. See [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
+Windows and ArkOS load optional `config/config.ini` beside the installed executable,
+never from the launch working directory or the former per-user preference location. See [D0057](ARCHITECTURE_DECISIONS.md#d0057--host-configuration-and-safe-recovery)
 for exact paths and grammar. Copy `config/config.ini.example` manually if needed.
 Schema 1 exposes only `new_pattern_length` (16/32/64, default 32) for future
 creation; current device patterns/playback and input controls are unchanged.

@@ -40,10 +40,14 @@ namespace
     constexpr Color row_number_bright           { 130, 130, 196 };
     constexpr Color row_marker                  { 192, 192, 192 };
     constexpr Color channel_number              { 130, 130, 196 };
-    constexpr Color note_color_default          { 255, 255, 255 };
-    constexpr Color instrument_number           { 130, 130, 196 };
-    constexpr Color empty_note                  { 192, 192, 192 };
-    constexpr Color empty_instrument            { 78,  78,  118 };
+    constexpr Color note_normal                 { 208, 208, 208 };
+    constexpr Color note_bright                 { 255, 255, 255 };
+    constexpr Color instrument_normal           { 130, 130, 196 };
+    constexpr Color instrument_bright           { 174, 174, 232 };
+    constexpr Color empty_note_normal           { 104, 104, 104 };
+    constexpr Color empty_note_bright           { 152, 152, 152 };
+    constexpr Color empty_instrument_normal     { 66,  66,  100 };
+    constexpr Color empty_instrument_bright     { 104, 104, 156 };
     constexpr Color current_position_note       { 16,  16,  16  };
     constexpr Color current_position_instrument { 78,  78,  118 };
     constexpr Color current_event_edit_border   { 134, 32,  32  };
@@ -265,14 +269,14 @@ namespace
     }
 
     void DrawRowHeader(
-        Framebuffer& framebuffer, int channels = layout.channel_count)
+        Framebuffer& framebuffer, BroTracker::RowNumbering numbering, int channels = layout.channel_count)
     {
         DrawCenteredFixedText(
             framebuffer,
             0,
             layout.row_number_width,
             38,
-            "d1",
+            BroTracker::RowNumberingName(numbering),
             row_header_bright);
 
         // d1 header: right and bottom frame
@@ -298,18 +302,15 @@ namespace
                 layout.channel_start_x +
                 channel * layout.channel_width;
 
-            DrawCenteredFixedText(
-                framebuffer,
-                cell_x,
-                layout.channel_width,
-                38,
-                channel < channels ? std::to_string(channel + 1) : "--",
-                channel_number);
+            if(channel < channels) DrawDoubleFixedGlyph(framebuffer,
+                cell_x+PatternGrid::header_glyph_x,PatternGrid::header_glyph_y,
+                char('1'+channel),channel_number);
+            else DrawCenteredFixedText(framebuffer,cell_x,layout.channel_width,38,"--",channel_number);
         }
     }
 
     void DrawRowNumbers(
-        Framebuffer& framebuffer, int rows = layout.visible_rows)
+        Framebuffer& framebuffer, BroTracker::RowNumbering numbering, int rows = layout.visible_rows)
     {
         for (int row = 0;
             row < rows;
@@ -320,13 +321,7 @@ namespace
                 row * layout.row_height +
                 2;
 
-            std::string row_text =
-                std::to_string(row + 1);
-
-            if (row_text.length() < 2)
-            {
-                row_text.insert(0, "0");
-            }
+            const auto row_text=BroTracker::FormatRowNumber(row,numbering);
 
             const bool is_highlighted_position =
                 PatternGrid::IsBeatRow(static_cast<unsigned>(row));
@@ -414,23 +409,15 @@ namespace
                     !display.device_mode && channel == current_pattern_channel &&
                     row == current_pattern_row - 1;
 
-                const bool is_empty_event =
-                    note_value == NOTE_EMPTY &&
-                    instrument_value == 0xFF;
-
-                const Color note_color =
-                    is_empty_event
-                        ? empty_note
-                        : is_current_position
-                            ? current_position_note
-                            : note_color_default;
-
-                const Color instrument_color =
-                    is_empty_event
-                        ? empty_instrument
-                        : is_current_position
-                            ? current_position_instrument
-                            : instrument_number;
+                const bool beat = PatternGrid::IsBeatRow(static_cast<unsigned>(row));
+                // Base rhythm colors are per field; a populated neighbor must
+                // not promote an empty placeholder. Inverse selection wins.
+                const Color note_color = is_current_position ? current_position_note
+                    : note_value == NOTE_EMPTY ? (beat ? empty_note_bright : empty_note_normal)
+                    : (beat ? note_bright : note_normal);
+                const Color instrument_color = is_current_position ? current_position_instrument
+                    : instrument_value == 0xFF && note_value != NOTE_OFF ? (beat ? empty_instrument_bright : empty_instrument_normal)
+                    : (beat ? instrument_bright : instrument_normal);
 
                 DrawFixedText(
                     framebuffer,
@@ -584,7 +571,7 @@ namespace
     void DrawPattern(
         Framebuffer& framebuffer,
         const Pattern& pattern,
-        const PatternDisplayState& display, const LocalPatternEditor* editor)
+        const PatternDisplayState& display, const LocalPatternEditor* editor, unsigned mute_mask, BroTracker::RowNumbering numbering)
     {
         DrawPatternFrame(framebuffer);
 
@@ -605,14 +592,32 @@ namespace
                 "\xC2\xA6", row_marker);
         }
 
-        DrawRowHeader(framebuffer);
-        DrawRowNumbers(framebuffer);
+        DrawRowHeader(framebuffer,numbering);
+        DrawRowNumbers(framebuffer,numbering);
         DrawPatternChannels(
             framebuffer,
             pattern, display, editor);
+        for(unsigned channel=0;channel<display.channels;++channel) if(mute_mask & (1u<<channel)) {
+            const int left=layout.channel_start_x+channel*layout.channel_width;
+            // Square diagonals: equal X/Y steps, centered on the digit bitmap.
+            constexpr int half_length=PatternGrid::header_cross_half, center_y=PatternGrid::header_cross_y;
+            const int center_x=left+PatternGrid::header_cross_x;
+            for(int step=-half_length;step<=half_length;++step) {
+                for(int direction:{-1,1}) {
+                    const int x=center_x+step,y=center_y+direction*step;
+                    const bool glyph=DoubleFixedGlyphCovers(char('1'+channel),x-(left+PatternGrid::header_glyph_x),y-PatternGrid::header_glyph_y);
+                    framebuffer.SetPixel(x,y,glyph?background:row_header_bright);
+                }
+            }
+        }
         if (display.device_pattern && editor && editor->Ready())
         {
             const auto& cursor = editor->Cursor();
+            if(cursor.header) {
+                framebuffer.Rectangle(layout.channel_start_x+cursor.channel*layout.channel_width+2,31,
+                    layout.channel_width-4,22,editing_frame);
+                return;
+            }
             const int x = layout.channel_start_x + static_cast<int>(cursor.channel) * layout.channel_width +
                 (layout.channel_width - 36) / 2 + (cursor.field == EditField::Instrument ? 24 : 0);
             framebuffer.Rectangle(x - 2, layout.first_row_y + static_cast<int>(cursor.row) * layout.row_height,
@@ -814,7 +819,7 @@ static void RenderPatternScreen(
 
     DrawPattern(
         framebuffer,
-        pattern, display, editor);
+        pattern, display, editor, live && live->mute_mask?*live->mute_mask:0,host.row_numbering);
 
     if (!display.device_mode) DrawCurrentEventEdit(framebuffer);
 
@@ -836,6 +841,8 @@ static void RenderPatternScreen(
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
         if (!host.publication_status.empty()) info(host.publication_status, header_value);
         if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
+        if (!host.midi_status.empty()) info(host.midi_status, header_value);
+        if(live && !live->mute_status.empty()) info(live->mute_status,header_value);
         if (display.device_mode)
         {
             if(live->callback_performance && live->callback_performance->steady_callbacks && live->callback_performance->budget_cycles) {

@@ -78,6 +78,12 @@ The existing proposal is two 32-row pages for 64 rows, controlled by the edit
 cursor, with off-page playback position visible rather than automatic playback
 page flips. Paging controls/policy remain pending, not implemented by this map.
 Highlight each quarter-note start every four rows regardless of row-number mode.
+The shared renderer now extends this foreground treatment across all eight channels:
+white beat notes, dimmer ordinary notes, purple instrument levels and independently
+dimmed empty fields. Existing selection/playback/edit priorities remain intact;
+no new background bands. See [palette and priorities](UI_UX_ARCHITECTURE.md).
+Implemented 2026-10-22; actual Windows BTX changes visually approved by the user.
+Handheld visual approval remains pending.
 
 ### 2. Event Detail
 
@@ -295,8 +301,9 @@ controls become actionable; this is not authorization to implement the features.
 - Resolve order repetition representation, transition/flow conflict rules, sequence
   end and sounding-note/OFF behavior before arrangement implementation. Define
   project dirty baselines, save/recovery transactions, sample sharing and undo
-  before persistence/destructive editors. Mute-time instrument-change policy
-  remains open in D0036.
+  before persistence/destructive editors. Mute-time instrument changes
+  now preserve actual selection by suppressing pattern updates; see D0036 and
+  [session channel mute](CHANNEL_MUTE.md).
 - Decide screen access placement beyond OPT/INS/MIX, final parameter ranges and
   display units, resource budgets, audio metering sources, export render scope and
   settings write/apply behavior as their backends mature. These questions do not

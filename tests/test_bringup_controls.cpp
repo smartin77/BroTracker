@@ -6,6 +6,7 @@
 struct FakeTransport : SerialTransport {
     bool online = true;
     bool hold_write = false;
+    unsigned write_limit=UINT32_MAX;
     std::string incoming, outgoing;
     bool Open(FILE*, const char*) override { return online; }
     void Close() override {}
@@ -14,7 +15,7 @@ struct FakeTransport : SerialTransport {
         unsigned count = std::min(size, static_cast<unsigned>(incoming.size()));
         std::memcpy(data, incoming.data(), count); incoming.erase(0, count); return count;
     }
-    int Write(const char* data, unsigned size) override { if (hold_write) return 0; outgoing.append(data, size); return size; }
+    int Write(const char* data, unsigned size) override { if (hold_write) return 0; size=std::min(size,write_limit); outgoing.append(data, size); return size; }
     const char* Error() const override { return "fake disconnect"; }
     void Expect(const char* value) { if(outgoing != value) std::fprintf(stderr,"expected [%s], received [%s]\n",value,outgoing.c_str()); CHECK(outgoing == value); outgoing.clear(); }
 };
@@ -34,6 +35,78 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;std::string events;
+          t.serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){*static_cast<std::string*>(context)+=std::string(event)+",";},&events);
+          t.Ready("BTTEST1 STATE IDLE\nBTPATTERN1 TRANSPORTCAP 1\n");events.clear();
+          CHECK(t.serial.Start());t.Send("BTTEST1 START\n");CHECK(events.empty());
+          t.Reply("BTTEST1 STARTED\n");CHECK(events=="START,");
+          CHECK(t.serial.Pause());t.Send("BTTEST1 PAUSE\n");t.Reply("BTTEST1 PAUSED\n");
+          CHECK(t.serial.Continue());t.Send("BTTEST1 CONTINUE\n");t.Reply("BTTEST1 CONTINUED\n");
+          CHECK(t.serial.Stop());t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");
+          CHECK(events=="START,PAUSE,CONTINUE,STOP,");
+          // Ignore unsolicited PAUSE replies; no fabricated recording transition.
+          t.Reply("BTTEST1 PAUSED\n");CHECK(events=="START,PAUSE,CONTINUE,STOP,");
+        }
+
+        { Test t;t.Ready("BTTEST1 STATE PLAYING\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
+          t.port->write_limit=3;CHECK(t.serial.ToggleChannelMute(0));
+          t.Tick();t.Tick();CHECK(!t.port->outgoing.empty());
+          t.Action(BringUpAction::Stop);
+          for(unsigned n=0;n<32;++n)t.Tick();
+          t.port->Expect("BTMUTE1 SET 1 1 1\nBTTEST1 STOP\n");
+        }
+
+        { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 0 1 0\n");
+          CHECK(t.serial.MuteAvailable());CHECK(t.serial.ToggleChannelMute(0));CHECK(t.serial.ToggleChannelMute(1));
+          CHECK(t.serial.PlaybackView(t.now)->mute_mask==0);t.Send("BTMUTE1 SET 1 1 3\n");
+          t.Reply("BTMUTE1 SUBMITTED 1 1\nBTMUTE1 APPLIED 1 1\nBTMUTE1 STATE 1 1 2 3\n");
+          CHECK(t.serial.PlaybackView(t.now)->mute_mask==3);CHECK(t.serial.ToggleChannelMute(7));
+          t.port->online=false;t.Tick();t.port->online=true;t.now+=1001;
+          t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+          t.Reply("BTTEST1 STATE IDLE\nBTMUTE1 CAP 1\nBTMUTE1 STATE 1 1 2 3\n");
+          t.Tick();t.port->Expect("");CHECK(t.serial.PlaybackView(t.now)->mute_mask==3);
+        }
+        { Test t;t.Ready("BTTEST1 STATE IDLE\n");CHECK(!t.serial.MuteAvailable());CHECK(!t.serial.ToggleChannelMute(0)); }
+        for(unsigned channel:{1u,12u,16u}) {
+            Test t; t.serial.SetMidiOutputChannel(channel);
+            t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            CHECK(!t.serial.Start()); CHECK(!t.serial.Playing());
+            const auto command="BTMIDI1 SET 1 "+std::to_string(channel)+"\n";
+            t.Tick(); t.port->Expect(command.c_str());
+            const auto ack="BTMIDI1 SELECTED 1 "+std::to_string(channel)+"\n";
+            t.Reply(ack.c_str()); CHECK(std::strstr(t.serial.MidiStatus(),"acknowledged"));
+            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing());
+            t.port->online=false; t.Tick(); t.port->online=true; t.now+=1001;
+            t.Tick(); t.port->Expect("BTTEST1 HELLO\n");
+            t.Reply("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            t.Tick(); t.port->Expect(command.c_str()); t.Reply(ack.c_str());
+            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing()); CHECK(t.serial.Start());
+        }
+        { Test t; t.Ready("BTTEST1 STATE PLAYING\nBTMIDI1 CAP 1\n");
+          t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply("BTMIDI1 SELECTED 1 12\n");
+          for(const auto output:{"BTMIDI1 OUTPUT 1 1 1 1 5\n", "BTMIDI1 OUTPUT 1 0 1 1 6\n"}) {
+              t.Reply(output); CHECK(t.serial.Playing());
+              CHECK(std::strstr(t.serial.MidiStatus(),"cleanup uncertain"));
+              CHECK(std::strstr(t.serial.Status(),"playing"));
+          }
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 0\n");
+          CHECK(std::strstr(t.serial.MidiStatus(),"external delivery unknown"));
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 99\n"); // Malformed status cannot erase last health.
+          CHECK(std::strstr(t.serial.MidiStatus(),"external delivery unknown"));
+          t.Reply("BTTEST1 STATE ERROR\n"); CHECK(!t.serial.Playing());
+          CHECK(std::strstr(t.serial.Status(),"playback ERROR"));
+        }
+        for(const auto response:{"BTMIDI1 ERROR 1 restart-required\n","BTMIDI1 ERROR 1 invalid-channel\n","BTMIDI1 SELECTED 1 11\n","BTTEST1 ERROR command\n"}) {
+            Test t; t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+            t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply(response);
+            CHECK(!t.serial.Start()); CHECK(std::strstr(t.serial.Status(),"MIDI setup failed"));
+            t.Tick(); t.port->Expect("");
+        }
+        { Test t; t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+          t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.now+=6001; t.Tick();
+          CHECK(!t.serial.Start()); CHECK(std::strstr(t.serial.Status(),"MIDI setup failed")); }
+        { Test t; t.Ready("BTTEST1 STATE IDLE\n"); CHECK(t.serial.Start());
+          CHECK(std::strstr(t.serial.MidiStatus(),"unsupported")); }
         for(auto choice : {BroTracker::AudioOutputChoice::Bridge,BroTracker::AudioOutputChoice::Pt8211}) {
             Test t; t.serial.SetAudioOutputPreference(choice);
             t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n");

@@ -885,7 +885,11 @@ This behaviour applies to all supported BroTracker instrument types and is not l
 
 Channel mute is not an audio mute and does not constitute a separate performance mode.
 
-The exact behaviour of instrument changes occurring in pattern data while the channel is muted remains open for further design evaluation.
+Session-mute decision (2026-10-22): pattern instrument changes are suppressed;
+the last actual pre-mute selection is retained. Unmute has no catch-up or automatic
+trigger. Entering mute explicitly releases the current voice; this is separate
+from a blanket renderer/gain mute and preserves the future manual-input path.
+See [session mute ordering, release and protocol](CHANNEL_MUTE.md).
 
 ## D0037 — Reusable Library Structure
 
@@ -971,7 +975,13 @@ The design shall separate storage access from realtime audio processing:
 - Longer samples are streamed from SD through bounded buffers.
 - Underruns must never stall the audio callback or scheduler and must be explicitly measurable.
 
-The initial implementation is a single-sample streaming proof-of-concept. Buffer size, underrun behaviour, multi-voice streaming, and final sample/voice architecture will be validated and decided incrementally based on measurements on Teensy 4.1.
+A single-sample streaming proof-of-concept is a possible milestone, not an assigned
+implementation order. Current priority and implementation order remain undecided;
+see the [future streaming outline](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
+Buffer sizes, underrun behaviour, supported multi-voice workloads and the final
+Sample/voice architecture require measured validation on Teensy 4.1. Baseline eight
+tracker channels must not require PSRAM; this does not establish arbitrary
+eight-stream production performance.
 
 The PJRC `AudioPlaySdWav` implementation is used as a reference for bounded SD streaming, but its blocking SD access from the audio update callback is not adopted for BroTracker.
 
@@ -1780,13 +1790,14 @@ Built-in defaults are always available: schema version 1 and new-pattern length
 future creation; it does not resize existing patterns, change the 16-row device
 fixture/realtime capacity or implement project creation.
 
-Windows and ArkOS resolve `config.ini` through
-`SDL_GetPrefPath("BroTracker", "BroTracker Terminal")`, independent of launch working
-directory. Windows normally uses `%APPDATA%\BroTracker\BroTracker Terminal\config.ini`.
-ArkOS uses `$XDG_DATA_HOME/BroTracker/BroTracker Terminal/config.ini`, or
-`$HOME/.local/share/BroTracker/BroTracker Terminal/config.ini` when XDG_DATA_HOME
-is unset. The resolved path is logged. No file is created, rewritten or deleted
-automatically; SDL may create the preference directory.
+Windows and ArkOS resolve `config/config.ini` beside the loaded executable using
+SDL_GetBasePath, independent of launch working directory (location corrected
+2026-10-23). ArkOS/dArkOS uses `/roms/ports/brotracker/config/config.ini`; the Windows
+delivery uses `deploy/windows/config/config.ini`. There is no preference-directory,
+XDG, HOME or example fallback. The absolute path and load/error status are logged.
+No actual config is created, rewritten or deleted automatically; installers preserve
+it byte-for-byte. Diagnostic evidence and Windows logs retain their independent
+per-user locations, so existing evidence does not move with configuration.
 
 Schema 1 requires one `[btx]` section and exactly one each of `schema_version=1`
 and `new_pattern_length=16`, `32` or `64`. Keys/section names are case-sensitive.
@@ -1839,7 +1850,7 @@ startup. `BROTRACKER_APPEND_LOG=1` skips rotation and reports that decision. No 
 rotation/compression or arbitrary cleanup occurs.
 
 Windows retains its SDL per-user terminal log directory; ArkOS retains the documented
-`/tmp/brotracker-arkos.log`, while configuration remains per-user per D0057. `/tmp`
+`/tmp/brotracker-arkos.log`, while configuration is executable-relative per D0057. `/tmp`
 is not durable evidence storage. See [BTX logging](LOGGING.md) for exact paths and
 validation. Manual Windows/ArkOS validation remains pending.
 

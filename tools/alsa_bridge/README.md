@@ -804,3 +804,154 @@ COMPLETED technical acquisition is not a listening or workaround success claim.
 The limited completed physical A/B is documented in the closeout above; this
 reference procedure does not imply a universal fix or authorize further tests.
 No kernel or firmware change was made for this option. Diagnostics are paused.
+
+## Manual listening correlation (normal Ports launch)
+
+Opt in through the executable-relative BTX `config/config.ini`, retaining its required `[btx]`
+metadata and existing settings:
+
+```ini
+[diagnostics]
+bridge_audible_test=yes
+```
+
+Default `no`; accepted lowercase values are yes/on/true/1 and no/off/false/0.
+Invalid values warn and disable only this option. Restart BTX after edits. The
+shared parser recognizes this on Windows but ignores it for Windows recording.
+The example is documentation only, never an automatic config fallback or overwrite.
+
+Launch normal BroTracker Terminal from Ports, start external physical-output audio
+recording, and manually START playback. No fixture change, countdown, automatic
+START/STOP, Wi-Fi test or extra controller interaction occurs. Use the stopwatch
+only as a reminder to manually STOP after roughly60seconds. It is **not** an onset
+timestamp, pop marker or alignment reference. User STOP and normal exit end the
+segment. Pause ends a segment; Continue creates a separate linked directory, with
+no inserted silence or claim of continuity across the pause. Restart/reconnect
+segments are explicitly labeled. No external hardware was available for validation.
+
+The launcher queries the shared config parser, then creates a private temporary
+control mapping. BTX remains the only serial owner and publishes confirmed
+transport replies plus bounded periodic tempo/tick observations. The bridge
+consumes these without restarting/reopening ALSA. Each START/CONTINUE gets a unique
+`bridge-*` directory under SDL's persistent user-data path:
+
+```text
+${XDG_DATA_HOME:-$HOME/.local/share}/BroTracker/BroTracker Terminal/diagnostics/bridge-audible/
+```
+
+This evidence base is resolved independently of the executable-relative runtime
+config; moving config does not move or delete existing recordings.
+The resolved absolute base and each run path are logged in `/tmp/brotracker-arkos.log`.
+A Git-checkout destination is refused. Recordings are not written into the Ports
+installation or launcher directory; an unavailable destination disables evidence,
+not playback. Keep failed/partial directories, including those missing completion
+markers. A new bridge after failure uses a new labeled segment, never resumes the
+old files. No automatic analysis, USBmon or kernel tracing is enabled.
+
+### Evidence and coordinate interpretation
+
+- `received.wav` and `accepted.wav`: stereo44100Hz S16_LE, successful capture reads
+  and playback-accepted writes respectively, using the existing bounded Trace
+  writer and existing WAV-header builder. Audio sample bytes are unchanged.
+- `transfers.tsv`: existing schema/kinds and absolute bridge-local capture source,
+  captured/accepted/discarded counts, queued frames, monotonic nanoseconds, ALSA
+  state/delay, recovery steps and error codes. Positive Read/Write records map the
+  sequential WAV frames to those source spans. Counters span the bridge process;
+  WAV offsets restart for each segment. No dropped samples are repaired or replaced.
+- Kind10 is a transport/observation record: step1 START,2 Pause,3 STOP,4 Continue,
+  5 disconnect,6 normal UI exit,7 observation,8 reconnect,9 error,10 recording loss.
+  `ns` is bridge observation time; `avail` is BTX observation nanoseconds on the same
+  CLOCK_MONOTONIC; `source` is the current capture coordinate, `result` the reported
+  pattern tick and `state` tempo in hundredths (zero when unavailable).
+- `diagnostic.log`: concise transport/recovery/discard events and previous segment
+  linkage. `alsa-parameters.txt`: selected PCM names, negotiated buffers/periods,
+  applied thresholds, queue/chunk sizes, ALSA version and capture holdback frames
+  (0 means disabled). Existing holdback selection and recovery policy are unchanged.
+- `manifest.json`: build time, bridge/BTX binary FNV-1a64 identities, PCM format,
+  bounds, end reason, handoff loss and incomplete state. `completion.json` adds
+  Trace queue/write/limit losses. Missing, pending, truncated or incomplete markers
+  mean evidence is incomplete; never interpret just an existing WAV as success.
+
+The capture coordinate counts successfully received frames, not unknown hardware
+frames lost in an XRUN. Playback acceptance does not prove those frames reached
+headphones; recovery can discard ALSA-buffered audio. Recovery/status/discard
+records preserve these interruptions and uncertainty. There is no pre-roll: the
+first audible note can precede host acknowledgment or this recording segment.
+Later align external audio by musical content and PCM coordinates, allowing for
+clock drift and ambiguous repeating passages. Neither ACK timestamps nor the
+stopwatch establish physical audible onset/alignment. Ordinary note attacks are
+not automatically classified as defects; this mode performs no pop classification.
+
+### Limits, observer cost and failure behavior
+
+Two fixed4096-record queues separate transfer copies, worker process and disk
+writer. Enabled mode adds copying, cache/CPU/process overhead and disk traffic;
+observing can itself affect timing. Disabled mode creates no evidence worker or
+recordings. No synchronous disk writes, locks, allocation or file creation occur
+in audio transfer callbacks for this observer. Metadata setup/finalization live
+outside the transfer path. A bounded control ring holds64 BTX events.
+
+Each segment stops accepting evidence at the first recording loss,180seconds,
+7938000 frames per stream or 1000000 records, whichever comes first. The cap is on
+**evidence only**: audio and the musical timeline continue. Fixed field widths and
+the maximum logical file size is below **576 MiB per segment**, excluding filesystem
+allocation overhead: at most 63504088 WAV bytes, plus at most 256 bytes per TSV row
+and 256 per diagnostic-log row, plus 64 KiB for headers/metadata. These are
+conservative numeric-field bounds, not expected usage. The larger disk budget does
+not enlarge either fixed in-memory queue.
+Rapid manual repeated attempts can accumulate disk usage; retain or remove them
+manually. Queue overflow, disk failure or limit exhaustion is explicitly incomplete.
+No silence is inserted and later PCM is not spliced into a failed segment.
+
+The worker forks before ALSA opens, reuses Trace and performs no audio/serial I/O.
+Normal bridge shutdown closes audio before waiting for it; finalization gets2seconds,
+then bounded SIGKILL/reap polling (~50ms). A stalled kernel write may remain pending
+until the kernel releases it; Ports does not wait indefinitely. Forced exit or kill
+can leave unfinalized WAV headers; raw bytes and initial incomplete markers remain.
+No full analysis or large PCM conversion runs during exit.
+
+### Record-budget validation
+
+The former 150000-record cap could truncate a normal minute. Retained physical
+baseline `20261021T160940Z-offline-nsulhgyp` has 348055 eligible records over
+123.205 seconds (2825/s), including failed read attempts. Its busiest 60-second
+window has 169911 records; the average rate would exhaust the old cap at about
+53.1 seconds. Reads are predominantly 44/45 frames, with some 88/89-frame reads,
+not one 256-frame read per period. The completed holdback run
+`20261021T162057Z-offline-f49vr6z6` peaks at 116902 records per 60 seconds.
+These counts exclude kind1 Service records, which this mode does not record;
+current transport observations add about one record per second. The failed first
+historical attempt remains failed and was not used as a completed physical result.
+
+A deterministic accelerated regression sends exactly 2646000 frames per stream
+(60 PCM seconds): 1000 short reads/s of 44/45 frames, each split into two partial
+writes, 1000 read retries/s, 500 write retries/s, 50 status pairs/s, one observation/s
+and START/STOP. All **276062 records** and exact received/accepted PCM survive the
+production asynchronous writer. The old cap would stop this fixture at 32.601 PCM
+seconds. The 1000000-record budget covers three such minutes (828182 records,
+including segment endpoints) within the existing 180-second/frame limits. It also
+has over 5.8 times the retained baseline's peak-minute count. This is headroom for
+these workloads, not a guarantee for arbitrary retry storms: overflow, disk failure
+and limit exhaustion still explicitly terminate evidence while audio continues.
+The regression paces only its accelerated producer to avoid testing disk scheduling
+as queue overflow; separate stalled-writer/queue tests retain that failure coverage.
+
+### Retrieve the newest attempt
+
+Use the absolute base printed in the log if SDL resolves a different user path:
+
+```sh
+base="${XDG_DATA_HOME:-$HOME/.local/share}/BroTracker/BroTracker Terminal/diagnostics/bridge-audible"
+run=$(ls -td -- "$base"/bridge-* 2>/dev/null | head -n 1)
+printf '%s\n' "$run"
+cat "$run/manifest.json" "$run/completion.json"
+```
+
+Copy the **whole directory**, including partial files/logs, plus the separate
+physical recording and `/tmp/brotracker-arkos.log`, to removable storage for later
+analysis. Do not infer alignment or recording completeness from the stopwatch.
+
+Automated tests cover config values/defaults, confirmed transport notifications,
+segmentation/repeated attempts, exact WAV bytes/coordinates, evidence caps, disk/
+setup failure, stalled-worker/queue bounds and actual file/null ALSA integration.
+These are synthetic tests, not handheld, headphone or external-recording validation.

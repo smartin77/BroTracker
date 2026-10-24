@@ -334,3 +334,12 @@ collection wait, then press R1/X once to exit. If waiting, R1/X exits directly.
 Record the step and symptom and upload the partial run in the same final archive.
 If the UI cannot exit, record that failure and use normal console shutdown as
 a last resort; interrupted WAV/trace finalization must not be assumed complete.
+
+## USB MIDI foundation
+
+The same preparation middleware now compiles hash-checked isolated `usb_midi.c`
+and `usb.c` copies for bounded MIDI submission and reset/suspend observation.
+`midi_tx.inc` is compiled both into that core copy and the native mock-DMA test.
+It must be the sole writer to the MIDI TX ring; do not mix stock send/flush calls.
+The installed framework is never modified. See
+[the timing and ownership contract](../../docs/MIDI_FOUNDATION.md).

@@ -131,7 +131,7 @@ TEST_CASE(PatternTelemetryPausedVersion2ReconnectAndCommandBarriers) {
     auto playing_view = paused_view; playing_view->position.paused = false; playing_view->position.running = true;
     RenderMainScreen(fb, tune, preview, playing_view);
     bool label_differs = false;
-    for (unsigned y = 38; y < 110; ++y) for (unsigned x = 466; x < 631; ++x)
+    for (unsigned y = 38; y < 150; ++y) for (unsigned x = 466; x < 631; ++x)
         label_differs |= std::memcmp(&paused_pixels[y*640+x], &fb.PixelData()[y*640+x], sizeof(Color)) != 0;
     CHECK(label_differs); // Shared renderer labels PAUSED distinctly at the same position.
     CHECK(session.port->output.empty()); // Reconnect never STARTs or CONTINUEs.

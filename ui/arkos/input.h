@@ -13,6 +13,7 @@ struct ArkOSInputResult {
     BringUpAction transport = BringUpAction::None;
     bool publish = false;
     bool restore = false;
+    int mute_channel = -1;
 };
 
 static_assert(SDL_CONTROLLER_BUTTON_MAX <= 32, "Handheld held-state mask must cover all SDL buttons");
@@ -150,6 +151,7 @@ private:
         }
         if(b==SDL_CONTROLLER_BUTTON_START) { Cancel(); return {modifier ? BringUpAction::Exit : BringUpAction::PatternToggle,false}; }
         if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
+        if(b==SDL_CONTROLLER_BUTTON_A && editor.Ready() && editor.Cursor().header) {Cancel();return {BringUpAction::None,false,false,int(editor.Cursor().channel)};}
         if(b==SDL_CONTROLLER_BUTTON_A && !modifier) { Cancel(); return {BringUpAction::None,true}; }
         if(b==SDL_CONTROLLER_BUTTON_X && !modifier && connected) { Cancel(); editor.Apply(EditorAction::NoteOff); }
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }

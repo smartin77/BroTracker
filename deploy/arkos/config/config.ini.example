@@ -1,0 +1,72 @@
+; BroTracker host INI reference: TEMPLATE ONLY, never loaded automatically.
+; Merge settings into config.ini; BTX never creates/overwrites user config.
+; Windows: <executable-directory>/config/config.ini (portable).
+; ArkOS/dArkOS: /roms/ports/brotracker/config/config.ini, executable-relative.
+; No old-location/CWD fallback. Restart BTX to reload; missing file uses defaults.
+; Case-sensitive names/values; decimal integers; whole-line ; or # comments.
+; No quotes/inline comments/unknown or duplicate keys/sections. Limit 4096 bytes.
+; Invalid structure rejects the entire file. Field-local fallbacks noted below.
+
+[btx]
+; Required decimal version, only 1 supported; built-in 1.
+schema_version=1
+; Required new-pattern metadata: 16/32/64; built-in 32. Does not resize device.
+; New-project tempo 125.00 BPM; development fixtures independently 155.00 BPM.
+new_pattern_length=32
+
+[logging]
+; basic/debug; built-in basic. Debug adds protocol/edit/audio/system detail.
+; Basic includes startup/config, connection/transport, errors and shutdown.
+; Host timestamps do not prove physical timing. Example opts into debug.
+mode=debug
+; Previous startup logs: 0..20, built-in 0; example 5. Debug+N>0 rotates once
+; before log open; basic/0 replaces. Rotation failure appends, preserving evidence.
+; No runtime rotation. BROTRACKER_APPEND_LOG=1 is an environment override,
+; not an INI key: append without rotation. Unrelated files are never targets.
+preserve_last=5
+
+[editing]
+; normal/reversed; built-in normal. normal: PgUp increases, PgDn decreases;
+; reversed swaps value stepping only, not navigation or OFF timing.
+; Deprecated alias note_step_direction: same values; supplying both rejects.
+value_step_direction=normal
+
+[display]
+; d1=decimal from01, d0=decimal from00, h1=hex from01, h0=hex from00.
+; Lowercase mode values; uppercase hex digits. Built-in/empty/missing: d1.
+; Invalid warns once, uses d1. Indicator changes; indices/beats/timing unchanged.
+row_numbering=d1
+
+[audio]
+; Production Teensy route: bridge/pt8211, not host sound-device selection.
+; Built-in/empty/missing: no override (retain active route, else firmware default).
+; Invalid warns once, uses no override. Development firmware defaults USB_BRIDGE.
+; Same route is idempotent; changing active route requires Teensy restart.
+; Restart BTX after config edits. Never autoSTART. Example explicitly uses bridge.
+output=bridge
+
+[midi]
+; USB device output channel: decimal 1..16; built-in/empty/missing: 12.
+; Invalid warns once, uses 12. Capability-gated ACK before START; old firmware
+; reports unsupported. Changed active channel needs Teensy restart; reload BTX.
+; Reconnect never autoSTARTs. No external-presence detection, routing, per-part
+; channels, MIDI clock or latency compensation.
+output_channel=12
+
+[diagnostics]
+; yes/on/true/1 or no/off/false/0; built-in/empty/missing no. Invalid warns/disables.
+; Linux listening evidence only; Windows accepts but ignores. Async PCM/disk cost.
+; Evidence stays SDL user-data/diagnostics/bridge-audible/bridge-* independently
+; of config location. Cap 180s/stream or 1000000 records: report loss, audio continues.
+bridge_audible_test=no
+
+[development]
+; SD filename: 1..24 ASCII letters/digits/_/-, optionally followed by .btdev (30 total).
+; patern4 and patern4.btdev -> /BroTracker/development/patern4.btdev; no truncation.
+; Only exact unquoted none means clean empty32x8/125.00; none.btdev loads that file.
+; No quoted INI values, paths, traversal, other dots/extensions or whitespace in names.
+; Missing/empty uses clean none; invalid warns/uses clean default, never invalid lookup.
+; File contents determine dimensions/notes/OFFs/tempo. Never infer these from a name.
+; Restart BTX after edits. Stopped, once per host; final ACK/baseline/working recovery
+; gates editing/START. No automatic seed, retry/reconnect replay or autoSTART.
+startup_pattern=none

@@ -4,6 +4,10 @@
 
 The project targets **Teensy 4.1** as the realtime engine and Linux-based handheld devices as the user interface.
 
+**Teensy-powered (HW). Human driven, AI-assisted (OpenAI).**
+
+The project is designed and developed with AI assistance (OpenAI), under human direction, review and hardware validation.
+
 ## Project Goals
 
 - Classic tracker workflow inspired by ProTracker and FastTracker
@@ -17,6 +21,16 @@ The project targets **Teensy 4.1** as the realtime engine and Linux-based handhe
 - Generic MIDI controller support without requiring device-specific drivers
 - Optional loadable hardware controller modules for enhanced device-specific functionality
 - Clear and transparent documentation to help future contributors, instrument developers and hardware manufacturers understand, extend and integrate with BroTracker
+
+## Runtime configuration
+
+BTX reads `config/config.ini` beside the installed executable: Windows
+`deploy/windows/config/config.ini`, ArkOS/dArkOS
+`/roms/ports/brotracker/config/config.ini`. The launch working directory does not
+matter. Missing config uses built-in defaults; `config.ini.example` is a template
+only. Updates preserve existing user settings. Restart BTX to apply edits.
+See the [Windows](tools/windows/README.md#runtime-configuration) and
+[ArkOS](tools/arkos/README.md#installed-runtime-configuration-arkos-and-darkos) guides.
 
 ## Repository Structure
 

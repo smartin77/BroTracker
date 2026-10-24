@@ -19,3 +19,19 @@ build_output.txt
 /diagnostics/
 /deploy/windows/BroTrackerTerminal.exe
 /assets/hardware_diagnostics/bridge_clicks/
+
+# ARM64 executables and required package assets are intentional Git delivery.
+!/deploy/arkos/BroTrackerTerminal
+!/deploy/arkos/BroTrackerAlsaBridge
+!/deploy/arkos/launch.sh
+!/deploy/arkos/config/
+!/deploy/arkos/config/config.ini.example
+!/deploy/arkos/assets/
+!/deploy/arkos/assets/**
+!/deploy/arkos/SHA256SUMS
+!/deploy/arkos/bridge-clicks-artifacts.json
+
+# Actual per-installation user settings are never package/Git payloads.
+/config/config.ini
+/deploy/*/config/config.ini
+/deploy/windows/config/config.ini.example
