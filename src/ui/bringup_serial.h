@@ -4,6 +4,7 @@
 #include <cstdio>
 #include "serial_transport.h"
 #include "bringup/audio_output_selection.h"
+#include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
 #include "bringup/host_pattern_publication.h"
@@ -60,6 +61,8 @@ public:
     const char* ChannelGainStatus() const { return gains_.Status(); }
     // Set once at host startup, before the first Tick. Default sends no override.
     void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
+    void SetStartupPattern(BroTracker::DevelopmentPattern value) { startup_pattern_=value; }
+    bool StartupPatternReady() const {return startup_pattern_==BroTracker::DevelopmentPattern::None || startup_editor_ready_;}
     const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
@@ -94,7 +97,11 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, Storage };
+    BroTracker::DevelopmentPattern startup_pattern_=BroTracker::DevelopmentPattern::None;
+    bool storage_supported_=false,startup_attempted_=false,startup_applied_=false,startup_done_=false,startup_failed_=false;
+    bool startup_context_cleared_=false,startup_editor_ready_=false;
+    std::uint32_t startup_revision_=0;
     bool QueueTransport(Command command);
     const char* PublicationUnavailable(const LocalPatternEditor& editor) const;
     Command transport_queued_ = Command::None;

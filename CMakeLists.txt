@@ -308,3 +308,9 @@ add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
+
+add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
+    src/ui/serial_unavailable.cpp)
+target_link_libraries(BroTrackerStartupStorageTests PRIVATE BroTrackerBringUp BroTrackerCore)
+target_include_directories(BroTrackerStartupStorageTests PRIVATE tests)
+add_test(NAME BroTrackerStartupStorageTests COMMAND BroTrackerStartupStorageTests)

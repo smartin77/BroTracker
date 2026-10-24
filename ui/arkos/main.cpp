@@ -316,6 +316,7 @@ int main(int argc, char* argv[])
     std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
+    serial.SetStartupPattern(host_config.config.startup_pattern);
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 

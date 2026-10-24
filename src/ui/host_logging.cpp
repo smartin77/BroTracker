@@ -165,6 +165,9 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.empty()?"unavailable (executable directory resolution failed)":path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
     HostLogf(file,HostLogLevel::Basic,"Configuration","audio.output=%s (Teensy production route)", AudioOutputName(config.config.audio_output));
     HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
+    HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
+    if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [development] startup_pattern: expected none/theme/midi; no SD startup selection sent");
     HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
     if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include "row_number_display.h"
 #include "bringup/audio_output_selection.h"
+#include "bringup/development_pattern_selection.h"
 #include <cstdint>
 #include <filesystem>
 #include <string_view>
@@ -12,6 +13,8 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    DevelopmentPattern startup_pattern=DevelopmentPattern::None;
+    bool startup_pattern_invalid=false;
     bool bridge_audible_test = false;
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
@@ -41,6 +44,9 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Linux bridge only; Windows recognizes configuration but does not record.
 // Optional [display]: row_numbering=d1/d0/h1/h0; absent/empty uses d1.
 // Invalid nonempty display mode warns once and uses d1.
+// Optional [development]: startup_pattern=none/theme/midi. Missing/empty is
+// none (no device override); invalid warns and uses none. Explicit selection
+// loads once per host instance from SD while stopped; never seeds or STARTs.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.

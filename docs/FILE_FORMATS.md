@@ -194,7 +194,8 @@ These details shall be specified separately once the internal data model and sto
 ## Working session: separate from tunes/projects
 
 Explicit Teensy-owned SD SAVE and RESTORE are implemented in the development
-firmware; physical SD validation is pending. See the [follow-ups](TODO_LIST.md#planned-session-storage-and-development-fixtures).
+firmware. Development-file provisioning/loading and Windows startup readback have
+been physically checked; session SAVE/RESTORE physical validation remains pending. See the [follow-ups](TODO_LIST.md#planned-session-storage-and-development-fixtures).
 The canonical directory is `/BroTracker`, and the working file is
 `/BroTracker/current.btsession`. This is not an explicitly saved BTT tune, BTP project or BTM module;
 existing format semantics and their unresolved binary specifications stay unchanged.
@@ -225,8 +226,8 @@ Three operations remain distinct: current **Restore** returns to the in-memory
 published baseline; explicit **session restore** loads the validated working-session
 file into a defined device-baseline/host-draft state without starting playback;
 **module/tune load/save** is a separate explicit future operation with its own
-sample/format contract. Proposed session/development INI keys are planning only,
-not supported options or changes to the runnable example.
+sample/format contract. Session startup/shutdown INI keys remain planning only;
+the explicit host development-file selector below is implemented separately.
 
 
 ### Temporary version-1 pattern files
@@ -266,9 +267,27 @@ reset to normal empty defaults; they are not file content.
 ### Explicit device operations and development files
 
 In SD-enabled development firmware, `BTSTORE1 CAP 1` advertises the tooling protocol.
-No host INI selection, automatic boot load/seed/restore, shutdown save, browser or
-new UI shortcut is implemented. Startup remains the existing in-code sine theme.
-Files are only created/loaded on explicit commands, in main context. Operations
+Host `[development] startup_pattern=none/theme/midi` now optionally selects a
+pre-existing SD file after connection/setup. Built-in/missing/empty `none` sends no
+override, preserving firmware startup. Invalid values warn and use none. `theme`
+and `midi` map to the two paths below (midi is development pattern3); pattern2 is
+reserved. Selection loads once per host instance, only while stopped, after
+audio/MIDI acknowledgments and storage/v2 capability discovery. START waits for
+application ACK, complete validated baseline readback and working-state recovery
+installed in the editor. Note/instrument/OFF editing and automatic preview writes
+remain blocked until that synchronization; pre-load captured edits are discarded
+at the initial SD selection boundary. Failure/uncertainty keeps the barrier. Once
+synchronized, ordinary reconnect retains existing draft recovery without reloading
+the SD file. Missing/corrupt/unsupported
+files, a running/paused device or uncertain outcome report failure and block START
+for that selection; no automatic retry, reconnect replay, fallback replacement or
+START occurs. Correct the file/config and restart BTX to request a fresh selection.
+The example documents the option with `none`; existing user configs are preserved.
+
+No automatic firmware boot load/seed/session restore, shutdown save, browser or new
+storage UI shortcut is implemented. The firmware in-code startup remains the sine
+theme; seed definitions are never a substitute for loading a selected SD file.
+Files are only created/loaded through the explicit commands below, in main context. Operations
 require fully stopped initialized audio, no queued control work/ACKs, pending
 publication/preview/readback, and settled MIDI queue/cleanup/USB transfers. Playing,
 Paused, core fault or unresolved cleanup returns `busy-or-not-ready`; missing SD
@@ -346,8 +365,7 @@ SD failure/power-interruption validation remains pending.
 
 ### Provisioning and manual validation
 
-No upload or physical SD write has been performed for this implementation. With
-explicit upload authorization, close BTX/owned monitors, discover the connected
+With upload authorization, close BTX/owned monitors, discover the connected
 Teensy and run `pio run -e teensy41_dev -t upload`. Use an SD card with existing
 assets intact. Then, with BTX closed, discover CDC and run from the repo root:
 
@@ -379,3 +397,28 @@ placement and Teensy backend wiring are inspected/compiled, not hardware-tested.
 Physical checks remain: create/read both SD files, repeat no-overwrite, SAVE/RESTORE
 and reconnect BTX while stopped; verify prior files/logs remain intact. External
 MIDI delivery/audio synchronization and existing manual/audio issues remain open.
+
+
+### Verified development delivery (2026-10-24)
+
+The development firmware was uploaded to the rediscovered Teensy after an explicit
+STOP/IDLE check and CDC closure. Reviewed tooling created both SD fixture files
+(`ok`, not an `exists` assumption), explicitly loaded each file, and read back all
+256 active cells with applied/published tempo 15500. Theme CH1/CH2 and empty other
+channels matched; MIDI fixture CH5 matched all eight raw-note/instrument-1 entries
+and following-row arrival OFFs. No session SAVE/RESTORE was issued during setup;
+`current.btsession` was not an operation target. Existing files were not overwritten.
+
+The refreshed `deploy/windows/BroTrackerTerminal.exe` read its executable-relative
+`startup_pattern=midi`, sent `BTSTORE1 LOAD 1 midi`, received application success,
+and read back the complete matching baseline. It remained IDLE; no START was sent.
+BTX closed normally and released CDC. Other runtime settings and the old AppData
+config were preserved. Windows/ARM64 build/package, ABI, checksum and installation
+results are recorded with delivery evidence; staging ARM64 is not handheld installation.
+
+This is physical USB/SD/protocol readback, not external MIDI delivery, listening or
+audible-synchronization validation. Real-card session replacement/rollback,
+power-loss behavior, handheld startup selection and other pending manual checks
+remain open. The subsequent editor/preview startup barrier correction is covered
+by mock Tick/SyncEditor and host package tests, without a repeat physical run.
+Private captures/build logs stay in ignored build storage.

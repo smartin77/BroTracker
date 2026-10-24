@@ -106,12 +106,17 @@ implemented; automatic startup/shutdown/configuration integration remains separa
 * [x] **Explicit development provisioning/loading:** `/BroTracker/development/theme.btdev`
   and `midi.btdev`, 32 rows/eight channels/155.00 BPM. MIDI uses supplied CH5 notes
   and following-row arrival OFFs. No silent overwrite or boot reseed. Pattern2
-  CH3/CH4 drums remain reserved, contents pending; startup behavior is unchanged.
-* [ ] **Physical SD/tooling validation:** implementation built and native fake-SD /
-  publication/tool tests pass; no upload or device writes performed. Validate
-  files/no-overwrite, SAVE/RESTORE, stopped/mute behavior, BTX reconnect/readback,
-  directory case behavior and retained existing SD contents. Failure and power-loss
-  behavior is not established by prior SD throughput benchmarks.
+  CH3/CH4 drums remain reserved, contents pending; absent host selection preserves startup.
+* [x] **Physical development-file provisioning/readback (2026-10-24):** development
+  firmware uploaded after STOP/IDLE and CDC closure; tooling created theme/midi
+  files, then LOAD/readback matched every active cell and tempo 15500/15500.
+  Deployed Windows BTX with executable-relative startup_pattern=midi loaded the SD
+  MIDI fixture and returned the matching stopped baseline; no START. AppData config
+  unchanged. No session SAVE/RESTORE or current.btsession replacement in setup.
+* [ ] **Remaining physical storage checks:** session SAVE/RESTORE/rollback, failure
+  recovery, directory case behavior and power-loss behavior remain unverified.
+  Prior throughput evidence does not establish durability. Handheld application
+  startup selection remains manual validation; packaging is not installation.
 * [ ] **Manual storage UI:** decide a shortcut distinct from in-memory Restore;
   only explicit serial tooling is currently implemented. Keep final module/tune
   formats and embedded Sample availability outside this bounded session format.
@@ -127,13 +132,20 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   tempo and takes precedence over development-fixture initialization on success.
   Define failed/missing-session startup fallback separately; never silently overwrite
   the stored session or START playback.
-* [ ] **Host configuration/startup fixture selection:** future selection must read
-  the explicit SD files, not regenerate their seeds. CH3/CH4 drum pattern2 still
-  needs user-supplied contents. Do not implement the previous in-code selector
-  proposal. No development/session INI keys are currently accepted. Preserve
-  125.00 BPM new-project default versus 155.00 BPM development files, and define
-  restore/fallback precedence before integration. Add every supported option to
-  `config/config.ini.example` in the same change. No implicit replacement or START.
+* [x] **Configured startup editor/preview barrier:** lock note/instrument/OFF edits,
+  discard pre-load captured data and block automatic preview writes through LOAD,
+  authoritative baseline and working-state recovery. Failed/uncertain selection
+  stays blocked; STOP/exit remain usable. Real Tick+SyncEditor regressions cover
+  delayed replies, normal editing without selection and reconnect draft retention
+  without SD reload. Host packages refreshed; no firmware/SD operation required.
+* [x] **Host SD startup fixture selection:** shared `[development] startup_pattern`
+  none/theme/midi, default none. Explicit selection waits for setup/stopped storage
+  capability, loads SD (never regenerates), then validates baseline readback before
+  START is available. No automatic retry/reconnect replay or playback; failures
+  remain visible. Windows midi selection physically verified; ArkOS package prepared
+  for later manual check. Example updated; new projects remain 125.00 BPM, fixtures
+  155.00 BPM. Pattern2 drums and session startup/shutdown config remain follow-ups.
+
 
 ### MIDI lifecycle and session follow-up
 

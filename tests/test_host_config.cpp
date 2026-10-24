@@ -245,3 +245,13 @@ TEST_CASE(ExecutableRelativeConfigIgnoresLaunchDirectoryAndExample) {
     CHECK(ExecutableConfigPath("relative-executable-directory").empty());
     CHECK(LoadHostConfig(ExecutableConfigPath({}),false).status==HostConfigStatus::Unreadable);
 }
+TEST_CASE(HostDevelopmentStartupPatternConfiguration) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=32\n";
+    HostConfig c;CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK_EQ(c.startup_pattern,DevelopmentPattern::None);
+    for(const auto value:{"","none","theme","midi","MIDI","drums","../midi"}) {
+        CHECK(ParseHostConfig(base+"[development]\nstartup_pattern="+value,c)==HostConfigStatus::Loaded);
+        CHECK_EQ(c.startup_pattern,std::string(value)=="midi"?DevelopmentPattern::Midi:std::string(value)=="theme"?DevelopmentPattern::Theme:DevelopmentPattern::None);
+        CHECK_EQ(c.startup_pattern_invalid,std::string(value)=="MIDI" || std::string(value)=="drums" || std::string(value)=="../midi");
+    }
+    CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=midi\nstartup_pattern=theme",c)==HostConfigStatus::Invalid);
+}

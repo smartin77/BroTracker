@@ -28,6 +28,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     HostConfig candidate;
     unsigned section=0;
     bool display=false,numbering=false,diagnostics=false,audible=false;
+    bool development=false,startup_pattern=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
@@ -41,11 +42,17 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         if(line=="[midi]") {if(midi) return HostConfigStatus::Invalid; midi=true; section=5; continue;}
         if(line=="[display]") {if(display) return HostConfigStatus::Invalid; display=true; section=6; continue;}
         if(line=="[diagnostics]") {if(diagnostics) return HostConfigStatus::Invalid; diagnostics=true; section=7; continue;}
+        if(line=="[development]") {if(development) return HostConfigStatus::Invalid; development=true; section=8; continue;}
         if(!section) return HostConfigStatus::Invalid;
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==7 && key=="bridge_audible_test" && !audible) {
+        if(section==8 && key=="startup_pattern" && !startup_pattern) {
+            startup_pattern=true;
+            if(raw=="theme") candidate.startup_pattern=DevelopmentPattern::Theme;
+            else if(raw=="midi") candidate.startup_pattern=DevelopmentPattern::Midi;
+            else if(!raw.empty() && raw!="none") candidate.startup_pattern_invalid=true;
+        } else if(section==7 && key=="bridge_audible_test" && !audible) {
             audible=true;
             if(raw=="yes" || raw=="on" || raw=="true" || raw=="1") candidate.bridge_audible_test=true;
             else if(!raw.empty() && raw!="no" && raw!="off" && raw!="false" && raw!="0") candidate.bridge_audible_test_invalid=true;
