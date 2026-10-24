@@ -104,14 +104,14 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   operations only. RESTORE uses normal audio-owner publication, stays stopped,
   updates baseline/readback and preserves mute. No power-loss/atomicity promise.
   Existing in-memory Restore/F4 and module/tune saving remain distinct.
-* [x] **Explicit development provisioning/loading:** `/BroTracker/development/theme.btdev`
-  and `midi.btdev`, 32 rows/eight channels/155.00 BPM. MIDI uses supplied CH5 notes
+* [x] **Initial development provisioning/loading (historical names, now migrated):**
+  numbered patterns1/3, 32 rows/eight channels/155.00 BPM. MIDI uses supplied CH5 notes
   and following-row arrival OFFs. No silent overwrite or boot reseed. Pattern2
-  CH3/CH4 drums remain reserved, contents pending; absent host selection preserves startup.
+  Numbered migration preserves those files; patterns2/4 supersede the prior reserved-drum plan.
 * [x] **Physical development-file provisioning/readback (2026-10-24):** development
   firmware uploaded after STOP/IDLE and CDC closure; tooling created theme/midi
   files, then LOAD/readback matched every active cell and tempo 15500/15500.
-  Deployed Windows BTX with executable-relative startup_pattern=midi loaded the SD
+  Deployed Windows BTX with executable-relative the then-current descriptive selector for pattern3 loaded the SD
   MIDI fixture and returned the matching stopped baseline; no START. AppData config
   unchanged. No session SAVE/RESTORE or current.btsession replacement in setup.
 * [x] **Accepted pattern3 CH5 bass:** updated provisioning definition and the existing
@@ -144,16 +144,45 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   discard pre-load captured data and block automatic preview writes through LOAD,
   authoritative baseline and working-state recovery. Failed/uncertain selection
   stays blocked; STOP/exit remain usable. Real Tick+SyncEditor regressions cover
-  delayed replies, normal editing without selection and reconnect draft retention
+  delayed replies, normal editing after clean initialization and reconnect draft retention
   without SD reload. Host packages refreshed; no firmware/SD operation required.
 * [x] **Host SD startup fixture selection:** shared `[development] startup_pattern`
-  none/theme/midi, default none. Explicit selection waits for setup/stopped storage
+  a bounded filename stem/optional .btdev, default exact none (empty32x8/12500). Explicit selection waits for setup/stopped storage
   capability, loads SD (never regenerates), then validates baseline readback before
   START is available. No automatic retry/reconnect replay or playback; failures
   remain visible. Windows midi selection physically verified; ArkOS package prepared
   for later manual check. Example updated; new projects remain 125.00 BPM, fixtures
-  155.00 BPM. Pattern2 drums and session startup/shutdown config remain follow-ups.
+  155.00 BPM. Session startup/shutdown config remains a follow-up.
 
+
+* [x] **Numbered fixture definitions and clean initialization (retained):** patern1..4.btdev;
+  provisioning helpers use1..4; generic filename LOAD supersedes numeric selection. Pattern2 has exact CH3/CH4 raw60 Sample
+  triggers with instrument selection only at row0. Pattern3 unchanged. Pattern4
+  adds accepted bass, every note raw1, no CH5 OFFs. None explicitly applies/publishes
+  empty32x8/12500 through normal publication, no SD write/session restore. Barrier,
+  stopped behavior and no reconnect replay retained. Legacy descriptive paths are
+  migration-only with validation/equality before removal; no silent destination overwrite.
+* [x] **Numbered delivery/physical checks (2026-10-24):** preserved authoritative
+  working revision26/tempo locally without Publish/session SAVE before upload.
+  Migrated1/3 with exact-byte verification before old-source removal; created2/4.
+  Every numbered file and clean none matched all256 cells/OFFs/tempo by readback.
+  Final deployed Windows startup4 verified (also clean none), IDLE/BTX closed/CDC
+  released. Windows9/9, Eoan22/22, ABI/checksum/install checks and complete deliveries
+  refreshed. No START, session/Sample/log writes or handheld installation. New
+  fixtures were readback-verified, not auditioned; other manual checks remain open.
+
+* [x] **Filename-based startup/load correction:** normal config/LOAD accepts bounded
+  ASCII names (24-byte stem, optional .btdev;30 total), no numeric enum/alias or
+  inferred content/tempo. Only exact unquoted none is clean125; none.btdev is a
+  real file. No quotes, separators, traversal, invalid dots or silent truncation.
+  Provisioning may keep numbered definitions. Existing SD fixtures unchanged.
+* [x] **Filename delivery/readback (2026-10-24):** Windows package (9/9 tests) and
+  Eoan ARM64 delivery (22/22, ABI/checksums/config-preserving install) refreshed.
+  Uploaded development firmware; existing patern4 and patern4.btdev each matched
+  all256 cells/OFFs and applied/published15500 by device readback. Deployed Windows
+  config=patern4 completed baseline/editor recovery. Stopped, BTX/CDC closed; no
+  fixture/session writes or handheld installation. Physical none.btdev and new
+  arbitrary-name files were not created; those semantics have native coverage.
 
 ### MIDI lifecycle and session follow-up
 

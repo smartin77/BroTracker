@@ -1,11 +1,12 @@
 #pragma once
 #include "pattern_file.h"
+#include "development_pattern_selection.h"
 #include "pattern_fixture.h"
 #include "pattern_publication.h"
 
 namespace BroTracker {
-constexpr const char* kDevelopmentThemePath="/BroTracker/development/theme.btdev";
-constexpr const char* kDevelopmentMidiPath="/BroTracker/development/midi.btdev";
+constexpr const char* kDevelopmentPattern1Path="/BroTracker/development/patern1.btdev";
+constexpr const char* kDevelopmentPattern3Path="/BroTracker/development/patern3.btdev";
 constexpr const char* kSessionPath="/BroTracker/current.btsession";
 constexpr const char* kSessionCandidatePath="/BroTracker/current.btsession.candidate";
 constexpr const char* kSessionPreviousPath="/BroTracker/current.btsession.previous";
@@ -23,9 +24,18 @@ inline void SetDevelopmentMidiBassPart(RealtimePattern& p) noexcept {
         p.cells[offs[i]][4]={NOTE_OFF,kNoInstrumentUpdate};
     }
 }
-inline void MakeStoredDevelopmentPattern(RealtimePattern& p,bool midi) noexcept {
+inline void MakeStoredDevelopmentPattern(RealtimePattern& p,unsigned number) noexcept {
+    p={};p.active_rows=32;p.active_channels=8;
+    if(!number)return;
     p=MakeDevelopmentPattern(32);
-    if(midi) SetDevelopmentMidiBassPart(p);
+    if(number==2 || number==4) {
+        for(unsigned row:{0u,16u,28u})p.cells[row][2]={60,static_cast<std::uint8_t>(row?255:0)};
+        for(unsigned row:{0u,12u,28u})p.cells[row][3]={60,static_cast<std::uint8_t>(row?255:3)};
+    }
+    if(number==3 || number==4) {
+        SetDevelopmentMidiBassPart(p);
+        if(number==4)for(unsigned row=0;row<32;++row)if(p.cells[row][4].note==NOTE_OFF)p.cells[row][4]={NOTE_EMPTY,kNoInstrumentUpdate};
+    }
 }
 // Replay validated storage through the existing publication validator/identity namespace.
 // The resulting frozen staging retains its usual lifetime through audio-owner ACK.
@@ -49,6 +59,11 @@ inline bool StageStoredPattern(PatternPublication& transfer,const RealtimePatter
 // One instance, main context only. No retries, heap, ISR work or unbounded file reads.
 template<class Backend> class PatternFileStore {
 public:
+    PatternFileResult LoadDevelopment(Backend& b,std::string_view stem,RealtimePattern& p,std::uint32_t& tempo) noexcept {
+        char path[kDevelopmentPathCapacity];
+        if(!BuildDevelopmentPath(stem,path,sizeof(path)))return PatternFileResult::Invalid;
+        return Load(b,path,PatternFileKind::Development,p,tempo);
+    }
     PatternFileResult Load(Backend& b,const char* path,PatternFileKind kind,RealtimePattern& p,std::uint32_t& tempo) noexcept {
         Lease lease(b,false); if(!lease) return PatternFileResult::Busy;
         if(!b.Exists(path)) return PatternFileResult::Missing;
@@ -56,26 +71,53 @@ public:
         if(result!=PatternFileResult::Ok) return result;
         return DecodePatternFile(kind,bytes_,size,p,tempo);
     }
-    PatternFileResult CreateDevelopment(Backend& b,bool midi,RealtimePattern& scratch) noexcept {
-        MakeStoredDevelopmentPattern(scratch,midi);
-        return Write(b,midi?kDevelopmentMidiPath:kDevelopmentThemePath,
-            midi?"/BroTracker/development/midi.btdev.candidate":"/BroTracker/development/theme.btdev.candidate",
-            nullptr,PatternFileKind::Development,scratch,kDevelopmentFixtureTempo);
+    PatternFileResult CreateDevelopment(Backend& b,unsigned number,RealtimePattern& scratch) noexcept {
+        if(!DevelopmentPatternPath(number))return PatternFileResult::Invalid;
+        MakeStoredDevelopmentPattern(scratch,number);
+        return Write(b,DevelopmentPatternPath(number),DevelopmentCandidatePath(number),nullptr,PatternFileKind::Development,scratch,kDevelopmentFixtureTempo);
+    }
+    // Explicit legacy migration only. Preserve exact bytes; verify destination
+    // before source removal. An existing different destination is never replaced.
+    PatternFileResult MigrateDevelopment(Backend& b,unsigned number) noexcept {
+        if(!DevelopmentPatternPath(number))return PatternFileResult::Invalid;
+        constexpr const char* sources[]={nullptr,"/BroTracker/development/theme.btdev","/BroTracker/development/drums.btdev",
+            "/BroTracker/development/midi.btdev","/BroTracker/development/midi_hold.btdev"};
+        Lease lease(b,true);if(!lease)return PatternFileResult::Busy;
+        const auto* source=sources[number];const auto* destination=DevelopmentPatternPath(number);
+        if(!b.Exists(source))return PatternFileResult::Missing;
+        std::size_t size=0;const auto result=b.Read(source,bytes_,sizeof(bytes_),size);
+        if(result!=PatternFileResult::Ok)return result;
+        const auto valid=ValidatePatternFile(PatternFileKind::Development,bytes_,size);
+        if(valid!=PatternFileResult::Ok)return valid;
+        if(bytes_[8]!=32 || bytes_[9]!=8 || PatternFileU32(bytes_+12)!=15500)return PatternFileResult::Invalid;
+        if(b.Exists(destination)) {
+            if(!b.Verify(destination,bytes_,size))return PatternFileResult::Exists;
+        } else {
+            const auto* candidate=DevelopmentCandidatePath(number);
+            if(b.Exists(candidate))return PatternFileResult::RecoveryRequired;
+            if(!b.WriteNew(candidate,bytes_,size) || !b.Verify(candidate,bytes_,size)) {
+                if(b.Exists(candidate) && !b.Remove(candidate))return PatternFileResult::RecoveryRequired;
+                return PatternFileResult::Io;
+            }
+            if(!b.Rename(candidate,destination))return PatternFileResult::RecoveryRequired;
+            if(!b.Verify(destination,bytes_,size))return PatternFileResult::RecoveryRequired;
+        }
+        return b.Remove(source)?PatternFileResult::Ok:PatternFileResult::RecoveryRequired;
     }
     PatternFileResult SaveSession(Backend& b,const RealtimePattern& published,std::uint32_t tempo) noexcept {
         return Write(b,kSessionPath,kSessionCandidatePath,kSessionPreviousPath,PatternFileKind::Session,published,tempo);
     }
     // Explicit narrowly scoped migration: read actual SD data, preserve every
     // non-CH5 cell, require the known development dimensions/tempo. Never SEED.
-    PatternFileResult ReplaceDevelopmentMidi(Backend& b,RealtimePattern& scratch) noexcept {
+    PatternFileResult ReplaceDevelopmentPattern3(Backend& b,RealtimePattern& scratch) noexcept {
         std::uint32_t tempo=0;
-        const auto result=Load(b,kDevelopmentMidiPath,PatternFileKind::Development,scratch,tempo);
+        const auto result=Load(b,kDevelopmentPattern3Path,PatternFileKind::Development,scratch,tempo);
         if(result!=PatternFileResult::Ok) return result;
         if(scratch.active_rows!=32 || scratch.active_channels!=8 || tempo!=kDevelopmentFixtureTempo)
             return PatternFileResult::Invalid;
         SetDevelopmentMidiBassPart(scratch);
-        return Write(b,kDevelopmentMidiPath,"/BroTracker/development/midi.btdev.candidate",
-            "/BroTracker/development/midi.btdev.previous",PatternFileKind::Development,scratch,tempo);
+        return Write(b,kDevelopmentPattern3Path,"/BroTracker/development/patern3.btdev.candidate",
+            "/BroTracker/development/patern3.btdev.previous",PatternFileKind::Development,scratch,tempo);
     }
 private:
     struct Lease {

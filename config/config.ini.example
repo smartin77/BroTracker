@@ -61,11 +61,12 @@ output_channel=12
 bridge_audible_test=no
 
 [development]
-; Temporary SD selection: none/theme/midi; built-in/empty/missing none (no override).
-; Invalid warns/uses none. theme=theme.btdev, midi=midi.btdev (pattern3), under
-; /BroTracker/development/. Pattern2 drums reserved. Files must already exist.
-; Once per host process after setup, fully stopped; validate then v2 readback.
-; Never seeds, overwrites, autoSTARTs or retries/replays on reconnect.
-; Missing/invalid/unsupported/uncertain selection blocks START; correct file/config
-; then restart BTX. Not session restore or final tune loading. Reload needs BTX restart.
+; SD filename: 1..24 ASCII letters/digits/_/-, optionally followed by .btdev (30 total).
+; patern4 and patern4.btdev -> /BroTracker/development/patern4.btdev; no truncation.
+; Only exact unquoted none means clean empty32x8/125.00; none.btdev loads that file.
+; No quoted INI values, paths, traversal, other dots/extensions or whitespace in names.
+; Missing/empty uses clean none; invalid warns/uses clean default, never invalid lookup.
+; File contents determine dimensions/notes/OFFs/tempo. Never infer these from a name.
+; Restart BTX after edits. Stopped, once per host; final ACK/baseline/working recovery
+; gates editing/START. No automatic seed, retry/reconnect replay or autoSTART.
 startup_pattern=none

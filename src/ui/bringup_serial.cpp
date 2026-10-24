@@ -662,7 +662,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             Send(Command::Audio,now);
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
-        else if(connected_ && startup_pattern_!=BroTracker::DevelopmentPattern::None && !startup_attempted_ && !startup_failed_) {
+        else if(connected_ && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
             if(!storage_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || std::strcmp(state_,"IDLE") || snapshot_version_!=2) {
                 startup_failed_=true;Log("SD startup pattern ERROR: storage capability, setup and stopped v2 firmware required");
             } else Send(Command::Storage,now);

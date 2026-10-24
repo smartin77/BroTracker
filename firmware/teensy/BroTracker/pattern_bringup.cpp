@@ -236,7 +236,7 @@ namespace
     PatternFileStore<SdPatternFiles> g_pattern_files;
     RealtimePattern g_storage_pattern; // Frozen main-context file/snapshot scratch, never live PCM.
     std::uint32_t g_storage_restore_id=0;
-    StorageOperation g_storage_restore_operation=StorageOperation::Invalid;
+    char g_storage_restore_operation[40]="invalid";
 #endif
     std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
@@ -416,50 +416,59 @@ namespace
 #endif
         return true;
     }
-    void StorageReply(StorageOperation op,const char* result,std::uint32_t revision=0) {
+    void StorageReply(const char* operation,const char* result,std::uint32_t revision=0) {
         char reply[96];
         std::snprintf(reply,sizeof(reply),"BTSTORE1 RESULT 1 %s %s %" PRIu32 "\n",
-            StorageOperationName(op),result,revision);
+            operation,result,revision);
         (void)QueueLine(reply);
     }
     void StorageCommand(const char* line,std::uint32_t now) {
         const auto op=ParseStorageOperation(line);
-        if(op==StorageOperation::Invalid) {StorageReply(op,"malformed");return;}
-        if(!g_protocol_connected) {StorageReply(op,"not-connected");return;}
-        if(!g_storage_backend.ready) {StorageReply(op,"sd-unavailable");return;}
+        DevelopmentPattern selection;
+        char operation[40];
+        if(op==StorageOperation::Load) {
+            (void)ParseStorageLoad(line,selection);
+            std::snprintf(operation,sizeof(operation),"load-%s",selection.stem);
+        } else std::snprintf(operation,sizeof(operation),"%s",StorageOperationName(op));
+        if(op==StorageOperation::Invalid) {StorageReply(operation,"malformed");return;}
+        if(!g_protocol_connected) {StorageReply(operation,"not-connected");return;}
+        if(!(op==StorageOperation::Load && selection.IsNone()) && !g_storage_backend.ready) {StorageReply(operation,"sd-unavailable");return;}
         if(g_storage_restore_id || g_publication.Busy() || g_preview.Busy() || g_pattern_transfer.HasData() ||
-            !StorageControlReady()) {StorageReply(op,"busy-or-not-ready");return;}
+            !StorageControlReady()) {StorageReply(operation,"busy-or-not-ready");return;}
         PatternFileResult result;
         if(op==StorageOperation::Save) {
             // Both sources are main-owned and updated together only after audio ACK.
             // StorageControlReady rejects queued requests/ACKs, including previews.
             g_storage_pattern=g_active_pattern;
             result=g_pattern_files.SaveSession(g_storage_backend,g_storage_pattern,g_published_tempo);
-        } else if(op==StorageOperation::SeedTheme || op==StorageOperation::SeedMidi) {
-            result=g_pattern_files.CreateDevelopment(g_storage_backend,op==StorageOperation::SeedMidi,g_storage_pattern);
-        } else if(op==StorageOperation::ReplaceMidi) {
-            result=g_pattern_files.ReplaceDevelopmentMidi(g_storage_backend,g_storage_pattern);
+        } else if(op>=StorageOperation::Seed1 && op<=StorageOperation::Seed4) {
+            result=g_pattern_files.CreateDevelopment(g_storage_backend,StoragePatternNumber(op),g_storage_pattern);
+        } else if(op>=StorageOperation::Migrate1 && op<=StorageOperation::Migrate4) {
+            result=g_pattern_files.MigrateDevelopment(g_storage_backend,StoragePatternNumber(op));
+        } else if(op==StorageOperation::Replace3) {
+            result=g_pattern_files.ReplaceDevelopmentPattern3(g_storage_backend,g_storage_pattern);
         } else {
             std::uint32_t tempo=0;
-            result=g_pattern_files.Load(g_storage_backend,op==StorageOperation::Restore?kSessionPath:
-                op==StorageOperation::LoadTheme?kDevelopmentThemePath:kDevelopmentMidiPath,
-                op==StorageOperation::Restore?PatternFileKind::Session:PatternFileKind::Development,g_storage_pattern,tempo);
+            if(op==StorageOperation::Load && selection.IsNone()) {
+                MakeStoredDevelopmentPattern(g_storage_pattern,0);tempo=kDefaultTempo;result=PatternFileResult::Ok;
+            } else if(op==StorageOperation::Restore) result=g_pattern_files.Load(g_storage_backend,kSessionPath,PatternFileKind::Session,g_storage_pattern,tempo);
+            else result=g_pattern_files.LoadDevelopment(g_storage_backend,selection.stem,g_storage_pattern,tempo);
             if(result==PatternFileResult::Ok) {
                 if(!StorageControlReady() || !StageStoredPattern(g_publication,g_storage_pattern,tempo,now)) {
-                    StorageReply(op,"busy-or-identity-exhausted");return;
+                    StorageReply(operation,"busy-or-identity-exhausted");return;
                 }
                 PatternRequestStatus accepted;
                 { InterruptGuard guard; accepted=g_control.SubmitPattern(*g_publication.Frozen(),g_publication.Identity(),tempo); }
                 if(accepted!=PatternRequestStatus::Accepted) {
-                    g_publication.Finish();StorageReply(op,"queue-full");return;
+                    g_publication.Finish();StorageReply(operation,"queue-full");return;
                 }
-                g_storage_restore_id=g_publication.Identity();g_storage_restore_operation=op;
+                g_storage_restore_id=g_publication.Identity();std::memcpy(g_storage_restore_operation,operation,std::strlen(operation)+1);
                 char reply[80];std::snprintf(reply,sizeof(reply),"BTSTORE1 SUBMITTED 1 %s %" PRIu32 "\n",
-                    StorageOperationName(op),g_storage_restore_id);
+                    operation,g_storage_restore_id);
                 (void)QueueLine(reply);return; // Success is reported only after the usual audio-owner ACK.
             }
         }
-        StorageReply(op,PatternFileResultName(result));
+        StorageReply(operation,PatternFileResultName(result));
     }
 #endif
     void ServiceSerial()
@@ -547,7 +556,7 @@ namespace
                 if(g_storage_restore_id && applied.publication_id==g_storage_restore_id) {
                     StorageReply(g_storage_restore_operation,synchronized && applied.result==PatternPlayerStatus::Success?"ok":"application-rejected",
                         g_storage_restore_id);
-                    g_storage_restore_id=0;g_storage_restore_operation=StorageOperation::Invalid;
+                    g_storage_restore_id=0;g_storage_restore_operation[0]=0;
                     // Existing status/readback synchronization observes the new baseline;
                     // tooling closes CDC before BTX reconnects and retrieves full v2 data.
                     QueueTempo();
@@ -619,7 +628,7 @@ namespace
             line[used] = '\0';
             if (overflow) {
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                if (!std::strncmp(line,"BTSTORE1",8)) StorageReply(StorageOperation::Invalid,"malformed");
+                if (!std::strncmp(line,"BTSTORE1",8)) StorageReply("invalid","malformed");
                 else
 #endif
                 if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");

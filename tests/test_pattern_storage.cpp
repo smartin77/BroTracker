@@ -50,11 +50,11 @@ TEST_CASE(PatternFileRejectsEveryTruncationCorruptionAndSemanticBoundsTransactio
 TEST_CASE(DevelopmentFilesExplicitNoOverwriteMissingAndExactSeedContents) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
     RealtimePattern scratch,target=Varied();const auto initial=target;std::uint32_t tempo=12500;
-    CHECK_EQ(store.Load(backend,kDevelopmentThemePath,PatternFileKind::Development,target,tempo),PatternFileResult::Missing);Same(target,initial);CHECK_EQ(tempo,12500u);
+    CHECK_EQ(store.Load(backend,kDevelopmentPattern1Path,PatternFileKind::Development,target,tempo),PatternFileResult::Missing);Same(target,initial);CHECK_EQ(tempo,12500u);
     for(bool midi:{false,true}){
-        CHECK_EQ(store.CreateDevelopment(backend,midi,scratch),PatternFileResult::Ok);
-        const auto path=midi?kDevelopmentMidiPath:kDevelopmentThemePath;const auto original=FakePatternSd::files[path].bytes;
-        CHECK_EQ(store.CreateDevelopment(backend,midi,scratch),PatternFileResult::Exists);CHECK(FakePatternSd::files[path].bytes==original);
+        CHECK_EQ(store.CreateDevelopment(backend,midi?3:1,scratch),PatternFileResult::Ok);
+        const auto path=midi?kDevelopmentPattern3Path:kDevelopmentPattern1Path;const auto original=FakePatternSd::files[path].bytes;
+        CHECK_EQ(store.CreateDevelopment(backend,midi?3:1,scratch),PatternFileResult::Exists);CHECK(FakePatternSd::files[path].bytes==original);
         CHECK_EQ(store.Load(backend,path,PatternFileKind::Development,target,tempo),PatternFileResult::Ok);Same(target,scratch);CHECK_EQ(tempo,15500u);
         auto theme=MakeDevelopmentPattern(32);for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c){
             if(c!=4 || !midi){CHECK_EQ(target.cells[r][c].note,theme.cells[r][c].note);CHECK_EQ(target.cells[r][c].instrument,theme.cells[r][c].instrument);}
@@ -129,7 +129,7 @@ TEST_CASE(SessionPublishedBaselineRestoreControlReadbackMuteAndBusyBoundaries) {
 }
 TEST_CASE(StorageProtocolExplicitVersionsAndNoInMemoryRestoreOverload) {
     CHECK_EQ(ParseStorageOperation("BTSTORE1 SAVE 1"),StorageOperation::Save);CHECK_EQ(ParseStorageOperation("BTSTORE1 RESTORE 1"),StorageOperation::Restore);
-    CHECK_EQ(ParseStorageOperation("BTSTORE1 SEED 1 theme"),StorageOperation::SeedTheme);CHECK_EQ(ParseStorageOperation("BTSTORE1 LOAD 1 midi"),StorageOperation::LoadMidi);
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 SEED 1 1"),StorageOperation::Seed1);CHECK_EQ(ParseStorageOperation("BTSTORE1 LOAD 1 3"),StorageOperation::Load);
     for(const auto* line:{"BTSTORE1 SAVE 2","BTSTORE1 RESTORE 1 ","BTTEST1 RESTORE","BTSTORE1 SEED 1 pattern2","BTSTORE1 LOAD 1 ../x"})CHECK_EQ(ParseStorageOperation(line),StorageOperation::Invalid);
 }
 TEST_CASE(SessionIncompatibleBindingsRejectWithoutPartialBaselineOrTempo) {
@@ -148,9 +148,9 @@ TEST_CASE(SessionIncompatibleBindingsRejectWithoutPartialBaselineOrTempo) {
 }
 TEST_CASE(DevelopmentPartialWriteCannotBecomeCanonicalAndStaleCandidateBlocks) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;RealtimePattern scratch;
-    FakePatternSd::short_write=true;CHECK_EQ(store.CreateDevelopment(backend,false,scratch),PatternFileResult::Io);CHECK(!FakePatternSd::files.count(kDevelopmentThemePath));
-    FakePatternSd::short_write=false;FakePatternSd::files["/BroTracker/development/theme.btdev.candidate"]={false,{1,2}};
-    CHECK_EQ(store.CreateDevelopment(backend,false,scratch),PatternFileResult::RecoveryRequired);CHECK(!FakePatternSd::files.count(kDevelopmentThemePath));Released();
+    FakePatternSd::short_write=true;CHECK_EQ(store.CreateDevelopment(backend,1,scratch),PatternFileResult::Io);CHECK(!FakePatternSd::files.count(kDevelopmentPattern1Path));
+    FakePatternSd::short_write=false;FakePatternSd::files["/BroTracker/development/patern1.btdev.candidate"]={false,{1,2}};
+    CHECK_EQ(store.CreateDevelopment(backend,1,scratch),PatternFileResult::RecoveryRequired);CHECK(!FakePatternSd::files.count(kDevelopmentPattern1Path));Released();
 }
 TEST_CASE(SessionCanonicalDirectoryIsNotRenamedOrReplaced) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
@@ -165,34 +165,97 @@ TEST_CASE(ExplicitMidiReplacementPreservesOtherColumnsAndSeedNoOverwrite) {
     old.cells[5][7]={77,2};old.note_off_timing[5][7]=NoteOffTiming::EndOfPosition;
     std::array<std::uint8_t,kPatternFileCapacity> bytes{};std::size_t n=0;
     CHECK_EQ(EncodePatternFile(PatternFileKind::Development,old,15500,bytes.data(),bytes.size(),n),PatternFileResult::Ok);
-    FakePatternSd::files[kDevelopmentMidiPath]={false,{bytes.begin(),bytes.begin()+n}};
-    FakePatternSd::files[kDevelopmentThemePath]={false,{1,2,3}};FakePatternSd::files[kSessionPath]={false,{4,5,6}};
-    const auto theme=FakePatternSd::files[kDevelopmentThemePath].bytes,session=FakePatternSd::files[kSessionPath].bytes;
+    FakePatternSd::files[kDevelopmentPattern3Path]={false,{bytes.begin(),bytes.begin()+n}};
+    FakePatternSd::files[kDevelopmentPattern1Path]={false,{1,2,3}};FakePatternSd::files[kSessionPath]={false,{4,5,6}};
+    const auto theme=FakePatternSd::files[kDevelopmentPattern1Path].bytes,session=FakePatternSd::files[kSessionPath].bytes;
     RealtimePattern scratch,loaded;std::uint32_t tempo=0;
-    CHECK_EQ(store.ReplaceDevelopmentMidi(backend,scratch),PatternFileResult::Ok);
-    CHECK_EQ(store.Load(backend,kDevelopmentMidiPath,PatternFileKind::Development,loaded,tempo),PatternFileResult::Ok);CHECK_EQ(tempo,15500u);
+    CHECK_EQ(store.ReplaceDevelopmentPattern3(backend,scratch),PatternFileResult::Ok);
+    CHECK_EQ(store.Load(backend,kDevelopmentPattern3Path,PatternFileKind::Development,loaded,tempo),PatternFileResult::Ok);CHECK_EQ(tempo,15500u);
     auto expected=old;SetDevelopmentMidiBassPart(expected);Same(loaded,expected);
     for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c)if(c!=4){CHECK_EQ(loaded.cells[r][c].note,old.cells[r][c].note);CHECK_EQ(loaded.cells[r][c].instrument,old.cells[r][c].instrument);CHECK_EQ(loaded.note_off_timing[r][c],old.note_off_timing[r][c]);}
-    CHECK(FakePatternSd::files[kDevelopmentThemePath].bytes==theme);CHECK(FakePatternSd::files[kSessionPath].bytes==session);
-    const auto replaced=FakePatternSd::files[kDevelopmentMidiPath].bytes;
-    CHECK_EQ(store.CreateDevelopment(backend,true,scratch),PatternFileResult::Exists);CHECK(FakePatternSd::files[kDevelopmentMidiPath].bytes==replaced);
-    CHECK_EQ(ParseStorageOperation("BTSTORE1 REPLACE 1 midi"),StorageOperation::ReplaceMidi);
-    for(const auto* bad:{"BTSTORE1 REPLACE 1 theme","BTSTORE1 REPLACE 1 midi extra","BTSTORE1 REPLACE 2 midi"})CHECK_EQ(ParseStorageOperation(bad),StorageOperation::Invalid);Released();
+    CHECK(FakePatternSd::files[kDevelopmentPattern1Path].bytes==theme);CHECK(FakePatternSd::files[kSessionPath].bytes==session);
+    const auto replaced=FakePatternSd::files[kDevelopmentPattern3Path].bytes;
+    CHECK_EQ(store.CreateDevelopment(backend,3,scratch),PatternFileResult::Exists);CHECK(FakePatternSd::files[kDevelopmentPattern3Path].bytes==replaced);
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 REPLACE 1 3"),StorageOperation::Replace3);
+    for(const auto* bad:{"BTSTORE1 REPLACE 1 theme","BTSTORE1 REPLACE 1 3 extra","BTSTORE1 REPLACE 2 midi"})CHECK_EQ(ParseStorageOperation(bad),StorageOperation::Invalid);Released();
 }
 TEST_CASE(ExplicitMidiReplacementMissingInvalidBusyAndFailedPromotion) {
     for(unsigned mode=0;mode<8;++mode){
         FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;RealtimePattern scratch;
-        if(mode==0){CHECK_EQ(store.ReplaceDevelopmentMidi(backend,scratch),PatternFileResult::Missing);CHECK(FakePatternSd::files.empty());continue;}
+        if(mode==0){CHECK_EQ(store.ReplaceDevelopmentPattern3(backend,scratch),PatternFileResult::Missing);CHECK(FakePatternSd::files.empty());continue;}
         auto old=MakeDevelopmentPattern(mode==1?16:32);old.cells[2][4]={64,1};
         std::array<std::uint8_t,kPatternFileCapacity> b{};std::size_t n=0;CHECK_EQ(EncodePatternFile(PatternFileKind::Development,old,mode==2?15501:15500,b.data(),b.size(),n),PatternFileResult::Ok);
-        FakePatternSd::files[kDevelopmentMidiPath]={false,{b.begin(),b.begin()+n}};const auto original=FakePatternSd::files[kDevelopmentMidiPath].bytes;
+        FakePatternSd::files[kDevelopmentPattern3Path]={false,{b.begin(),b.begin()+n}};const auto original=FakePatternSd::files[kDevelopmentPattern3Path].bytes;
         if(mode==3)FakePatternSd::short_write=true;if(mode==4)FakePatternSd::fail_sync=true;
         if(mode==5)FakePatternSd::fail_rename_mask=1u<<2;if(mode==6)FakePatternSd::fail_rename_mask=(1u<<2)|(1u<<3);
         if(mode==7)CHECK(SdAccess::AcquireRead());
-        const auto result=store.ReplaceDevelopmentMidi(backend,scratch);CHECK(result!=PatternFileResult::Ok);
+        const auto result=store.ReplaceDevelopmentPattern3(backend,scratch);CHECK(result!=PatternFileResult::Ok);
         if(mode==7){CHECK_EQ(result,PatternFileResult::Busy);SdAccess::ReleaseRead();}
-        if(mode==6){CHECK_EQ(result,PatternFileResult::RecoveryRequired);CHECK(FakePatternSd::files["/BroTracker/development/midi.btdev.previous"].bytes==original);}
-        else CHECK(FakePatternSd::files[kDevelopmentMidiPath].bytes==original);
+        if(mode==6){CHECK_EQ(result,PatternFileResult::RecoveryRequired);CHECK(FakePatternSd::files["/BroTracker/development/patern3.btdev.previous"].bytes==original);}
+        else CHECK(FakePatternSd::files[kDevelopmentPattern3Path].bytes==original);
         Released();
     }
+}
+TEST_CASE(NumberedDevelopmentVariantsExactCellsMetadataAndTempo) {
+    for(unsigned number=0;number<=4;++number) {
+        RealtimePattern p;MakeStoredDevelopmentPattern(p,number);CHECK_EQ(p.active_rows,32);CHECK_EQ(p.active_channels,8);CHECK_EQ(DevelopmentPatternTempo(number),number?15500u:12500u);
+        const auto theme=MakeDevelopmentPattern(32);
+        constexpr unsigned rows[]={0,6,8,12,16,22,24,28},notes[]={36,43,48,43,41,48,41,43},offs[]={3,7,11,15,19,23,27,31};
+        for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c) {
+            unsigned note=NOTE_EMPTY,instrument=255;
+            if(number && c<2){note=theme.cells[r][c].note;instrument=theme.cells[r][c].instrument;}
+            if((number==2 || number==4) && c==2 && (r==0 || r==16 || r==28)){note=60;instrument=r?255:0;}
+            if((number==2 || number==4) && c==3 && (r==0 || r==12 || r==28)){note=60;instrument=r?255:3;}
+            if((number==3 || number==4) && c==4)for(unsigned i=0;i<8;++i){if(r==rows[i]){note=notes[i];instrument=1;}if(number==3 && r==offs[i])note=NOTE_OFF;}
+            CHECK_EQ(p.cells[r][c].note,note);CHECK_EQ(p.cells[r][c].instrument,instrument);CHECK_EQ(p.note_off_timing[r][c],NoteOffTiming::Arrival);
+        }
+    }
+}
+TEST_CASE(NumberedMigrationVerifiesExactBytesBeforeRemovingSource) {
+    for(unsigned scenario=0;scenario<7;++scenario){
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
+        const char* source="/BroTracker/development/midi.btdev";const char* dest=DevelopmentPatternPath(3);
+        RealtimePattern p;MakeStoredDevelopmentPattern(p,3);p.note_off_timing[5][5]=NoteOffTiming::EndOfPosition;
+        std::array<std::uint8_t,kPatternFileCapacity> bytes{};std::size_t n=0;CHECK_EQ(EncodePatternFile(PatternFileKind::Development,p,15500,bytes.data(),bytes.size(),n),PatternFileResult::Ok);
+        const std::vector<std::uint8_t> original(bytes.begin(),bytes.begin()+n);
+        if(scenario!=1)FakePatternSd::files[source]={false,original};
+        if(scenario==2)FakePatternSd::files[dest]={false,{1,2,3}};
+        if(scenario==3)FakePatternSd::short_write=true;
+        if(scenario==4)FakePatternSd::fail_rename_mask=1u<<1;
+        if(scenario==5)FakePatternSd::fail_remove=true;
+        if(scenario==6)FakePatternSd::files[dest]={false,original};
+        const auto result=store.MigrateDevelopment(backend,3);
+        if(scenario==0 || scenario==6){CHECK_EQ(result,PatternFileResult::Ok);CHECK(!FakePatternSd::files.count(source));CHECK(FakePatternSd::files[dest].bytes==original);}
+        else if(scenario==1)CHECK_EQ(result,PatternFileResult::Missing);
+        else {CHECK(result!=PatternFileResult::Ok);CHECK(FakePatternSd::files[source].bytes==original);if(scenario==2)CHECK(FakePatternSd::files[dest].bytes==std::vector<std::uint8_t>({1,2,3}));}
+        if(scenario==5){FakePatternSd::fail_remove=false;CHECK_EQ(store.MigrateDevelopment(backend,3),PatternFileResult::Ok);CHECK(!FakePatternSd::files.count(source));}
+        Released();
+    }
+}
+TEST_CASE(CleanBaselineUsesPublicationAndPreservesMuteWithoutStorage) {
+    using Control=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
+    auto old=MakeDevelopmentPattern();Control control;CHECK_EQ(control.InitializeAudio(15500,44100,old,SelectDevelopmentFixture({}).bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(control.SubmitMute(5,1),PatternRequestStatus::Accepted);std::int16_t out[128];control.AudioBlock(out,128,true);
+    RealtimePattern clean;MakeStoredDevelopmentPattern(clean,0);PatternPublication transfer;
+    CHECK(StageStoredPattern(transfer,clean,12500,0));CHECK_EQ(control.SubmitPattern(*transfer.Frozen(),transfer.Identity(),12500),PatternRequestStatus::Accepted);
+    control.AudioBlock(out,128,true);PatternAppliedRequest ack;CHECK(control.TakeApplied(ack));CHECK_EQ(ack.result,PatternPlayerStatus::Success);
+    CHECK(transfer.Complete(ack.publication_id,true,old));Same(old,clean);CHECK_EQ(control.Snapshot().tempo,12500u);CHECK_EQ(control.Snapshot().published_tempo,12500u);CHECK_EQ(control.Snapshot().mute_mask,5u);CHECK_EQ(control.Snapshot().transport,PatternTransportState::Stopped);
+}
+TEST_CASE(DevelopmentStemLoadingUsesFileContentsAndRejectsPathsBeforeIo) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
+    RealtimePattern original;original.active_rows=16;original.active_channels=3;original.cells[1][2]={NOTE_OFF,255};original.note_off_timing[1][2]=NoteOffTiming::EndOfPosition;
+    std::array<std::uint8_t,kPatternFileCapacity> bytes{};std::size_t size=0;CHECK_EQ(EncodePatternFile(PatternFileKind::Development,original,12753,bytes.data(),bytes.size(),size),PatternFileResult::Ok);
+    FakePatternSd::files["/BroTracker/development/ambient_Take.btdev"]={false,{bytes.begin(),bytes.begin()+size}};
+    FakePatternSd::files["/BroTracker/development/none.btdev"]={false,{bytes.begin(),bytes.begin()+size}};
+    RealtimePattern dest;std::uint32_t tempo=0;CHECK_EQ(store.LoadDevelopment(backend,"ambient_Take",dest,tempo),PatternFileResult::Ok);Same(dest,original);CHECK_EQ(tempo,12753u);
+    CHECK_EQ(store.LoadDevelopment(backend,"ambient_Take.btdev",dest,tempo),PatternFileResult::Ok);Same(dest,original);
+    CHECK_EQ(store.LoadDevelopment(backend,"none.btdev",dest,tempo),PatternFileResult::Ok);Same(dest,original);CHECK_EQ(tempo,12753u);
+    const auto unchanged=dest;
+    for(const auto& name:std::vector<std::string>{"","../x","x/y","x\\y","x.bad","x y",std::string(25,'a'),"none"}) {
+        CHECK_EQ(store.LoadDevelopment(backend,name,dest,tempo),PatternFileResult::Invalid);Same(dest,unchanged);CHECK_EQ(tempo,12753u);
+        CHECK_EQ(ParseStorageOperation(("BTSTORE1 LOAD 1 "+name).c_str()),(name=="none")?StorageOperation::Load:StorageOperation::Invalid);
+    }
+    char path[kDevelopmentPathCapacity];CHECK(BuildDevelopmentPath(std::string(24,'x'),path,sizeof(path)));CHECK(!BuildDevelopmentPath(std::string(25,'x'),path,sizeof(path)));
+    CHECK_EQ(std::string(path),"/BroTracker/development/"+std::string(24,'x')+".btdev");
+    CHECK_EQ(store.LoadDevelopment(backend,"4",dest,tempo),PatternFileResult::Missing); // Literal4, no numbered alias.
 }

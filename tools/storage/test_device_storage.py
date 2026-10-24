@@ -34,7 +34,7 @@ class Connection:
         elif line == "BTTEST1 STATUS":
             response = f"BTTEST1 STATE {self.state}\nBTPUBLISH1 NEXT 1 1\n"
         else:
-            operation = "-".join(line.split()[1:2] + line.split()[3:]).lower()
+            operation = "-".join([line.split()[1].lower(), *line.split()[3:]])
             response = f"BTSTORE1 SUBMITTED 1 {operation} 1\nBTSTORE1 RESULT 1 {operation} {self.result} 1\n"
         self.pending.extend(response.encode())
         return len(raw)
@@ -58,7 +58,9 @@ class ToolTests(unittest.TestCase):
             return module.main()
     def test_each_explicit_operation_closes_without_transport_start(self):
         for operation, wire in module.COMMANDS.items():
-            self.assertEqual(self.invoke(operation, "--port", "fixture", "--audio-output", "bridge"), 0)
+            extra = ("--stem", "ambient_Take") if operation == "load" else ()
+            self.assertEqual(self.invoke(operation, "--port", "fixture", "--audio-output", "bridge", *extra), 0)
+            wire = "BTSTORE1 LOAD 1 ambient_Take" if operation == "load" else wire
             connection = Connection.instances[-1]
             self.assertTrue(connection.closed)
             self.assertEqual(connection.commands, ["BTTEST1 HELLO", "BTAUDIO1 SET 1 bridge", "BTTEST1 STATUS", wire])
@@ -110,6 +112,17 @@ class ToolTests(unittest.TestCase):
     def test_list_does_not_open(self):
         self.assertEqual(self.invoke("--list"), 0)
         self.assertFalse(Connection.instances)
+    def test_invalid_load_stems_never_open_connection(self):
+        for stem in ("../x", "x/y", "x\\y", "x.bad", "a b", "x" * 25, ""):
+            with self.subTest(stem=stem), patch("sys.stderr", new=io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.invoke("load", "--stem", stem, "--port", "fixture")
+        self.assertFalse(Connection.instances)
+    def test_load_filename_normalization_and_exact_none(self):
+        for name in ("none", "patern4", "patern4.btdev", "none.btdev", "X" * 24 + ".btdev"):
+            with self.subTest(name=name):
+                self.assertEqual(self.invoke("load", "--stem", name, "--port", "fixture"), 0)
+                self.assertIn(f"BTSTORE1 LOAD 1 {name}", Connection.instances[-1].commands)
     def test_result_shape(self):
         self.assertTrue(module.successful_result("BTSTORE1 RESULT 1 save backup-retained 0"))
         for line in ("BTSTORE1 RESULT 2 save ok 0", "BTSTORE1 RESULT 1 restore ok", "BTSTORE1 RESULT 1 save ok nope"):

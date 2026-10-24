@@ -49,9 +49,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         std::uint32_t value=0;
         if(section==8 && key=="startup_pattern" && !startup_pattern) {
             startup_pattern=true;
-            if(raw=="theme") candidate.startup_pattern=DevelopmentPattern::Theme;
-            else if(raw=="midi") candidate.startup_pattern=DevelopmentPattern::Midi;
-            else if(!raw.empty() && raw!="none") candidate.startup_pattern_invalid=true;
+            if(!raw.empty() && !candidate.startup_pattern.Assign(raw))candidate.startup_pattern_invalid=true;
         } else if(section==7 && key=="bridge_audible_test" && !audible) {
             audible=true;
             if(raw=="yes" || raw=="on" || raw=="true" || raw=="1") candidate.bridge_audible_test=true;

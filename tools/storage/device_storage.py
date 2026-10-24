@@ -7,11 +7,18 @@ import time
 from pathlib import Path
 
 COMMANDS = {
-    "seed-theme": "BTSTORE1 SEED 1 theme", "seed-midi": "BTSTORE1 SEED 1 midi",
-    "load-theme": "BTSTORE1 LOAD 1 theme", "load-midi": "BTSTORE1 LOAD 1 midi",
-    "replace-midi": "BTSTORE1 REPLACE 1 midi",
+    **{f"seed-{n}": f"BTSTORE1 SEED 1 {n}" for n in range(1, 5)},
+    **{f"migrate-{n}": f"BTSTORE1 MIGRATE 1 {n}" for n in range(1, 5)},
+    "load": None, "replace-3": "BTSTORE1 REPLACE 1 3",
     "save": "BTSTORE1 SAVE 1", "restore": "BTSTORE1 RESTORE 1",
 }
+
+
+def valid_stem(stem):
+    if stem == "none":
+        return True
+    base = stem[:-6] if stem.endswith(".btdev") else stem
+    return (1 <= len(base) <= 24 and all(c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in base))
 
 
 def successful_result(line, expected_operation=None):
@@ -32,11 +39,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", nargs="?", choices=COMMANDS)
     parser.add_argument("--list", action="store_true", help="List serial candidates without opening them")
+    parser.add_argument("--stem", help="LOAD filename stem: 1..24 ASCII letters/digits/underscore/hyphen, optional .btdev; exact none=clean125")
     parser.add_argument("--port", help="Explicit discovered Teensy CDC port; never assume a COM number")
     parser.add_argument("--audio-output", choices=("default", "bridge", "pt8211"),
                         help="Explicitly activate the chosen production route if not already initialized; no playback")
     parser.add_argument("--log", type=Path, help="Optional local evidence transcript (exclusive creation)")
     args = parser.parse_args()
+    if args.operation == "load":
+        if not args.stem or not valid_stem(args.stem):
+            parser.error("load requires --stem: 1..24 ASCII letters/digits/underscore/hyphen with optional .btdev; no paths/quotes")
+        stem = args.stem
+        command, expected_operation = f"BTSTORE1 LOAD 1 {stem}", f"load-{stem}"
+    else:
+        if args.stem is not None:
+            parser.error("--stem is only valid with load")
+        command, expected_operation = COMMANDS.get(args.operation), args.operation
     import serial
     from serial.tools import list_ports
     if args.list:
@@ -94,9 +111,9 @@ def main():
                 raise RuntimeError("fully stopped transport required; STOP explicitly in BTX, then close it")
             # Finish outstanding discovery lines before the one explicit operation.
             receive_until(lambda s: s.startswith("BTPUBLISH1 NEXT 1 "))
-            send(COMMANDS[args.operation])
+            send(command)
             result = receive_until(lambda s: s.startswith("BTSTORE1 RESULT 1 "), seconds=15)
-            return 0 if successful_result(result, args.operation) else 1
+            return 0 if successful_result(result, expected_operation) else 1
     finally:
         if log:
             log.close()

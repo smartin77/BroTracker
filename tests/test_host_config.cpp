@@ -247,11 +247,12 @@ TEST_CASE(ExecutableRelativeConfigIgnoresLaunchDirectoryAndExample) {
 }
 TEST_CASE(HostDevelopmentStartupPatternConfiguration) {
     const std::string base="[btx]\nschema_version=1\nnew_pattern_length=32\n";
-    HostConfig c;CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK_EQ(c.startup_pattern,DevelopmentPattern::None);
-    for(const auto value:{"","none","theme","midi","MIDI","drums","../midi"}) {
+    HostConfig c;CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);CHECK_EQ(std::string(c.startup_pattern.stem),"none");
+    for(const std::string value:std::vector<std::string>{"","none","NONE","patern4","patern4.btdev","none.btdev","ambient_Take-7","4",std::string(24,'a'),"../x","x/y","x\\y","x.btdev","\"patern4\"","has space",std::string(25,'a')}) {
         CHECK(ParseHostConfig(base+"[development]\nstartup_pattern="+value,c)==HostConfigStatus::Loaded);
-        CHECK_EQ(c.startup_pattern,std::string(value)=="midi"?DevelopmentPattern::Midi:std::string(value)=="theme"?DevelopmentPattern::Theme:DevelopmentPattern::None);
-        CHECK_EQ(c.startup_pattern_invalid,std::string(value)=="MIDI" || std::string(value)=="drums" || std::string(value)=="../midi");
+        const bool valid=value.empty() || ValidDevelopmentSelection(value);
+        CHECK_EQ(c.startup_pattern_invalid,!valid);
+        CHECK_EQ(std::string(c.startup_pattern.stem),!valid || value.empty()?"none":value);
     }
-    CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=midi\nstartup_pattern=theme",c)==HostConfigStatus::Invalid);
+    CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=patern4\nstartup_pattern=patern1",c)==HostConfigStatus::Invalid);
 }
