@@ -136,6 +136,15 @@ namespace BroTracker
             result.next_gain_id=highest_gain_id_==UINT32_MAX ? 0 : highest_gain_id_+1;
             return result;
         }
+        // Main context under the same interrupt exclusion as Snapshot. A stopped
+        // status alone is insufficient while queued requests/ACKs can still mutate
+        // the baseline. External MIDI/SD readiness is checked by the platform.
+        bool StorageReady() const noexcept {
+            return status_.tempo && status_.transport==PatternTransportState::Stopped &&
+                status_.fault==PatternFault::None && !request_count_ && !applied_count_ &&
+                !deferred_notification_ && !publication_pending_ && !pending_mute_id_ &&
+                !status_.pending_preview_id && !status_.pending_tempo_id;
+        }
 
         // Audio owner only, called once before accepting the first audio block.
         // Never configures/restarts from HELLO, reconnect or the main loop.

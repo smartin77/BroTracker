@@ -33,6 +33,8 @@ extern volatile uint8_t usb_configuration;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #include "sd_wav_inspection.h"
+#include "sd_pattern_storage.h"
+#include "bringup/pattern_storage_protocol.h"
 #endif
 #include <array>
 #include <cstdio>
@@ -213,8 +215,8 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 21 lines including MIDI health and mute CAP/STATE.
-    constexpr std::size_t kDiscoveryReserve = 21;
+    // Full production HELLO is 22 lines including storage CAP and MIDI/mute state.
+    constexpr std::size_t kDiscoveryReserve = 22;
     constexpr std::size_t kTxCapacity = 24;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
@@ -229,6 +231,13 @@ namespace
     PatternSnapshotSender g_pattern_transfer(g_snapshot_source, kTempoHundredths);
     PatternOutputMux g_output_mux(g_telemetry, g_pattern_transfer);
     bool g_protocol_connected = false;
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+    SdPatternFiles g_storage_backend;
+    PatternFileStore<SdPatternFiles> g_pattern_files;
+    RealtimePattern g_storage_pattern; // Frozen main-context file/snapshot scratch, never live PCM.
+    std::uint32_t g_storage_restore_id=0;
+    StorageOperation g_storage_restore_operation=StorageOperation::Invalid;
+#endif
     std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
     {
@@ -306,6 +315,9 @@ namespace
         if (advertise_snapshot) { (void)QueueLine("BTPREVIEW1 CAP 1\n");
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        if (advertise_snapshot) (void)QueueLine("BTSTORE1 CAP 1\n");
+#endif
         QueueGains(status);
         if(advertise_snapshot) { (void)QueueLine("BTTEMPO1 CAP 1\n"); (void)QueueLine("BTPUBLISH1 TEMPOCAP 2\n"); }
         QueueTempo();
@@ -395,6 +407,59 @@ namespace
         line.offset += written;
         if (line.offset == line.length) { g_tx_head = (g_tx_head + 1) % kTxCapacity; --g_tx_count; }
     }
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+    bool StorageControlReady() {
+        InterruptGuard guard;
+        if(!g_audio_ready || !g_control.StorageReady()) return false;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        if(g_midi.PendingCleanup() || g_midi.Queued() || !brotracker_midi_tx_idle()) return false;
+#endif
+        return true;
+    }
+    void StorageReply(StorageOperation op,const char* result,std::uint32_t revision=0) {
+        char reply[96];
+        std::snprintf(reply,sizeof(reply),"BTSTORE1 RESULT 1 %s %s %" PRIu32 "\n",
+            StorageOperationName(op),result,revision);
+        (void)QueueLine(reply);
+    }
+    void StorageCommand(const char* line,std::uint32_t now) {
+        const auto op=ParseStorageOperation(line);
+        if(op==StorageOperation::Invalid) {StorageReply(op,"malformed");return;}
+        if(!g_protocol_connected) {StorageReply(op,"not-connected");return;}
+        if(!g_storage_backend.ready) {StorageReply(op,"sd-unavailable");return;}
+        if(g_storage_restore_id || g_publication.Busy() || g_preview.Busy() || g_pattern_transfer.HasData() ||
+            !StorageControlReady()) {StorageReply(op,"busy-or-not-ready");return;}
+        PatternFileResult result;
+        if(op==StorageOperation::Save) {
+            // Both sources are main-owned and updated together only after audio ACK.
+            // StorageControlReady rejects queued requests/ACKs, including previews.
+            g_storage_pattern=g_active_pattern;
+            result=g_pattern_files.SaveSession(g_storage_backend,g_storage_pattern,g_published_tempo);
+        } else if(op==StorageOperation::SeedTheme || op==StorageOperation::SeedMidi) {
+            result=g_pattern_files.CreateDevelopment(g_storage_backend,op==StorageOperation::SeedMidi,g_storage_pattern);
+        } else {
+            std::uint32_t tempo=0;
+            result=g_pattern_files.Load(g_storage_backend,op==StorageOperation::Restore?kSessionPath:
+                op==StorageOperation::LoadTheme?kDevelopmentThemePath:kDevelopmentMidiPath,
+                op==StorageOperation::Restore?PatternFileKind::Session:PatternFileKind::Development,g_storage_pattern,tempo);
+            if(result==PatternFileResult::Ok) {
+                if(!StorageControlReady() || !StageStoredPattern(g_publication,g_storage_pattern,tempo,now)) {
+                    StorageReply(op,"busy-or-identity-exhausted");return;
+                }
+                PatternRequestStatus accepted;
+                { InterruptGuard guard; accepted=g_control.SubmitPattern(*g_publication.Frozen(),g_publication.Identity(),tempo); }
+                if(accepted!=PatternRequestStatus::Accepted) {
+                    g_publication.Finish();StorageReply(op,"queue-full");return;
+                }
+                g_storage_restore_id=g_publication.Identity();g_storage_restore_operation=op;
+                char reply[80];std::snprintf(reply,sizeof(reply),"BTSTORE1 SUBMITTED 1 %s %" PRIu32 "\n",
+                    StorageOperationName(op),g_storage_restore_id);
+                (void)QueueLine(reply);return; // Success is reported only after the usual audio-owner ACK.
+            }
+        }
+        StorageReply(op,PatternFileResultName(result));
+    }
+#endif
     void ServiceSerial()
     {
         static char line[kPatternSnapshotLineCapacity]; static std::size_t used = 0;
@@ -430,6 +495,9 @@ namespace
         }
         for (std::size_t budget = 0; budget < kPatternRequestCapacity && g_tx_count < kTxCapacity; ++budget)
         {
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            if(g_storage_restore_id && g_tx_count+4>kTxCapacity) break;
+#endif
             PatternAppliedRequest applied;
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
@@ -450,6 +518,7 @@ namespace
                 else std::snprintf(reply,sizeof(reply),"BTPREVIEW1 REJECTED 1 %" PRIu32 " %s\n",
                     applied.publication_id,ReplacementRejection(applied.result));
                 (void)QueueLine(reply);
+
             }
             else if (applied.request == PatternRequest::Gains) {
                 char reply[64];
@@ -472,6 +541,16 @@ namespace
                 } else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
                     applied.publication_id,synchronized ? ReplacementRejection(applied.result) : "handoff-error");
                 (void)QueueLine(reply);
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                if(g_storage_restore_id && applied.publication_id==g_storage_restore_id) {
+                    StorageReply(g_storage_restore_operation,synchronized && applied.result==PatternPlayerStatus::Success?"ok":"application-rejected",
+                        g_storage_restore_id);
+                    g_storage_restore_id=0;g_storage_restore_operation=StorageOperation::Invalid;
+                    // Existing status/readback synchronization observes the new baseline;
+                    // tooling closes CDC before BTX reconnects and retrieves full v2 data.
+                    QueueTempo();
+                }
+#endif
             }
             else {
                 (void)QueueLine(applied.result != PatternPlayerStatus::Success ? "BTTEST1 ERROR transport\n" :
@@ -537,6 +616,10 @@ namespace
             if (used && line[used - 1] == '\r') --used;
             line[used] = '\0';
             if (overflow) {
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                if (!std::strncmp(line,"BTSTORE1",8)) StorageReply(StorageOperation::Invalid,"malformed");
+                else
+#endif
                 if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
                 else if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
                     const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
@@ -544,6 +627,9 @@ namespace
                 } else (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
                     "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
             }
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            else if (!std::strncmp(line,"BTSTORE1",8)) {StorageCommand(line,now);}
+#endif
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
@@ -794,6 +880,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         // Early callbacks return while g_audio_ready is false. No retries after activation.
         const bool sd_ready=SD.begin(BUILTIN_SDCARD);
+        g_storage_backend.ready=sd_ready;
         g_wav_inspection.InspectOnce(sd_ready);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         PrepareDevelopmentWavs(sd_ready,g_preparation,g_prepared_pcm,kPreparedFrameCapacity,

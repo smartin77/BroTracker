@@ -91,32 +91,30 @@ Priority and implementation order remain undecided; these are planning items onl
 
 ### Planned session storage and development fixtures
 
-Begin **after external MIDI validation and resulting bug fixes**. No functionality
-or parser support is implemented by this plan. Split into small buildable milestones:
+Explicit SD development-pattern and basic working-session operations are now
+implemented; automatic startup/shutdown/configuration integration remains separate.
 
-* [ ] **Published-state contract and module foundation:** use the inspected
-  [Publish inventory and session boundaries](FILE_FORMATS.md#planned-working-session-separate-from-tunesprojects).
-  Persist only the coherent published baseline, never unpublished/preview edits.
-  Module/tune saving remains a separate explicit operation; do not finalize a module
-  format or expand BTP/BTT semantics as part of session storage.
-* [ ] **SD session save/load:** Teensy owns canonical `/BroTracker`, creating it
-  if missing without disturbing existing files. Verify directory lookup/case behavior
-  against the actual SD library/filesystem; do not assume differently cased names
-  designate distinct directories. Provisional file: `/BroTracker/current.btsession`.
-  Reuse existing SD read/write benchmark tools/results as prior evidence, including
-  [reference-card limits](REFERENCE_SD_CARD.md) and D0046 read/write exclusivity;
-  benchmark throughput does not establish durability or playback-safe write latency.
-  Design a versioned, validated format, compatibility/sample-reference ownership and
-  safe replacement that retains the last valid copy after failed/interrupted writes.
-  Review actual filesystem flush/rename/power-loss guarantees during implementation.
-  Serialization and SD I/O stay outside audio/timing ISRs; use a coherent fixed-memory
-  snapshot/handoff and bounded realtime work. Release SD reads before writes under
-  D0046; do not block the engine or write during playback.
-* [ ] **Manual persisted-session restore first:** choose/document a shortcut that
-  does not collide with current in-memory Restore. Define validation, clear diagnostics
-  and non-destructive fallback for missing/corrupt/unsupported/incompatible files.
-  Specify how successful restore replaces the device published baseline and host
-  draft, including handling an existing dirty draft. Never automatically START.
+* [x] **Published-state contract and bounded storage:** versioned, CRC-validated
+  temporary `BTDP`/`BTSS` files preserve active pattern cells, both OFF semantics
+  and published tempo; no compiler struct dumps or unpublished host/preview state.
+  See [format, replacement limits and tooling](FILE_FORMATS.md#working-session-separate-from-tunesprojects).
+* [x] **Explicit SD session SAVE/RESTORE:** `/BroTracker/current.btsession`, candidate
+  verification and previous-file rollback; existing SD ownership; stopped/settled
+  operations only. RESTORE uses normal audio-owner publication, stays stopped,
+  updates baseline/readback and preserves mute. No power-loss/atomicity promise.
+  Existing in-memory Restore/F4 and module/tune saving remain distinct.
+* [x] **Explicit development provisioning/loading:** `/BroTracker/development/theme.btdev`
+  and `midi.btdev`, 32 rows/eight channels/155.00 BPM. MIDI uses supplied CH5 notes
+  and following-row arrival OFFs. No silent overwrite or boot reseed. Pattern2
+  CH3/CH4 drums remain reserved, contents pending; startup behavior is unchanged.
+* [ ] **Physical SD/tooling validation:** implementation built and native fake-SD /
+  publication/tool tests pass; no upload or device writes performed. Validate
+  files/no-overwrite, SAVE/RESTORE, stopped/mute behavior, BTX reconnect/readback,
+  directory case behavior and retained existing SD contents. Failure and power-loss
+  behavior is not established by prior SD throughput benchmarks.
+* [ ] **Manual storage UI:** decide a shortcut distinct from in-memory Restore;
+  only explicit serial tooling is currently implemented. Keep final module/tune
+  formats and embedded Sample availability outside this bounded session format.
 * [ ] **Orderly exit and optional startup restore:** proposed `[session]`
   `save_on_exit=yes` (default yes), `restore_on_startup=no` (default no).
   These keys are **planned, not accepted by the current parser**. Normal Windows
@@ -129,23 +127,13 @@ or parser support is implemented by this plan. Split into small buildable milest
   tempo and takes precedence over development-fixture initialization on success.
   Define failed/missing-session startup fallback separately; never silently overwrite
   the stored session or START playback.
-* [ ] **Development fixture selection after user-supplied contents:** proposed
-  development-only `[development] startup_pattern=sine`, not yet a parser option.
-  `sine` preserves the current two-channel sine melody (within the eight-channel
-  grid); `drums` uses two drum-loop channels; `midi` adds MIDI notes on two additional
-  channels. The user will supply exact drums/MIDI cells, values and which preceding
-  material the MIDI fixture includes; do not invent notes, samples or arrangement.
-  All three fixtures use **155.00 BPM**; sine is the default when selection is absent.
-  In the current development startup model with restore_on_startup=no, use the
-  selected fixture (absent selection means sine). Future normal startup without
-  restore opens an empty new pattern at **125.00 BPM**, with fixtures an explicit
-  testing option. Successful startup session restore overrides fixture initialization
-  and keeps saved tempo; define fallback/precedence before implementation so neither
-  path silently replaces the other. Fixture selection is neither module loading nor
-  persistence. Document every implemented key, including development-only keys,
-  with choices/defaults/comments in `config/config.ini.example` in the same change;
-  leave the runnable example unchanged until support exists.
-
+* [ ] **Host configuration/startup fixture selection:** future selection must read
+  the explicit SD files, not regenerate their seeds. CH3/CH4 drum pattern2 still
+  needs user-supplied contents. Do not implement the previous in-code selector
+  proposal. No development/session INI keys are currently accepted. Preserve
+  125.00 BPM new-project default versus 155.00 BPM development files, and define
+  restore/fallback precedence before integration. Add every supported option to
+  `config/config.ini.example` in the same change. No implicit replacement or START.
 
 ### MIDI lifecycle and session follow-up
 

@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include "pattern_sd_fake.h"
 constexpr int FILE_READ=0, FILE_WRITE=1;
 namespace FakeSd {
 inline std::vector<std::uint8_t> bytes;
@@ -43,6 +44,7 @@ public:
     std::size_t write(const std::uint8_t*,std::size_t n) { return n; }
 };
 struct FakeSD {
+    FakePatternFs sdfs;
     File open(const char* path,int) { if(FakeSd::on_open) FakeSd::on_open(path); FakeSd::paths.emplace_back(path); ++FakeSd::opens; return File(!FakeSd::fail_open && (!FakeSd::failed_path || std::string(path)!=FakeSd::failed_path)); }
 };
 inline FakeSD SD;

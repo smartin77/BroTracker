@@ -300,6 +300,10 @@ endif()
 # Isolated fake SD headers: compile the actual SdReader guard and firmware adapter,
 # without exposing the fake Arduino/SD API to other production/host targets.
 add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
+    tests/test_pattern_storage.cpp
+    libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp
+    libraries/scheduler/src/pattern_position.cpp
     libraries/sd_access/src/sd_access.cpp)
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})

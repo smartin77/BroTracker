@@ -110,12 +110,13 @@ working directory or a host application mapping as project storage.
 Project data, Tunes and Samples belong to the Teensy SD workspace. Host runtime
 config, logs and diagnostic recordings are separate host files, not substitutes
 for that workspace. See [File Formats](FILE_FORMATS.md#projectdata-workspace-and-host-paths)
-for the storage boundary and planned session/module contracts.
+for the storage boundary, explicit working-session operations and planned module contracts.
 
 This decision neither mounts the Teensy SD card as a host drive nor establishes
-implemented file browsing, module/session persistence or new storage operations.
-Existing SD access and planned transfer/persistence features retain their documented
-status; no host filesystem mapping or synchronization mechanism is implied.
+implemented file browsing or module/tune persistence. Explicit stopped development
+file and working-session operations use the Teensy SD foundation as documented in
+[File Formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects); no host
+filesystem mapping or synchronization mechanism is implied.
 
 ## Application Data and User Data
 
