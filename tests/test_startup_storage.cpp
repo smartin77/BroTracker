@@ -1,6 +1,9 @@
 #include "test_framework.h"
 #include "ui/bringup_serial.h"
 #include "bringup/pattern_file_store.h"
+#include "bringup/pattern_control.h"
+#include "bringup/variable_rate_player_adapter.h"
+#include "bringup/storage_ready_wait.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -8,6 +11,25 @@ using namespace BroTracker;
 namespace {
 struct StoragePeer:SerialTransport {
     std::string rx,tx;std::vector<std::string> commands;bool healthy=true,cap=true,respond=true;unsigned pattern=1;std::string result="ok",state="IDLE";
+    using Control=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
+    Control control;StorageReadyWait readiness;
+    bool real_control=false,initialized=false,cleanup_busy=false,transfer_busy=false,readiness_cap=true;
+    std::uint32_t now=0;
+    void AudioService() {
+        if(real_control && initialized) {
+            std::int16_t audio[128]{};control.AudioBlock(audio,128,true);PatternAppliedRequest ack;
+            while(control.TakeApplied(ack))if(ack.request==PatternRequest::Stop)rx+="BTTEST1 STOPPED\n";
+        }
+        if(readiness.Active()) {
+            const bool ready=(!real_control || control.StorageReady()) && !cleanup_busy && !transfer_busy;
+            const auto result=readiness.Poll(now,ready);
+            if(result!=StorageReadyWait::Result::Waiting) {rx+=result==StorageReadyWait::Result::Ready?"BTSTORE1 READY 1\n":"BTSTORE1 NOTREADY 1 timeout\n";readiness.Cancel();}
+        }
+    }
+    void Initialize() {
+        const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
+        CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
+    }
     bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false;
     std::string load_reply,baseline_reply,working_reply;
     bool Open(FILE*,const char*) override {healthy=true;return true;}
@@ -22,13 +44,16 @@ struct StoragePeer:SerialTransport {
             rx+="BTTEST1 STATE "+state+"\n";
             rx+=pattern==5?"BTPATTERN1 POS 2 0 0 0 0 0 16 3\n":"BTPATTERN1 POS 2 0 0 0 0 0 32 8\n";
             if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\n"):std::string{});
+            if(line=="BTTEST1 HELLO" && readiness_cap)rx+="BTSTORE1 READYCAP 1\n";
             if(preview_cap) {
                 if(line=="BTTEST1 HELLO")rx+="BTPREVIEW1 CAP 1\nBTPREVIEW1 DELTACAP 1\n";
                 rx+="BTPREVIEW1 NEXT 1 1\nBTPREVIEW1 STATE 1 1 0 0\n";
             }
         }else if(line=="BTAUDIO1 SET 1 default")rx+="BTAUDIO1 SELECTED 1 bridge\n";
         else if(line=="BTMIDI1 SET 1 12")rx+="BTMIDI1 SELECTED 1 12\n";
+        else if(line=="BTSTORE1 READY 1") {CHECK(readiness.Begin(now));AudioService();}
         else if(line.rfind("BTSTORE1 LOAD 1 ",0)==0 && respond) {
+            if(real_control)CHECK(control.StorageReady() && !cleanup_busy && !transfer_busy);
             const auto name=line.substr(16);pattern=name=="none"?0:(name=="patern1" || name=="patern1.btdev")?1:(name=="patern2" || name=="patern2.btdev")?2:(name=="patern3" || name=="patern3.btdev")?3:(name=="patern4" || name=="patern4.btdev")?4:5;std::string reply;
             if(result=="ok")reply+="BTSTORE1 SUBMITTED 1 load-"+name+" 1\n";
             reply+="BTSTORE1 RESULT 1 load-"+name+" "+result+" 1\n";
@@ -49,7 +74,10 @@ struct StoragePeer:SerialTransport {
             std::string reply="BTPREVIEW1 READ 1 "+std::to_string(id)+" 0 1 0\n";
             while(sender.HasData()){std::size_t count;const auto* bytes=sender.Data(count);reply.append(bytes,count);sender.Consume(count);}
             if(hold_working)working_reply+=reply;else rx+=reply;
-        }else if(line=="BTTEST1 STOP")rx+="BTTEST1 STOPPED\n";
+        }else if(line=="BTTEST1 STOP") {
+            if(real_control)CHECK_EQ(control.Submit(PatternRequest::Stop),PatternRequestStatus::Accepted);
+            else rx+="BTTEST1 STOPPED\n";
+        }
         return n;
     }
     unsigned Loads()const {return static_cast<unsigned>(std::count_if(commands.begin(),commands.end(),[](const auto& c){return c.rfind("BTSTORE1 LOAD",0)==0;}));}
@@ -161,5 +189,35 @@ TEST_CASE(InvalidStartupStemCannotSendLoad) {
     for(const auto& name:std::vector<std::string>{"../x","x/y","x\\y","x.bad","x y",std::string(25,'a')}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;
         serial.SetStartupPattern(name);Pump(serial,0,80,&editor);CHECK_EQ(wire->Loads(),0u);CHECK(!serial.StartupPatternReady());CHECK(editor.Locked());CHECK(!serial.Start());
+    }
+}
+
+TEST_CASE(StartupWaitsForRealAudioStopAndStorageReadinessBeforeLoad) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->real_control=true;wire->preview_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,12,&editor);CHECK(!wire->control.StorageReady());CHECK_EQ(wire->Loads(),0u);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")!=wire->commands.end());
+    CHECK(!serial.Start());BlockedEdits(editor);NoPreviewWrites(*wire);
+    // Reproduces route SELECTED before the first audio callback. The real control
+    // guard rejects here even though the protocol has already reported IDLE.
+    wire->Initialize();wire->cleanup_busy=wire->transfer_busy=true;
+    for(unsigned i=12;i<22;++i){wire->now=i*20;wire->AudioService();serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
+    CHECK(wire->control.StorageReady());CHECK_EQ(wire->Loads(),0u);CHECK(wire->readiness.Active());
+    wire->transfer_busy=false;wire->AudioService();Pump(serial,22,24,&editor);CHECK_EQ(wire->Loads(),0u);
+    wire->cleanup_busy=false;
+    for(unsigned i=24;i<110;++i){wire->now=i*20;wire->AudioService();serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
+    CHECK_EQ(wire->Loads(),1u);CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
+    CHECK_EQ(editor.Baseline()->tempo_hundredths,15500u);CHECK(!serial.Playing());NoPreviewWrites(*wire);
+    const auto stop=std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP");
+    const auto ready=std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 READY 1");
+    const auto load=std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 LOAD 1 patern4");CHECK(stop<ready && ready<load);
+}
+TEST_CASE(StartupReadinessTimeoutAndUnsupportedFirmwareRemainLockedWithoutLoadRetry) {
+    for(bool supported:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->readiness_cap=supported;wire->cleanup_busy=true;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        for(unsigned i=0;i<400;++i){wire->now=i*20;wire->AudioService();serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
+        CHECK_EQ(wire->Loads(),0u);CHECK(!serial.StartupPatternReady());CHECK(!serial.Start());BlockedEdits(editor);NoPreviewWrites(*wire);
+        CHECK(std::strstr(serial.Status(),"failed"));CHECK(serial.Stop());Pump(serial,400,410,&editor);CHECK(serial.Stopped());
     }
 }

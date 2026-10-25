@@ -310,6 +310,8 @@ target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
 
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/pattern_position.cpp
     src/ui/serial_unavailable.cpp)
 target_link_libraries(BroTrackerStartupStorageTests PRIVATE BroTrackerBringUp BroTrackerCore)
 target_include_directories(BroTrackerStartupStorageTests PRIVATE tests)

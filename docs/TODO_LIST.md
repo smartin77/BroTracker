@@ -184,6 +184,26 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   fixture/session writes or handheld installation. Physical none.btdev and new
   arbitrary-name files were not created; those semantics have native coverage.
 
+### Handheld configured startup rejection (2026-10-25)
+
+* [x] Fix the demonstrated route-ACK/first-audio-callback readiness race: configured
+  startup now STOPs, waits for audio-owner ACK, then uses bounded advertised SD
+  readiness before its single LOAD. Existing guards and baseline/working/editor
+  barriers remain intact. Real-core Tick/SyncEditor regression covers delayed
+  initialization, readback/cleanup, timeout and old-firmware rejection.
+* [x] Validation/delivery: focused native regression and Windows9/9 passed;
+  Eoan ARM64 tests22/22, ABI and final package/checksum/config-preserving installer
+  checks passed. Existing JSON content is unchanged; source LF rule prevents
+  Windows checkout line endings from invalidating Git-delivered package hashes.
+  Development firmware builds; no upload, device LOAD or SD write performed.
+* [ ] Upload the readiness-capable development firmware and install refreshed host;
+  retest patern4 on handheld without START, then confirm controls/tempo hold after
+  recovery. The supplied generic rejection does not establish the physical guard
+  reason; readiness timeout now exposes it. No physical repair validation yet.
+* [ ] Keep the later upstream USB port-disable/disconnect incident separate. Kernel
+  ?EMI?? wording is not proof of EMI, power or connector failure; machine-specific
+  sequence/evidence stays local. No USB/network setting change is part of this fix.
+
 ### MIDI lifecycle and session follow-up
 
 * [x] Guard MIDI submission against USB-generation changes; regression coverage

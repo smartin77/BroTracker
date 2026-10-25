@@ -561,3 +561,50 @@ artifact/checksum and config-preserving installation checks. ARM64 staging is no
 handheld installation. Physical `none.btdev`/new arbitrary-name files were not
 created; their loading semantics were tested natively. This run does not add an
 external MIDI delivery, listening or audible-synchronization measurement.
+
+### Configured startup readiness barrier (2026-10-25)
+
+Route selection acknowledgment and wire `IDLE` do not prove storage readiness:
+`BTAUDIO1 SELECTED` can precede the first audio callback that initializes the core.
+Initial tempo telemetry may report the fixture fallback while core tempo is still
+zero. The old host sent LOAD immediately after audio/MIDI selection, allowing the
+existing storage guard to reject it. A native real-core regression reproduces
+that race; the supplied handheld `busy-or-not-ready` response alone does not
+identify which member of the compound guard fired in that physical run.
+
+Firmware now advertises `BTSTORE1 READYCAP 1`. Configured startup negotiates the
+routes, requests explicit STOP and waits for its audio-owner acknowledgment, then
+sends one `BTSTORE1 READY 1`. Main context uses a5000 ms readiness deadline for
+the unchanged storage guards: initialized/stopped/fault-free core, settled requests/ACKs,
+publication/preview/readback and MIDI cleanup/queue/transfers. No filesystem work
+or waiting is added to an ISR. Reply delivery is subject to the existing bounded
+TX FIFO/backpressure; the host retains its15000 ms response timeout. A successful `BTSTORE1 READY 1` response allows the
+single LOAD; LOAD rechecks the guards. No arbitrary delay or automatic LOAD retry.
+Timeout reports `BTSTORE1 NOTREADY 1 timeout:<guard>` (audio-initializing,
+core-not-ready, storage-apply, publication, preview, readback, midi-cleanup,
+midi-queue or midi-transfer); it does not silently adopt the boot theme.
+
+Older firmware without READYCAP cannot perform configured startup with this host:
+it reports an explicit startup error and requires the updated development
+firmware. Tooling's explicit LOAD and its existing guards remain unchanged.
+Final LOAD ACK, authoritative baseline and working-state recovery still gate
+editing/START. Failure/uncertainty stays locked; STOP/exit remain available.
+Ordinary reconnect after completed startup retains draft protection and never
+reloads the fixture. No autoSTART, SD provisioning or session SAVE is involved.
+
+Tests use the real control initialization, STOP queue/ACK and storage guard with
+host Tick/SyncEditor, delayed readback/cleanup, timeout and missing-capability
+cases. USB/SD hardware timing and the actual handheld guard cause still require
+physical retest with the updated firmware and host; modeled conditions are not
+physical confirmation. The reported tempo-hold symptom is consistent with input
+holds being cancelled while the editor is not ready; it must be retested after
+successful startup recovery rather than considered a proven independent fault.
+
+Validation: native startup regression and Windows package9/9 passed; Eoan ARM64
+22/22, ABI and final checksum/Git-byte/config-preserving installation checks passed.
+Both host deliveries were refreshed. Development firmware built with RAM1 variables
+50336 and RAM2 variables295968 bytes (unchanged reported totals), code136244 bytes
+(+384). No firmware upload or physical LOAD occurred in this repair. Read-only
+handheld discovery found no current Teensy USB/CDC node, preventing live verification;
+this is separate from the supplied earlier enumerated LOAD rejection. Required next
+step is firmware update plus physical startup retest, not a claimed hardware fix.

@@ -100,9 +100,10 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, Storage };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage };
     BroTracker::DevelopmentPattern startup_pattern_;
     bool storage_supported_=false,startup_attempted_=false,startup_applied_=false,startup_done_=false,startup_failed_=false;
+    bool storage_ready_supported_=false,startup_stop_sent_=false,startup_ready_sent_=false,startup_storage_ready_=false;
     bool startup_context_cleared_=false,startup_editor_ready_=false;
     bool startup_selection_enabled_=false;
     std::uint32_t startup_revision_=0;
