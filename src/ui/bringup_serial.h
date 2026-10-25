@@ -11,6 +11,7 @@
 #include "bringup/host_pattern_preview.h"
 #include "bringup/host_channel_gains.h"
 #include "bringup/host_channel_mute.h"
+#include "bringup/host_master_volume.h"
 #include "bringup/host_tempo.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
@@ -40,6 +41,14 @@ public:
         return preview_.Supported() ? preview_.Status() : publication_.Status();
     }
     // Shared explicit request API. No editor, UI, dirty state or history mutation.
+    bool VolumeAvailable() const {return connected_ && volume_.Available();}
+    bool StepVolume(int direction) {return connected_ && volume_.Step(direction);}
+    const char* VolumeStatus() const {
+        if(!connected_)return "Vol --";
+        if(!volume_.Supported())return "Vol -- (unsupported)";
+        if(!volume_.Available())return "Vol ? (synchronizing)";
+        std::snprintf(volume_status_,sizeof(volume_status_),"Vol %u%%%s",volume_.Percent(),volume_.Pending()?" *":"");return volume_status_;
+    }
     bool TempoAvailable() const { return connected_ && tempo_.Available() && !PublicationBusy() && !TransportPending(); }
     bool StepTempo(int amount) { return TempoAvailable() && tempo_.Step(amount); }
     bool RestoreTempo() {
@@ -157,6 +166,7 @@ private:
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
+    BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
     BroTracker::HostChannelMute mute_; bool tx_mute_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;

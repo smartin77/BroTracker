@@ -1,3 +1,4 @@
+#include "volume_input.h"
 #include "tools/alsa_bridge/listening_control.h"
 /*
  * BroTracker
@@ -324,6 +325,7 @@ int main(int argc, char* argv[])
         bring_up_log,
         "entering event loop");
 
+    LinuxVolumeInput volume_input;
     DiagnosticCancelInput diagnostic_cancel;
     while (!controls.Quit() && !diagnostic.Exit())
     {
@@ -339,6 +341,10 @@ int main(int argc, char* argv[])
 
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
         {
+            if(event.type==SDL_WINDOWEVENT) {
+                if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST)volume_input.Focus(false);
+                if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED)volume_input.Focus(true);
+            }
             if(diagnostic.Enabled() && diagnostic_cancel.Accept(event,
                 event.type==SDL_CONTROLLERBUTTONDOWN && SDL_GameControllerFromInstanceID(event.cbutton.which))) {
                 RequestDiagnosticCancel("btx",event,diagnostic_status); diagnostic.Fail("cancelled"); break;
@@ -367,6 +373,8 @@ int main(int argc, char* argv[])
                 controls.Request(result.transport,"ArkOS mapped input",SDL_GetTicks());
         }
         if(diagnostic.Enabled()) diagnostic_cancel.ObserveReleased(DiagnosticButtonsReleased(),SDL_GetTicks());
+        if(const auto step=volume_input.Poll(SDL_GetTicks(),!diagnostic.Enabled() && serial.VolumeAvailable() && !controls.Exiting()))
+            (void)serial.StepVolume(step);
         editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
         if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
@@ -377,6 +385,8 @@ int main(int argc, char* argv[])
             editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
             serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
             serial.PublicationStatus(), {}, serial.MidiStatus()};
+        panel.volume_status=serial.VolumeStatus();
+        if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
 

@@ -606,5 +606,12 @@ Both host deliveries were refreshed. Development firmware built with RAM1 variab
 50336 and RAM2 variables295968 bytes (unchanged reported totals), code136244 bytes
 (+384). No firmware upload or physical LOAD occurred in this repair. Read-only
 handheld discovery found no current Teensy USB/CDC node, preventing live verification;
-this is separate from the supplied earlier enumerated LOAD rejection. Required next
-step is firmware update plus physical startup retest, not a claimed hardware fix.
+this was separate from the supplied earlier enumerated LOAD rejection. Subsequently
+on2026-10-25 the user confirmed that, after the prior firmware/ARM64 update, direct
+Teensy-to-R36H startup, controls and playback worked. This is manual confirmation,
+not new automated readback or proof of the earlier physical guard cause, shared-hub
+stability or handheld external MIDI routing.
+
+Master volume is separate device-owned session state: BTDP/BTSS payloads and INI
+settings are unchanged. Pattern/session LOAD or RESTORE does not save or reset
+master volume; no new field or automatic persistence is introduced.

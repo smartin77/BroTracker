@@ -186,6 +186,7 @@ add_executable(BroTrackerTests
     tests/test_native_rate_pattern_player.cpp
     tests/test_variable_rate_pattern_player.cpp
     tests/test_pattern_bringup_control.cpp
+    tests/test_master_volume.cpp
     tests/test_pattern_gains.cpp
     tests/test_host_channel_gains.cpp
     tests/test_diagnostic_channel_gains.cpp

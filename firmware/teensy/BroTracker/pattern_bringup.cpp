@@ -1,3 +1,4 @@
+#include "bringup/master_volume_protocol.h"
 #include "bringup/storage_ready_wait.h"
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
@@ -216,9 +217,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 23 lines including storage CAP and MIDI/mute state.
-    constexpr std::size_t kDiscoveryReserve = 23;
-    constexpr std::size_t kTxCapacity = 24;
+    // Full production HELLO is 25 lines including storage CAP and MIDI/mute state.
+    constexpr std::size_t kDiscoveryReserve = 25;
+    constexpr std::size_t kTxCapacity = 26;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -259,6 +260,12 @@ namespace
         g_telemetry.Offer({status.running, p.valid, p.absolute_tick, p.pattern_row,
             p.loop_index, status.active_rows, status.active_channels,
             status.transport == PatternTransportState::Paused, 2});
+    }
+    void QueueVolume() {
+        const auto s=Snapshot();char line[96];
+        std::snprintf(line,sizeof(line),"BTVOL1 STATE 1 %lu %lu %u %lu\n",(unsigned long)s.applied_volume_id,
+            (unsigned long)s.next_volume_id,s.volume_percent,(unsigned long)s.volume_current);
+        (void)QueueLine(line);
     }
     void QueueGains(const PatternBringUpStatus& status) {
         char line[kPatternGainLineCapacity];
@@ -320,6 +327,8 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         if (advertise_snapshot) { (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n"); }
 #endif
+        if(advertise_snapshot)(void)QueueLine("BTVOL1 CAP 1\n");
+        QueueVolume();
         QueueGains(status);
         if(advertise_snapshot) { (void)QueueLine("BTTEMPO1 CAP 1\n"); (void)QueueLine("BTPUBLISH1 TEMPOCAP 2\n"); }
         QueueTempo();
@@ -528,6 +537,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             if(g_storage_restore_id && g_tx_count+4>kTxCapacity) break;
 #endif
+            if(g_tx_count+2>kTxCapacity)break;
             PatternAppliedRequest applied;
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
@@ -549,6 +559,10 @@ namespace
                     applied.publication_id,ReplacementRejection(applied.result));
                 (void)QueueLine(reply);
 
+            }
+            else if(applied.request==PatternRequest::MasterVolume) {
+                char reply[64];std::snprintf(reply,sizeof(reply),"BTVOL1 APPLIED 1 %lu\n",(unsigned long)applied.publication_id);
+                (void)QueueLine(reply);QueueVolume();
             }
             else if (applied.request == PatternRequest::Gains) {
                 char reply[64];
@@ -662,7 +676,8 @@ namespace
                 if (!std::strncmp(line,"BTSTORE1",8)) StorageReply("invalid","malformed");
                 else
 #endif
-                if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
+                if(!std::strncmp(line,"BTVOL1",6))(void)QueueLine("BTVOL1 ERROR 1 0 malformed\n");
+                else if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
                 else if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
                     const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
                     (preview ? g_preview : g_publication).Cancel(); PublicationError(0,PublicationStatus::Malformed,preview);
@@ -750,6 +765,20 @@ namespace
                     }
                     char reply[80];std::snprintf(reply,sizeof(reply),"BTTEMPO1 %s 1 %" PRIu32 "\n",
                         result==PatternRequestStatus::Accepted?"SUBMITTED":"REJECTED",f[0]); (void)QueueLine(reply);
+                }
+            }
+            else if(!std::strncmp(line,"BTVOL1",6)) {
+                if(!std::strcmp(line,"BTVOL1 GET 1")) QueueVolume();
+                else {
+                    MasterVolumeMessage message;const bool parsed=ParseMasterVolume(line,used,message);
+                    PatternRequestStatus accepted=PatternRequestStatus::InvalidRequest;
+                    if(parsed && g_protocol_connected) {InterruptGuard guard;accepted=g_control.SubmitVolume(message.percent,message.id);}
+                    char reply[96];
+                    if(accepted==PatternRequestStatus::Accepted)std::snprintf(reply,sizeof(reply),"BTVOL1 SUBMITTED 1 %lu\n",(unsigned long)message.id);
+                    else std::snprintf(reply,sizeof(reply),"BTVOL1 ERROR 1 %lu %s\n",(unsigned long)message.id,
+                        !parsed?"malformed":!g_protocol_connected?"not-connected":accepted==PatternRequestStatus::Full?"queue-full":
+                        accepted==PatternRequestStatus::Identity?"identity":"invalid-gain");
+                    (void)QueueLine(reply);
                 }
             }
             else if (!std::strncmp(line,"BTGAIN1",7)) {

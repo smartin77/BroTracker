@@ -4,6 +4,7 @@
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
 #include "bringup/storage_ready_wait.h"
+#include "bringup/master_volume_protocol.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -30,6 +31,8 @@ struct StoragePeer:SerialTransport {
         const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
         CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
     }
+    bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
+    std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
     bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false;
     std::string load_reply,baseline_reply,working_reply;
     bool Open(FILE*,const char*) override {healthy=true;return true;}
@@ -44,6 +47,7 @@ struct StoragePeer:SerialTransport {
             rx+="BTTEST1 STATE "+state+"\n";
             rx+=pattern==5?"BTPATTERN1 POS 2 0 0 0 0 0 16 3\n":"BTPATTERN1 POS 2 0 0 0 0 0 32 8\n";
             if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\n"):std::string{});
+            if(volume_cap) {if(line=="BTTEST1 HELLO")rx+="BTVOL1 CAP 1\n";rx+=VolumeState();}
             if(line=="BTTEST1 HELLO" && readiness_cap)rx+="BTSTORE1 READYCAP 1\n";
             if(preview_cap) {
                 if(line=="BTTEST1 HELLO")rx+="BTPREVIEW1 CAP 1\nBTPREVIEW1 DELTACAP 1\n";
@@ -51,6 +55,12 @@ struct StoragePeer:SerialTransport {
             }
         }else if(line=="BTAUDIO1 SET 1 default")rx+="BTAUDIO1 SELECTED 1 bridge\n";
         else if(line=="BTMIDI1 SET 1 12")rx+="BTMIDI1 SELECTED 1 12\n";
+        else if(line=="BTVOL1 GET 1")rx+=VolumeState();
+        else if(line.rfind("BTVOL1 SET 1 ",0)==0) {
+            MasterVolumeMessage m;CHECK(ParseMasterVolume(line.data(),line.size(),m));volume=m.percent;volume_id=m.id;
+            const auto reply="BTVOL1 SUBMITTED 1 "+std::to_string(m.id)+"\nBTVOL1 APPLIED 1 "+std::to_string(m.id)+"\n"+VolumeState();
+            if(hold_volume)volume_reply+=reply;else rx+=reply;
+        }
         else if(line=="BTSTORE1 READY 1") {CHECK(readiness.Begin(now));AudioService();}
         else if(line.rfind("BTSTORE1 LOAD 1 ",0)==0 && respond) {
             if(real_control)CHECK(control.StorageReady() && !cleanup_busy && !transfer_busy);
@@ -220,4 +230,21 @@ TEST_CASE(StartupReadinessTimeoutAndUnsupportedFirmwareRemainLockedWithoutLoadRe
         CHECK_EQ(wire->Loads(),0u);CHECK(!serial.StartupPatternReady());CHECK(!serial.Start());BlockedEdits(editor);NoPreviewWrites(*wire);
         CHECK(std::strstr(serial.Status(),"failed"));CHECK(serial.Stop());Pump(serial,400,410,&editor);CHECK(serial.Stopped());
     }
+}
+
+TEST_CASE(HostVolumeUsesDeviceBaselineCoalescesAndNeverReplaysAcrossReconnect) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->volume_cap=true;wire->preview_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(serial.VolumeAvailable());CHECK(std::strstr(serial.VolumeStatus(),"73%"));
+    for(const auto& command:wire->commands)CHECK(command.rfind("BTVOL1 SET",0)!=0);
+    wire->hold_volume=true;CHECK(serial.StepVolume(-1));Pump(serial,80,82,&editor);CHECK_EQ(wire->volume,68u);CHECK(!wire->volume_reply.empty());CHECK(serial.StepVolume(-1));
+    wire->rx+=wire->volume_reply;wire->volume_reply.clear();wire->hold_volume=false;Pump(serial,82,95,&editor);CHECK_EQ(wire->volume,63u);CHECK(std::strstr(serial.VolumeStatus(),"63%"));
+    const auto count=wire->commands.size();wire->healthy=false;serial.Tick(1901);Pump(serial,140,180,&editor);
+    CHECK(serial.VolumeAvailable());CHECK(std::strstr(serial.VolumeStatus(),"63%"));
+    for(unsigned i=count;i<wire->commands.size();++i)CHECK(wire->commands[i].rfind("BTVOL1 SET",0)!=0);
+    CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());
+}
+TEST_CASE(HostUnsupportedVolumeDoesNotBlockOtherwiseReadyTransport) {
+    auto peer=std::make_unique<StoragePeer>();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");Pump(serial);
+    CHECK(serial.StartupPatternReady());CHECK(!serial.VolumeAvailable());CHECK(!serial.StepVolume(-1));CHECK(std::strstr(serial.VolumeStatus(),"unsupported"));CHECK(serial.Start());
 }

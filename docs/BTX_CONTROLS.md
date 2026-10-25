@@ -51,6 +51,7 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | Publish | A in a row | Without L1: publish draft plus applied tempo while stopped/eligible paused; does not auto-Stop/Continue. Required capability/synchronization checks apply. |
 | Mute / unmute selected channel | A in a header | Consumes A instead of Publish, including with L1 held. Session mute only; no pattern/tempo change. |
 | Decrease / increase tempo | R1 + D-pad Left / Right | Immediate 0.05 BPM step, accelerated hold. Independent of value-step direction; available during playback with supported synchronized tempo. |
+| Internal master volume | Physical volume + / - | Verified evdev profile only: 5-point steps over0..100%, default100%. Hold repeats after400 ms, every100 ms; kernel repeats ignored. Teensy smooths changes; external MIDI unchanged. Requires supported synchronized firmware and exclusive volume-only key acquisition. `OS keys` means BTX did not acquire them; they retain system behavior. |
 | Cancel opt-in diagnostic run | B or Select; Escape on an attached keyboard; window close | Diagnostic mode only: normal editing/controller actions are disabled. B/Select arm only after all controls are released for 250 ms. Select is otherwise unassigned. This is cancellation, not a normal playback shortcut. |
 
 **Vertical R36S differences:** repository evidence does not verify an R36S-specific
@@ -60,6 +61,13 @@ SDL/PortMaster mapping; orientation alone cannot establish which physical button
 produces A, B, X or Y. Verify the device mapping before relying on printed labels.
 Do not assume EmulationStation/RetroArch hotkeys apply to standalone BTX. Existing
 handheld confirmations do not establish a separate R36S physical mapping test.
+
+The volume keys are discovered by identity/capabilities, never by an event number.
+BTX checks that no other keys share the device before acquiring it. Focus loss,
+disconnect and opposing volume keys cancel holds; release before rearming. Normal
+ArkOS mixer handling resumes outside BTX. Physical evdev delivery is user-confirmed;
+new master-volume listening and mixer-exclusion checks remain pending. Windows
+shows authoritative volume but has no new volume keyboard shortcut.
 
 ## Editing and hold behavior
 

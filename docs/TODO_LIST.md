@@ -196,13 +196,34 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   checks passed. Existing JSON content is unchanged; source LF rule prevents
   Windows checkout line endings from invalidating Git-delivered package hashes.
   Development firmware builds; no upload, device LOAD or SD write performed.
-* [ ] Upload the readiness-capable development firmware and install refreshed host;
-  retest patern4 on handheld without START, then confirm controls/tempo hold after
-  recovery. The supplied generic rejection does not establish the physical guard
-  reason; readiness timeout now exposes it. No physical repair validation yet.
+* [x] User manual confirmation (2026-10-25): after the prior firmware and ARM64
+  update, direct Teensy-to-R36H startup, controls and playback worked. This is
+  separate from automated readback and does not identify the earlier physical
+  guard cause, validate shared-hub stability or handheld external MIDI routing.
 * [ ] Keep the later upstream USB port-disable/disconnect incident separate. Kernel
-  ?EMI?? wording is not proof of EMI, power or connector failure; machine-specific
+  "EMI?" wording is not proof of EMI, power or connector failure; machine-specific
   sequence/evidence stays local. No USB/network setting change is part of this fix.
+
+### Session master volume (2026-10-25)
+
+* [x] Add one smoothed Teensy-owned post-mix master stage before production routing,
+ 0..100% linear gain, default/cap at existing unity. Preserve fixture/channel
+  levels, sample timeline, MIDI behavior and session/file formats. BTVOL1 provides
+  capability, bounded SET/ACK/readback, session retention and reconnect without replay.
+* [x] Add compact BTX volume status and R36H evdev volume-only device discovery,
+  capability checks and exclusive acquisition; no guessed SDL/raw joystick binding,
+  no system-service or mixer changes. User confirmed physical codes114/115 on
+  odroidgo3-keys; kernel repeat2 is ignored in favor of bounded application repeat.
+* [x] Validation/delivery:365 native core cases (including six master cases),
+  Windows9/9 with EmptyWindowTitle and Eoan ARM64 final22/22 passed. Complete
+  host deliveries refreshed; ABI, hashes, Git-byte visibility and config-preserving
+  install checks passed. Firmware builds: RAM1 variables50560 (+224), RAM2 variables
+  295968 unchanged. No PC Teensy was discovered; firmware upload remains pending.
+* [ ] Validate new master-volume physical behavior on PT8211 and USB bridge:
+  silence/ramps, holds/releases/opposition/focus/reconnect, unchanged system mixer
+  during BTX, normal system keys afterward, unsupported firmware/profile handling.
+  Current evdev evidence is not master/listening approval. Shared-hub instability,
+  bridge crackling, handheld external MIDI and measured audio alignment stay open.
 
 ### MIDI lifecycle and session follow-up
 
@@ -793,7 +814,7 @@ design remains unchanged.
   Player integration is recorded separately below; no firmware/UI controls or
   fixture level changes. Zero gain is an audio
   contribution, not tracker mute/event suppression. Hardware cost is unmeasured;
-  gain controls, instrument/master gain, panning, smoothing and final headroom
+  channel/instrument gain controls, panning, channel smoothing and final headroom
   policy remain pending.
 * [x] Integrate `MixPcm16MonoWithGains` into `NativeRatePatternPlayer` with
   transactional `SetChannelGains` and read-only copied gain inspection. All eight
@@ -805,7 +826,7 @@ design remains unchanged.
   Tests cover exact unity/partial/zero PCM, validation, lifecycle preservation,
   deferred OFF and identical absolute gain-change boundaries across partitions.
   Zero gain is not tracker mute; abrupt changes may click. Firmware/protocol/UI
-  gain controls, instrument/master gain, smoothing, final headroom policy and
+  channel/instrument gain controls, channel smoothing, final headroom policy and
   integrated gain-path Teensy performance measurement remain pending. Device
   protocol implementation is recorded separately below.
 * [x] Add opt-in `BTGAIN1 CAP 1` device gain control: strict complete eight-gain

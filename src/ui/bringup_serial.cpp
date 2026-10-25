@@ -33,6 +33,7 @@ void BringUpSerial::Disconnect(const char* reason)
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
+    volume_.Disconnect();tx_volume_=false;
     mute_.Disconnect(); tx_mute_=false;
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
     publication_.Disconnect();
@@ -415,6 +416,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
             live_.callback_performance=report; performance_at_=now;
         }
     }
+    else if(!std::strncmp(line_,"BTVOL1",6)) {if(connected_)(void)volume_.Response(line_,used_);}
     else if (!std::strncmp(line_,"BTMUTE1",7)) { if(connected_) (void)mute_.Response(line_,used_); }
     else if (!std::strncmp(line_,"BTGAIN1",7)) {
         if(connected_) (void)gains_.Response(line_,used_,now);
@@ -563,6 +565,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
     tempo_.Tick(now);
     mute_.Tick(now);
+    volume_.Tick(now);
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -597,6 +600,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_mute_) mute_.BeforeWrite(now);
+        if(tx_volume_)volume_.BeforeWrite(now);
         if(tx_gains_) gains_.BeforeWrite(now);
         if(tx_tempo_) tempo_.BeforeWrite(now);
         tx_write_attempted_=true;
@@ -611,6 +615,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
                 if(tx_mute_) {mute_.LineComplete();tx_mute_=false;}
+                if(tx_volume_){volume_.LineComplete();tx_volume_=false;}
                 if(tx_gains_) { gains_.LineComplete(); tx_gains_=false; }
                 if(tx_tempo_) { tempo_.LineComplete(); tx_tempo_=false; }
             }
@@ -723,6 +728,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
+        }
+        else if(connected_ && volume_.Supported() && !pattern_assembler_.Active() &&
+            (volume_.NeedsRead(now) || volume_.Sending() || volume_.Begin())) {
+            if(volume_.NeedsRead(now) && !volume_.Sending()) {
+                std::strcpy(tx_,"BTVOL1 GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;volume_.ReadSent(now);
+            } else {std::size_t n=0;if(volume_.FormatLine(tx_,sizeof(tx_),n)){tx_size_=n;tx_offset_=0;tx_volume_=true;}}
         }
         else if(connected_ && tempo_.Supported() && !PublicationBusy() && !pattern_assembler_.Active() &&
             (tempo_.NeedsRead(now) || tempo_.Sending() || tempo_.Begin())) {

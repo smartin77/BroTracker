@@ -15,6 +15,40 @@ channel gains/mixing and paused bridge diagnostics remain unchanged. Historical
 native-rate pattern environments retain their diagnostic PCM fixtures as regression
 workloads; they are not the current project instrument list.
 
+## Session master volume (implemented 2026-10-25)
+
+The audio owner applies one portable `MasterVolume` stage to the combined mono
+Sample/Synth PCM in `BasicPatternBringUpControl::AudioBlock`, after existing
+channel gain/mix/saturation and before `PatternAudioSource` transmits to any
+production backend. There was no active master attenuator in this production
+path: channel gains and the legacy diagnostic mixer are separate. PT8211 and USB
+bridge consume the same already-scaled source; neither adds another master stage.
+Future Shield routing must consume this source too; Shield support is not added.
+Existing instrument/channel gains, fixture0.8 Sample gain and PCM data are intact.
+Attenuation after saturation does not recover headroom lost in the existing mix.
+
+The scale is0..100% linear amplitude, capped at the previous exact unity level;
+boot default100% is bit-identical to the previous output. Physical presses step
+5 percentage points. The audio owner ramps Q16 gain from its current value to the
+new target over ceil(sample_rate/100) samples (10 ms), using fixed integer state
+and signed rounding. Retargeting starts from the current gain;0% reaches exact
+silence. No extra PCM buffer, heap allocation, filesystem access or waiting is
+added to rendering. This smooths master changes, not abrupt channel-gain edits.
+Physical click/listening approval and worst-case Teensy callback cost remain
+unmeasured; linker headroom is not timing proof.
+
+Volume0 does not stop voices, suppress events or pause the sample timeline. It
+is different from channel mute, which releases a voice. External MIDI messages,
+velocity, ownership and volume CCs are unchanged; external synth audio is outside
+this internal master stage. A silent internal output does not silence that synth.
+
+Volume is device-owned session state, retained across host reconnect, START/STOP,
+Pause/Continue, preview, Publish/Restore and SD pattern/session loading. It is not
+part of any session/file format or INI setting. Host reconnect reads authoritative
+state and drops old intent, never resetting gain or replaying a possibly sent SET.
+See [BTVOL1 protocol](TEENSY_PATTERN_BRINGUP.md#session-master-volume-btvol1-2026-10-25)
+and [controls](BTX_CONTROLS.md).
+
 ## Shared engine and output-backend planning
 
 The Teensy remains authoritative for scheduling, Sample/Synth rendering, musical

@@ -432,3 +432,31 @@ TEST_CASE(ArkOSHeaderAConsumesPublishAndRetainsTempoIncludingVerifiedRaw) {
     const auto raw=f.input.Handle(e,0,true,f.editor);CHECK_EQ(raw.mute_channel,1);CHECK(!raw.publish);
     CHECK_EQ(f.input.Handle(e,1,true,f.editor).mute_channel,-1);
 }
+
+#ifdef __linux__
+#include "ui/arkos/volume_input.h"
+TEST_CASE(ArkOSVolumeDiscardsPreGrabEventsAndRefusesUnboundedBacklog) {
+    unsigned calls=0;CHECK(ArkOSVolume::DiscardBeforeArm([&](){return ++calls<3?1:0;}));CHECK_EQ(calls,3u);
+    calls=0;CHECK(!ArkOSVolume::DiscardBeforeArm([&](){++calls;return 1;}));CHECK_EQ(calls,8u);
+    calls=0;CHECK(!ArkOSVolume::DiscardBeforeArm([&](){++calls;return -1;}));CHECK_EQ(calls,1u);
+}
+TEST_CASE(ArkOSVolumeKernelRepeatIsIgnoredAndReleaseSurvives) {
+    bool up=false,down=false;VolumeRepeat repeat;input_event e{};e.type=EV_KEY;e.code=KEY_VOLUMEUP;e.value=1;
+    CHECK(ArkOSVolume::UpdateKey(e,up,down));CHECK_EQ(repeat.Edge(up,down,0),1);
+    e.value=2;CHECK(!ArkOSVolume::UpdateKey(e,up,down));CHECK_EQ(repeat.Tick(399),0);CHECK_EQ(repeat.Tick(400),1);
+    e.value=0;CHECK(ArkOSVolume::UpdateKey(e,up,down));CHECK_EQ(repeat.Edge(up,down,401),0);CHECK_EQ(repeat.Tick(1000),0);
+    e.code=KEY_POWER;e.value=1;CHECK(!ArkOSVolume::UpdateKey(e,up,down));CHECK(!up && !down);
+}
+TEST_CASE(ArkOSVolumeProfileRejectsSharedPowerKeyboardAndWrongDevice) {
+    const auto types=(1ul<<EV_SYN)|(1ul<<EV_KEY)|(1ul<<EV_REP);
+    CHECK(ArkOSVolume::VolumeOnlyEvents(types));CHECK(!ArkOSVolume::VolumeOnlyEvents(types|(1ul<<EV_SW)));
+    CHECK(!ArkOSVolume::VolumeOnlyEvents(types|(1ul<<EV_ABS)));
+    unsigned long bits[ArkOSVolume::Words]{};
+    bits[KEY_VOLUMEUP/ArkOSVolume::WordBits]|=1ul<<(KEY_VOLUMEUP%ArkOSVolume::WordBits);
+    CHECK(!ArkOSVolume::Eligible("odroidgo3-keys",bits));
+    bits[KEY_VOLUMEDOWN/ArkOSVolume::WordBits]|=1ul<<(KEY_VOLUMEDOWN%ArkOSVolume::WordBits);
+    CHECK(ArkOSVolume::Eligible("odroidgo3-keys",bits));CHECK(!ArkOSVolume::Eligible("GO-Super Gamepad",bits));
+    bits[KEY_POWER/ArkOSVolume::WordBits]|=1ul<<(KEY_POWER%ArkOSVolume::WordBits);
+    CHECK(!ArkOSVolume::Eligible("odroidgo3-keys",bits));
+}
+#endif
