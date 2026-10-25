@@ -47,7 +47,7 @@ public:
         if(!connected_)return "Vol --";
         if(!volume_.Supported())return "Vol -- (unsupported)";
         if(!volume_.Available())return "Vol ? (synchronizing)";
-        std::snprintf(volume_status_,sizeof(volume_status_),"Vol %u%%%s",volume_.Percent(),volume_.Pending()?" *":"");return volume_status_;
+        std::snprintf(volume_status_,sizeof(volume_status_),"Vol %u%%",volume_.Percent());return volume_status_;
     }
     bool TempoAvailable() const { return connected_ && tempo_.Available() && !PublicationBusy() && !TransportPending(); }
     bool StepTempo(int amount) { return TempoAvailable() && tempo_.Step(amount); }

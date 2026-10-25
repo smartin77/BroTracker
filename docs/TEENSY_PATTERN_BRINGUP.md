@@ -2842,8 +2842,9 @@ master gain does not clear them. HELLO's maximum response reserve is25 lines in 
 No USB/SD operations occur in the audio owner.
 
 BTX keeps one immutable in-flight command and one coalesced absolute target.
-Authoritative STATE updates the displayed target (`Vol n%`); `*` marks pending
-intent and `?` marks uncertain/unsynchronized state. SUBMITTED alone is insufficient.
+Authoritative STATE updates the displayed target (`Vol n%`). Pending requests
+keep the last authoritative value without an asterisk; genuine unavailable or
+unsynchronized states retain their status text. SUBMITTED alone is insufficient.
 A possibly attempted SET is never blindly resent. After5000 ms without resolution,
 controls become unavailable and bounded GET recovery polls at most once per second.
 Identity exhaustion also prevents SET. Reconnect discards local intent and reads
@@ -2890,6 +2891,14 @@ Native tests cover ramp endpoints/rounding/retargeting and block partitions,
 combined Sample/Synth attenuation exactly once, transport/pattern retention,
 strict protocol bounds, host acknowledgment/coalescing/reconnect and unsupported
 firmware, repeat cancellation, profile rejection, pre-grab backlog rejection and ignored kernel repeats.
-Kernel grab ownership, real system-handler/mixer exclusion and audible transitions
-still need the new binary/firmware's physical PT8211 and USB-bridge test. Automated
-fixtures and user evdev mapping confirmation do not establish those results.
+Kernel grab ownership, real system-handler/mixer exclusion, detailed ramp/click
+and silence checks, and USB-bridge listening remain unverified. Automated fixtures
+and basic PT8211 confirmation do not establish those separate results.
+
+On 2026-10-25 the user manually confirmed on R36H that the physical volume buttons
+respond, the displayed value updates and PT8211 listening-volume control works.
+This confirms basic use only: hold-repeat, exact silence, OS-control restoration,
+USB-bridge listening and the remaining acquisition/mixer edge cases are not inferred.
+The normal display is deliberately just `Vol n%`, for listening volume; detailed
+mixing belongs to the future main mixer. Default/cap remain 100%; no finer indicator
+or new 90-100% level policy is introduced.

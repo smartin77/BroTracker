@@ -66,8 +66,11 @@ The volume keys are discovered by identity/capabilities, never by an event numbe
 BTX checks that no other keys share the device before acquiring it. Focus loss,
 disconnect and opposing volume keys cancel holds; release before rearming. Normal
 ArkOS mixer handling resumes outside BTX. Physical evdev delivery is user-confirmed;
-new master-volume listening and mixer-exclusion checks remain pending. Windows
-shows authoritative volume but has no new volume keyboard shortcut.
+the user confirmed button response, displayed updates and PT8211 listening volume
+on 2026-10-25. Hold-repeat, exact silence, OS-control restoration, mixer-exclusion
+and USB-bridge listening checks remain unconfirmed. Normal display is just `Vol n%`
+without a pending-change asterisk; this is listening volume, not the future mixer.
+Windows shows authoritative volume but has no new volume keyboard shortcut.
 
 ## Editing and hold behavior
 

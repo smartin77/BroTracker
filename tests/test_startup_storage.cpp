@@ -235,12 +235,12 @@ TEST_CASE(StartupReadinessTimeoutAndUnsupportedFirmwareRemainLockedWithoutLoadRe
 TEST_CASE(HostVolumeUsesDeviceBaselineCoalescesAndNeverReplaysAcrossReconnect) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->volume_cap=true;wire->preview_cap=true;
     BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
-    Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(serial.VolumeAvailable());CHECK(std::strstr(serial.VolumeStatus(),"73%"));
+    Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(serial.VolumeAvailable());CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));
     for(const auto& command:wire->commands)CHECK(command.rfind("BTVOL1 SET",0)!=0);
-    wire->hold_volume=true;CHECK(serial.StepVolume(-1));Pump(serial,80,82,&editor);CHECK_EQ(wire->volume,68u);CHECK(!wire->volume_reply.empty());CHECK(serial.StepVolume(-1));
-    wire->rx+=wire->volume_reply;wire->volume_reply.clear();wire->hold_volume=false;Pump(serial,82,95,&editor);CHECK_EQ(wire->volume,63u);CHECK(std::strstr(serial.VolumeStatus(),"63%"));
+    wire->hold_volume=true;CHECK(serial.StepVolume(-1));CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));Pump(serial,80,82,&editor);CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));CHECK_EQ(wire->volume,68u);CHECK(!wire->volume_reply.empty());CHECK(serial.StepVolume(-1));
+    wire->rx+=wire->volume_reply;wire->volume_reply.clear();wire->hold_volume=false;Pump(serial,82,95,&editor);CHECK_EQ(wire->volume,63u);CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 63%"));
     const auto count=wire->commands.size();wire->healthy=false;serial.Tick(1901);Pump(serial,140,180,&editor);
-    CHECK(serial.VolumeAvailable());CHECK(std::strstr(serial.VolumeStatus(),"63%"));
+    CHECK(serial.VolumeAvailable());CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 63%"));
     for(unsigned i=count;i<wire->commands.size();++i)CHECK(wire->commands[i].rfind("BTVOL1 SET",0)!=0);
     CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());
 }

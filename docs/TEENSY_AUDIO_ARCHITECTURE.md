@@ -34,8 +34,12 @@ new target over ceil(sample_rate/100) samples (10 ms), using fixed integer state
 and signed rounding. Retargeting starts from the current gain;0% reaches exact
 silence. No extra PCM buffer, heap allocation, filesystem access or waiting is
 added to rendering. This smooths master changes, not abrupt channel-gain edits.
-Physical click/listening approval and worst-case Teensy callback cost remain
-unmeasured; linker headroom is not timing proof.
+On 2026-10-25 the user confirmed R36H physical buttons, displayed updates and basic
+PT8211 listening-volume control. Hold-repeat, exact silence and OS-control
+restoration are not confirmed. USB-bridge listening, detailed ramp/click checks
+and worst-case Teensy callback cost remain unverified; linker headroom is not
+timing proof. The compact `Vol n%` display is for listening volume; detailed mixing
+belongs to the future main mixer. The 100% default/cap is unchanged.
 
 Volume0 does not stop voices, suppress events or pause the sample timeline. It
 is different from channel mute, which releases a voice. External MIDI messages,

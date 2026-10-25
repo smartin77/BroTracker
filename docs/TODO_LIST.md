@@ -218,11 +218,19 @@ implemented; automatic startup/shutdown/configuration integration remains separa
   Windows9/9 with EmptyWindowTitle and Eoan ARM64 final22/22 passed. Complete
   host deliveries refreshed; ABI, hashes, Git-byte visibility and config-preserving
   install checks passed. Firmware builds: RAM1 variables50560 (+224), RAM2 variables
-  295968 unchanged. No PC Teensy was discovered; firmware upload remains pending.
-* [ ] Validate new master-volume physical behavior on PT8211 and USB bridge:
+  295968 unchanged. No PC Teensy was discovered during that validation; no agent
+  upload was performed.
+* [x] User manual R36H confirmation (2026-10-25): physical volume buttons respond,
+  displayed volume updates and PT8211 listening-volume control works. No inference
+  of hold-repeat, exact silence or OS-control restoration.
+* [x] Simplify normal listening-volume display to `Vol n%` without the pending
+  asterisk. Retain genuine unavailable/unsupported status and all ACK/readback,
+  smoothing and controls. Detailed mixing belongs to the future main mixer;
+  default/cap remain 100%, with no new 90-100% policy.
+* [ ] Validate remaining master-volume physical behavior on PT8211 and USB bridge:
   silence/ramps, holds/releases/opposition/focus/reconnect, unchanged system mixer
   during BTX, normal system keys afterward, unsupported firmware/profile handling.
-  Current evdev evidence is not master/listening approval. Shared-hub instability,
+  Basic PT8211 use is confirmed above; other cases are not inferred. Shared-hub instability,
   bridge crackling, handheld external MIDI and measured audio alignment stay open.
 
 ### MIDI lifecycle and session follow-up
