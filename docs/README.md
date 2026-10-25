@@ -6,6 +6,7 @@ Project documentation is located in the `docs` directory.
 - [Project Goals](./PROJECT_GOALS.md)
 - [Project Structure](./PROJECT_STRUCTURE.md)
 - [Testing](./TESTING.md)
+- [BTX Controls Manual](./BTX_CONTROLS.md)
 - [Core Design Principles](./CORE_DESIGN_PRINCIPLES.md)
 - [Architecture Decisions](./ARCHITECTURE_DECISIONS.md)
 - [Core Architecture](./CORE_ARCHITECTURE.md)
