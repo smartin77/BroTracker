@@ -425,8 +425,9 @@ writes/sync/promotion/rollback and retained normal SEED no-overwrite behavior.
 This provisioning run verified readback only; the new bass fixture was not
 auditioned during it. The user's separate 2026-10-24 Windows/MIDI-OX/WASP USB
 playback and listening acceptance is recorded in [MIDI status](MIDI_FOUNDATION.md#user-confirmed-windows-usb-route-2026-10-24).
-Exact offset/jitter/drift, H4MIDI/DIN/handheld routing and interrupted-write physical
-checks remain unverified. Private captures are retained under ignored build storage.
+Exact offset/jitter/drift, handheld routing and interrupted-write physical checks
+remain unverified. Separate Windows H4MIDI/DIN results are recorded in the
+[MIDI confirmation matrix](MIDI_FOUNDATION.md#user-confirmed-windows-h4mididin-routes-2026-10-24). Private captures are retained under ignored build storage.
 
 ### Numbered migration, provisioning and validation
 
@@ -615,3 +616,13 @@ stability or handheld external MIDI routing.
 Master volume is separate device-owned session state: BTDP/BTSS payloads and INI
 settings are unchanged. Pattern/session LOAD or RESTORE does not save or reset
 master volume; no new field or automatic persistence is introduced.
+
+## Future MIDI routing and file-data boundary
+
+The [approved MIDI backend direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends)
+keeps tracker data independent of backend and destination selection. Planned host
+settings request Teensy-validated, acknowledged routing; destination/port/virtual
+cable is separate from MIDI channel, and protocol/UMP capabilities are separate
+from transport. No new config keys, persisted routing fields or session/file-format
+changes are implemented by this plan. Existing session instrument references do
+not establish endpoint availability or restore external synth state.

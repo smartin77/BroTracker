@@ -8,10 +8,26 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
+### Agreed priorities (2026-10-26)
+
+1. Physical ArkOS/dArkOS tests: external MIDI playback through H4MIDI; investigate
+   bridge crackling with external recordings of physical output and the existing
+   [opt-in bridge-audible evidence capture](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch).
+   Both remain pending; recording correlation is not a compensation decision.
+2. Audio Shield integration and physical validation (existing plan below).
+3. Production Sample streaming (existing outline below).
+
+* [ ] Defer USB host work. Successful handheld H4MIDI playback would remove its
+  immediate urgency; it has not yet been confirmed.
+* [ ] Follow the [shared MIDI backend direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends)
+  when implementation is separately scoped: one explicit backend, validated
+  Teensy-owned routing, separate destination/channel/protocol settings. No new
+  config/protocol, fan-out, fallback, resource reservation or schedule is approved.
+
 ### Future SD-streamed Sample playback
 
 * [ ] Explore [production Sample streaming](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
-  Design outline only; priority and implementation order remain undecided. Preserve
+  Design outline only; third priority above, with internal milestone order undecided. Preserve
   short-sample RAM playback, the current test.wav deferral/binding IDs, temporary
   fixture gain, its user-confirmed listening balance and remaining hardware/listening
   validation. No streaming code or
@@ -19,7 +35,8 @@ Items may be added during development to record agreed next steps or work that n
 
 ### Future output capabilities and memory review
 
-Priority and implementation order remain undecided; these are planning items only.
+Audio Shield integration/physical validation is second priority above. Other
+capability and memory investigations remain planning items without assigned order.
 
 * [ ] Review [shared output backends and SGTL5000 capabilities](TEENSY_AUDIO_ARCHITECTURE.md#shared-engine-and-output-backend-planning):
   shared musical DSP versus codec output conditioning; no new routes/effects enabled.

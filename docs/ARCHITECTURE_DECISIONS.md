@@ -400,19 +400,18 @@ The CME H4MIDI is the initial external MIDI routing device for physical DIN MIDI
 
 The initial development path is:
 
-Teensy 4.1
-    |
-   USB
-    |
-CME H4MIDI
-    |
- DIN MIDI
-    |
-External MIDI hardware
+Teensy USB device MIDI -> PC/handheld host software router -> CME H4MIDI
+USB device/client -> DIN OUT -> external MIDI hardware
 
 Direct physical DIN MIDI IN/OUT connections on the Teensy are intentionally deferred because they require additional hardware work.
 
 The core MIDI architecture must remain independent of this temporary hardware configuration.
+HxMIDI Tools configures H4MIDI routing; the PC/handheld router forwards Teensy
+events. See the [approved shared MIDI direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends):
+one explicitly selected backend first, Teensy-authoritative validated routing,
+separate destination/channel/protocol capabilities, no automatic fallback or fan-out.
+USB host is deferred pending handheld H4MIDI testing; DIN and Ethernet remain
+future transports, while MIDI 2.0/UMP is a separate protocol/event capability.
 
 ## D0027 - Physical Teensy MIDI Connections Deferred
 
@@ -976,7 +975,9 @@ The design shall separate storage access from realtime audio processing:
 - Underruns must never stall the audio callback or scheduler and must be explicitly measurable.
 
 A single-sample streaming proof-of-concept is a possible milestone, not an assigned
-implementation order. Current priority and implementation order remain undecided;
+implementation order. Production Sample streaming follows physical handheld tests and Audio Shield
+integration/validation in the [current priorities](TODO_LIST.md#agreed-priorities-2026-10-26);
+its internal milestone sequence remains undecided;
 see the [future streaming outline](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
 Buffer sizes, underrun behaviour, supported multi-voice workloads and the final
 Sample/voice architecture require measured validation on Teensy 4.1. Baseline eight
@@ -1410,7 +1411,10 @@ The evaluation should consider:
 
 ### Future Decision
 
-No MIDI-over-Ethernet protocol is selected yet.
+No MIDI-over-Ethernet protocol is selected yet. Ethernet hardware/link support
+does not select a MIDI network protocol or establish endpoint interoperability.
+See the [shared MIDI direction and primary specification references](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends).
+Raw MIDI bytes over arbitrary UDP are not an interoperability contract.
 
 The final protocol and implementation should be chosen after the relevant specifications have been researched and tested against BroTracker's realtime requirements and the capabilities of Teensy 4.1.
 

@@ -270,6 +270,74 @@ within that connection. Reconnect repeats the resolved configuration safely.
 Older firmware stays usable and exposes an explicit MIDI-unsupported status.
 No instrument channel editor or channel persistence on Teensy is added.
 
+## Approved direction: shared MIDI scheduling and selectable backends
+
+Planning only (2026-10-26): USB device MIDI remains the only implemented output.
+Keep one common engine-facing event/scheduling layer, preserving sample-domain
+positions until a transport adapter needs them. Backend selection must not change
+tracker notes, instrument IDs or pattern data.
+
+| Output backend | Intended route and status |
+| --- | --- |
+| USB device MIDI | Implemented: Teensy device -> PC/handheld host software router (MIDI-OX/ALSA) -> H4MIDI USB device/client -> DIN synth. HxMIDI Tools configures H4MIDI's internal routing; it is distinct from the host software forwarding Teensy events. Handheld H4MIDI playback remains pending. |
+| USB host MIDI | Future: independent Teensy host port -> optional hub -> synth, interface or controller. The main USB device connection to BTX remains usable. |
+| Physical DIN MIDI | Future: Teensy UART plus appropriate electrical interface. That hardware is not installed and a production backend is not implemented. |
+| Network MIDI over Ethernet | Future transport family: Ethernet hardware/link and the MIDI network protocol are separate choices. No network protocol is selected; arbitrary UDP carrying raw MIDI bytes does not establish interoperability. |
+
+**Protocol capability is a separate axis.** MIDI 1.0 messages, UMP containers and
+MIDI 2.0 semantics are not interchangeable names. MIDI 2.0/UMP is not a fifth
+physical backend. Each transport must explicitly support its chosen encoding and
+endpoint negotiation; MIDI-CI and Property Exchange are separate optional features,
+not implied by UMP support. Any supported conversion to MIDI 1.0/DIN must expose
+unsupported semantics and its conversion policy, rather than promise losslessness.
+The MIDI Association's [UMP/MIDI 2.0 specification](https://midi.org/universal-midi-packet-ump-and-midi-2-0-protocol-specification)
+and [Network MIDI 2.0 specification](https://midi.org/network-midi-2-0) are primary
+references; detailed protocol selection, negotiation and conversion rules remain open.
+
+### Future configuration and routing ownership
+
+Conceptual setting groups only; no new INI keys or commands are defined here:
+
+- Explicit output backend selection.
+- Destination identity and port/virtual cable, separate from the MIDI channel.
+- Backend-specific USB destination, DIN port or network endpoint/session settings.
+- Protocol capabilities and any explicitly supported conversion policy.
+
+A future application setting or shared config may request these without changing
+tracker data. Teensy must validate and acknowledge the request and remains
+authoritative for active routing and scheduling. Current `[midi] output_channel`
+parsing, fallback, acknowledgment and channel-change restart rules are unchanged.
+Start with **one explicitly selected output backend**. Simultaneous output/fan-out
+is a later feature requiring its own ownership, timing and cleanup rules. No
+automatic fallback may silently redirect notes to a different instrument.
+
+Shared implementation requirements:
+
+- Preserve musical event order, explicit OFFs and bounded note ownership.
+- Fixed queue capacities and bounded execution; no blocking transport calls,
+  allocation or filesystem I/O in audio/timing ISRs. Define overflow, deadlines
+  and cleanup uncertainty for each adapter.
+- Isolate backend faults from Sample/Synth and timeline progression.
+- Change routes only in a safe stopped state with bounded cleanup and
+  authoritative status. Define disconnect/reconnect destination identity handling;
+  never replay stale NOTE ONs or automatically START.
+- Measure latency/jitter and combined-audio alignment per backend/topology.
+  Neither equivalent timing nor automatic compensation is assumed.
+- Incoming controller MIDI and future HID actions are separate input paths.
+  External MIDI volume remains separate from internal PCM master gain.
+
+### Deferred USB host investigation
+
+[PJRC Teensy 4.1 hardware](https://www.pjrc.com/store/teensy41.html) provides a
+separate USB host connection. [USBHost_t36](https://github.com/PaulStoffregen/USBHost_t36)
+supports MIDI, hubs, keyboards and mice, but the installed version's send path,
+interrupt behavior and interaction with audio require review/adaptation against
+the realtime constraints before adoption. Keyboard/mouse support also requires
+integration with BTX UI/action ownership; library class support alone is not that
+integration. No RAM reservation, implementation schedule or latency improvement
+is promised. USB host is deferred; successful handheld H4MIDI playback would
+remove its immediate urgency, but that physical test remains pending.
+
 ## Physical confirmation and future voice experiment (2026-10-22)
 
 The user confirms on ArkOS that adding a note with MIDI instrument 02 no longer

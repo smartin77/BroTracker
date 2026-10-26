@@ -1189,7 +1189,9 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 See the [future Sample streaming outline](#future-sd-streamed-sample-playback) and
 [D0039](ARCHITECTURE_DECISIONS.md#d0039--sd-backed-sample-streaming) for the single
 storage/realtime boundary. Production tracker streaming is not implemented;
-possible milestones have no assigned priority or implementation order.
+production streaming follows handheld physical tests and Audio Shield validation
+per the [current priorities](TODO_LIST.md#agreed-priorities-2026-10-26). Its internal
+milestone order remains undecided.
 
 ## Implemented MIDI output boundary
 
@@ -1198,3 +1200,10 @@ nonblocking timer dispatch, ownership and transport-failure handling. Its
 render-phase deadlines do not establish physical output phase. Audible-sync
 measurement is pending; no output compensation or bridge diagnostic work is
 included in this milestone.
+
+Future MIDI transports share the [engine-facing scheduling direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends),
+not the PCM output-backend selector. USB device MIDI alone is implemented; USB
+host, UART/DIN and Ethernet backends are future work. Protocol/UMP capabilities
+are separate from transport choice. Internal PCM master gain does not control
+external MIDI volume. Backend faults must remain isolated from audio/timeline;
+each route needs physical timing validation without assumed compensation.
