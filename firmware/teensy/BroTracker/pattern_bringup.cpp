@@ -1,9 +1,9 @@
-#include "bringup/master_volume_protocol.h"
-#include "bringup/storage_ready_wait.h"
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
 #endif
 #ifdef BROTRACKER_PATTERN_BRINGUP
+#include "bringup/master_volume_protocol.h"
+#include "bringup/storage_ready_wait.h"
 #include "pattern_bringup.h"
 #include "pattern_beeper_samples.h"
 #include <Arduino.h>
@@ -901,7 +901,12 @@ namespace
                     used=0; overflow=false; break;
                 }
 #endif
-                if(g_output.Active()==AudioOutputChoice::Default) (void)SelectAudio(AudioOutputChoice::Default);
+                if(!g_output.Ready()) {
+                    if(const char* error=SelectAudio(AudioOutputChoice::Default)) {
+                        char reply[96];std::snprintf(reply,sizeof(reply),"BTTEST1 ERROR audio-not-ready %s\n",error);
+                        (void)QueueLine(reply);used=0;overflow=false;break;
+                    }
+                }
                 PatternRequestStatus accepted;
                 { InterruptGuard guard; accepted = g_control.Submit(request); }
                 if (accepted != PatternRequestStatus::Accepted) (void)QueueLine("BTTEST1 ERROR request-overflow\n");

@@ -42,7 +42,8 @@ other existing settings (keep required schema fields):
 output=bridge
 ```
 
-`bridge` and `pt8211` are accepted lowercase values, with trimmed whitespace.
+`bridge`, `pt8211` and `audio_shield` are accepted lowercase values, with trimmed whitespace.
+The Shield route requires rebuilt BTX/firmware; see [production headphone output](../../docs/AUDIO_SHIELD_OUTPUT.md).
 An explicit value selects the Teensy route, not the handheld playback device.
 Missing/empty values keep the active route or use firmware USB_BRIDGE on a fresh
 Teensy boot. Invalid values warn and ignore the audio override. Restart BTX to

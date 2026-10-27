@@ -14,6 +14,8 @@ Project documentation is located in the `docs` directory.
 - [UI Screen Map and Implementation Direction](./UI_SCREEN_MAP.md)
 - [Effect Event Architecture](./EFFECT_EVENT_ARCHITECTURE.md)
 - [Teensy Audio Architecture](./TEENSY_AUDIO_ARCHITECTURE.md)
+- [Production Audio Shield headphones](./AUDIO_SHIELD_OUTPUT.md)
+- [Isolated Audio Shield smoke test and hardware research](./AUDIO_SHIELD_SMOKE_TEST.md)
 - [Scheduler](./SCHEDULER.md)
 - [Sample Format](./SAMPLE_FORMAT.md)
 - [MIDI Support](./MIDI_SUPPORT.md)

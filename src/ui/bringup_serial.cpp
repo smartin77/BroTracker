@@ -397,7 +397,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
     if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {
         const char* route=line_+20;
-        const bool known=!std::strcmp(route,"bridge") || !std::strcmp(route,"pt8211");
+        const bool known=!std::strcmp(route,"bridge") || !std::strcmp(route,"pt8211") || !std::strcmp(route,"audio_shield");
         const bool matches=known && (audio_preference_==BroTracker::AudioOutputChoice::Default ||
             !std::strcmp(route,BroTracker::AudioOutputName(audio_preference_)));
         audio_confirmed_=matches; audio_failed_=!matches;

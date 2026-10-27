@@ -38,11 +38,12 @@ value_step_direction=normal
 row_numbering=d1
 
 [audio]
-; Production Teensy route: bridge/pt8211, not host sound-device selection.
-; Built-in/empty/missing: no override (retain active route, else firmware default).
-; Invalid warns once, uses no override. Development firmware defaults USB_BRIDGE.
-; Same route is idempotent; changing active route requires Teensy restart.
-; Restart BTX after config edits. Never autoSTART. Example explicitly uses bridge.
+; Teensy route: bridge/pt8211/audio_shield (lowercase).
+; Empty/missing/invalid retains route, else USB_BRIDGE; invalid warns.
+; Route changes/Shield failure need Teensy restart. No fallback/autoSTART.
+; Shield: Rev D2, mono headphones, volume 0.80, line-out muted.
+; Never ground HP_VGND or connect it directly to a grounded amplifier.
+; Restart BTX after editing. Example uses bridge.
 output=bridge
 
 [midi]

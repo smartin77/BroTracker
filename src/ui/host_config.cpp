@@ -70,6 +70,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
             audio_output=true;
             if(raw=="bridge") candidate.audio_output=AudioOutputChoice::Bridge;
             else if(raw=="pt8211") candidate.audio_output=AudioOutputChoice::Pt8211;
+            else if(raw=="audio_shield") candidate.audio_output=AudioOutputChoice::AudioShield;
             else if(!raw.empty()) candidate.audio_output_invalid=true;
         } else if(section==3 && (key=="value_step_direction" || key=="note_step_direction") && !direction) {
             if(raw!="normal" && raw!="reversed") return HostConfigStatus::Invalid;
@@ -130,7 +131,7 @@ const char* HostConfigDiagnostic(HostConfigStatus status) noexcept {
     case HostConfigStatus::Missing: return "config.ini absent; using built-in defaults";
     case HostConfigStatus::SafeDefaults: return "--safe-config: external config bypassed; using built-in defaults";
     case HostConfigStatus::TooLarge: return "config.ini exceeds 4096 bytes; using defaults. Reduce the file or use --safe-config";
-    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20 [audio] output=bridge/pt8211 and [editing] value_step_direction=normal/reversed (deprecated alias note_step_direction; use one name only), or use --safe-config";
+    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20 [audio] output=bridge/pt8211/audio_shield and [editing] value_step_direction=normal/reversed (deprecated alias note_step_direction; use one name only), or use --safe-config";
     default: return "Cannot read config.ini; using defaults. Check path/permissions or use --safe-config";
     }
 }

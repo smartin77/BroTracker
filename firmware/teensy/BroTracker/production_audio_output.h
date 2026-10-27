@@ -11,13 +11,16 @@ namespace BroTracker {
 class ProductionAudioOutput {
 public:
     AudioOutputChoice Active() const noexcept { return selection_.Active(); }
+    bool Ready() const noexcept { return Active()!=AudioOutputChoice::Default && !error_; }
     const char* Select(AudioOutputChoice request, AudioStream& source, AudioOutputUSB& usb);
 
 private:
     AudioOutputSelection selection_;
-    using Hardware=typename std::aligned_union<0,AudioOutputPT8211,AudioOutputMQS>::type;
+    using Hardware=typename std::aligned_union<0,AudioOutputPT8211,AudioOutputMQS,AudioOutputI2S>::type;
     using Patch=typename std::aligned_storage<sizeof(AudioConnection),alignof(AudioConnection)>::type;
     Hardware hardware_;
     Patch patches_[3];
+    AudioControlSGTL5000 codec_; // Constructor does no I2C; used only for Shield.
+    const char* error_=nullptr; // Sticky boot failure; same/default never retries.
 };
 }

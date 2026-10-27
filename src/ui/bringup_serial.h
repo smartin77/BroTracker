@@ -148,7 +148,7 @@ private:
     unsigned midi_output_state_=UINT32_MAX;
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
-    char audio_active_[8]="unknown";
+    char audio_active_[16]="unknown";
     bool connected_ = false;
     bool stopped_ = false;
     Command pending_ = Command::None;

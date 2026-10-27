@@ -1,13 +1,14 @@
 #pragma once
 #include <string_view>
 namespace BroTracker {
-enum class AudioOutputChoice { Default, Bridge, Pt8211 };
+enum class AudioOutputChoice { Default, Bridge, Pt8211, AudioShield };
 inline const char* AudioOutputName(AudioOutputChoice value) noexcept {
-    return value==AudioOutputChoice::Pt8211 ? "pt8211" : value==AudioOutputChoice::Bridge ? "bridge" : "default";
+    return value==AudioOutputChoice::AudioShield ? "audio_shield" : value==AudioOutputChoice::Pt8211 ? "pt8211" : value==AudioOutputChoice::Bridge ? "bridge" : "default";
 }
 inline bool ParseAudioOutputRequest(std::string_view line, AudioOutputChoice& value) noexcept {
     if(line=="BTAUDIO1 SET 1 bridge") value=AudioOutputChoice::Bridge;
     else if(line=="BTAUDIO1 SET 1 pt8211") value=AudioOutputChoice::Pt8211;
+    else if(line=="BTAUDIO1 SET 1 audio_shield") value=AudioOutputChoice::AudioShield;
     else if(line=="BTAUDIO1 SET 1 default") value=AudioOutputChoice::Default;
     else return false;
     return true;

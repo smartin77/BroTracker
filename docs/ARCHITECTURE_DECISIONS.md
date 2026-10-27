@@ -1786,7 +1786,7 @@ capacity, multiple-pattern sequencing or flow FX.
 ## D0057 — Host Configuration and Safe Recovery
 
 BTX has optional `config.ini` settings with versioned validation. The later
-manual `[audio] output=bridge/pt8211` extension requests the Teensy production
+manual `[audio] output=bridge/pt8211/audio_shield` extension requests the Teensy production
 route through serial negotiation; it is not a host playback-device selector.
 See `TEENSY_AUDIO_ARCHITECTURE.md` for precedence and restart requirements.
 Built-in defaults are always available: schema version 1 and new-pattern length
