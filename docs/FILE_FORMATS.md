@@ -301,6 +301,12 @@ recovery before editing/START. Pre-load captures cannot enter preview. Failure o
 uncertainty stays blocked, without automatic retry, fallback, reconnect replay or
 START. Correct the file/config and restart BTX. Once initial recovery completes,
 ordinary reconnect preserves local-draft recovery without reinitializing the device.
+The startup LOAD/baseline success log is emitted only for the original startup
+transaction's awaited baseline. A complete reconnect snapshot does not establish
+that the configured file was loaded or that the previous device state survived.
+Host regression validation (2026-10-27): `BroTrackerStartupStorageTests` and
+`BroTrackerTests` passed, including a different reconnect baseline with no second
+LOAD/START or repeated startup success, and interrupted-startup failure retention.
 No automatic seed, session restore/shutdown save or new storage UI is implemented.
 Firmware's in-code boot fixture is unchanged; host startup replaces it explicitly.
 Files are only created/loaded through the explicit commands below, in main context. Operations

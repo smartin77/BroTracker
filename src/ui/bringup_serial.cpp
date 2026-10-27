@@ -465,7 +465,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
             result == BroTracker::SnapshotAssemblyStatus::Timeout) { snapshot_failed_ = true; publication_.ReadbackFailed(); if(startup_applied_ && !startup_done_)startup_failed_=true; }
         if(result==BroTracker::SnapshotAssemblyStatus::Complete && publication_.NeedsReadback())
             (void)publication_.Verify(*pattern_assembler_.Snapshot());
-        if(result==BroTracker::SnapshotAssemblyStatus::Complete && startup_applied_ && !startup_failed_) {
+        // Only the original startup transaction's awaited baseline completes startup.
+        // Later snapshots (including reconnect recovery) do not establish a file load.
+        if(result==BroTracker::SnapshotAssemblyStatus::Complete && startup_applied_ && !startup_done_ && !startup_failed_) {
             startup_done_=true;Log("SD startup pattern loaded and baseline readback verified:",BroTracker::DevelopmentPatternName(startup_pattern_));
         }
     }

@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "ui/bringup_serial.h"
+#include "ui/host_logging.h"
 #include "bringup/pattern_file_store.h"
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
@@ -119,8 +120,52 @@ TEST_CASE(HostStartupFailuresNeverSeedStartOrRetry) {
         for(const auto& c:wire->commands){CHECK(c!="BTTEST1 START");CHECK(c.rfind("BTSTORE1 SEED",0)!=0);}
     }
 }
+TEST_CASE(StartupSuccessIsNotReportedForDifferentReconnectBaseline) {
+    ConfigureHostLogging(HostLogMode::Debug);
+    for(bool preview:{false,true}) {
+        auto* log=std::tmpfile();CHECK(log);if(!log)return;
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=preview;
+        BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);
+        const auto startup=serial.PlaybackView(1600);CHECK(startup);CHECK(startup->device_pattern);
+        CHECK_EQ(startup->device_pattern->pattern.cells[0][4].note,36);
+        auto read_log=[&] {std::rewind(log);std::string text;char line[2048];while(std::fgets(line,sizeof(line),log))text+=line;std::fseek(log,0,SEEK_END);return text;};
+        const std::string success="SD startup pattern loaded and baseline readback verified: patern4";
+        const auto before=read_log();CHECK(before.find(success)!=std::string::npos);
+        wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
+        wire->pattern=1; // Boot theme: only CH1/CH2 populated, unlike patern4.
+        Pump(serial,140,220,&editor);
+        CHECK(serial.Connected());CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
+        CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());
+        CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+        const auto recovered=serial.PlaybackView(4400);CHECK(recovered);CHECK(recovered->device_pattern);
+        RealtimePattern expected;MakeStoredDevelopmentPattern(expected,1);
+        CHECK(SamePattern(recovered->device_pattern->pattern,expected));
+        const auto after=read_log();const auto first=after.find(success);CHECK(first!=std::string::npos);
+        CHECK(after.find(success,first+success.size())==std::string::npos);
+        std::fclose(log);
+    }
+    ConfigureHostLogging(HostLogMode::Basic);
+}
 TEST_CASE(HostStartupNoneEstablishesClean125Baseline) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);CHECK_EQ(editor.Baseline()->tempo_hundredths,12500u);for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c){CHECK_EQ(editor.Draft()->cells[r][c].note,NOTE_EMPTY);CHECK_EQ(editor.Draft()->cells[r][c].instrument,255);CHECK_EQ(editor.Draft()->note_off_timing[r][c],NoteOffTiming::Arrival);}
+}
+TEST_CASE(StartupDisconnectBeforeBaselineCannotReportSuccessOnReconnect) {
+    ConfigureHostLogging(HostLogMode::Debug);
+    auto* log=std::tmpfile();CHECK(log);if(!log)return;
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
+    BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,80,&editor);CHECK_EQ(wire->Loads(),1u);CHECK(!wire->baseline_reply.empty());
+    CHECK(!serial.StartupPatternReady());CHECK(editor.Locked());CHECK(!serial.Start());
+    wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
+    wire->baseline_reply.clear();wire->hold_baseline=false;wire->pattern=1;
+    Pump(serial,140,220,&editor);
+    CHECK(serial.Connected());CHECK_EQ(wire->Loads(),1u);CHECK(!serial.StartupPatternReady());
+    CHECK(editor.Locked());CHECK(!serial.Start());CHECK(std::strstr(serial.Status(),"failed"));
+    const auto recovered=serial.PlaybackView(4400);CHECK(recovered);CHECK(recovered->device_pattern);
+    std::rewind(log);std::string text;char line[2048];while(std::fgets(line,sizeof(line),log))text+=line;
+    CHECK(text.find("SD startup pattern loaded and baseline readback verified:")==std::string::npos);
+    std::fclose(log);ConfigureHostLogging(HostLogMode::Basic);
 }
 namespace {
 void SeedEditor(LocalPatternEditor& editor) {
