@@ -177,7 +177,7 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
         "bridge_audible_test enabled for Linux bridge only; ignored by Windows");
     if(config.config.midi_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration","Invalid [midi] output_channel; using 12 (expected decimal 1-16)");
     if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
-        "Invalid [audio] output: expected bridge or pt8211 (lowercase); ignoring audio override, retaining firmware default");
+        "Invalid [audio] output: expected bridge, pt8211 or audio_shield (lowercase); ignoring audio override, retaining firmware default");
     HostLogf(file,HostLogLevel::Basic,"Logging","mode=%s preserve_last=%u; %s; timestamps describe host observation, not physical audio timing",
         HostDebugLogging()?"debug":"basic",config.config.preserve_last,plan.diagnostic);
 }

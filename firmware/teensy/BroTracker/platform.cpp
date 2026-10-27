@@ -133,7 +133,10 @@ namespace
 
     bool StartSequence()
     {
-        (void)g_output.Select(AudioOutputChoice::Default,g_audio_mixer,g_audio_output_usb);
+        if(const char* error=g_output.Select(AudioOutputChoice::Default,g_audio_mixer,g_audio_output_usb)) {
+            Serial.print("BTTEST1 ERROR audio-not-ready "); Serial.println(error);
+            return false;
+        }
         StopSequence();
         g_simultaneous_test_loop = 0;
         g_next_stream_open_attempted = false;

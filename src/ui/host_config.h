@@ -35,7 +35,7 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // exactly once. Optional [logging]: mode=basic/debug, preserve_last=0..20.
 // Optional [editing]: value_step_direction=normal/reversed; deprecated alias
 // note_step_direction is accepted, but supplying both names rejects.
-// Optional [audio]: output=bridge/pt8211. Empty/absent uses firmware default.
+// Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
 // Invalid nonempty MIDI channel warns once at startup and uses 12.

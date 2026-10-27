@@ -236,7 +236,7 @@ with explicit apply/save and restart-required feedback where applicable, rather
 than inventing a competing settings system. Unsupported settings stay unavailable.
 
 Preserve the mutually exclusive audio-module model. Current production
-`[audio] output=bridge/pt8211` selection requests the Teensy route, not a host
+`[audio] output=bridge/pt8211/audio_shield` selection requests the Teensy route, not a host
 playback-device selector; preserve documented defaults, negotiation and restart
 requirements in [Teensy Audio Architecture](TEENSY_AUDIO_ARCHITECTURE.md).
 MIDI/sync controls must reflect supported roles and capabilities without moving

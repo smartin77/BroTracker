@@ -109,6 +109,9 @@ TEST_CASE(HostConfigAudioPrecedenceAndInvalidFieldFallback) {
     CHECK(c.audio_output==AudioOutputChoice::Pt8211);
     CHECK(ParseHostConfig(base+"[audio]\noutput=bridge",c)==HostConfigStatus::Loaded);
     CHECK(c.audio_output==AudioOutputChoice::Bridge);
+    CHECK(ParseHostConfig(base+"[audio]\noutput=audio_shield",c)==HostConfigStatus::Loaded);
+    CHECK(c.audio_output==AudioOutputChoice::AudioShield);
+    CHECK(!c.audio_output_invalid);
     for(const auto value : {"PT8211","Bridge","shield","bad"}) {
         CHECK(ParseHostConfig(base+"[audio]\noutput="+value,c)==HostConfigStatus::Loaded);
         CHECK(c.audio_output_invalid); CHECK(c.audio_output==AudioOutputChoice::Default);
@@ -141,6 +144,7 @@ TEST_CASE(ProductionAudioRequestStrictParsing) {
     AudioOutputChoice c=AudioOutputChoice::Default;
     CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 pt8211",c));CHECK(c==AudioOutputChoice::Pt8211);
     CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 bridge",c));CHECK(c==AudioOutputChoice::Bridge);
+    CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 audio_shield",c));CHECK(c==AudioOutputChoice::AudioShield);
     CHECK(ParseAudioOutputRequest("BTAUDIO1 SET 1 default",c));CHECK(c==AudioOutputChoice::Default);
     for(const auto bad : {"BTAUDIO1 SET 2 bridge","BTAUDIO1 SET 1 PT8211","BTAUDIO1 SET 1 shield",
                          "BTAUDIO1 SET 1 bridge extra","BTAUDIO1 SET 1 ","BTAUDIO1"})

@@ -33,6 +33,14 @@ Items may be added during development to record agreed next steps or work that n
   validation. No streaming code or
   buffer-size decision is authorized by this planning item.
 
+### Future front-panel hardware investigation
+
+* [ ] Investigate a PCB-mount male AC'97-compatible Shield header and two-audio-
+  jack/two-USB PC panel; no purchase or validated design yet. Follow the
+  [pinout, mechanical, power and jack-function verification checklist](AUDIO_SHIELD_AMPLIFIER.md#future-front-panel-sourcing-and-wiring-investigation).
+  Teensy USB-host is SINGLE ROW; do not assume a double-row PC plug fits or maps.
+  Verify actual AC'97 functions; HD Audio is not interchangeable by assumption.
+
 ### Future output capabilities and memory review
 
 Audio Shield integration/physical validation is second priority above. Other

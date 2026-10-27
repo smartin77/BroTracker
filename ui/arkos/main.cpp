@@ -109,10 +109,10 @@ int main(int argc, char* argv[])
             BroTracker::AudioOutputName(host_config.config.audio_output),unsigned(host_config.config.audio_output_invalid),
             BroTracker::HostConfigDiagnostic(host_config.status),BroTracker::RowNumberingName(host_config.config.row_numbering));
         return (host_config.status==BroTracker::HostConfigStatus::Loaded || host_config.status==BroTracker::HostConfigStatus::Missing)
-            && !host_config.config.audio_output_invalid && host_config.config.audio_output!=BroTracker::AudioOutputChoice::Pt8211 ? 0:2;
+            && !host_config.config.audio_output_invalid && (host_config.config.audio_output==BroTracker::AudioOutputChoice::Default || host_config.config.audio_output==BroTracker::AudioOutputChoice::Bridge) ? 0:2;
     }
     if(diagnostic.Enabled() && ((host_config.status!=BroTracker::HostConfigStatus::Loaded && host_config.status!=BroTracker::HostConfigStatus::Missing)
-        || host_config.config.audio_output_invalid || host_config.config.audio_output==BroTracker::AudioOutputChoice::Pt8211)) {
+        || host_config.config.audio_output_invalid || (host_config.config.audio_output!=BroTracker::AudioOutputChoice::Default && host_config.config.audio_output!=BroTracker::AudioOutputChoice::Bridge))) {
         diagnostic.Fail("configuration-not-compatible-with-bridge"); diagnostic.SerialReleased(); return 2;
     }
     BroTracker::ConfigureHostLogging(host_config.config.logging_mode);

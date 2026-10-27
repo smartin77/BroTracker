@@ -55,23 +55,37 @@ and [controls](BTX_CONTROLS.md).
 
 ## Shared engine and output-backend planning
 
+The isolated [Audio Shield smoke test](AUDIO_SHIELD_SMOKE_TEST.md) exercises one
+Teensy 4.x SGTL5000 board without optional memory. It remains a separate graph;
+the user confirmed clean separated headphone tones on Rev D2 at amplitude 0.20 /
+headphone volume 0.50. This is an isolated listening observation; line-out,
+amplifier and older/dual-board validation remain pending. Separately, the user
+confirmed successful Windows production headphone playback at codec volume 0.50;
+ArkOS hardware validation remains open.
+See [external-amplifier connection preparation](AUDIO_SHIELD_AMPLIFIER.md).
+
 The Teensy remains authoritative for scheduling, Sample/Synth rendering, musical
 DSP and MIDI timing. Eight tracker channels are logical voices, not eight physical
 outputs. Today the engine renders mono PCM and duplicates it into left/right for
-the selected PT8211 or USB route; the bridge route uses MQS as its hardware update
-owner. Future shared stereo mixing/effects could feed PT8211, Audio Shield or USB,
-but stereo rendering/effects and Shield input/output integration are not implemented.
+the selected PT8211, Audio Shield headphone or USB route; the bridge route uses
+MQS as its hardware update owner. Future shared stereo mixing/effects could feed PT8211, Audio Shield or USB,
+but true stereo engine rendering/effects and Shield input/line-out integration
+are not implemented.
+[Production Shield headphones](AUDIO_SHIELD_OUTPUT.md) duplicate existing mono PCM;
+that route has passed stopped codec selection/readback on the connected board;
+Windows production playback at 0.50 was confirmed by the user. Current fixed
+production volume is 0.80 (not yet uploaded/listened); electrical/timing and ArkOS
+hardware validation remain open.
 
 At most one hardware audio module is attached: PT8211 or an Audio Shield. Explicit
 config may still select the USB bridge while that module is installed; there is
-no module priority hierarchy. Current config supports bridge/pt8211, not a new
-Shield setting. Existing route retention/restart rules and USB_BRIDGE default stay
-unchanged; module attachment does not choose a route automatically.
+no module priority hierarchy. Current config supports bridge/pt8211/audio_shield.
+Existing route retention/restart rules and USB_BRIDGE default stay unchanged; module attachment does not choose a route automatically.
 
 | Backend/capability | Audio connections | Processing/control boundary |
 | --- | --- | --- |
 | [PT8211](https://www.pjrc.com/store/pt8211_kit.html) | Stereo DAC, line-level output; no analog input | No configurable codec DSP or hardware volume control; engine-side levels remain software responsibilities |
-| [Audio Shield / SGTL5000](https://www.pjrc.com/store/teensy3_audio.html) | Stereo headphone/line output; stereo line input **or** mono microphone input | I2S audio, I2C control; codec capabilities below; physical integration/input support pending |
+| [Audio Shield / SGTL5000](https://www.pjrc.com/store/teensy3_audio.html) | Stereo headphone/line output; stereo line input **or** mono microphone input | I2S audio, I2C control; codec capabilities below; headphone integration implemented, Windows playback confirmed at 0.50; ArkOS validation open; line-out muted and input unsupported |
 | [USB Audio bridge](https://www.pjrc.com/teensy/td_libs_Audio.html) | Teensy PCM over USB Audio, then host playback | Host buffering, scheduling and physical output remain part of latency and failure behavior |
 
 Adding a Shield supplies neither more Teensy CPU capacity nor general-purpose RAM.
