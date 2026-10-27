@@ -15,6 +15,44 @@ channel gains/mixing and paused bridge diagnostics remain unchanged. Historical
 native-rate pattern environments retain their diagnostic PCM fixtures as regression
 workloads; they are not the current project instrument list.
 
+## Session master volume (implemented 2026-10-25)
+
+The audio owner applies one portable `MasterVolume` stage to the combined mono
+Sample/Synth PCM in `BasicPatternBringUpControl::AudioBlock`, after existing
+channel gain/mix/saturation and before `PatternAudioSource` transmits to any
+production backend. There was no active master attenuator in this production
+path: channel gains and the legacy diagnostic mixer are separate. PT8211 and USB
+bridge consume the same already-scaled source; neither adds another master stage.
+Future Shield routing must consume this source too; Shield support is not added.
+Existing instrument/channel gains, fixture0.8 Sample gain and PCM data are intact.
+Attenuation after saturation does not recover headroom lost in the existing mix.
+
+The scale is0..100% linear amplitude, capped at the previous exact unity level;
+boot default100% is bit-identical to the previous output. Physical presses step
+5 percentage points. The audio owner ramps Q16 gain from its current value to the
+new target over ceil(sample_rate/100) samples (10 ms), using fixed integer state
+and signed rounding. Retargeting starts from the current gain;0% reaches exact
+silence. No extra PCM buffer, heap allocation, filesystem access or waiting is
+added to rendering. This smooths master changes, not abrupt channel-gain edits.
+On 2026-10-25 the user confirmed R36H physical buttons, displayed updates and basic
+PT8211 listening-volume control. Hold-repeat, exact silence and OS-control
+restoration are not confirmed. USB-bridge listening, detailed ramp/click checks
+and worst-case Teensy callback cost remain unverified; linker headroom is not
+timing proof. The compact `Vol n%` display is for listening volume; detailed mixing
+belongs to the future main mixer. The 100% default/cap is unchanged.
+
+Volume0 does not stop voices, suppress events or pause the sample timeline. It
+is different from channel mute, which releases a voice. External MIDI messages,
+velocity, ownership and volume CCs are unchanged; external synth audio is outside
+this internal master stage. A silent internal output does not silence that synth.
+
+Volume is device-owned session state, retained across host reconnect, START/STOP,
+Pause/Continue, preview, Publish/Restore and SD pattern/session loading. It is not
+part of any session/file format or INI setting. Host reconnect reads authoritative
+state and drops old intent, never resetting gain or replaying a possibly sent SET.
+See [BTVOL1 protocol](TEENSY_PATTERN_BRINGUP.md#session-master-volume-btvol1-2026-10-25)
+and [controls](BTX_CONTROLS.md).
+
 ## Shared engine and output-backend planning
 
 The Teensy remains authoritative for scheduling, Sample/Synth rendering, musical
@@ -1151,7 +1189,9 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 See the [future Sample streaming outline](#future-sd-streamed-sample-playback) and
 [D0039](ARCHITECTURE_DECISIONS.md#d0039--sd-backed-sample-streaming) for the single
 storage/realtime boundary. Production tracker streaming is not implemented;
-possible milestones have no assigned priority or implementation order.
+production streaming follows handheld physical tests and Audio Shield validation
+per the [current priorities](TODO_LIST.md#agreed-priorities-2026-10-26). Its internal
+milestone order remains undecided.
 
 ## Implemented MIDI output boundary
 
@@ -1160,3 +1200,10 @@ nonblocking timer dispatch, ownership and transport-failure handling. Its
 render-phase deadlines do not establish physical output phase. Audible-sync
 measurement is pending; no output compensation or bridge diagnostic work is
 included in this milestone.
+
+Future MIDI transports share the [engine-facing scheduling direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends),
+not the PCM output-backend selector. USB device MIDI alone is implemented; USB
+host, UART/DIN and Ethernet backends are future work. Protocol/UMP capabilities
+are separate from transport choice. Internal PCM master gain does not control
+external MIDI volume. Backend faults must remain isolated from audio/timeline;
+each route needs physical timing validation without assumed compensation.

@@ -2818,3 +2818,87 @@ targets and both ABI/dependency checks. deploy/arkos is refreshed only after tho
 checks. teensy41_dev compilation/linking passes with unchanged firmware headroom.
 No Windows package, upload or hardware access was performed; new hardware behavior
 remains pending.
+
+## Session master volume: BTVOL1 (2026-10-25)
+
+This is the temporary development control protocol, not a session/file-format
+extension. No persistence or MIDI CC is implied.
+
+| Message | Meaning |
+| --- | --- |
+| `BTVOL1 CAP 1` | Firmware supports master volume; absent capability means unsupported, without blocking playback. |
+| `BTVOL1 GET 1` | Request authoritative state; HELLO/STATUS also include it. |
+| `BTVOL1 STATE 1 applied_id next_id percent current_q16` | Audio-owner target percent0..100 and instantaneous ramp gain0..65536. ID0 is valid initial state; next0 means exhausted. |
+| `BTVOL1 SET 1 id percent` | Nonzero increasing boot-scoped uint32 ID and integer percent0..100, copied into the fixed eight-request control FIFO under existing interrupt exclusion. |
+| `BTVOL1 SUBMITTED 1 id` | Accepted for audio-owner application, not yet applied. |
+| `BTVOL1 APPLIED 1 id` | Target accepted at an audio block boundary; the10 ms ramp may still be in progress. Readback confirms the target/ID; this is not proof of physical audio delivery. |
+| `BTVOL1 ERROR 1 id reason` | malformed, not-connected, queue-full, identity or invalid-gain; rejected writes do not alter gain or consume a new ID. |
+
+Strict parsing rejects signs, overflow, unsupported versions, missing/extra fields,
+trailing whitespace and out-of-range percentages. Oversized commands have a
+bounded volume error response. Core/audio faults keep their existing fatal policy;
+master gain does not clear them. HELLO's maximum response reserve is25 lines in a
+26-line fixed FIFO; audio ACK extraction reserves space for its response/readback.
+No USB/SD operations occur in the audio owner.
+
+BTX keeps one immutable in-flight command and one coalesced absolute target.
+Authoritative STATE updates the displayed target (`Vol n%`). Pending requests
+keep the last authoritative value without an asterisk; genuine unavailable or
+unsynchronized states retain their status text. SUBMITTED alone is insufficient.
+A possibly attempted SET is never blindly resent. After5000 ms without resolution,
+controls become unavailable and bounded GET recovery polls at most once per second.
+Identity exhaustion also prevents SET. Reconnect discards local intent and reads
+the current device value. No volume command is emitted merely to connect, load a
+pattern, Start/Stop or Publish/Restore. The existing protocol boot-identity
+limitation still applies to an undetected reboot without a connection boundary.
+
+### R36H physical keys and ArkOS interaction
+
+User-confirmed Linux evdev mapping on2026-10-25: `odroidgo3-keys`, KEY_VOLUMEDOWN114
+and KEY_VOLUMEUP115; values1=press,2=kernel repeat,0=release. The observed event3
+number is not an application binding. This confirms evdev delivery, not SDL.
+Read-only discovery found the same device advertises only those two KEY bits,
+and an active `oga_events.service` running `ogage`. Its upstream
+[source](https://github.com/christianhaitian/ogage/blob/master/src/main.rs) handles
+those keys with amixer. The exact installed binary/source revision was not verified.
+The local observation captures did not themselves record edges; the physical
+mapping confirmation above is the user's separate evidence.
+
+BTX discovers `/dev/input/event*` by that identity and required capabilities;
+additional keys (including power), switches, axes or other event types reject the
+profile. Only this volume-only device
+is exclusively acquired with EVIOCGRAB, not the gamepad, power key or headphone
+switch. No system service is stopped and no mixer value is written. Acquisition
+failure leaves master-key handling off and marks `OS keys`; it never handles an
+ungrabbed stream while the system handler could also consume it. Closing BTX
+releases the descriptor/grab, preserving normal ArkOS behavior outside BTX.
+Other device profiles/dArkOS layouts are not assumed supported by this evidence.
+
+One input path owns volume: evdev press/release. SDL/controller duplicates do not
+map to master volume. Kernel repeat2 is ignored; application repeat is immediate,
+then400 ms delay and one5-point step per100 ms, with no acceleration or catch-up
+burst. Opposing keys, focus loss, loss of authoritative connection and input loss
+cancel repeats. Events queued before exclusive acquisition are discarded within eight bounded
+reads; failure to drain refuses capture. Held state is then resynchronized so a
+press already consumed by the OS cannot also become a master step. Already-held
+keys are blocked on acquisition/resynchronization;
+after focus/disconnect cancellation an existing grab drains until release before
+returning keys to the OS, avoiding a mid-press handoff. SYN_DROPPED discards uncertain
+edges and resynchronizes held state. Each poll reads at most16 events; unavailable
+input probing is bounded to64 directory entries, at most once per second.
+
+Native tests cover ramp endpoints/rounding/retargeting and block partitions,
+combined Sample/Synth attenuation exactly once, transport/pattern retention,
+strict protocol bounds, host acknowledgment/coalescing/reconnect and unsupported
+firmware, repeat cancellation, profile rejection, pre-grab backlog rejection and ignored kernel repeats.
+Kernel grab ownership, real system-handler/mixer exclusion, detailed ramp/click
+and silence checks, and USB-bridge listening remain unverified. Automated fixtures
+and basic PT8211 confirmation do not establish those separate results.
+
+On 2026-10-25 the user manually confirmed on R36H that the physical volume buttons
+respond, the displayed value updates and PT8211 listening-volume control works.
+This confirms basic use only: hold-repeat, exact silence, OS-control restoration,
+USB-bridge listening and the remaining acquisition/mixer edge cases are not inferred.
+The normal display is deliberately just `Vol n%`, for listening volume; detailed
+mixing belongs to the future main mixer. Default/cap remain 100%; no finer indicator
+or new 90-100% level policy is introduced.

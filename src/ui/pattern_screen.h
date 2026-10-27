@@ -24,6 +24,7 @@ struct HostPanelInformation
     std::string diagnostic_status{};
     std::string midi_status{};
     BroTracker::RowNumbering row_numbering=BroTracker::RowNumbering::D1;
+    std::string volume_status{};
 };
 
 void RenderMainScreen(

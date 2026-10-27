@@ -1,3 +1,5 @@
+#include "bringup/master_volume_protocol.h"
+#include "bringup/storage_ready_wait.h"
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
 #endif
@@ -215,9 +217,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 22 lines including storage CAP and MIDI/mute state.
-    constexpr std::size_t kDiscoveryReserve = 22;
-    constexpr std::size_t kTxCapacity = 24;
+    // Full production HELLO is 25 lines including storage CAP and MIDI/mute state.
+    constexpr std::size_t kDiscoveryReserve = 25;
+    constexpr std::size_t kTxCapacity = 26;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -236,6 +238,7 @@ namespace
     PatternFileStore<SdPatternFiles> g_pattern_files;
     RealtimePattern g_storage_pattern; // Frozen main-context file/snapshot scratch, never live PCM.
     std::uint32_t g_storage_restore_id=0;
+    StorageReadyWait g_storage_ready_wait;
     char g_storage_restore_operation[40]="invalid";
 #endif
     std::uint32_t g_last_position_ms = 0;
@@ -257,6 +260,12 @@ namespace
         g_telemetry.Offer({status.running, p.valid, p.absolute_tick, p.pattern_row,
             p.loop_index, status.active_rows, status.active_channels,
             status.transport == PatternTransportState::Paused, 2});
+    }
+    void QueueVolume() {
+        const auto s=Snapshot();char line[96];
+        std::snprintf(line,sizeof(line),"BTVOL1 STATE 1 %lu %lu %u %lu\n",(unsigned long)s.applied_volume_id,
+            (unsigned long)s.next_volume_id,s.volume_percent,(unsigned long)s.volume_current);
+        (void)QueueLine(line);
     }
     void QueueGains(const PatternBringUpStatus& status) {
         char line[kPatternGainLineCapacity];
@@ -316,8 +325,10 @@ namespace
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        if (advertise_snapshot) (void)QueueLine("BTSTORE1 CAP 1\n");
+        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n"); }
 #endif
+        if(advertise_snapshot)(void)QueueLine("BTVOL1 CAP 1\n");
+        QueueVolume();
         QueueGains(status);
         if(advertise_snapshot) { (void)QueueLine("BTTEMPO1 CAP 1\n"); (void)QueueLine("BTPUBLISH1 TEMPOCAP 2\n"); }
         QueueTempo();
@@ -408,13 +419,23 @@ namespace
         if (line.offset == line.length) { g_tx_head = (g_tx_head + 1) % kTxCapacity; --g_tx_count; }
     }
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-    bool StorageControlReady() {
+    const char* StorageControlBlock() {
         InterruptGuard guard;
-        if(!g_audio_ready || !g_control.StorageReady()) return false;
+        if(!g_audio_ready || !g_control.Snapshot().tempo) return "audio-initializing";
+        if(!g_control.StorageReady()) return "core-not-ready";
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        if(g_midi.PendingCleanup() || g_midi.Queued() || !brotracker_midi_tx_idle()) return false;
+        if(g_midi.PendingCleanup()) return "midi-cleanup";
+        if(g_midi.Queued()) return "midi-queue";
+        if(!brotracker_midi_tx_idle()) return "midi-transfer";
 #endif
-        return true;
+        return nullptr;
+    }
+    const char* StorageBlock() {
+        if(g_storage_restore_id) return "storage-apply";
+        if(g_publication.Busy()) return "publication";
+        if(g_preview.Busy()) return "preview";
+        if(g_pattern_transfer.HasData()) return "readback";
+        return StorageControlBlock();
     }
     void StorageReply(const char* operation,const char* result,std::uint32_t revision=0) {
         char reply[96];
@@ -423,6 +444,11 @@ namespace
         (void)QueueLine(reply);
     }
     void StorageCommand(const char* line,std::uint32_t now) {
+        if(!std::strcmp(line,"BTSTORE1 READY 1")) {
+            if(!g_protocol_connected || !g_storage_ready_wait.Begin(now))
+                (void)QueueLine("BTSTORE1 NOTREADY 1 busy-or-disconnected\n");
+            return;
+        }
         const auto op=ParseStorageOperation(line);
         DevelopmentPattern selection;
         char operation[40];
@@ -433,12 +459,11 @@ namespace
         if(op==StorageOperation::Invalid) {StorageReply(operation,"malformed");return;}
         if(!g_protocol_connected) {StorageReply(operation,"not-connected");return;}
         if(!(op==StorageOperation::Load && selection.IsNone()) && !g_storage_backend.ready) {StorageReply(operation,"sd-unavailable");return;}
-        if(g_storage_restore_id || g_publication.Busy() || g_preview.Busy() || g_pattern_transfer.HasData() ||
-            !StorageControlReady()) {StorageReply(operation,"busy-or-not-ready");return;}
+        if(g_storage_ready_wait.Active() || StorageBlock()) {StorageReply(operation,"busy-or-not-ready");return;}
         PatternFileResult result;
         if(op==StorageOperation::Save) {
             // Both sources are main-owned and updated together only after audio ACK.
-            // StorageControlReady rejects queued requests/ACKs, including previews.
+            // StorageBlock rejects queued requests/ACKs, including previews.
             g_storage_pattern=g_active_pattern;
             result=g_pattern_files.SaveSession(g_storage_backend,g_storage_pattern,g_published_tempo);
         } else if(op>=StorageOperation::Seed1 && op<=StorageOperation::Seed4) {
@@ -454,7 +479,7 @@ namespace
             } else if(op==StorageOperation::Restore) result=g_pattern_files.Load(g_storage_backend,kSessionPath,PatternFileKind::Session,g_storage_pattern,tempo);
             else result=g_pattern_files.LoadDevelopment(g_storage_backend,selection.stem,g_storage_pattern,tempo);
             if(result==PatternFileResult::Ok) {
-                if(!StorageControlReady() || !StageStoredPattern(g_publication,g_storage_pattern,tempo,now)) {
+                if(StorageControlBlock() || !StageStoredPattern(g_publication,g_storage_pattern,tempo,now)) {
                     StorageReply(operation,"busy-or-identity-exhausted");return;
                 }
                 PatternRequestStatus accepted;
@@ -489,6 +514,9 @@ namespace
 #endif
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            g_storage_ready_wait.Cancel();
+#endif
             g_publication.NewSession();
             g_preview.NewSession();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
@@ -509,6 +537,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             if(g_storage_restore_id && g_tx_count+4>kTxCapacity) break;
 #endif
+            if(g_tx_count+2>kTxCapacity)break;
             PatternAppliedRequest applied;
             bool ready;
             { InterruptGuard guard; ready = g_control.TakeApplied(applied); }
@@ -530,6 +559,10 @@ namespace
                     applied.publication_id,ReplacementRejection(applied.result));
                 (void)QueueLine(reply);
 
+            }
+            else if(applied.request==PatternRequest::MasterVolume) {
+                char reply[64];std::snprintf(reply,sizeof(reply),"BTVOL1 APPLIED 1 %lu\n",(unsigned long)applied.publication_id);
+                (void)QueueLine(reply);QueueVolume();
             }
             else if (applied.request == PatternRequest::Gains) {
                 char reply[64];
@@ -589,6 +622,18 @@ namespace
         }
         const auto now = static_cast<std::uint32_t>(millis());
         g_pattern_transfer.Tick(now);
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        if(g_storage_ready_wait.Active() && g_tx_count<kTxCapacity) {
+            const char* block=StorageBlock();
+            const auto result=g_storage_ready_wait.Poll(now,!block);
+            if(result!=StorageReadyWait::Result::Waiting) {
+                char reply[96];
+                if(result==StorageReadyWait::Result::Ready) std::snprintf(reply,sizeof(reply),"BTSTORE1 READY 1\n");
+                else std::snprintf(reply,sizeof(reply),"BTSTORE1 NOTREADY 1 timeout:%s\n",block?block:"deadline");
+                if(QueueLine(reply)) g_storage_ready_wait.Cancel();
+            }
+        }
+#endif
         // Preserve timeout notifications under TX backpressure (do not Tick/drop).
         if (g_tx_count < kTxCapacity && g_publication.Tick(now))
             PublicationError(g_publication.Identity(),PublicationStatus::Timeout);
@@ -631,7 +676,8 @@ namespace
                 if (!std::strncmp(line,"BTSTORE1",8)) StorageReply("invalid","malformed");
                 else
 #endif
-                if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
+                if(!std::strncmp(line,"BTVOL1",6))(void)QueueLine("BTVOL1 ERROR 1 0 malformed\n");
+                else if (!std::strncmp(line,"BTGAIN1",7)) (void)QueueLine("BTGAIN1 ERROR 1 0 malformed\n");
                 else if (!std::strncmp(line,"BTPUBLISH1",10) || !std::strncmp(line,"BTPREVIEW1",10)) {
                     const bool preview=!std::strncmp(line,"BTPREVIEW1",10);
                     (preview ? g_preview : g_publication).Cancel(); PublicationError(0,PublicationStatus::Malformed,preview);
@@ -719,6 +765,20 @@ namespace
                     }
                     char reply[80];std::snprintf(reply,sizeof(reply),"BTTEMPO1 %s 1 %" PRIu32 "\n",
                         result==PatternRequestStatus::Accepted?"SUBMITTED":"REJECTED",f[0]); (void)QueueLine(reply);
+                }
+            }
+            else if(!std::strncmp(line,"BTVOL1",6)) {
+                if(!std::strcmp(line,"BTVOL1 GET 1")) QueueVolume();
+                else {
+                    MasterVolumeMessage message;const bool parsed=ParseMasterVolume(line,used,message);
+                    PatternRequestStatus accepted=PatternRequestStatus::InvalidRequest;
+                    if(parsed && g_protocol_connected) {InterruptGuard guard;accepted=g_control.SubmitVolume(message.percent,message.id);}
+                    char reply[96];
+                    if(accepted==PatternRequestStatus::Accepted)std::snprintf(reply,sizeof(reply),"BTVOL1 SUBMITTED 1 %lu\n",(unsigned long)message.id);
+                    else std::snprintf(reply,sizeof(reply),"BTVOL1 ERROR 1 %lu %s\n",(unsigned long)message.id,
+                        !parsed?"malformed":!g_protocol_connected?"not-connected":accepted==PatternRequestStatus::Full?"queue-full":
+                        accepted==PatternRequestStatus::Identity?"identity":"invalid-gain");
+                    (void)QueueLine(reply);
                 }
             }
             else if (!std::strncmp(line,"BTGAIN1",7)) {

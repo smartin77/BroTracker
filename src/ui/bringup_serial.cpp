@@ -25,14 +25,15 @@ void BringUpSerial::Log(const char* message, const char* detail)
 
 void BringUpSerial::Disconnect(const char* reason)
 {
-    if(startup_attempted_ && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
-    storage_supported_=false;
+    if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
+    storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     std::strcpy(audio_active_,"unknown");
+    volume_.Disconnect();tx_volume_=false;
     mute_.Disconnect(); tx_mute_=false;
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
     publication_.Disconnect();
@@ -287,6 +288,9 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
         audio_sent_=true;
     }
+    if(command==Command::StorageReady) {
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");startup_ready_sent_=true;
+    }
     if(command==Command::Storage) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(startup_pattern_));
         startup_attempted_=true;
@@ -340,6 +344,13 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTSTORE1 READYCAP 1")) {if(connected_)storage_ready_supported_=true;return;}
+    if(pending_==Command::StorageReady && !std::strcmp(line_,"BTSTORE1 READY 1")) {
+        startup_storage_ready_=true;pending_=Command::None;return;
+    }
+    if(pending_==Command::StorageReady && !std::strncmp(line_,"BTSTORE1 NOTREADY 1 ",19)) {
+        startup_failed_=true;pending_=Command::None;Log("SD startup readiness ERROR:",line_);return;
+    }
     if(!std::strcmp(line_,"BTSTORE1 CAP 1")) {if(connected_)storage_supported_=true;return;}
     if(pending_==Command::Storage && !std::strncmp(line_,"BTSTORE1",8)) {
         char prefix[80];std::uint32_t id=0;
@@ -405,6 +416,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
             live_.callback_performance=report; performance_at_=now;
         }
     }
+    else if(!std::strncmp(line_,"BTVOL1",6)) {if(connected_)(void)volume_.Response(line_,used_);}
     else if (!std::strncmp(line_,"BTMUTE1",7)) { if(connected_) (void)mute_.Response(line_,used_); }
     else if (!std::strncmp(line_,"BTGAIN1",7)) {
         if(connected_) (void)gains_.Response(line_,used_,now);
@@ -453,7 +465,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
             result == BroTracker::SnapshotAssemblyStatus::Timeout) { snapshot_failed_ = true; publication_.ReadbackFailed(); if(startup_applied_ && !startup_done_)startup_failed_=true; }
         if(result==BroTracker::SnapshotAssemblyStatus::Complete && publication_.NeedsReadback())
             (void)publication_.Verify(*pattern_assembler_.Snapshot());
-        if(result==BroTracker::SnapshotAssemblyStatus::Complete && startup_applied_ && !startup_failed_) {
+        // Only the original startup transaction's awaited baseline completes startup.
+        // Later snapshots (including reconnect recovery) do not establish a file load.
+        if(result==BroTracker::SnapshotAssemblyStatus::Complete && startup_applied_ && !startup_done_ && !startup_failed_) {
             startup_done_=true;Log("SD startup pattern loaded and baseline readback verified:",BroTracker::DevelopmentPatternName(startup_pattern_));
         }
     }
@@ -553,6 +567,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
     tempo_.Tick(now);
     mute_.Tick(now);
+    volume_.Tick(now);
     gains_.Tick(now);
     publication_.Tick(now);
     preview_.Tick(now);
@@ -587,6 +602,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         if(tx_publication_) publication_.BeforeWrite();
         if(tx_preview_) preview_.BeforeWrite();
         if(tx_mute_) mute_.BeforeWrite(now);
+        if(tx_volume_)volume_.BeforeWrite(now);
         if(tx_gains_) gains_.BeforeWrite(now);
         if(tx_tempo_) tempo_.BeforeWrite(now);
         tx_write_attempted_=true;
@@ -601,6 +617,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
                 if(tx_mute_) {mute_.LineComplete();tx_mute_=false;}
+                if(tx_volume_){volume_.LineComplete();tx_volume_=false;}
                 if(tx_gains_) { gains_.LineComplete(); tx_gains_=false; }
                 if(tx_tempo_) { tempo_.LineComplete(); tx_tempo_=false; }
             }
@@ -650,11 +667,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     if(pending_==Command::Audio && now-sent_at_>=6000 && tx_offset_==tx_size_) {
         audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
     }
-    if(pending_==Command::Storage && now-sent_at_>=15000) {
+    if((pending_==Command::Storage || pending_==Command::StorageReady) && now-sent_at_>=15000) {
         startup_failed_=true;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
         if(tx_offset_!=tx_size_) {Disconnect("partial storage command; outcome unknown");return;}
     }
-    if (pending_ != Command::None && pending_!=Command::Storage && now - sent_at_ >= 6000)
+    if (pending_ != Command::None && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
@@ -663,9 +680,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
         else if(connected_ && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
-            if(!storage_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || std::strcmp(state_,"IDLE") || snapshot_version_!=2) {
-                startup_failed_=true;Log("SD startup pattern ERROR: storage capability, setup and stopped v2 firmware required");
-            } else Send(Command::Storage,now);
+            if(!storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || std::strcmp(state_,"IDLE") || snapshot_version_!=2) {
+                startup_failed_=true;Log("SD startup pattern ERROR: readiness-capable storage, setup and stopped v2 firmware required");
+            } else if(!startup_stop_sent_) {
+                startup_stop_sent_=true;stopped_=false;Send(Command::Stop,now);
+            } else if(!startup_ready_sent_) Send(Command::StorageReady,now);
+            else if(startup_storage_ready_) Send(Command::Storage,now);
         }
         else if (start_queued_)
         {
@@ -710,6 +730,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
+        }
+        else if(connected_ && volume_.Supported() && !pattern_assembler_.Active() &&
+            (volume_.NeedsRead(now) || volume_.Sending() || volume_.Begin())) {
+            if(volume_.NeedsRead(now) && !volume_.Sending()) {
+                std::strcpy(tx_,"BTVOL1 GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;volume_.ReadSent(now);
+            } else {std::size_t n=0;if(volume_.FormatLine(tx_,sizeof(tx_),n)){tx_size_=n;tx_offset_=0;tx_volume_=true;}}
         }
         else if(connected_ && tempo_.Supported() && !PublicationBusy() && !pattern_assembler_.Active() &&
             (tempo_.NeedsRead(now) || tempo_.Sending() || tempo_.Begin())) {

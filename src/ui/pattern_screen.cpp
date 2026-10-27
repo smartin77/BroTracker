@@ -837,6 +837,7 @@ static void RenderPatternScreen(
             y += DrawWrappedFixedText(framebuffer, x, y, width, bottom - y, text, color) + 8;
         };
         // Connection/errors and pending transport stay visible even before HELLO.
+        if(!host.volume_status.empty())info(host.volume_status,header_value);
         if (!host.connection_status.empty()) info(host.connection_status, header_value);
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
         if (!host.publication_status.empty()) info(host.publication_status, header_value);

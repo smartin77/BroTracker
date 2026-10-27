@@ -2,6 +2,7 @@
 
 #include "core/playback/native_rate_pattern_player.h"
 #include "pattern_performance.h"
+#include "core/audio/master_volume.h"
 #include <type_traits>
 #include <utility>
 
@@ -10,7 +11,7 @@ namespace BroTracker
     template<class T,class=void> struct SupportsChannelMute : std::false_type {};
     template<class T> struct SupportsChannelMute<T,std::void_t<decltype(std::declval<T&>().SetMuteMask(0u))>> : std::true_type {};
     constexpr std::size_t kPatternRequestCapacity = 8;
-    enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded, Gains, Tempo };
+    enum class PatternRequest { Start, Stop, Pause, Continue, Replace, Preview, PreviewApplied, PreviewSuperseded, Gains, Tempo, MasterVolume };
     enum class PatternRequestStatus { Accepted, Full, InvalidRequest, InvalidGain, Identity, InvalidTempo };
     enum class PatternFault { None, Configuration, Render, Allocation };
     struct PatternAppliedRequest
@@ -26,6 +27,7 @@ namespace BroTracker
         // dimensions belong together. Copy only under platform interrupt exclusion.
         PatternPerformance performance;
         Pcm16ChannelGains gains;
+        unsigned volume_percent=100;std::uint32_t volume_current=65536,applied_volume_id=0,next_volume_id=1;
         unsigned mute_mask=0; std::uint32_t applied_mute_id=0,next_mute_id=1;
         std::uint32_t applied_gain_id = 0, next_gain_id = 1;
         std::uint32_t tempo=0,published_tempo=0,settled_tempo_id=0,applied_tempo_id=0,pending_tempo_id=0,next_tempo_id=1;
@@ -96,6 +98,14 @@ namespace BroTracker
             ++request_count_; publication_pending_ = true;
             return PatternRequestStatus::Accepted;
         }
+        [[nodiscard]] PatternRequestStatus SubmitVolume(unsigned percent,std::uint32_t id) noexcept {
+            if(percent>100)return PatternRequestStatus::InvalidGain;
+            if(!id || id<=highest_volume_id_)return PatternRequestStatus::Identity;
+            if(request_count_==kPatternRequestCapacity)return PatternRequestStatus::Full;
+            auto& entry=requests_[(request_head_+request_count_)%kPatternRequestCapacity];
+            entry={};entry.request=PatternRequest::MasterVolume;entry.id=id;entry.tempo=percent;
+            ++request_count_;highest_volume_id_=id;return PatternRequestStatus::Accepted;
+        }
         // Copy complete metadata into the FIFO under the platform critical section.
         // Accepted identities strictly increase for this boot; queue rejection does
         // not consume an ID. No HELLO/disconnect resets or automatic replay.
@@ -133,6 +143,7 @@ namespace BroTracker
             result.next_mute_id=highest_mute_id_==UINT32_MAX?0:highest_mute_id_+1;
             result.next_tempo_id=highest_tempo_id_==UINT32_MAX?0:highest_tempo_id_+1;
             if(highest_tempo_id_>result.settled_tempo_id) result.pending_tempo_id=highest_tempo_id_;
+            result.next_volume_id=highest_volume_id_==UINT32_MAX?0:highest_volume_id_+1;
             result.next_gain_id=highest_gain_id_==UINT32_MAX ? 0 : highest_gain_id_+1;
             return result;
         }
@@ -152,6 +163,7 @@ namespace BroTracker
             std::uint32_t rate, const RealtimePattern& pattern,
             const Bindings& bindings) noexcept
         {
+            volume_.Configure(rate);
             const auto result = player_.Configure(tempo_hundredths, rate, pattern, bindings);
             if (result != PatternPlayerStatus::Success) Fail(PatternFault::Configuration, result);
             if(result==PatternPlayerStatus::Success) {status_.applied_gain_id=0; status_.published_tempo=tempo_hundredths;}
@@ -200,7 +212,10 @@ namespace BroTracker
                     }
                     CompleteTempo(); continue;
                 }
-                if (request == PatternRequest::Gains) {
+                if(request==PatternRequest::MasterVolume) {
+                    (void)volume_.Set(entry.tempo);status_.applied_volume_id=entry.id;
+                }
+                else if (request == PatternRequest::Gains) {
                     result=player_.SetChannelGains(entry.gains);
                     if(result==PatternPlayerStatus::Success) status_.applied_gain_id=entry.id;
                 }
@@ -257,6 +272,7 @@ namespace BroTracker
                 }
             }
             else Zero(output, count);
+            if(storage_available && output) volume_.Process(output,count); // Combined PCM, exactly once before every route.
             CompletePreview();
             CompleteTempo();
             Publish();
@@ -302,6 +318,7 @@ namespace BroTracker
         }
         void Publish() noexcept
         {
+            status_.volume_percent=volume_.Percent();status_.volume_current=volume_.Current();
             status_.tempo=player_.GetTempo();
             status_.gains = player_.GetChannelGains();
             status_.running = player_.IsRunning();
@@ -313,6 +330,7 @@ namespace BroTracker
         }
         unsigned pending_mute_mask_=0;
         std::uint32_t pending_mute_id_=0,highest_mute_id_=0;
+        MasterVolume volume_;std::uint32_t highest_volume_id_=0;
         Player player_;
         PatternBringUpStatus status_;
         struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; std::uint32_t tempo=0; };

@@ -15,3 +15,6 @@ tools/arkos/port/*.sh text eol=lf
 /deploy/arkos/*.json text eol=lf
 /deploy/arkos/SHA256SUMS text eol=lf
 /config/config.ini.example text eol=lf
+
+# The source JSON must match the byte-stable ARM64 delivery on Windows too.
+/assets/dummy_my_tune.json text eol=lf
