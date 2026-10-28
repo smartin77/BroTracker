@@ -1908,6 +1908,8 @@ still depends on service cadence and backpressure. Core application remains at
 the next eligible row boundary, and a changed row already passed naturally waits
 for its next occurrence.
 
+Historical coordinator policy (superseded at the BTX editor boundary by
+[retained reconnect recovery](RECONNECT_CONTINUITY.md), 2026-10-28):
 On reconnect, a lower device NEXT high-water mark invalidates retained draft
 context; complete verified working readback supplies the displayed draft. A
 powered-device reconnect with unchanged identities retains recoverable local

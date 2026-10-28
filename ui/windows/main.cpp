@@ -114,7 +114,10 @@ int main(int argc, char* argv[]) try {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
                 continue;
             }
-            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4) (void)serial.RestoreTempo();
+            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4) {
+                if(serial.ReconnectRecoveryPending()) { (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks()); continue; }
+                (void)serial.RestoreTempo();
+            }
             if (MapWindowsPublish(event)) {
                 (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
                 if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());

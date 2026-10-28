@@ -26,6 +26,10 @@ void BringUpSerial::Log(const char* message, const char* detail)
 void BringUpSerial::Disconnect(const char* reason)
 {
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
+    if(editor_seen_ && StartupPatternReady()) {
+        if(!continuity_pending_) continuity_frozen_=false;
+        continuity_pending_=true; continuity_ready_=false;
+    }
     storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
@@ -37,8 +41,8 @@ void BringUpSerial::Disconnect(const char* reason)
     mute_.Disconnect(); tx_mute_=false;
     gains_.Disconnect(); tx_gains_=false; tempo_.Disconnect(); tx_tempo_=false; tempo_publication_=false;
     publication_.Disconnect();
-    preview_.Disconnect(); tx_preview_=false;
-    if(publish_queued_) { publish_queued_=false; preview_.Suspend(false); }
+    preview_.Disconnect(); if(continuity_pending_) preview_.Suspend(true); tx_preview_=false;
+    if(publish_queued_) { publish_queued_=false; preview_.Suspend(continuity_pending_); }
     paused_publication_supported_=false;
     publication_supported_=next_discovery_expected_=next_fresh_=false;
     next_publication_id_=0; publication_readback_requested_=false; next_refresh_=false; tx_publication_=false;
@@ -73,6 +77,43 @@ void BringUpSerial::Disconnect(const char* reason)
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
     diagnostic_now_=now;
+    if(continuity_pending_) {
+        // Freeze the actual editor before its normal disconnected Sync can clear it.
+        // This also captures a last edit made immediately before the failed I/O.
+        if(!continuity_frozen_ && editor.Ready()) {
+            continuity_baseline_=*editor.Baseline(); continuity_draft_=*editor.Draft();
+            continuity_frozen_=true;
+        }
+        editor.SetLocked(true); preview_.Suspend(true);
+        const auto* baseline=pattern_assembler_.Snapshot();
+        if(baseline) preview_.SetBaseline(*baseline);
+        if(tempo_.Available()) preview_.SetWorkingTempo(tempo_.State().tempo);
+        const auto* working=preview_.VerifiedWorking();
+        if(!preview_.Supported() && baseline) working=&baseline->pattern;
+        if(connected_ && baseline && working && continuity_frozen_) {
+            if(publication_.TakeConfirmed() && editor.Rebase(*baseline,publication_.FrozenTempo())) {
+                if(tempo_.Supported()) tempo_.Refresh();
+                preview_.SetBaseline(*baseline); preview_.Published(baseline->pattern);
+                continuity_pending_=continuity_ready_=false;
+                Log("Explicit reconnect recovery published and verified; no SD save or START");
+            } else if(!continuity_ready_) {
+                const bool same=BroTracker::SamePattern(continuity_baseline_.pattern,baseline->pattern) &&
+                    continuity_baseline_.tempo_hundredths==baseline->tempo_hundredths &&
+                    BroTracker::SamePattern(continuity_draft_,*working) &&
+                    continuity_tempo_==(tempo_.Available()?tempo_.State().tempo:baseline->tempo_hundredths);
+                if(same) {
+                    continuity_pending_=false; editor.ResetContext(); editor.Sync(PlaybackView(now));
+                    (void)editor.RecoverDraft(*working); preview_.ConfirmMatchingWorking();
+                    Log("Reconnect readback matches retained pattern contents; boot/transport continuity not proven");
+                } else {
+                    continuity_ready_=true;
+                    Log("Reconnect continuity not established; local draft and published baseline retained; F5 explicitly publishes to RAM, F4 restores local baseline; no SD load/save or START");
+                }
+            }
+        }
+        if(continuity_pending_) return;
+        preview_.Suspend(false);
+    }
     const bool startup_barrier=!StartupPatternReady();
     if(startup_barrier) {
         // An explicit SD selection establishes a new context. Discard pre-load
@@ -150,7 +191,11 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     }
     if(editor.Ready() && StartupPatternReady()) preview_.RetainLocal(editor.Dirty());
     editor_seen_=editor.Ready();
-    if(editor_seen_) observed_editor_=*editor.Draft();
+    if(editor_seen_) {
+        observed_editor_=*editor.Draft();
+        if(connected_ && tempo_.Available()) continuity_tempo_=tempo_.State().tempo;
+        else if(!continuity_tempo_) continuity_tempo_=editor.Baseline()->tempo_hundredths;
+    }
 }
 
 const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& editor) const {
@@ -173,14 +218,51 @@ const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& edit
     return nullptr;
 }
 
+bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now)
+{
+    // Preserve F4's local Restore meaning. Never adopt the boot fixture or write
+    // to the device here. Publication remains a separate explicit F5 action.
+    if(!continuity_pending_ || !continuity_frozen_ || !editor.Ready() || PublicationBusy()) return false;
+    editor.SetLocked(false);
+    const bool restored=editor.Apply(EditorAction::Restore);
+    editor.SetLocked(true);
+    if(!restored) return false;
+    continuity_draft_=*editor.Draft();
+    continuity_tempo_=continuity_baseline_.tempo_hundredths;
+    publication_=BroTracker::HostPatternPublication{};
+    Log("Reconnect F4 Restore: retained local published baseline restored; device unchanged; F5 Publish remains explicit");
+    diagnostic_now_=now; return true;
+}
+
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
-    if(tempo_.Supported() && !tempo_publication_) {publication_.Unavailable("Tempo-aware publication unsupported");return false;}
     // F5 may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
         if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
+    if(continuity_pending_) {
+        // F5 is explicit RAM publication, not an automatic recovery or SD save.
+        // Freeze the retained candidate directly: preview dimensions may differ
+        // from the reboot fixture, so preview-before-publication is inappropriate.
+        const auto* baseline=pattern_assembler_.Snapshot();
+        if(!continuity_ready_ || !connected_ || !baseline || (preview_.Supported() && !preview_.VerifiedWorking()) ||
+            !publication_supported_ || PublicationBusy() || Playing() || TransportPending() ||
+            pending_!=Command::None || !next_fresh_ || !next_publication_id_ ||
+            tx_offset_!=tx_size_ || pattern_assembler_.Active() ||
+            (Paused() && !paused_publication_supported_) ||
+            (tempo_.Supported() && (!tempo_publication_ || !tempo_.Synchronized()))) return false;
+        // A fresh NEXT discovery supplies a non-reused ID. This explicit
+        // choice replaces the old transaction coordinator, never replays it.
+        publication_=BroTracker::HostPatternPublication{};
+        if(!publication_.Begin(next_publication_id_,*baseline,continuity_draft_,now,
+                tempo_publication_?continuity_tempo_:0)) return false;
+        next_publication_id_=0;next_fresh_=false;next_refresh_=true;publication_readback_requested_=false;
+        Log("Explicit reconnect recovery requested: retained draft publication to RAM; no SD save or START");
+        return true;
+    }
+
+    if(tempo_.Supported() && !tempo_publication_) {publication_.Unavailable("Tempo-aware publication unsupported");return false;}
     if(tempo_publication_ && !tempo_.Synchronized()) return false;
     if(preview_.Supported() && editor.Ready() && editor.Dirty() && connected_ && publication_supported_ &&
         !Playing() && (Stopped() || !std::strcmp(state_,"IDLE") || (Paused() && paused_publication_supported_)) &&
@@ -199,7 +281,7 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
-    if(!StartupPatternReady()) return false;
+    if(!StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
     if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
     if(midi_supported_ && !midi_confirmed_) return false;
@@ -235,6 +317,7 @@ bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, 
 bool BringUpSerial::QueueTransport(Command command) {
     if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
+    if(command==Command::Continue && continuity_pending_) return false;
     if(command==Command::Continue && midi_supported_ && !midi_confirmed_) return false;
     transport_queued_ = command; stopped_ = false; return true;
 }
@@ -315,6 +398,15 @@ void BringUpSerial::ClearPosition()
 
 std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) const
 {
+    if(continuity_pending_ && continuity_frozen_) {
+        LivePlaybackView retained;
+        retained.device_pattern=continuity_baseline_;
+        retained.telemetry_available=true;
+        retained.position.rows=continuity_draft_.active_rows;
+        retained.position.channels=continuity_draft_.active_channels;
+        retained.tempo_hundredths=continuity_tempo_;
+        return retained; // No live highlight or implied device playback continuity.
+    }
     if (!connected_) return std::nullopt;
     auto view = live_;
     if(now-performance_at_>=kCallbackPerformanceStaleMs) view.callback_performance.reset();
@@ -779,7 +871,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;
                 }
             }
-            else if(StartupPatternReady() && !publish_queued_ && pattern_assembler_.Snapshot() &&
+            else if(StartupPatternReady() && !continuity_pending_ && !publish_queued_ && pattern_assembler_.Snapshot() &&
                 preview_.TryBegin(*pattern_assembler_.Snapshot(),now)) {
                 if(preview_.FormatLine(tx_,sizeof(tx_),length)) {
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;

@@ -140,7 +140,7 @@ TEST_CASE(HostPublicationTimeoutMismatchAndDisconnectRequireReadback) {
     CHECK(p.Verify(changed)); CHECK_EQ(p.Phase(),HostPublicationPhase::Mismatch); CHECK(!p.TakeConfirmed());
     Session s; s.Ready(); s.Dirty(); CHECK(s.serial.Publish(s.editor,s.now)); s.Commit();
     const auto frozen=*s.editor.Draft(); s.port->online=false; s.Tick();
-    CHECK(!s.editor.Ready()); CHECK(s.serial.PublicationBusy()); CHECK(std::strstr(s.serial.PublicationStatus(),"uncertain"));
+    CHECK(s.editor.Ready()); CHECK(s.editor.Locked()); CHECK(s.serial.PublicationBusy()); CHECK(std::strstr(s.serial.PublicationStatus(),"uncertain"));
     s.port->online=true; s.now+=1001; s.Tick(); s.Tick(); s.port->output.clear();
     s.Receive("BTTEST1 STATE IDLE\nBTPATTERN1 SNAPCAP 2\nBTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 8\nBTPATTERN1 POS 2 0 0 0 0 0 2 1\n");
     auto accepted=Baseline(); accepted.pattern=frozen; s.Snapshot(2,accepted);
@@ -273,5 +273,6 @@ TEST_CASE(PausedHostPublicationRequiresCapabilityAndRebasesWithoutContinuing) {
     CHECK_EQ(std::string(s.serial.PublicationStatus()),"");
     s.port->online=false; s.Tick(); s.port->online=true; s.now=2000; s.Tick();
     s.Receive("BTTEST1 STATE PAUSED\nBTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 8\nBTPATTERN1 SNAPCAP 2\n");
-    CHECK(!s.serial.Publish(s.editor,s.now)); CHECK(std::strstr(s.serial.PublicationStatus(),"paused publication unsupported"));
+    CHECK(!s.serial.Publish(s.editor,s.now)); CHECK(s.serial.ReconnectRecoveryPending());
+    CHECK(std::strstr(s.serial.PublicationStatus(),"readback")); // Fresh readback is now required before any recovery choice.
 }

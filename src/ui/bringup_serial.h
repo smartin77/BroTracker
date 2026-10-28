@@ -28,7 +28,18 @@ public:
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
+    bool ReconnectRecoveryPending() const { return continuity_pending_; }
+    // F4 restores the retained local published baseline, without device writes.
+    bool RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now);
     const char* PublicationStatus() const {
+        if(continuity_pending_) {
+            if(publication_.Blocking() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
+                publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
+            if(snapshot_failed_) return "Reconnect readback failed: local work retained; reconnect to retry";
+            return continuity_ready_ ? "Reconnect differs: local retained. F4 Restore local; F5 Publish" :
+                "Reconnect unverified: local work retained; waiting for readback";
+        }
+
         if(tempo_.Supported() && !tempo_.Synchronized() && !PublicationBusy()) {
             if(tempo_.Phase()==BroTracker::HostTempoPhase::Uncertain) return "Tempo uncertain; reading device state";
             std::snprintf(tempo_status_,sizeof(tempo_status_),"Tempo applied %u.%02u | desired %u.%02u (pending)",
@@ -163,6 +174,12 @@ private:
     bool attempted_ = false;
     BroTracker::HostPatternPublication publication_;
     BroTracker::HostPatternPreview preview_;
+    // Host RAM only. Frozen across disconnect, including reset/different dimensions.
+    BroTracker::DevicePatternSnapshot continuity_baseline_{};
+    BroTracker::RealtimePattern continuity_draft_{};
+    std::uint32_t continuity_tempo_=0;
+    bool continuity_pending_=false,continuity_ready_=false,continuity_frozen_=false;
+
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;

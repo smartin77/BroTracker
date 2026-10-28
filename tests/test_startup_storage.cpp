@@ -135,14 +135,18 @@ TEST_CASE(StartupSuccessIsNotReportedForDifferentReconnectBaseline) {
         wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
         wire->pattern=1; // Boot theme: only CH1/CH2 populated, unlike patern4.
         Pump(serial,140,220,&editor);
-        CHECK(serial.Connected());CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
-        CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());
+        CHECK(serial.Connected());CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(editor.Locked());CHECK(serial.ReconnectRecoveryPending());
+        CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());CHECK(!serial.Start());
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
         const auto recovered=serial.PlaybackView(4400);CHECK(recovered);CHECK(recovered->device_pattern);
-        RealtimePattern expected;MakeStoredDevelopmentPattern(expected,1);
+        RealtimePattern expected;MakeStoredDevelopmentPattern(expected,4);
         CHECK(SamePattern(recovered->device_pattern->pattern,expected));
         const auto after=read_log();const auto first=after.find(success);CHECK(first!=std::string::npos);
         CHECK(after.find(success,first+success.size())==std::string::npos);
+        CHECK(after.find("continuity not established")!=std::string::npos);
+        CHECK(serial.RestoreReconnectDraft(editor,4401));
+        MakeStoredDevelopmentPattern(expected,4);
+        CHECK(SamePattern(*editor.Draft(),expected));CHECK(serial.ReconnectRecoveryPending());CHECK(editor.Locked());
         std::fclose(log);
     }
     ConfigureHostLogging(HostLogMode::Basic);
@@ -221,14 +225,15 @@ TEST_CASE(CleanStartupPreservesNormalEditorPreview) {
     CHECK(editor.Apply(EditorAction::SetValue,75));Pump(serial,80,110,&editor);
     CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
 }
-TEST_CASE(StartupBarrierDoesNotResetDraftOrReloadOnOrdinaryReconnect) {
+TEST_CASE(StartupReconnectRetainsUnsentEditsAndRequiresExplicitResolution) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
     BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
     CHECK(editor.Apply(EditorAction::SetValue,75));serial.SyncEditor(editor,1601);
     wire->healthy=false;serial.Tick(1602);serial.SyncEditor(editor,1602);
     Pump(serial,140,175,&editor);
-    CHECK_EQ(wire->Loads(),1u);CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
+    CHECK_EQ(wire->Loads(),1u);CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(editor.Locked());
+    CHECK(serial.ReconnectRecoveryPending());CHECK(!serial.Start());
     CHECK(editor.Draft());if(editor.Draft())CHECK_EQ(editor.Draft()->cells[0][0].note,75);CHECK(editor.Dirty());
 }
 TEST_CASE(StartupArbitraryStemUsesAuthoritativeFileDimensionsTempoAndOffData) {
@@ -292,4 +297,25 @@ TEST_CASE(HostVolumeUsesDeviceBaselineCoalescesAndNeverReplaysAcrossReconnect) {
 TEST_CASE(HostUnsupportedVolumeDoesNotBlockOtherwiseReadyTransport) {
     auto peer=std::make_unique<StoragePeer>();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");Pump(serial);
     CHECK(serial.StartupPatternReady());CHECK(!serial.VolumeAvailable());CHECK(!serial.StepVolume(-1));CHECK(std::strstr(serial.VolumeStatus(),"unsupported"));CHECK(serial.Start());
+}
+
+TEST_CASE(ReconnectPartialReadbackAndRepeatedDisconnectNeverDiscardRetainedWork) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,80,&editor);CHECK(editor.Apply(EditorAction::SetValue,75));serial.SyncEditor(editor,1601);
+    const auto draft=*editor.Draft();const auto baseline=*editor.Baseline();
+    wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
+    wire->pattern=1;wire->hold_working=true;Pump(serial,140,175,&editor);
+    CHECK(serial.ReconnectRecoveryPending());CHECK(editor.Locked());CHECK(!serial.Start());
+    CHECK(!serial.Publish(editor,3501));CHECK(editor.Locked());
+    CHECK(SamePattern(*editor.Draft(),draft));CHECK(SamePattern(editor.Baseline()->pattern,baseline.pattern));
+    wire->healthy=false;serial.Tick(3502);serial.SyncEditor(editor,3502);
+    wire->working_reply.clear();wire->hold_working=false;Pump(serial,230,280,&editor);
+    CHECK(serial.ReconnectRecoveryPending());CHECK(SamePattern(*editor.Draft(),draft));
+    CHECK_EQ(wire->Loads(),1u);
+    for(const auto& cmd:wire->commands) {
+        CHECK(cmd!="BTTEST1 START");CHECK(cmd.rfind("BTPUBLISH1 BEGIN",0)!=0);
+        CHECK(cmd.rfind("BTPREVIEW1 BEGIN",0)!=0);CHECK(cmd.rfind("BTPREVIEW1 DBEGIN",0)!=0);
+        CHECK(cmd.rfind("BTSTORE1 SAVE",0)!=0);CHECK(cmd.rfind("BTSTORE1 RESTORE",0)!=0);
+    }
 }

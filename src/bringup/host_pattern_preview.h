@@ -58,6 +58,20 @@ public:
         return recovered_ready_ ? &latest_ : nullptr;
     }
     void RecoveredInstalled() noexcept { recovered_ready_=false; }
+    // Only complete checksum-verified working/pending metadata, never local intent.
+    const RealtimePattern* VerifiedWorking() const noexcept {
+        return verified_ && (!pending_id_ || pending_verified_) && !Recovering() ?
+            (pending_id_ ? &pending_ : &applied_) : nullptr;
+    }
+    void ConfirmMatchingWorking() noexcept {
+        if(const auto* remote=VerifiedWorking()) {
+            latest_=attempted_=*remote; latest_valid_=attempted_valid_=true;
+            recovered_ready_=false; retain_local_=false;
+            phase_=pending_id_ ? HostPreviewPhase::Accepted : HostPreviewPhase::Synchronized;
+            Set("Retained working pattern matches readback");
+        }
+    }
+
     void Published(const RealtimePattern& pattern) noexcept {
         latest_=applied_=attempted_=pattern; latest_valid_=attempted_valid_=true;
         accepted_=pending_id_=working_id_=0; suspended_=false;

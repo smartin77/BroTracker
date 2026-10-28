@@ -358,7 +358,10 @@ int main(int argc, char* argv[])
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
             const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
             if(result.mute_channel>=0) (void)serial.ToggleChannelMute(unsigned(result.mute_channel));
-            if(result.restore) (void)serial.RestoreTempo();
+            if(result.restore) {
+                if(serial.ReconnectRecoveryPending()) (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());
+                else (void)serial.RestoreTempo();
+            }
             if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
             if (game_controller && editor_input.Device()<0) {
                 SDL_GameControllerClose(game_controller); game_controller=nullptr;

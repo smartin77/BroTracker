@@ -27,3 +27,5 @@ Project documentation is located in the `docs` directory.
 - [Platform Deployment](./PLATFORM_DEPLOYMENT.md)
 - [Roadmap](./ROADMAP.md)
 - [TODO List](./TODO_LIST.md)
+
+- [Reconnect continuity and explicit RAM recovery](RECONNECT_CONTINUITY.md)

@@ -6,6 +6,7 @@
 #include "bringup/pattern_control.h"
 #include "ui/bringup_serial.h"
 #include <algorithm>
+#include <new>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -109,7 +110,13 @@ struct PreviewPort : SerialTransport {
         if(end!=std::string::npos) { const auto line=partial.substr(0,end); partial.erase(0,end+1); Handle(line); }
         return static_cast<int>(n);
     }
-    bool gain_capability=false, sparse_capability=false;
+    bool gain_capability=false, sparse_capability=false,tempo_capability=false,tempo_uncertain=false;
+    std::string TempoReply() {
+        const auto s=control.Snapshot();char text[128];
+        const TempoState state{s.settled_tempo_id,s.applied_tempo_id,tempo_uncertain?3:s.next_tempo_id,
+            tempo_uncertain?2:s.pending_tempo_id,s.tempo,s.published_tempo};
+        CHECK(FormatTempoState(state,text,sizeof(text)));return text;
+    }
     void State() {
         const auto s=control.Snapshot();
         input+="BTTEST1 STATE "+std::string(s.running?"PLAYING":s.transport==PatternTransportState::Paused?"PAUSED":"IDLE")+"\n";
@@ -117,6 +124,7 @@ struct PreviewPort : SerialTransport {
         input+="BTPUBLISH1 NEXT 1 "+std::to_string(publication.NextIdentity())+"\n";
         if(capability) input+="BTPREVIEW1 CAP 1\nBTPREVIEW1 NEXT 1 "+std::to_string(preview.NextIdentity())+"\nBTPREVIEW1 STATE 1 "+
             std::to_string(s.published_id)+" "+std::to_string(s.working_id)+" "+std::to_string(s.pending_preview_id)+"\n";
+        if(tempo_capability) input+="BTTEMPO1 CAP 1\nBTPUBLISH1 TEMPOCAP 2\n"+TempoReply();
         if(sparse_capability) input+="BTPREVIEW1 DELTACAP 1\n";
         if(gain_capability) {
             char gain_state[96]; CHECK(FormatPatternGainState(s.gains,s.applied_gain_id,s.next_gain_id,gain_state,sizeof(gain_state)));
@@ -127,10 +135,11 @@ struct PreviewPort : SerialTransport {
             std::to_string(s.position.loop_index)+" "+std::to_string(baseline.pattern.active_rows)+" "+std::to_string(baseline.pattern.active_channels)+"\n";
     }
     void Snapshot(const RealtimePattern& pattern,unsigned id,bool working) {
-        PatternSnapshotSender sender(pattern,12753); CHECK(sender.SetWorkingNamespace(working)); CHECK(sender.Begin(id,0,2));
+        PatternSnapshotSender sender(pattern,working?control.Snapshot().tempo:control.Snapshot().published_tempo); CHECK(sender.SetWorkingNamespace(working)); CHECK(sender.Begin(id,0,2));
         while(sender.HasData()) { std::size_t n=0; const auto* data=sender.Data(n); if(hold_snapshot) delayed_snapshot.append(data,n); else input.append(data,n); sender.Consume(n); }
     }
     void Handle(const std::string& line) {
+        if(line=="BTTEMPO1 GET 1" && tempo_capability) { input+=TempoReply();return; }
         if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") { if(line=="BTTEST1 HELLO") {preview.NewSession(); publication.NewSession();} State(); return; }
         std::uint32_t f[5]{}; unsigned version=0,id=0;
         if(ParseSnapshotRequest(line.data(),line.size(),id,version)) { Snapshot(baseline.pattern,id,false); return; }
@@ -171,7 +180,7 @@ struct PreviewPort : SerialTransport {
         const auto prefix=is_preview?"BTPREVIEW1":"BTPUBLISH1";
         if(result==PublicationStatus::Ready) {
             CHECK(transfer.Freeze());
-            CHECK_EQ(is_preview?control.SubmitPreview(*transfer.Frozen(),transfer.Identity()):control.SubmitPattern(*transfer.Frozen(),transfer.Identity()),PatternRequestStatus::Accepted);
+            CHECK_EQ(is_preview?control.SubmitPreview(*transfer.Frozen(),transfer.Identity()):control.SubmitPattern(*transfer.Frozen(),transfer.Identity(),transfer.Tempo()),PatternRequestStatus::Accepted);
             input+=std::string(prefix)+" SUBMITTED 1 "+std::to_string(m.fields[0])+"\n"; Advance(0);
         } else if(result==PublicationStatus::Receiving && is_preview && m.kind==PublicationKind::Begin)
             input+="BTPREVIEW1 RECEIVING 1 "+std::to_string(m.fields[0])+"\n";
@@ -182,7 +191,8 @@ struct PreviewPort : SerialTransport {
         PatternAppliedRequest ack;
         while(control.TakeApplied(ack)) {
             const auto id=std::to_string(ack.publication_id);
-            if(ack.request==PatternRequest::Gains) { input+="BTGAIN1 APPLIED 1 "+id+"\n"; }
+            if(ack.request==PatternRequest::Tempo) {input+=TempoReply();}
+            else if(ack.request==PatternRequest::Gains) { input+="BTGAIN1 APPLIED 1 "+id+"\n"; }
             else if(ack.request==PatternRequest::Preview) {
                 CHECK(metadata.Accepted(preview,ack.publication_id,ack.result==PatternPlayerStatus::Success));
                 input+=ack.result==PatternPlayerStatus::Success?"BTPREVIEW1 ACCEPTED 1 "+id+"\n":"BTPREVIEW1 REJECTED 1 "+id+" unsupported-pitch\n";
@@ -240,9 +250,12 @@ TEST_CASE(AutomaticPreviewRejectionReconnectAndF4InFlight) {
     CHECK(s.editor.Dirty()); CHECK_EQ(s.editor.Draft()->cells[1][0].note,61);
     CHECK(std::strstr(s.serial.PublicationStatus(),"unsupported-pitch"));
     const auto sent=s.port->output; s.Pump(); CHECK_EQ(s.port->output.find("BTPREVIEW1 BEGIN",sent.size()),std::string::npos);
-    s.port->online=false; s.Tick(); CHECK(!s.editor.Ready()); s.port->online=true; s.Pump(400);
+    s.port->online=false; s.Tick(); CHECK(s.editor.Ready()); CHECK(s.editor.Locked()); s.port->online=true; s.Pump(400);
     CHECK(s.editor.Ready()); CHECK_EQ(s.editor.Draft()->cells[1][0].note,61); CHECK(s.editor.Dirty());
-    CHECK(s.editor.Apply(EditorAction::Down)); // Connection-scoped cursor resets on disconnect.
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(!s.serial.Start());
+    CHECK(s.serial.RestoreReconnectDraft(s.editor,s.now)); // Discard only the rejected local edit.
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(!s.editor.Dirty());
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(700);CHECK(!s.serial.ReconnectRecoveryPending());
     s.Note(60); s.now+=100; s.Tick(); s.Tick(); // Partial BEGIN in flight.
     CHECK(s.editor.Apply(EditorAction::Restore)); s.Tick(); s.Pump(400);
     CHECK_EQ(s.port->metadata.working.cells[1][0].note,NOTE_OFF); CHECK(!s.editor.Dirty());
@@ -495,7 +508,7 @@ TEST_CASE(PreviewAsyncStopDisconnectRecoveryRetainsDraftWithoutReplay) {
     }
     CHECK(s.port->owned_write.find("BTPREVIEW1 CELL")==0); CHECK(s.serial.Stop()); s.Tick();
     CHECK(!s.port->ownership_violation);
-    s.port->online=false; s.Tick(); CHECK(!s.editor.Ready());
+    s.port->online=false; s.Tick(); CHECK(s.editor.Ready()); CHECK(s.editor.Locked());
     const auto mark=s.port->output.size(); s.port->asynchronous=false; s.port->online=true; s.Pump(1000);
     CHECK(s.serial.Connected()); CHECK(s.serial.Playing()); CHECK(SamePattern(draft,*s.editor.Draft()));
     const auto recovery=s.port->output.substr(mark);
@@ -621,7 +634,7 @@ TEST_CASE(SparseSerialAsyncCrossChannelLatestStopAndReconnect) {
         CHECK(wire.find("BTTEST1 STOP\n")!=std::string::npos);
         CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);
         CHECK_EQ(s.port->metadata.working.cells[1][1].instrument,7);
-        const auto saved=*s.editor.Draft(); s.port->online=false;s.Tick();CHECK(!s.editor.Ready());
+        const auto saved=*s.editor.Draft(); s.port->online=false;s.Tick();CHECK(s.editor.Ready()); CHECK(s.editor.Locked());
         s.port->asynchronous=false;s.port->online=true;s.Pump(1000);
         CHECK(s.serial.Connected());CHECK(!s.serial.Playing() && !s.serial.Paused());CHECK(SamePattern(saved,*s.editor.Draft()));
     }
@@ -716,4 +729,133 @@ TEST_CASE(SparseReviewLateCapabilityCannotReuseLegacyUnverifiedCache) {
     CHECK_EQ(p.Phase(),HostPreviewPhase::Sending);Sent(p,2);
     CHECK(Reply(p,"BTPREVIEW1 ACCEPTED 1 2"));CHECK(Reply(p,"BTPREVIEW1 APPLIED 1 2"));
     Discover(p,3,2);Read(p,baseline.pattern,2,0,2);CHECK_EQ(p.Phase(),HostPreviewPhase::Synchronized);
+}
+
+TEST_CASE(ReconnectBootFixtureNeverSubstitutesPublishedOrUnpublishedHostWork) {
+    for(bool unsent : {false,true}) {
+        PreviewSession s;s.Pump();
+        CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);s.Pump(500);
+        const auto published=*s.editor.Baseline();
+        if(unsent) {s.port->limit=0;CHECK(s.editor.Apply(EditorAction::Clear));s.Tick();}
+        const auto retained=*s.editor.Draft();
+        s.port->online=false;s.Tick();
+        // Simulate boot: RAM working and published data replaced by fixture;
+        // identity rollback may also occur, but content mismatch alone is enough.
+        s.port->~PreviewPort();new(s.port) PreviewPort; // Fresh boot owner, counters and RAM.
+        s.port->limit=3;s.port->online=true;const auto mark=s.port->output.size();s.Pump(700);
+        CHECK(s.serial.ReconnectRecoveryPending());CHECK(s.editor.Locked());
+        CHECK(SamePattern(*s.editor.Draft(),retained));CHECK(SamePattern(s.editor.Baseline()->pattern,published.pattern));
+        CHECK(!s.serial.Start());CHECK(!s.serial.Continue());
+        const auto wire=s.port->output.substr(mark);
+        CHECK(wire.find("BTTEST1 START")==std::string::npos);
+        CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);
+        CHECK(wire.find("BTPREVIEW1 BEGIN")==std::string::npos);
+        CHECK(wire.find("BTPREVIEW1 DBEGIN")==std::string::npos);
+        CHECK(s.serial.Publish(s.editor,s.now));s.Pump(900);
+        CHECK(!s.serial.ReconnectRecoveryPending());CHECK(!s.editor.Locked());
+        CHECK(SamePattern(s.port->baseline.pattern,retained));CHECK(SamePattern(s.port->metadata.working,retained));
+        CHECK(!s.editor.Dirty());CHECK(!s.serial.Playing());
+    }
+}
+TEST_CASE(PoweredReconnectWithIdenticalPublishedAndWorkingReadbackNeedsNoWrites) {
+    PreviewSession s;s.Pump();CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);s.Pump(500);
+    const auto draft=*s.editor.Draft();s.port->online=false;s.Tick();
+    const auto mark=s.port->output.size();s.port->online=true;s.Pump(700);
+    CHECK(!s.serial.ReconnectRecoveryPending());CHECK(!s.editor.Locked());CHECK(SamePattern(*s.editor.Draft(),draft));
+    const auto wire=s.port->output.substr(mark);
+    CHECK(wire.find("BTPUBLISH1 BEGIN")==std::string::npos);CHECK(wire.find("BTPREVIEW1 BEGIN")==std::string::npos);
+    CHECK(wire.find("BTTEST1 START")==std::string::npos);
+}
+
+TEST_CASE(RejectedExplicitReconnectRecoveryKeepsLocalWorkAndDoesNotRetry) {
+    PreviewSession s;s.Pump();CHECK(s.editor.Apply(EditorAction::Down));s.Note(61);s.Pump(300);
+    const auto draft=*s.editor.Draft();const auto baseline=*s.editor.Baseline();
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(s.serial.Publish(s.editor,s.now));s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(s.editor.Locked());
+    CHECK(SamePattern(*s.editor.Draft(),draft));CHECK(SamePattern(s.editor.Baseline()->pattern,baseline.pattern));
+    const auto mark=s.port->output.size();s.Pump(700);
+    CHECK(s.port->output.substr(mark).find("BTPUBLISH1 BEGIN")==std::string::npos);
+    const auto before=s.port->output.size();
+    CHECK(s.serial.RestoreReconnectDraft(s.editor,s.now));CHECK(s.serial.ReconnectRecoveryPending());
+    CHECK(!s.editor.Dirty());CHECK(SamePattern(*s.editor.Draft(),baseline.pattern));s.Pump(100);
+    CHECK(s.port->output.substr(before).find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(s.port->output.substr(before).find("BTPREVIEW1 BEGIN")==std::string::npos);
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(700);CHECK(!s.serial.ReconnectRecoveryPending());
+}
+TEST_CASE(ExplicitReconnectRecoveryCanReplaceDifferentBootDimensions) {
+    PreviewSession s;s.Pump();const auto retained=*s.editor.Draft();
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;
+    s.port->baseline.pattern.active_rows=1;s.port->metadata.working=s.port->baseline.pattern;s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK_EQ(s.serial.PlaybackView(s.now)->device_pattern->pattern.active_rows,2);
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(900);
+    CHECK(!s.serial.ReconnectRecoveryPending());CHECK(SamePattern(s.port->baseline.pattern,retained));
+}
+
+TEST_CASE(InterruptedExplicitReconnectPublicationIsReadBackNeverReplayed) {
+    PreviewSession s;s.Pump();CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);s.Pump(400);
+    const auto draft=*s.editor.Draft();
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(s.serial.Publish(s.editor,s.now));
+    s.port->limit=1;s.Tick(); // Incomplete explicit recovery write.
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(s.editor.Locked());CHECK(SamePattern(*s.editor.Draft(),draft));
+    CHECK(s.port->output.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(s.port->output.find("BTTEST1 START")==std::string::npos);
+    CHECK(!s.serial.Start());
+}
+
+TEST_CASE(UncertainExplicitReconnectRecoveryF5ReadsAgainWithoutPublicationReplay) {
+    PreviewSession s;s.Pump();CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);s.Pump(400);
+    const auto draft=*s.editor.Draft();
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.Pump(700);
+    CHECK(s.serial.Publish(s.editor,s.now));s.port->hold_snapshot=true;s.Pump(900);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(SamePattern(*s.editor.Draft(),draft));
+    s.port->hold_snapshot=false;s.port->delayed_snapshot.clear();const auto mark=s.port->output.size();
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(900);
+    CHECK(s.port->output.substr(mark).find("BTPATTERN1 GET")!=std::string::npos);
+    CHECK(s.port->output.substr(mark).find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(!s.serial.ReconnectRecoveryPending());CHECK(!s.editor.Dirty());
+}
+
+TEST_CASE(ReconnectRestoreRetainsOldPublishedBaselineRatherThanAdoptingBootData) {
+    PreviewSession s;s.Pump();
+    CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);CHECK(s.serial.Publish(s.editor,s.now));s.Pump(700);
+    const auto published=*s.editor.Baseline();CHECK(!s.editor.Dirty());
+    s.Note(61);s.Pump(300);CHECK(s.editor.Dirty());
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.Pump(700);
+    const auto mark=s.port->output.size();CHECK(s.serial.RestoreReconnectDraft(s.editor,s.now));
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(SamePattern(*s.editor.Draft(),published.pattern));
+    CHECK(SamePattern(s.editor.Baseline()->pattern,published.pattern));CHECK(!s.editor.Dirty());
+    CHECK(!SamePattern(*s.editor.Draft(),s.port->baseline.pattern));s.Pump(100);
+    CHECK(s.port->output.substr(mark).find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(!s.serial.Start());CHECK(s.serial.Publish(s.editor,s.now));s.Pump(700);
+    CHECK(!s.serial.ReconnectRecoveryPending());CHECK(SamePattern(s.port->baseline.pattern,published.pattern));
+}
+
+TEST_CASE(ReconnectQueuedPublishCannotResumePreviewBeforeEditorSync) {
+    PreviewSession s;s.Pump();CHECK(s.editor.Apply(EditorAction::Down));s.Note(60);
+    const auto draft=*s.editor.Draft();CHECK(s.serial.Publish(s.editor,s.now));
+    s.port->online=false;s.serial.Tick(s.now++); // No SyncEditor yet.
+    s.port->~PreviewPort();new(s.port) PreviewPort;
+    for(unsigned i=0;i<800;++i) {s.now+=10;s.serial.Tick(s.now);}
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK(SamePattern(*s.editor.Draft(),draft));
+    CHECK(s.port->output.find("BTPUBLISH1 BEGIN")==std::string::npos);
+    CHECK(s.port->output.find("BTPREVIEW1 BEGIN")==std::string::npos);
+    CHECK(s.port->output.find("BTPREVIEW1 DBEGIN")==std::string::npos);
+    s.serial.SyncEditor(s.editor,s.now);CHECK(s.editor.Locked());CHECK(SamePattern(*s.editor.Draft(),draft));
+}
+
+TEST_CASE(ReconnectRetainsLastVerifiedWorkingTempoDuringLaterTempoUncertainty) {
+    PreviewSession s;s.port->tempo_capability=true;s.Pump();
+    CHECK_EQ(s.port->control.SubmitTempo(14000,1),PatternRequestStatus::Accepted);s.port->Advance(0);s.port->input+=s.port->TempoReply();s.Pump(50);
+    CHECK_EQ(s.serial.Tempo().State().tempo,14000u);
+    s.port->tempo_uncertain=true;s.port->input+=s.port->TempoReply();s.Pump(10);
+    CHECK(!s.serial.Tempo().Available());
+    s.port->online=false;s.Tick();s.port->~PreviewPort();new(s.port) PreviewPort;s.port->tempo_capability=true;s.Pump(700);
+    CHECK(s.serial.ReconnectRecoveryPending());CHECK_EQ(s.serial.PlaybackView(s.now)->tempo_hundredths,14000u);
+    CHECK(s.serial.Publish(s.editor,s.now));s.Pump(900);
+    CHECK(!s.serial.ReconnectRecoveryPending());CHECK_EQ(s.port->control.Snapshot().tempo,14000u);
+    CHECK_EQ(s.editor.Baseline()->tempo_hundredths,14000u);
+    CHECK(s.port->output.find("BTPUBLISH1 BEGIN 2 1 2 1 2 14000")!=std::string::npos);
 }

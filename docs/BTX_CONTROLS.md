@@ -118,3 +118,15 @@ Bindings and edge cases are covered in the existing
 [editor](../tests/test_local_pattern_editor.cpp) and
 [startup recovery](../tests/test_startup_storage.cpp) tests. This manual was checked
 against source/test definitions; that inspection is not new physical validation.
+
+## Reconnect recovery hold
+
+See [reconnect continuity](RECONNECT_CONTINUITY.md). If fresh device data differs,
+BTX keeps the previous draft/baseline locked and blocks START/CONTINUE. F5 remains
+**Publish** (mapped A in cell context): explicitly publish the retained draft to
+RAM. F4 remains **Restore** (mapped L1+Y): restore the retained local published
+baseline, discarding unpublished local edits, without adopting the boot fixture.
+During this hold Restore is local only; F5 Publish is still required to update a
+differing device. Neither action saves to SD or starts playback; no automatic
+session restore is added. Keep BTX open: the retained copy is not persisted across
+host exit/crash.
