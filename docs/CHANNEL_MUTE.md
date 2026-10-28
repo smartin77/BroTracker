@@ -1,5 +1,8 @@
 # Session channel mute
 
+Current desktop/handheld bindings and validation scope are maintained in
+[BTX controls](BTX_CONTROLS.md); this page describes mute behavior and protocol checks.
+
 Implemented on feature/midi-foundation, following D0036. Prior Windows/ArkOS
 version was user-confirmed working. Windows mouse mute, header navigation and
 enlarged numbers are now user-confirmed. Keyboard mute, example-config review,

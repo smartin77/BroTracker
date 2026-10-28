@@ -11,11 +11,10 @@ No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
 
 ## Current handheld controls
 
-Use the standalone [temporary ArkOS controls reference](../../docs/ARKOS_CONTROLS.md).
-The user confirmed the current controls and workflows on **2026-10-15** on ArkOS;
-this is not dArkOS validation or a timing/performance measurement. The reference
-supersedes the legacy L1/B and R1/X bindings in historical observations below.
-Final configurable input profiles remain future work.
+Use [BTX_CONTROLS.md](../../docs/BTX_CONTROLS.md), the single current desktop and
+handheld reference, including mapping requirements, dated user confirmations,
+validation limits and reconnect-hold Restore/Publish semantics. It supersedes
+legacy bindings in historical observations below.
 
 ## Installed runtime configuration (ArkOS and dArkOS)
 
@@ -303,7 +302,7 @@ addresses come from current enumeration and post-open identity checks remain
 mandatory. After USB reconnect, the supervisor rediscovers audio automatically
 while BTX stays open; CDC reconnect remains independent and never replays START.
 
-For current input use the [controls reference](../../docs/ARKOS_CONTROLS.md).
+For current input use the [controls reference](../../docs/BTX_CONTROLS.md).
 Audio, broader controller mapping and EmulationStation handoff checks remain
 separate from the confirmed controls/workflows. Local checks:
 

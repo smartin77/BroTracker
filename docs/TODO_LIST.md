@@ -1224,7 +1224,7 @@ design remains unchanged.
 * [x] User confirmed the added held navigation on ArkOS (2026-10-15); paging
   and playback ranges remain proposals.
 * [x] User confirmed on 2026-10-15 that the current temporary controls and workflows
-  work on ArkOS. See [ArkOS controls](ARKOS_CONTROLS.md). This does not establish
+  work on ArkOS. See [BTX controls](BTX_CONTROLS.md). This does not establish
   dArkOS validation or measured physical timing/performance.
 * [ ] Extend device/profile and OS-hotkey coverage and exhaustive reconnect,
   backpressure/removal checks. Final configurable profiles and bindings remain

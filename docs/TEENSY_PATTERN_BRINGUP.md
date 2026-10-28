@@ -1,5 +1,9 @@
 # Opt-in native-rate pattern bring-up
 
+Current desktop/handheld bindings and their recorded validation limits are maintained
+only in [BTX controls](BTX_CONTROLS.md). Dated control descriptions and checklists
+below are implementation history; reconnect-hold exceptions use the current manual.
+
 Windows BTX + a bare Teensy 4.1 is the primary development bring-up setup.
 ArkOS remains the priority target platform, with follow-up hardware validation;
 dArkOS validation is deferred. The opt-in firmware implementation is complete
@@ -2287,7 +2291,7 @@ Restore/history and preservation of notes and received higher IDs.
 
 ### Temporary ArkOS handheld pattern-editor bindings
 
-See [ArkOS controls](ARKOS_CONTROLS.md) for the authoritative user reference and
+See [BTX controls](BTX_CONTROLS.md) for the authoritative user reference and
 complete table, value direction, repeat, OFF timing and preview/publication semantics.
 On **2026-10-15**, the user confirmed the current controls and workflows work on
 ArkOS. This confirmation does not cover dArkOS, measured timing or performance.

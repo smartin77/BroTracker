@@ -58,35 +58,29 @@ their existing SDL user-data location; changing config location does not move lo
 
 ## Controls and connection
 
-- **Space:** START when ready/stopped/finished; RESTART while playing.
-- **Enter:** STOP and stay. While already stopped or waiting, stay without STOP.
-- **Ctrl+X / window close:** exit; queued/active playback first receives STOP.
-- Auto-repeat, unrelated keys, controller/joystick events and trigger axes do not
-  request actions. Pending START/restart duplicates are suppressed. During STOP,
-  further commands are suppressed; exit can upgrade it to STOP-then-exit.
+Use [BTX_CONTROLS.md](../../docs/BTX_CONTROLS.md) as the single current desktop and
+handheld controls reference. Space uses capability-gated Start/Pause/Continue;
+legacy peers use Start/Restart. STOP, Publish, Restore, mute and reconnect-hold
+rules and their validation limits are specified there. Historical scripts and
+observations below do not define current input bindings.
 
-Firmware boots in IDLE with both sample players stopped. HELLO/STATUS report
-IDLE until an explicit START; connecting the terminal does not start playback.
-There is no terminal-detection delay or automatic playback fallback.
-
-Firmware START already stops both streams and restarts Test1, so restart uses the
-existing START command. The temporary **BTTEST1** exchange is shared with ArkOS:
-HELLO, STATUS, START, STOP, six-second command timeout, one-second reconnect and
-status intervals, and the existing 12.5-second overall shutdown bound. A STOP
-failure/disconnect is logged as unconfirmed, never acknowledged success.
+Firmware boots stopped; HELLO/STATUS report applied state and do not start audio.
+The shared temporary BTTEST1 exchange reports uncertain command delivery as
+unconfirmed, never as acknowledged success.
 
 Windows enumerates present Ports-class device instance identities for USB
 `16c0:048a`, reads their assigned COM names, and opens only a unique match. It does
 not probe unrelated COM devices and refuses multiple matching Teensys. Discovery,
 open and serial I/O run off the SDL thread. Receive storage is bounded to 4096
-bytes and a single 32-byte transmit request. A full receive buffer fails closed.
+bytes; transmit requests hold one bounded protocol line. A full receive buffer fails closed.
 Only connection-local CDC settings (115200 8N1, DTR/RTS) are set; no persistent
 USB/device configuration is changed.
 
 On USB removal, the client remains responsive and discovers again. It never
 replays START automatically. If a write may have begun, diagnostics say its result
-is unknown. Reconnect completes a new handshake; Space starts again without a
-PROGRAM-button press. If the port is busy, close the other serial monitor first.
+is unknown. Reconnect completes a new handshake and verified pattern recovery;
+START/CONTINUE remain blocked if the retained host and device contexts differ.
+See [reconnect continuity](../../docs/RECONNECT_CONTINUITY.md). If the port is busy, close the other serial monitor first.
 
 ## Shared log
 
@@ -268,57 +262,17 @@ does not establish that every byte of the flashed firmware equals the local
 artifact. No registry, driver, serial, VID/PID or firmware change is needed to
 make bridge discovery work, because discovery uses USB/container identity.
 
-## Live tempo controls
+## Current control details and validation
 
-Numeric keypad + / - (SDLK_KP_PLUS / SDLK_KP_MINUS) changes tempo independently of
-Num Lock. Main-keyboard +/- remain unbound. Tap 0.05 BPM; bounded held repeat at
-400 ms / 100 ms intervals accelerates after 1.5 s and 3 s. BPM shows the applied
-value rounded to one decimal; pending desired hundredths remain visible in status.
-F5 Publish freezes pattern plus applied tempo while stopped/paused; F4 Restore
-returns to the published pattern and tempo baseline. STOP/START and reconnect
-retain acknowledged tempo; reboot starts a new session at 125.00. No config.ini
-or SD persistence write occurs. See [full contract/checklist](../../docs/LIVE_TEMPO_CONTROL.md).
+Bindings, repeat behavior, header interactions and recorded physical confirmations
+live in the [BTX controls manual](../../docs/BTX_CONTROLS.md). See the linked
+[tempo protocol/checklist](../../docs/LIVE_TEMPO_CONTROL.md),
+[mute design/checklist](../../docs/CHANNEL_MUTE.md) and
+[reconnect evidence](../../docs/RECONNECT_CONTINUITY.md) for implementation details
+and remaining tests. Reboot does not retain a session's tempo: the current
+production development fixture starts at 155.00 BPM; new projects default to
+125.00 BPM, and an explicit startup file can establish its own tempo.
 
-Build/start from the repository root:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin
-.\deploy\windows\BroTrackerTerminal.exe
-```
-
-## Beat-row cursor navigation (2026-10-22)
-
-Shift + Up/Down selects the strictly preceding/following highlighted beat row.
-Highlighting comes from the shared host grid (zero-based 0,4,8,...), independent
-of printed row labels. From 3, Down reaches 4; from 4 it reaches 8; from 5, Up
-reaches 4; from 4 it reaches 0. Bounds use the active length and the existing
-32-row visible area: no wrap, paging or unhighlighted boundary destination.
-The channel, Note/Instrument field, musical data and transport/tempo stay unchanged.
-
-Ordinary arrows and Shift+Tab remain unchanged. Modified arrows use the existing
-navigation repeat (350 ms delay, 100/60/40 ms cadence after 0/1/2 seconds held),
-not tempo repeat. OS repeat is ignored; one action maximum per frame. Changing
-modifiers cancels the old repeat; a direction already held when Shift changes
-must be physically released before rearming. Releasing Shift, opposing arrows
-and focus loss cancel/block held directions so ordinary navigation cannot leak.
-
-Manual verification of the new beat shortcuts is pending. Check both adjacent
-and four-row destinations, first/last beat clamps, hold/release and modifier
-switching, with channel/field and pattern contents unchanged. The earlier Windows
-tempo/Synth confirmations remain valid; physical handheld checks remain pending.
-
-Build with the existing empty-title preference, then start:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows/build-package.ps1 -ToolchainBin D:/dev/msys64/ucrt64/bin -EmptyWindowTitle
-.\deploy\windows\BroTrackerTerminal.exe
-```
-
-## Session channel mute
-
-Up or Shift+Up from the first row/beat enters its header; Down or Shift+Down returns
-to row 1 with the Note/Instrument field retained. Header Left/Right clamps channels;
-Tab/Shift+Tab keeps channel navigation. Left-click a header once to toggle mute
-using actual framebuffer/viewport coordinates. Holding/dragging/outside clicks do
-not toggle. Crossed digits show confirmed mute, orange outline shows selection;
-pending/rejected/unsupported states are separate. See [design and manual checklist](../../docs/CHANNEL_MUTE.md).
+The build helper supports `-EmptyWindowTitle` for the existing empty-title
+preference; use the normal build/package commands above with that switch when
+required. No extra controls or hardware validation are implied by that option.

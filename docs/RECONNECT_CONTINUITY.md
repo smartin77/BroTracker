@@ -1,5 +1,9 @@
 # BTX reconnect continuity (2026-10-28)
 
+Current control bindings and evidence scope are maintained in
+[BTX controls](BTX_CONTROLS.md). Control names below describe recovery semantics
+and dated observations; Publish, Restore and SD session operations remain distinct.
+
 Startup selection and reconnect recovery are different operations. The configured
 `development.startup_pattern` loads once per BTX launch, behind the existing
 STOP/storage-ready/load-result/baseline/working-readback barriers. Reconnect must

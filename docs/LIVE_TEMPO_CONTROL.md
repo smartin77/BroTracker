@@ -95,11 +95,16 @@ logging, file I/O, locks or host timing in the render path.
 | Pause / Continue | Retain applied tempo; Continue replays the reported current row using the new tempo, preserving its loop identity. Unchanged tempo preserves its existing rational timing phase. |
 | STOP / START | Retain latest applied/acknowledged tempo; STOP cancels unacknowledged pending work. START resets transport position, not tempo. |
 | BTX reconnect | Read device-authoritative tempo and published baseline; no automatic START or replay of an uncertain old SET. |
-| Publish (F5 / A) | Freeze coherent pattern + applied tempo as the new published baseline; requires synchronized tempo and stopped/paused transport. |
+| Publish (F5 / A in a row) | Freeze coherent pattern + applied tempo as the new published baseline; requires synchronized tempo and stopped/paused transport. |
 | Restore (F4 / L1+Y) | Return the working pattern and desired tempo to the published snapshot baseline, using normal preview/tempo handoffs. Does not force 125.00 or change the published baseline. |
 | Device reboot / firmware reinitialization | Session ends; current development fixture starts at 155.00; new projects still default to 125.00. No disk persistence is implied. |
 
-Restore's tempo goal coalesces with an already in-flight adjustment. Its value
+Current bindings and the reconnect-hold exception are defined in
+[BTX controls](BTX_CONTROLS.md). During that hold Restore changes only the retained
+local pattern/tempo baseline; it does not send normal preview/tempo handoffs or
+recover lost device RAM. Publish remains a separate explicit action.
+
+Outside the reconnect hold, Restore's tempo goal coalesces with an already in-flight adjustment. Its value
 comes from the checksum-verified published snapshot, so it also works immediately
 after publication readback, before a later status poll. Cell-only previews never
 contain a tempo field and cannot restore or reset tempo accidentally. Pattern
