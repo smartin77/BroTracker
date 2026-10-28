@@ -24,7 +24,7 @@ struct InputFixture {
         event.cbutton.which=id; event.cbutton.button=static_cast<Uint8>(button);
         return input.Handle(event,now,true,editor);
     }
-    ArkOSInputResult Tap(unsigned button) { const auto result=Edge(button); Edge(button,false); return result; }
+    ArkOSInputResult Tap(unsigned button) { const auto result=Edge(button); const auto released=Edge(button,false); return button==SDL_CONTROLLER_BUTTON_START?released:result; }
 };
 struct Transport : SerialTransport {
     std::string rx,tx;
@@ -50,7 +50,7 @@ TEST_CASE(ArkOSPlainNavigationAndChordConsumption) {
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); CHECK_EQ(f.editor.Cursor().channel,1); CHECK(f.editor.Cursor().field==EditField::Note);
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT); CHECK_EQ(f.editor.Cursor().channel,0);
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP); CHECK_EQ(f.editor.Cursor().row,0); CHECK_EQ(f.editor.Draft()->cells[0][0].note,61);
-    f.Tap(SDL_CONTROLLER_BUTTON_Y); CHECK(!f.editor.Dirty()); CHECK_EQ(f.editor.Draft()->cells[0][0].note,60);
+    f.Tap(SDL_CONTROLLER_BUTTON_X); CHECK(!f.editor.Dirty()); CHECK_EQ(f.editor.Draft()->cells[0][0].note,60);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::Exit);
     f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
@@ -58,7 +58,7 @@ TEST_CASE(ArkOSPlainNavigationAndChordConsumption) {
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);
     f.Tap(SDL_CONTROLLER_BUTTON_X); CHECK_EQ(f.editor.Draft()->cells[0][0].note,NOTE_OFF);
     f.Tap(SDL_CONTROLLER_BUTTON_Y); CHECK_EQ(f.editor.Draft()->cells[0][0].note,NOTE_EMPTY); CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,255);
-    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);
     CHECK(!f.Tap(SDL_CONTROLLER_BUTTON_BACK).publish); // Select unassigned.
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER).transport==BringUpAction::None);
 }
@@ -161,7 +161,7 @@ TEST_CASE(ArkOSAUsesStoppedPausedCapabilityGatesWithoutChangingDraft) {
         PatternSnapshotSender stable(source,12753); CHECK(stable.Begin(1,0,2));
         while(stable.HasData()) {std::size_t n; const auto* line=stable.Data(n); port->rx.append(line,n); tick(); stable.Consume(n);}
         CHECK(f.editor.Apply(EditorAction::Increment)); const auto draft=*f.editor.Draft();
-        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
         const bool accepted=serial.Publish(f.editor,now);
         CHECK_EQ(accepted,!std::strcmp(state,"IDLE") || (!std::strcmp(state,"PAUSED") && paused_cap));
         CHECK(SamePattern(draft,*f.editor.Draft()));
@@ -176,8 +176,8 @@ TEST_CASE(ArkOSActiveCleanExitWaitsForStopAndPreservesDraft) {
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN); f.Tap(SDL_CONTROLLER_BUTTON_X);
     const auto draft=*f.editor.Draft();
     f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); const auto result=f.Tap(SDL_CONTROLLER_BUTTON_START);
-    controls.Request(result.transport,"L1+Start",2); CHECK(controls.Exiting()); CHECK(controls.StopPending()); CHECK(!controls.Quit());
-    controls.Tick(3); CHECK(port->tx.find("BTTEST1 STOP\n")!=std::string::npos);
+    controls.Request(result.transport,"L1+Start",2); CHECK(controls.Exiting()); CHECK(!controls.StopPending()); CHECK(controls.Quit());
+    controls.Tick(3); CHECK(port->tx.find("BTTEST1 STOP\n")==std::string::npos);
     CHECK(port->tx.find("BTTEST1 START\n")==std::string::npos); CHECK(SamePattern(draft,*f.editor.Draft()));
     port->rx="BTTEST1 STOPPED\n"; controls.Tick(4); CHECK(controls.Quit());
 }
@@ -424,7 +424,7 @@ TEST_CASE(ArkOSHeaderAConsumesPublishAndRetainsTempoIncludingVerifiedRaw) {
     f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
     f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);CHECK_EQ(f.input.TakeTempoStep(),5);f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);CHECK_EQ(f.editor.Cursor().channel,0);
     f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN);CHECK(!f.editor.Cursor().header);
-    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);CHECK(!f.editor.Dirty());CHECK(!f.editor.CanUndo());
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);CHECK(!f.editor.Dirty());CHECK(!f.editor.CanUndo());
     SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
     bindings[SDL_CONTROLLER_BUTTON_A].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[SDL_CONTROLLER_BUTTON_A].value.button=9;
     f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);CHECK(f.editor.SelectHeader(1));
@@ -460,3 +460,32 @@ TEST_CASE(ArkOSVolumeProfileRejectsSharedPowerKeyboardAndWrongDevice) {
     CHECK(!ArkOSVolume::Eligible("odroidgo3-keys",bits));
 }
 #endif
+
+TEST_CASE(ArkOSFileActionsConsumeSelectStartChordOnceInEitherOrder) {
+    for(bool select_first:{false,true}) {
+        InputFixture f;
+        const auto first=select_first?SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START;
+        const auto second=select_first?SDL_CONTROLLER_BUTTON_START:SDL_CONTROLLER_BUTTON_BACK;
+        CHECK(f.Edge(first).transport==BringUpAction::None);
+        auto request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::Test);CHECK(request.transport==BringUpAction::None);
+        for(unsigned i=0;i<10;++i)CHECK(f.Edge(second).file==BringUpSerial::FileAction::None);
+        CHECK(f.Edge(second,false).transport==BringUpAction::None);
+        CHECK(f.Edge(second).file==BringUpSerial::FileAction::None); // One still-held chord.
+        CHECK(f.Edge(first,false).transport==BringUpAction::None);CHECK(f.Edge(second,false).transport==BringUpAction::None);
+        f.Edge(first);request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::Test);CHECK(request.transport==BringUpAction::None);
+        f.Edge(first,false);f.Edge(second,false);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        const auto load=f.Tap(SDL_CONTROLLER_BUTTON_Y);CHECK(load.file==BringUpSerial::FileAction::Load);CHECK(!load.restore);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);
+    }
+    InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+    bindings[SDL_CONTROLLER_BUTTON_BACK].bindType=bindings[SDL_CONTROLLER_BUTTON_START].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
+    bindings[SDL_CONTROLLER_BUTTON_BACK].value.button=8;bindings[SDL_CONTROLLER_BUTTON_START].value.button=9;
+    f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);
+    SDL_Event e{};e.type=SDL_JOYBUTTONDOWN;e.jbutton.which=7;e.jbutton.button=9;
+    CHECK(f.input.Handle(e,0,true,f.editor).transport==BringUpAction::None);
+    e.jbutton.button=8;CHECK(f.input.Handle(e,1,true,f.editor).file==BringUpSerial::FileAction::Test);
+    e.type=SDL_JOYBUTTONUP;e.jbutton.button=9;CHECK(f.input.Handle(e,2,true,f.editor).transport==BringUpAction::None);
+}

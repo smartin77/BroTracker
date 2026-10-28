@@ -119,6 +119,10 @@ public:
         return Write(b,kDevelopmentPattern3Path,"/BroTracker/development/patern3.btdev.candidate",
             "/BroTracker/development/patern3.btdev.previous",PatternFileKind::Development,scratch,tempo);
     }
+    PatternFileResult SaveDraft(Backend& b,const RealtimePattern& p,std::uint32_t tempo) noexcept {
+        return Write(b,"/BroTracker/tune.btdraft","/BroTracker/tune.btdraft.candidate",
+            "/BroTracker/tune.btdraft.previous",PatternFileKind::Session,p,tempo);
+    }
 private:
     struct Lease {
         Backend& backend; bool writer,held;

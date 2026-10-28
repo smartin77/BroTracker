@@ -176,15 +176,14 @@ int main() {
           t.Reply("BTTEST1 CONTINUED\n"); CHECK(t.serial.Playing());
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 PAUSE\n");
           t.Action(BringUpAction::Exit); t.Reply("BTTEST1 PAUSED\n");
-          t.Send("BTTEST1 STOP\n"); t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+          t.port->Expect("");CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); // No capability: preserve legacy restart.
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 START\n"); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Action(BringUpAction::Exit);
           t.Reply("BTTEST1 STATE PLAYING\n"); t.Send("BTTEST1 PAUSE\n");
-          t.Reply("BTTEST1 PAUSED\n"); t.Send("BTTEST1 STOP\n");
-          t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+          t.Reply("BTTEST1 PAUSED\n"); t.port->Expect(""); CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 STATE ERROR\n");
@@ -204,18 +203,14 @@ int main() {
           t.Action(BringUpAction::Start); t.Send("BTTEST1 START\n");
           t.Reply("BTTEST1 STARTED\nBTTEST1 DONE\n");
           t.Action(BringUpAction::Exit); CHECK(t.controls.Quit()); t.port->Expect(""); }
-        // STATUS pending: queued START then exit must preserve START -> STOP.
-        { Test t; t.Ready(); t.now = 1000; t.Send("BTTEST1 STATUS\n");
-          t.Action(BringUpAction::Start); t.Action(BringUpAction::Exit); t.Action(BringUpAction::Start);
-          CHECK(!t.controls.Quit()); t.Reply("BTTEST1 STATE DONE\n");
-          t.Send("BTTEST1 START\n"); t.Reply("BTTEST1 STARTED\n");
-          t.Send("BTTEST1 STOP\n"); t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+        // Closing the terminal never synthesizes STOP, even with START queued.
+        { Test t; t.Ready();t.Action(BringUpAction::Start);t.Action(BringUpAction::Exit);
+          CHECK(t.controls.Quit());t.port->Expect(""); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Stop);
           t.Action(BringUpAction::Exit); t.Send("BTTEST1 STOP\n");
           t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Exit);
-          t.Send("BTTEST1 STOP\n"); t.now += 6000; t.Tick();
-          CHECK(t.controls.Quit() && !t.serial.Stopped()); }
+          t.port->Expect("");CHECK(t.controls.Quit() && !t.serial.Stopped()); }
         for (bool exiting : {false, true}) {
           Test t; t.Ready(); t.Action(BringUpAction::Start);
           if (exiting) t.Action(BringUpAction::Exit);

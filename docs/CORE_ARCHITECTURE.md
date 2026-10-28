@@ -244,7 +244,7 @@ editor in the [UI screen map](UI_SCREEN_MAP.md) is not implemented by this miles
 Tune/transport tempo is integer hundredths of BPM. The bounded audio-owned handoff,
 segmented scheduler, capability-gated host coordination and coherent published /
 working readback are described in [Live tempo control](LIVE_TEMPO_CONTROL.md).
-This milestone retains state only during the device session; no project/SD
-persistence or automatic config.ini write is introduced. Pattern cells and
+The [working session](FILE_FORMATS.md#working-session-separate-from-tunesprojects)
+now persists applied and published tempo independently, without writing config.ini. Pattern cells and
 cell-preview traffic do not own tempo. Sample rates/pitch and Synth tuning /
 envelope duration remain independent of tempo; output/bridge policy is unchanged.

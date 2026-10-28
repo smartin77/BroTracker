@@ -72,6 +72,12 @@ public:
         }
     }
 
+    void FileLoaded() noexcept {
+        latest_valid_=attempted_valid_=retain_local_=recovered_ready_=false;
+        verified_=pending_verified_=state_fresh_=next_fresh_=false;
+        readback_.Clear();read_active_=read_label_=false;
+        phase_=HostPreviewPhase::Recovering;suspended_=true;
+    }
     void Published(const RealtimePattern& pattern) noexcept {
         latest_=applied_=attempted_=pattern; latest_valid_=attempted_valid_=true;
         accepted_=pending_id_=working_id_=0; suspended_=false;

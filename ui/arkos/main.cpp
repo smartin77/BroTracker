@@ -318,6 +318,7 @@ int main(int argc, char* argv[])
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     serial.SetStartupPattern(host_config.config.startup_pattern);
+    if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
 
@@ -357,6 +358,9 @@ int main(int argc, char* argv[])
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
             const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
+            if(result.file!=BringUpSerial::FileAction::None && !controls.Exiting()) {
+                serial.SyncEditor(editor,SDL_GetTicks());(void)serial.RequestFile(result.file,SDL_GetTicks());serial.SyncEditor(editor,SDL_GetTicks());
+            }
             if(result.mute_channel>=0) (void)serial.ToggleChannelMute(unsigned(result.mute_channel));
             if(result.restore) {
                 if(serial.ReconnectRecoveryPending()) (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());

@@ -7,7 +7,17 @@
 #include "ui/tempo_repeat.h"
 inline bool MapWindowsPublish(const SDL_Event& event) {
     return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
-        !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI | KMOD_SHIFT));
+        (event.key.keysym.mod & KMOD_SHIFT) && !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI));
+}
+inline BringUpSerial::FileAction MapWindowsFile(const SDL_Event& event) {
+    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod & (KMOD_CTRL|KMOD_ALT|KMOD_GUI|KMOD_SHIFT)))
+        return BringUpSerial::FileAction::None;
+    switch(event.key.keysym.sym) {
+    case SDLK_F3:return BringUpSerial::FileAction::Test;
+    case SDLK_F4:return BringUpSerial::FileAction::Load;
+    case SDLK_F5:return BringUpSerial::FileAction::Save;
+    default:return BringUpSerial::FileAction::None;
+    }
 }
 // Ignore OS repeat: at most one editor action per physical key press.
 inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
@@ -16,6 +26,7 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
     if (event.key.keysym.sym == SDLK_TAB)
         return event.key.keysym.mod & KMOD_SHIFT ? EditorAction::PreviousChannel : EditorAction::NextChannel;
     if (event.key.keysym.mod & KMOD_SHIFT) {
+        if (event.key.keysym.sym == SDLK_F4) return EditorAction::Restore;
         if (event.key.keysym.sym == SDLK_UP) return EditorAction::PreviousBeat;
         if (event.key.keysym.sym == SDLK_DOWN) return EditorAction::NextBeat;
         return EditorAction::None;
@@ -29,7 +40,6 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
     case SDLK_PAGEDOWN: return EditorAction::Decrement;
     case SDLK_o: return EditorAction::NoteOff;
     case SDLK_DELETE: return EditorAction::Clear;
-    case SDLK_F4: return EditorAction::Restore;
     default: return EditorAction::None;
     }
 }

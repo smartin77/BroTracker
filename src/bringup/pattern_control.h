@@ -150,23 +150,23 @@ namespace BroTracker
         // Main context under the same interrupt exclusion as Snapshot. A stopped
         // status alone is insufficient while queued requests/ACKs can still mutate
         // the baseline. External MIDI/SD readiness is checked by the platform.
-        bool StorageReady() const noexcept {
-            return status_.tempo && status_.transport==PatternTransportState::Stopped &&
+        bool StorageReady(bool allow_paused=false) const noexcept {
+            return status_.tempo && (status_.transport==PatternTransportState::Stopped || (allow_paused && status_.transport==PatternTransportState::Paused)) &&
                 status_.fault==PatternFault::None && !request_count_ && !applied_count_ &&
                 !deferred_notification_ && !publication_pending_ && !pending_mute_id_ &&
-                !status_.pending_preview_id && !status_.pending_tempo_id;
+                (!status_.pending_preview_id || (allow_paused && status_.transport==PatternTransportState::Paused)) && !status_.pending_tempo_id;
         }
 
         // Audio owner only, called once before accepting the first audio block.
         // Never configures/restarts from HELLO, reconnect or the main loop.
         [[nodiscard]] PatternPlayerStatus InitializeAudio(std::uint32_t tempo_hundredths,
             std::uint32_t rate, const RealtimePattern& pattern,
-            const Bindings& bindings) noexcept
+            const Bindings& bindings,std::uint32_t published_tempo=0) noexcept
         {
             volume_.Configure(rate);
             const auto result = player_.Configure(tempo_hundredths, rate, pattern, bindings);
             if (result != PatternPlayerStatus::Success) Fail(PatternFault::Configuration, result);
-            if(result==PatternPlayerStatus::Success) {status_.applied_gain_id=0; status_.published_tempo=tempo_hundredths;}
+            if(result==PatternPlayerStatus::Success) {status_.applied_gain_id=0; status_.published_tempo=published_tempo?published_tempo:tempo_hundredths;}
             Publish();
             return result;
         }

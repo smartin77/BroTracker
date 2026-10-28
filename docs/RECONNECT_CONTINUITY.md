@@ -1,122 +1,141 @@
-# BTX reconnect continuity (2026-10-28)
+# BTX working session and reconnect continuity
 
-Current control bindings and evidence scope are maintained in
-[BTX controls](BTX_CONTROLS.md). Control names below describe recovery semantics
-and dated observations; Publish, Restore and SD session operations remain distinct.
+Teensy owns the engine and SD workspace. BTX is a terminal: closing or losing CDC
+must not enqueue STOP, reset MIDI ownership, or prevent the main loop from draining
+accepted audio-owner notifications. Audio and connected hardware service continue
+while Teensy remains powered. Physical USB removal can independently disrupt USB
+MIDI/audio endpoints; CDC continuity is not a guarantee of external delivery.
 
-Startup selection and reconnect recovery are different operations. The configured
-`development.startup_pattern` loads once per BTX launch, behind the existing
-STOP/storage-ready/load-result/baseline/working-readback barriers. Reconnect must
-not replay that load, START, a session restore, or SD saves.
+## Current session and explicit files
 
-## Origin and limits
+`/BroTracker/current.btsession` preserves separate published and working patterns,
+with separate published/applied tempos. Unpublished edits delivered through working
+preview are session content. It is distinct from `/BroTracker/tune.btdraft`, which
+changes only on explicit temporary Save. See [file formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects).
+Mute, gains, master volume, transport position, voice phase, host-only edits, routing,
+Sample PCM and external instrument state are outside this bounded format.
 
-`firmware/teensy/BroTracker/pattern_bringup.cpp` initializes `g_active_pattern`
-from `MakeDevelopmentPattern()` and `SelectDevelopmentFixture()` at boot, then
-copies it into `g_working.working`. `src/bringup/pattern_fixture.h` populates the
-BT theme in channels 1/2. `MakeStoredDevelopmentPattern(...,1)` in
-`pattern_file_store.h` uses that same development pattern. The boot theme is not
-proof that the device loaded the SD file patern1: reboot can produce those cells
-without reading it. Firmware starts stopped. A USB interruption alone does not
-necessarily reboot a separately powered device.
+Normal BTX launch reads the actual device baseline and working/pending readbacks.
+It never loads `development.startup_pattern`, RESTOREs a file, or STARTs playback.
+The device reads its latest validated session at boot and remains stopped. Missing
+sessions leave the boot fixture available; corrupt/unrecoverable sessions are
+reported explicitly, without overwriting the file or pretending recovery succeeded.
+A valid previous copy can be read with a `backup-retained` warning. Interrupted
+replacement files are retained for manual recovery and block subsequent writes.
 
-Published baseline, working/pending preview, transport and device revision IDs
-are volatile. Power loss destroys that device RAM. SD files/session data survive
-unless explicitly saved/replaced; they are not automatically the latest work.
-Restarting BTX intentionally starts a new configured startup transaction; it is
-not recovery of the previous host draft. Host exit/crash loses the new retained
-RAM copy too. No session auto-load/save or persistence mechanism is added.
+F3 / Select+Start explicitly requests the configured development file; F4 / L1+Y
+loads `tune.btdraft`. Both require STOP first. Read/CRC and binding/application
+validation precede replacing the session. A successful load establishes a new RAM
+published baseline and working copy; it never overwrites the saved draft file.
+Missing/invalid reads retain current work. Uncertain application/readback remains
+locked rather than replaying a possibly applied command. There are no dialogs.
+F5 / row A saves the working tune, without publishing it. Shift+F5 / L1+A remain
+explicit RAM Publish; Shift+F4 / L1+X remain in-memory Restore to the published
+baseline. [Controls](BTX_CONTROLS.md) is the binding reference.
 
-Previously `LocalPatternEditor::Sync(nullopt)` cleared the displayed editor and
-preview recovery invalidated local intent on NEXT rollback. Reconnect then adopted
-the verified boot snapshot. Correct checksum/readback proves what the device now
-contains, not that it retained the previous pattern or loaded the configured file.
-The earlier startup-success reporting fix only scoped the log to its transaction.
+## Storage and audio priority
 
-## Disconnect without a device reset
+The existing SD backend performs synchronous writes/sync/verification/rename, whose
+card latency has no realtime upper bound. It therefore performs **no persistence
+I/O while Playing**. Fixed main-owned working/pending metadata retains the newest
+accepted pattern in RAM. At settled Pause/Stop, after queued controls and audio
+acknowledgments drain, main context saves the session promptly. A paused pending
+preview is saved as working intent without applying it early or continuing playback.
+No filesystem work runs in an ISR and no SD I/O runs under interrupt exclusion.
 
-In the current variable-rate production firmware, `ServiceSerial()` detects
-`!Serial`, clears bounded serial/telemetry/snapshot staging, cancels an SD-ready
-wait, and calls publication/preview `NewSession()`. Those calls cancel only
-unsubmitted staging, not already submitted frozen work or the applied patterns.
-On loss of an established protocol connection it also resets the MIDI session
-and attempts to enqueue STOP once. The submission result is ignored, so this is
-not an unconditional stop acknowledgment if the queue is full. HELLO re-establishes
-capabilities/state; it does not select a fixture or enqueue START.
+Temporary Save during playback freezes one bounded device RAM snapshot, reports
+`deferred-playing` (not success), and writes that snapshot after Pause/Stop. Later
+edits do not change the requested saved tune. Further deferred Save requests report
+busy. Sudden power loss before persistence can lose RAM-only changes.
 
-`VariableRatePatternPlayer::Stop()` retains pattern/bindings, installs an accepted
-pending working preview, resets voices/position to stopped row zero, and cancels
-pending tempo. Thus a powered interruption need not lose cells, but uninterrupted
-transport/phase is not promised even without a reboot. Read the actual state and
-working/pending metadata after reconnect; never infer PLAYING or replay transport.
-Legacy/native test environments have different MIDI/session handling and do not
-establish the variable-rate physical USB behavior.
+Regular exit waits for available host edits to reach verified working preview,
+then requests a session save. Stopped/paused exit awaits its result. Playing exit
+receives an explicit deferred result and leaves playback running; it cannot promise
+a fresh disk write without sacrificing the audio policy. A bounded exit timeout,
+disconnect or unsupported firmware is logged as unconfirmed/unavailable, never
+successful persistence. Host-only edits lost in a crash are not recoverable.
 
-## Implemented host recovery boundary
+## Reconnect protection
 
-`BringUpSerial` freezes the last editor draft and published baseline before its
-normal disconnected Sync can clear them, including an edit immediately before
-failed I/O. Fixed host storage retains pattern cells, OFF timing, dimensions and
-last known working tempo. The editor stays visible and locked, without a live
-position highlight. No realtime firmware callback or firmware memory is changed.
+A surviving BTX retains its draft/baseline before disconnected Sync could clear it.
+After complete baseline and working/pending readbacks, matching contents release
+the hold without writing. Mismatch or incomplete readback keeps the retained copy
+locked and blocks START/CONTINUE; STOP remains available. The running device is
+never automatically overwritten or stopped. Its authoritative transport is still
+observed, but retained editor cells have no live-position highlight.
 
-After complete published and working/pending readbacks, exact content and tempo
-agreement releases the hold without a write. The log reports matching contents,
-not proof of boot identity, phase continuity or uninterrupted playback. Protocol
-revision counters are not a boot UUID. A fresh BTX without retained work still
-adopts authoritative data according to normal startup policy.
+On mismatch, Shift+F4 / L1+X restores the retained local published baseline only;
+Shift+F5 / L1+A explicitly publishes retained work after stopping or eligible pause.
+Publication requires fresh identities and exact readback; uncertain transactions
+are read back before any explicit retry. Fresh BTX adopts actual device state.
+Revision IDs are not boot identities, and matching cells do not prove phase continuity.
 
-A mismatch retains the old host draft **and** published baseline. The device may
-still contain the boot fixture, but BTX does not silently substitute it in the
-editor or claim successful recovery. Automatic preview, START and CONTINUE remain
-blocked until explicit publication of the retained or locally restored pattern.
-STOP remains available. BTX never replays START/CONTINUE.
+## Validation scope
 
-- **F5 / mapped Publish (A in cell context):** explicitly publish the retained draft
-  to device RAM using the existing full publication validator and fresh identity
-  discovery, with retained tempo where tempo-aware publication is supported. It
-  intentionally establishes a new published baseline, including unpublished host
-  edits. This is not an SD save, session restore or automatic START. Stop/pause
-  first; existing paused-publication capability checks apply. Exact publication
-  readback is required before the hold clears. Different boot dimensions do not
-  force a lossy preview merge.
-- **F4 / mapped Restore (L1+Y):** restore the retained **local published baseline**,
-  discarding local unpublished edits, as normal Restore does. It does not adopt
-  the boot fixture or restore a session. During the recovery hold this is local
-  only: no pattern, tempo or SD write is sent, and the hold remains. F5 Publish is
-  still required to place that restored pattern back on a differing device.
-  F5 is publication, never an SD/session Restore. No new control adopts boot data.
+Automated coverage is in the storage, startup/storage, host preview/publication,
+shared controls and Windows/ArkOS input suites. It covers validated replacement,
+missing/corrupt/interrupted files, retained unpublished content, normal startup
+without fixture LOAD/STOP/START, powered running reconnect without writes, exit
+without STOP, and both Select+Start press orders with held-chord suppression.
+Build/test and physical-test evidence for this change is recorded separately;
+the observations below describe the **previous implementation**, whose F4/F5
+bindings and automatic startup load have now been replaced.
 
-Incomplete/failed readback, rejected publication, lost replies and interrupted
-recovery keep the retained copy and block playback restart. No uncertain command
-is retried automatically. A later explicit F5 requests readback first while publication is uncertain,
-without replaying it. F4 cannot change the retained draft during uncertain publication.
-If capabilities/readbacks are unavailable, recovery remains blocked rather than
-inventing continuity. Keep BTX open to retain this RAM-only copy.
+## Working-session validation (2026-10-28, CET)
 
-This is pattern recovery, not whole-session or audio continuity: instrument/sample
-availability must still pass device validation; voice phase, transport position,
-mute/gain/session-master settings and external MIDI/device state are not restored
-from this host pattern cache. No analog success or dArkOS hardware result follows
-from host tests or Windows checks.
+Windows CTest passed **10/10**. ARM64 Eoan CTest passed **23/23**, with ABI,
+offline dependency/package identity and isolated config-preserving installation
+checks. The final logging adjustment is included in the refreshed deliveries.
+Production `teensy41_dev` built and was uploaded to the discovered Teensy. Final
+firmware HEX matches the physically tested upload after a comment-only rebuild.
+Reported RAM1 variables: 61120 bytes; RAM2 variables: 296480 bytes. No PCM pool or
+playing SD write was introduced.
 
-## Validation
+Device protocol tests verified missing-file preservation, complete published and
+working readbacks, unpublished Save without Publish, validated draft Load, a frozen
+playing Save surviving later edits, powered CDC close/reopen while still Playing,
+and Pause/Stop session persistence. PERF telemetry reported zero callback-budget
+overruns during the exercise; this is not acoustic or external-peripheral proof.
 
-Regression coverage: `tests/test_startup_storage.cpp`,
-`tests/test_host_pattern_preview.cpp`, `tests/test_host_pattern_publication.cpp`
-and the existing bring-up controls/serial suites. Tests distinguish initial startup
-from reconnect; changed working data and unsent edits from boot data; matching
-powered readback; missing/partial readback; repeated disconnect; local Restore
-and RAM publication, different dimensions, rejected recovery, queued-publication
-suspension even before editor Sync, retained verified tempo during uncertainty,
-no automatic LOAD,
-preview/publication, START or SD writes.
+The packaged Windows BTX was exercised with its real F3/F4/F5 handlers, working
+preview, Space and window-close events sent only to the owned test process.
+Window close persisted/deferred the session without sending STOP. Fresh BTX read
+back the running device without LOAD/STOP/START and preserved its working cells.
 
-Hardware evidence and final build/package results are recorded with the review
-artifacts in `diagnostics/reconnect/`. Hardware verification requires an explicit
-baseline followed by user unplug/replug; a reconnect does not by itself prove reset.
+The user unplugged/reconnected Teensy while BTX remained open. At 23:34:59 BTX
+observed disconnect; at 23:35:05 it received `session-boot ok` and complete baseline
+and working readbacks. All **256 published cells**, **256 working cells**, OFF
+metadata and both 15500 tempos matched the prior persisted session. First cell
+raw note **65** was published and **67** remained unpublished. BTX released its
+matching-content hold; transport remained stopped, with no host LOAD/STOP/START.
+An independent serial readback after graceful client exit confirmed both copies.
+The user's power-cycle action and reset metadata are recorded; electrical power
+and uptime were not independently measured.
 
-## Windows hardware observation (2026-10-28, CET)
+Finally, an explicit F3 loaded `patern4`, verified baseline/working recovery, and
+an explicit F5 saved it to tune.btdraft. BTX was reopened with the final package,
+stopped, resuming that session. The unchanged Windows config still selects
+`output=pt8211`, `startup_pattern=patern4`. Development `.btdev` files were never
+seeded, renamed, replaced or written. The user authorized session/draft test-file
+changes without backup or restoration. The draft/session test contents were thus
+intentionally replaced; their earlier distinct states remain in local evidence.
+
+Unverified: physical interrupted-write/card-failure injection; separately powered
+physical USB cable removal; acoustic continuity; external peripheral delivery;
+physical handheld Select/Start mapping, handheld playback and device installation.
+Synthetic controller tests cover SDL BACK/START and verified raw bindings, both
+press orders, held chords, full-release rearming and consumed Start.
+
+Local evidence: `diagnostics/session-hardware/`, `session-windows-hardware/`,
+`session-host-final-tests.log`, `session-arkos-final-verified.log`,
+`session-firmware-final-verified.log`, final hashes/report/diff under `diagnostics/`.
+Build artifacts: `deploy/windows/BroTrackerTerminal.exe`,
+`deploy/arkos/BroTrackerTerminal` and its verified package/manifest,
+`.pio/build/teensy41_dev/firmware.hex` and `firmware.elf`.
+No stage, commit, push or merge was performed.
+
+## Previous Windows reconnect implementation (2026-10-28, CET)
+
 
 PT8211 was confirmed attached. The user approved replacing test RAM only; actual
 config stayed `output=pt8211`, `startup_pattern=patern4`. No firmware was uploaded.

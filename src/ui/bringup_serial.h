@@ -29,14 +29,15 @@ public:
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
     bool ReconnectRecoveryPending() const { return continuity_pending_; }
-    // F4 restores the retained local published baseline, without device writes.
+    // Shift+F4 restores the retained local published baseline, without device writes.
     bool RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now);
     const char* PublicationStatus() const {
+        if(file_status_[0]) return file_status_;
         if(continuity_pending_) {
             if(publication_.Blocking() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
                 publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
             if(snapshot_failed_) return "Reconnect readback failed: local work retained; reconnect to retry";
-            return continuity_ready_ ? "Reconnect differs: local retained. F4 Restore local; F5 Publish" :
+            return continuity_ready_ ? "Reconnect differs: local retained. Shift+F4 Restore local; Shift+F5 Publish" :
                 "Reconnect unverified: local work retained; waiting for readback";
         }
 
@@ -83,9 +84,13 @@ public:
     void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
     // App config resolution always calls this, including missing/empty => None.
     // Standalone protocol clients may omit startup initialization entirely.
-    void SetStartupPattern(std::string_view value) { startup_selection_enabled_=true; if(!startup_pattern_.Assign(value))startup_failed_=true; }
+    void SetStartupPattern(std::string_view value) { startup_configured_=true;startup_pattern_valid_=startup_pattern_.Assign(value); }
     void SetStartupPattern(const BroTracker::DevelopmentPattern& value) { SetStartupPattern(std::string_view(value.stem)); }
-    bool StartupPatternReady() const {return !startup_selection_enabled_ || startup_editor_ready_;}
+    bool StartupPatternReady() const {return startup_selection_enabled_ ? (startup_editor_ready_ || load_rejected_) : (!startup_configured_ || initial_sync_ready_);}
+    enum class FileAction { None, Save, Load, Test, Session };
+    bool RequestFile(FileAction action, std::uint32_t now);
+    void BeginExit(std::uint32_t now);
+    bool ExitReady() const {return exit_done_;}
     const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
@@ -120,8 +125,17 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
     BroTracker::DevelopmentPattern startup_pattern_;
+    bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
+    FileAction file_action_=FileAction::None;
+    char file_status_[160]{};
+    bool exit_requested_=false,exit_done_=false;
+    std::uint32_t exit_started_=0,file_requested_at_=0;
+    bool FileIdle() const;
+    const char* LoadLabel() const;
+    char load_label_[40]{};
+    bool working_storage_supported_=false;
     bool storage_supported_=false,startup_attempted_=false,startup_applied_=false,startup_done_=false,startup_failed_=false;
     bool storage_ready_supported_=false,startup_stop_sent_=false,startup_ready_sent_=false,startup_storage_ready_=false;
     bool startup_context_cleared_=false,startup_editor_ready_=false;

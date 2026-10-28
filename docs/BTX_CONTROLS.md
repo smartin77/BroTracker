@@ -14,7 +14,7 @@ edit cursor. Unmodified keys are intended unless a modifier is shown.
 | --- | --- | --- |
 | Start / Pause / Continue | Space | Stopped: start at pattern row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | Enter or numeric keypad Enter | Stop/reset to pattern start; remain in BTX. A fresh press can request STOP again. |
-| Exit | Ctrl + X or close the window | Request STOP when needed, then exit after acknowledgment; disconnect/exit timeout can leave STOP unconfirmed. |
+| Exit | Ctrl + X or close the window | Synchronize available edits and request session persistence, then exit without STOP. Playing writes are explicitly deferred; failures/timeouts are logged. |
 | Previous / next row | Up / Down | Bounded by active rows. Up from first row enters headers; Down from a header returns to first row. Hold repeats. |
 | Previous / next field | Left / Right | Note <-> Instrument, crossing into adjacent channels at field edges; stops at outer edges. In headers, moves to adjacent header without wrapping. Hold repeats. |
 | Previous / next channel | Shift + Tab / Tab | Wraps active channels; selects Note in row context, preserves header context. Hold repeats. |
@@ -23,8 +23,11 @@ edit cursor. Unmodified keys are intended unless a modifier is shown.
 | Enter NOTE OFF | O | Note field only; sets Arrival timing. |
 | Select OFF timing | Page Up or Page Down in the second field of an OFF cell | Either toggles Arrival (row start) / EndOfPosition (following row boundary). Direction preference does not affect this toggle. |
 | Clear | Delete | Note field: clears the whole cell (note, instrument and OFF timing). Numeric Instrument field: clears only instrument. OFF timing field: resets Arrival. No effect in headers. |
-| Publish | F5 | With no modifiers: publish draft plus applied tempo while stopped, or paused if firmware supports it; never stops or continues automatically. No-op/unavailable without changes or required synchronization/capabilities. |
-| Restore | F4 | Restore the entire draft pattern and published tempo baseline, subject to readiness/locks. Normally sends supported working preview; local-only during a reconnect hold (below). Does not Publish. Works from row or header context. |
+| Publish to RAM | Shift + F5 | publish draft plus applied tempo while stopped, or paused if firmware supports it; never stops or continues automatically. No-op/unavailable without changes or required synchronization/capabilities. |
+| Restore RAM baseline | Shift + F4 | Restore the entire draft pattern and published tempo baseline, subject to readiness/locks. Normally sends supported working preview; local-only during a reconnect hold (below). Does not Publish. Works from row or header context. |
+| Temporary Save | F5 | Save working tune to the single tune.btdraft file; no Publish. Playing: freeze one RAM snapshot, report pending, write after Pause/Stop. |
+| Temporary Load | F4 | Require STOP, validate tune.btdraft, then replace baseline/working state. Failure retains current work; no fallback. |
+| Load development pattern | F3 | Require STOP; explicitly load development.startup_pattern. Never runs on normal startup/reconnect. |
 | Select header and mute / unmute channel | Left-click inside a channel-number header | Selects that header and toggles its session mute. Border/outside clicks do not activate it. No desktop keyboard mute binding is implemented. |
 | Decrease / increase tempo | Numeric keypad - / + | Independent of Num Lock; main-keyboard +/- are unbound. Immediate 0.05 BPM step; hold accelerates (below). Independent of value-step direction; works while playing when tempo control is available. |
 
@@ -40,7 +43,7 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | --- | --- | --- |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | B | Stop/reset and stay in BTX, including with L1 held. A fresh press can request STOP again. |
-| Exit | L1 + Start | STOP/acknowledgment exit workflow; an unconfirmed STOP on disconnect/timeout is not successful cleanup delivery. |
+| Exit | L1 + Start | Session persistence exit workflow; playback remains running. Start action occurs on release. |
 | Previous / next row; enter / leave headers | D-pad Up / Down | Active row bounds; Up from first row enters headers, Down from header returns to first row. Hold repeats. |
 | Previous / next field or header | D-pad Left / Right | Row: move Note <-> Instrument across channel edges, bounded at outer edges. Header: adjacent header without wrapping. Hold repeats. |
 | Previous / next channel | L1 + D-pad Left / Right | Wraps active channels; selects Note in row context, preserves header context. Hold repeats. |
@@ -49,12 +52,15 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | Enter NOTE OFF | X | Without L1, Note field only; sets Arrival timing. |
 | Select OFF timing | L1 + D-pad Up or Down in the second field of an OFF cell | Either toggles Arrival / EndOfPosition; not reversed by value-step preference. |
 | Clear | Y | Without L1: Note field clears the whole cell and OFF timing; numeric Instrument clears only instrument; OFF timing resets Arrival. No effect in headers. |
-| Restore | L1 + Y | Restore entire draft pattern and published tempo baseline, including from headers; subject to readiness/locks. Local-only during a reconnect hold (below). Does not Publish. |
-| Publish | A in a row | Without L1: publish draft plus applied tempo while stopped/eligible paused; does not auto-Stop/Continue. Required capability/synchronization checks apply. |
-| Mute / unmute selected channel | A in a header | Consumes A instead of Publish, including with L1 held. Session mute only; no pattern/tempo change. |
+| Restore RAM baseline | L1 + X | Restore entire draft pattern and published tempo baseline, including from headers; subject to readiness/locks. Local-only during a reconnect hold (below). Does not Publish. |
+| Publish to RAM | L1 + A in a row | publish draft plus applied tempo while stopped/eligible paused; does not auto-Stop/Continue. Required capability/synchronization checks apply. |
+| Temporary Save | A in a row | Without L1: save working tune to tune.btdraft, including unpublished edits available on the device. |
+| Temporary Load | L1 + Y | Load validated tune.btdraft after STOP; preserve current work on failed read/validation. |
+| Load development pattern | Select + Start | One request per chord; both controls must be released before rearming. Either press order; consumes Start. Two separate presses do not exit. |
+| Mute / unmute selected channel | A in a header | Consumes A instead of Save/Publish, including with L1 held. Session mute only; no pattern/tempo change. |
 | Decrease / increase tempo | R1 + D-pad Left / Right | Immediate 0.05 BPM step, accelerated hold. Independent of value-step direction; available during playback with supported synchronized tempo. |
 | Internal master volume | Physical volume + / - | Verified evdev profile only: 5-point steps over0..100%, default100%. Hold repeats after400 ms, every100 ms; kernel repeats ignored. Teensy smooths changes; external MIDI unchanged. Requires supported synchronized firmware and exclusive volume-only key acquisition. `OS keys` means BTX did not acquire them; they retain system behavior. |
-| Cancel opt-in diagnostic run | B or Select; Escape on an attached keyboard; window close | Diagnostic mode only: normal editing/controller actions are disabled. B/Select arm only after all controls are released for 250 ms. Select is otherwise unassigned. This is cancellation, not a normal playback shortcut. |
+| Cancel opt-in diagnostic run | B or Select; Escape on an attached keyboard; window close | Diagnostic mode only: normal editing/controller actions are disabled. B/Select arm only after all controls are released for 250 ms. Normal Select+Start loads the development pattern. This is cancellation, not a normal playback shortcut. |
 
 **Vertical R36S differences:** repository evidence does not verify an R36S-specific
 printed A/B/X/Y layout, shoulder arrangement or alternate binding profile. No
@@ -64,11 +70,14 @@ produces A, B, X or Y. Verify the device mapping before relying on printed label
 Do not assume EmulationStation/RetroArch hotkeys apply to standalone BTX. Existing
 handheld confirmations do not establish a separate R36S physical mapping test.
 
-Hold L1 before a normal L1 chord; chords consume their component actions. X and
-row-context A do nothing with L1 held, but **header A still mutes/unmutes**. B still
-requests STOP with L1 held. L1 alone, R1 alone and Select have no normal action;
-Select's diagnostic cancellation exception is listed above. No legacy L1/B Start
-or R1/X Stop/exit mapping remains.
+Hold L1 before a normal L1 chord. Header A still mutes/unmutes with L1 held;
+row A saves, L1+A publishes, L1+X restores the RAM baseline and L1+Y loads the
+saved tune. B requests STOP with L1 held. Select maps to SDL `BACK`, Start to SDL
+`START`, including verified raw fallback from that controller's SDL bindings.
+Start transport/exit fires on release so either Select+Start press order consumes
+it safely. A held chord does not repeat and must fully release before rearming.
+Physical PortMaster mappings still need confirmation on each device; emulator
+hotkeys do not establish BTX's mapping.
 
 BTX selects an SDL GameController by instance ID. If controller-event delivery
 cannot be enabled, its verified raw fallback uses only that opened controller's
@@ -141,8 +150,8 @@ rejected edits remain visible with status. Legacy peers without preview support
 retain explicit publication. Neither working nor published device RAM survives
 power loss merely because a readback succeeded. See [storage operations](FILE_FORMATS.md).
 
-Editing requires a validated device pattern. During configured SD startup recovery
-(including failed/uncertain loading), note/instrument/OFF edits and preview remain
+Editing requires a validated device pattern. During initial device synchronization or explicit file-load recovery
+(including uncertain application/readback), note/instrument/OFF edits and preview remain
 blocked until authoritative baseline and working recovery synchronize. Publication
 locks also block mutation/Restore, while navigation may remain available. START,
 Publish, tempo and mute requests have their own connection/capability/pending-state
@@ -169,20 +178,16 @@ against source/test definitions; that inspection is not new physical validation.
 
 ## Reconnect recovery hold
 
-See [reconnect continuity](RECONNECT_CONTINUITY.md). If fresh device data differs,
-BTX keeps the previous draft/baseline locked and blocks START/CONTINUE. F5 remains
-**Publish** (mapped A in cell context): explicitly publish the retained draft to
-RAM. F4 remains **Restore** (mapped L1+Y): restore the retained local published
-baseline, discarding unpublished local edits, without adopting the boot fixture.
-During this hold Restore is local only; F5 Publish is still required to update a
-differing device. Neither action saves to SD or starts playback; no automatic
-session restore is added. Keep BTX open: the retained copy is not persisted across
-host exit/crash. F4 cannot reconstruct work lost from Teensy RAM after a power
-cycle; it can only use the published baseline that BTX actually retained. F4
-also discards unpublished local edits, so it is not a way to recover those edits.
-If publication is uncertain, F5 requests authoritative readback rather than
-blindly resending; publication locks still block Restore. No automatic START,
-Publish or configured startup-pattern reload occurs on reconnect.
+See [reconnect continuity](RECONNECT_CONTINUITY.md). If complete device data differs,
+BTX keeps its prior draft/baseline locked and blocks START/CONTINUE, while leaving
+the running device alone. Shift+F5 / row L1+A explicitly publishes retained work to
+RAM after STOP or eligible pause. Shift+F4 / L1+X restores the retained local
+published baseline, discarding local unpublished changes; the hold remains until
+explicit publication/readback. Neither action saves tune.btdraft. Uncertain
+publication requests authoritative readback before a possible explicit retry.
+F3/F4/F5 file actions are unavailable during this hold. There is no automatic
+Publish, fixture LOAD or START. The held host copy is RAM-only; delivered edits
+may also exist in the device/session, but unsent edits cannot survive a host crash.
 
 ## Recorded confirmations and validation limits
 
@@ -196,7 +201,7 @@ latency/performance result. This consolidation involved no physical testing.
 | 2026-10-22: user confirmed smooth handheld R1+Left/Right tempo changes and R1+Up/Down beat navigation during playback; supplied handheld control test passed | Other unreported boundary/modifier/hold cases remain unconfirmed. Does not establish audio quality, MIDI alignment or a separate dArkOS/R36S physical mapping test. Windows Shift+Up/Down manual beat-shortcut checks remain pending; ordinary shared navigation confirmation does not cover them. |
 | Windows mouse mute, header navigation and enlarged channel numbers user-confirmed | Physical handheld header/mute UX and listening remain unconfirmed. No desktop keyboard mute binding exists. See [mute evidence/checklist](CHANNEL_MUTE.md). |
 | 2026-10-25: physical volume-key response, display updates and PT8211 listening level user-confirmed | Hold-repeat, exact silence, OS-control restoration, mixer-exclusion and USB-bridge listening remain unconfirmed, as detailed above. |
-| 2026-10-28: Windows reconnect retained edited note 61/C#3; user explicitly pressed F5 Publish; complete 256-cell readback verified the edited RAM publication | This was Publish, not F4 Restore or an SD session restore. Final reconnect-hold F4 behavior and interrupted/rejected/uncertain recovery are host-test covered, not physically verified. Powered-only USB interruption and dArkOS fix validation remain open. See [captured evidence and receive-buffer limitation](RECONNECT_CONTINUITY.md). |
+| 2026-10-28: Windows reconnect retained edited note 61/C#3; user explicitly pressed legacy F5 Publish; complete 256-cell readback verified the edited RAM publication | This was Publish, not legacy F4 Restore or an SD session restore. Then-current reconnect-hold F4 behavior and interrupted/rejected/uncertain recovery are host-test covered, not physically verified. Powered-only USB interruption and dArkOS fix validation remain open. See [captured evidence and receive-buffer limitation](RECONNECT_CONTINUITY.md). |
 
 Synthetic tests cover selected-controller filtering, verified raw button/hat
 normalization without duplicates, normal/reversed value holds and OFF timing,
@@ -213,3 +218,16 @@ Implementation/test sources for repeat and tempo details:
 [preview/reconnect tests](../tests/test_host_pattern_preview.cpp),
 [publication tests](../tests/test_host_pattern_publication.cpp) and
 [tempo tests](../tests/test_live_tempo.cpp).
+
+## Session and file behavior
+
+See [working-session storage](FILE_FORMATS.md#working-session-separate-from-tunesprojects)
+and [reconnect continuity](RECONNECT_CONTINUITY.md). Temporary Save does not change
+the published baseline or dirty comparison. RAM Restore never reads tune.btdraft;
+Publish never writes it. File Load intentionally establishes a new baseline and
+working copy only after validation/application. No Save As or file browser is
+implemented. Power loss restores the latest available disk session stopped, while
+a powered reconnect synchronizes with the actual device without STOP or LOAD.
+
+New bindings are automated-test coverage, not a new physical handheld confirmation.
+Existing dated observations used the previous startup/F4/F5 behavior.

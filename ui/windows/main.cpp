@@ -84,6 +84,7 @@ int main(int argc, char* argv[]) try {
     serial.SetAudioOutputPreference(host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     serial.SetStartupPattern(host_config.config.startup_pattern);
+    if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
@@ -91,7 +92,7 @@ int main(int argc, char* argv[]) try {
     LocalPatternEditor editor;
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
-    BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F4 Restore; F5 stopped/paused Publish; capability-gated automatic preview\n");
+    BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F3 Test; F4 Load; F5 Save; Shift F4 Restore; Shift F5 Publish; capability-gated automatic preview\n");
     WindowsHeaderInput header_input;
     bool display_failed = false;
     while (!controls.Quit()) {
@@ -114,9 +115,14 @@ int main(int argc, char* argv[]) try {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
                 continue;
             }
-            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4) {
+            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT)) {
                 if(serial.ReconnectRecoveryPending()) { (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks()); continue; }
                 (void)serial.RestoreTempo();
+            }
+            if(const auto file=MapWindowsFile(event);file!=BringUpSerial::FileAction::None) {
+                editor_input.Cancel();serial.SyncEditor(editor,SDL_GetTicks());
+                if(!controls.Exiting()) {(void)serial.RequestFile(file,SDL_GetTicks());serial.SyncEditor(editor,SDL_GetTicks());}
+                continue;
             }
             if (MapWindowsPublish(event)) {
                 (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
@@ -139,9 +145,9 @@ int main(int argc, char* argv[]) try {
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
         editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         HostPanelInformation panel{serial.Status(), controls.StopPending() ?
-            (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
-            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F4: Restore | F5: Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+            (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
@@ -157,10 +163,10 @@ int main(int argc, char* argv[]) try {
             serial.SyncEditor(editor,SDL_GetTicks());
         }
     }
-    if (audio) audio->Stop(); // Join before the shared log closes; CDC STOP has completed.
+    if (audio) audio->Stop(); // Join the host audio worker before the shared log closes.
     BroTracker::HostLog(log_file,BroTracker::HostLogLevel::Basic,"Terminal","BroTracker Terminal clean shutdown");
     // Serial worker is destroyed (and handle closed) before the shared FILE.
-    return display_failed ? ReportFailure(log_file, "Presentation failed; terminal stopped safely", log_path.u8string()) : 0;
+    return display_failed ? ReportFailure(log_file, "Presentation failed; terminal closed; device playback may continue", log_path.u8string()) : 0;
 }
 
 catch (const std::exception& error) {

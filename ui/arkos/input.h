@@ -14,6 +14,7 @@ struct ArkOSInputResult {
     bool publish = false;
     bool restore = false;
     int mute_channel = -1;
+    BringUpSerial::FileAction file = BringUpSerial::FileAction::None;
 };
 
 static_assert(SDL_CONTROLLER_BUTTON_MAX <= 32, "Handheld held-state mask must cover all SDL buttons");
@@ -27,7 +28,7 @@ public:
         for(unsigned i=0;i<SDL_CONTROLLER_BUTTON_MAX;++i) {
             pressed_[i]=false; bindings_[i]=bindings ? bindings[i] : SDL_GameControllerButtonBind{};
         }
-        blocked_=0; focused_=true;
+        blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
@@ -44,7 +45,7 @@ public:
             if(pressed_[b]) blocked_|=1u<<b;
     }
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected || !focused_ || !editor.Ready()) { Cancel(); return; }
+        if(!connected || !focused_ || !editor.Ready()) { start_pending_=false;Cancel(); return; }
         if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] && !navigation_.Active()) {tempo_step_=tempo_repeat_.Tick(now);return;}
         if(repeat_direction_<0) return;
         if(navigation_.Active()) {
@@ -56,10 +57,11 @@ public:
     }
     ArkOSInputResult Handle(const SDL_Event& event, std::uint32_t now,
                            bool connected, LocalPatternEditor& editor) noexcept {
+        if(!connected)start_pending_=false;
         if(!connected || !editor.Ready() || (editor.Locked() && !navigation_.Active())) Cancel();
         if(event.type==SDL_QUIT) { Cancel(); return {BringUpAction::Exit,false}; }
         if(event.type==SDL_WINDOWEVENT) {
-            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; Cancel(); }
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; start_pending_=false; Cancel(); }
             if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED) focused_=true;
             return {};
         }
@@ -93,6 +95,23 @@ private:
     ArkOSInputResult Button(unsigned b,bool down,std::uint32_t now,bool connected,LocalPatternEditor& editor) noexcept {
         if(b>=SDL_CONTROLLER_BUTTON_MAX || pressed_[b]==down) return {};
         pressed_[b]=down;
+        if(b==SDL_CONTROLLER_BUTTON_START || b==SDL_CONTROLLER_BUTTON_BACK) {
+            Cancel();
+            if(!focused_)return {};
+            if(pressed_[SDL_CONTROLLER_BUTTON_START] && pressed_[SDL_CONTROLLER_BUTTON_BACK]) {
+                start_pending_=false;
+                if(!chord_used_) {chord_used_=true;return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Test};}
+            }
+            if(b==SDL_CONTROLLER_BUTTON_START) {
+                if(down && !chord_used_)start_pending_=true;
+                if(!down && start_pending_) {
+                    start_pending_=false;
+                    return {pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]?BringUpAction::Exit:BringUpAction::PatternToggle,false};
+                }
+            }
+            if(!pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_BACK])chord_used_=false;
+            return {};
+        }
         const auto r1=SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
         const auto left=SDL_CONTROLLER_BUTTON_DPAD_LEFT, right=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
         const auto up=SDL_CONTROLLER_BUTTON_DPAD_UP, down_button=SDL_CONTROLLER_BUTTON_DPAD_DOWN;
@@ -149,10 +168,14 @@ private:
             }
             return {};
         }
-        if(b==SDL_CONTROLLER_BUTTON_START) { Cancel(); return {modifier ? BringUpAction::Exit : BringUpAction::PatternToggle,false}; }
         if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
         if(b==SDL_CONTROLLER_BUTTON_A && editor.Ready() && editor.Cursor().header) {Cancel();return {BringUpAction::None,false,false,int(editor.Cursor().channel)};}
-        if(b==SDL_CONTROLLER_BUTTON_A && !modifier) { Cancel(); return {BringUpAction::None,true}; }
+        if(b==SDL_CONTROLLER_BUTTON_A) { Cancel();
+            if(modifier)return {BringUpAction::None,true};
+            return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Save};
+        }
+        if(b==SDL_CONTROLLER_BUTTON_X && modifier && connected) {Cancel();editor.Apply(EditorAction::Restore);return {BringUpAction::None,false,true};}
+        if(b==SDL_CONTROLLER_BUTTON_Y && modifier) {Cancel();return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Load};}
         if(b==SDL_CONTROLLER_BUTTON_X && !modifier && connected) { Cancel(); editor.Apply(EditorAction::NoteOff); }
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
@@ -164,7 +187,7 @@ private:
     ArkOSInputStream stream_=ArkOSInputStream::Controller;
     SDL_GameControllerButtonBind bindings_[SDL_CONTROLLER_BUTTON_MAX]{};
     bool pressed_[SDL_CONTROLLER_BUTTON_MAX]{};
-    bool focused_=true;
+    bool focused_=true,start_pending_=false,chord_used_=false;
     unsigned blocked_=0;
     int repeat_direction_=-1;
 };

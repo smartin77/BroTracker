@@ -34,7 +34,7 @@ struct StoragePeer:SerialTransport {
     }
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
-    bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false;
+    bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false,hold_save=false;std::string save_reply;
     std::string load_reply,baseline_reply,working_reply;
     bool Open(FILE*,const char*) override {healthy=true;return true;}
     void Close() override {}
@@ -46,8 +46,8 @@ struct StoragePeer:SerialTransport {
         const auto line=tx.substr(0,end);tx.erase(0,end+1);commands.push_back(line);
         if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") {
             rx+="BTTEST1 STATE "+state+"\n";
-            rx+=pattern==5?"BTPATTERN1 POS 2 0 0 0 0 0 16 3\n":"BTPATTERN1 POS 2 0 0 0 0 0 32 8\n";
-            if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\n"):std::string{});
+            rx+=std::string("BTPATTERN1 POS 2 ")+(state=="PLAYING"?"1":"0")+(pattern==5?" 0 0 0 0 16 3\n":" 0 0 0 0 32 8\n");
+            if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\nBTSTORE1 SESSIONCAP 2\n"):std::string{});
             if(volume_cap) {if(line=="BTTEST1 HELLO")rx+="BTVOL1 CAP 1\n";rx+=VolumeState();}
             if(line=="BTTEST1 HELLO" && readiness_cap)rx+="BTSTORE1 READYCAP 1\n";
             if(preview_cap) {
@@ -61,6 +61,14 @@ struct StoragePeer:SerialTransport {
             MasterVolumeMessage m;CHECK(ParseMasterVolume(line.data(),line.size(),m));volume=m.percent;volume_id=m.id;
             const auto reply="BTVOL1 SUBMITTED 1 "+std::to_string(m.id)+"\nBTVOL1 APPLIED 1 "+std::to_string(m.id)+"\n"+VolumeState();
             if(hold_volume)volume_reply+=reply;else rx+=reply;
+        }
+        else if(line=="BTSTORE1 SAVE 1" || line=="BTSTORE1 DRAFTSAVE 1") {
+            const auto reply=std::string("BTSTORE1 RESULT 1 ")+(line=="BTSTORE1 SAVE 1"?"save":"draft-save")+" "+result+" 0\n";
+            if(hold_save)save_reply+=reply;else rx+=reply;
+        }
+        else if(line=="BTSTORE1 DRAFTLOAD 1") {
+            if(result=="ok") {pattern=3;rx+="BTSTORE1 SUBMITTED 1 draft-load 1\n";}
+            rx+="BTSTORE1 RESULT 1 draft-load "+result+" 1\n";
         }
         else if(line=="BTSTORE1 READY 1") {CHECK(readiness.Begin(now));AudioService();}
         else if(line.rfind("BTSTORE1 LOAD 1 ",0)==0 && respond) {
@@ -100,7 +108,7 @@ void Pump(BringUpSerial& serial,unsigned first=0,unsigned last=80,LocalPatternEd
 }
 TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
     for(auto selection:{"none","patern1","patern2","patern3","patern4","patern4.btdev"}) {
-        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern(selection);
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern(selection);serial.RequestFile(BringUpSerial::FileAction::Test,0);
         CHECK(!serial.Start());Pump(serial);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);
         const auto load=std::find(wire->commands.begin(),wire->commands.end(),std::string("BTSTORE1 LOAD 1 ")+selection);CHECK(load!=wire->commands.end());
         CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")!=load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
@@ -113,9 +121,9 @@ TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
 TEST_CASE(HostStartupFailuresNeverSeedStartOrRetry) {
     for(unsigned scenario=0;scenario<5;++scenario){
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
-        if(scenario==0)wire->cap=false;if(scenario==1)wire->state="PLAYING";if(scenario==2)wire->result="missing";if(scenario==3)wire->result="invalid";if(scenario==4)wire->respond=false;
-        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");Pump(serial,0,900);
-        CHECK(!serial.StartupPatternReady());CHECK(!serial.Start());CHECK(wire->Loads()<=1);
+        if(scenario==0)wire->cap=false;if(scenario==1)wire->readiness_cap=false;if(scenario==2)wire->result="missing";if(scenario==3)wire->result="invalid";if(scenario==4)wire->respond=false;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");serial.RequestFile(BringUpSerial::FileAction::Test,0);Pump(serial,0,900);
+        CHECK_EQ(serial.StartupPatternReady(),scenario==2 || scenario==3);CHECK(wire->Loads()<=1);
         CHECK(std::strstr(serial.Status(),"failed") || std::strstr(serial.Status(),"uncertain"));
         for(const auto& c:wire->commands){CHECK(c!="BTTEST1 START");CHECK(c.rfind("BTSTORE1 SEED",0)!=0);}
     }
@@ -125,7 +133,7 @@ TEST_CASE(StartupSuccessIsNotReportedForDifferentReconnectBaseline) {
     for(bool preview:{false,true}) {
         auto* log=std::tmpfile();CHECK(log);if(!log)return;
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=preview;
-        BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
         Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);
         const auto startup=serial.PlaybackView(1600);CHECK(startup);CHECK(startup->device_pattern);
         CHECK_EQ(startup->device_pattern->pattern.cells[0][4].note,36);
@@ -152,13 +160,13 @@ TEST_CASE(StartupSuccessIsNotReportedForDifferentReconnectBaseline) {
     ConfigureHostLogging(HostLogMode::Basic);
 }
 TEST_CASE(HostStartupNoneEstablishesClean125Baseline) {
-    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);CHECK_EQ(editor.Baseline()->tempo_hundredths,12500u);for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c){CHECK_EQ(editor.Draft()->cells[r][c].note,NOTE_EMPTY);CHECK_EQ(editor.Draft()->cells[r][c].instrument,255);CHECK_EQ(editor.Draft()->note_off_timing[r][c],NoteOffTiming::Arrival);}
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);CHECK_EQ(editor.Baseline()->tempo_hundredths,12500u);for(unsigned r=0;r<32;++r)for(unsigned c=0;c<8;++c){CHECK_EQ(editor.Draft()->cells[r][c].note,NOTE_EMPTY);CHECK_EQ(editor.Draft()->cells[r][c].instrument,255);CHECK_EQ(editor.Draft()->note_off_timing[r][c],NoteOffTiming::Arrival);}
 }
 TEST_CASE(StartupDisconnectBeforeBaselineCannotReportSuccessOnReconnect) {
     ConfigureHostLogging(HostLogMode::Debug);
     auto* log=std::tmpfile();CHECK(log);if(!log)return;
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
-    BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    BringUpSerial serial(log,std::move(peer));serial.SetStartupPattern("patern4");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK_EQ(wire->Loads(),1u);CHECK(!wire->baseline_reply.empty());
     CHECK(!serial.StartupPatternReady());CHECK(editor.Locked());CHECK(!serial.Start());
     wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
@@ -192,7 +200,7 @@ void NoPreviewWrites(const StoragePeer& peer) {
 }
 TEST_CASE(StartupEditorBarrierWaitsForLoadBaselineAndWorkingRecovery) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;wire->hold_load=wire->hold_baseline=wire->hold_working=true;
-    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");serial.RequestFile(BringUpSerial::FileAction::Test,0);
     LocalPatternEditor editor;SeedEditor(editor);
     Pump(serial,0,25,&editor);CHECK_EQ(wire->Loads(),1u);CHECK(!wire->load_reply.empty());BlockedEdits(editor);NoPreviewWrites(*wire);CHECK(!serial.Start());
     wire->rx+=wire->load_reply;wire->load_reply.clear();Pump(serial,25,45,&editor);
@@ -213,21 +221,21 @@ TEST_CASE(StartupEditorBarrierWaitsForLoadBaselineAndWorkingRecovery) {
 TEST_CASE(StartupEditorBarrierRetainsFailureAndAllowsStop) {
     for(bool timeout:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;wire->result="missing";wire->respond=!timeout;
-        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");LocalPatternEditor editor;SeedEditor(editor);
-        Pump(serial,0,900,&editor);BlockedEdits(editor);NoPreviewWrites(*wire);CHECK(!serial.StartupPatternReady());CHECK(!serial.Start());
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;SeedEditor(editor);
+        Pump(serial,0,900,&editor);CHECK_EQ(editor.Locked(),timeout);CHECK(editor.Ready());CHECK_EQ(serial.StartupPatternReady(),!timeout);
         CHECK(std::strstr(serial.Status(),"failed") || std::strstr(serial.Status(),"uncertain"));CHECK(serial.Stop());Pump(serial,900,910,&editor);
-        CHECK(serial.Stopped());CHECK(editor.Locked());CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")!=wire->commands.end());
+        CHECK(serial.Stopped());CHECK_EQ(editor.Locked(),timeout);CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")!=wire->commands.end());
     }
 }
 TEST_CASE(CleanStartupPreservesNormalEditorPreview) {
-    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK(editor.Ready());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
     CHECK(editor.Apply(EditorAction::SetValue,75));Pump(serial,80,110,&editor);
     CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
 }
 TEST_CASE(StartupReconnectRetainsUnsentEditsAndRequiresExplicitResolution) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
-    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");LocalPatternEditor editor;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern3");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
     CHECK(editor.Apply(EditorAction::SetValue,75));serial.SyncEditor(editor,1601);
     wire->healthy=false;serial.Tick(1602);serial.SyncEditor(editor,1602);
@@ -239,7 +247,7 @@ TEST_CASE(StartupReconnectRetainsUnsentEditsAndRequiresExplicitResolution) {
 TEST_CASE(StartupArbitraryStemUsesAuthoritativeFileDimensionsTempoAndOffData) {
     for(const auto* filename:{"ambient_Take","none.btdev"}) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;
-    serial.SetStartupPattern(filename);Pump(serial,0,120,&editor);CHECK(serial.StartupPatternReady());CHECK(editor.Ready());
+    serial.SetStartupPattern(filename);serial.RequestFile(BringUpSerial::FileAction::Test,0);Pump(serial,0,120,&editor);CHECK(serial.StartupPatternReady());CHECK(editor.Ready());
     CHECK_EQ(wire->Loads(),1u);CHECK_EQ(editor.Baseline()->pattern.active_rows,16);CHECK_EQ(editor.Baseline()->pattern.active_channels,3);
     CHECK_EQ(editor.Baseline()->tempo_hundredths,12753u);CHECK_EQ(editor.Draft()->cells[1][2].note,NOTE_OFF);CHECK_EQ(editor.Draft()->note_off_timing[1][2],NoteOffTiming::EndOfPosition);
     CHECK(std::find(wire->commands.begin(),wire->commands.end(),std::string("BTSTORE1 LOAD 1 ")+filename)!=wire->commands.end());
@@ -248,13 +256,13 @@ TEST_CASE(StartupArbitraryStemUsesAuthoritativeFileDimensionsTempoAndOffData) {
 TEST_CASE(InvalidStartupStemCannotSendLoad) {
     for(const auto& name:std::vector<std::string>{"../x","x/y","x\\y","x.bad","x y",std::string(25,'a')}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;
-        serial.SetStartupPattern(name);Pump(serial,0,80,&editor);CHECK_EQ(wire->Loads(),0u);CHECK(!serial.StartupPatternReady());CHECK(editor.Locked());CHECK(!serial.Start());
+        serial.SetStartupPattern(name);serial.RequestFile(BringUpSerial::FileAction::Test,0);Pump(serial,0,80,&editor);CHECK_EQ(wire->Loads(),0u);CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());
     }
 }
 
 TEST_CASE(StartupWaitsForRealAudioStopAndStorageReadinessBeforeLoad) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->real_control=true;wire->preview_cap=true;
-    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,12,&editor);CHECK(!wire->control.StorageReady());CHECK_EQ(wire->Loads(),0u);
     CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")!=wire->commands.end());
     CHECK(!serial.Start());BlockedEdits(editor);NoPreviewWrites(*wire);
@@ -275,7 +283,7 @@ TEST_CASE(StartupWaitsForRealAudioStopAndStorageReadinessBeforeLoad) {
 TEST_CASE(StartupReadinessTimeoutAndUnsupportedFirmwareRemainLockedWithoutLoadRetry) {
     for(bool supported:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->readiness_cap=supported;wire->cleanup_busy=true;
-        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
         for(unsigned i=0;i<400;++i){wire->now=i*20;wire->AudioService();serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
         CHECK_EQ(wire->Loads(),0u);CHECK(!serial.StartupPatternReady());CHECK(!serial.Start());BlockedEdits(editor);NoPreviewWrites(*wire);
         CHECK(std::strstr(serial.Status(),"failed"));CHECK(serial.Stop());Pump(serial,400,410,&editor);CHECK(serial.Stopped());
@@ -284,7 +292,7 @@ TEST_CASE(StartupReadinessTimeoutAndUnsupportedFirmwareRemainLockedWithoutLoadRe
 
 TEST_CASE(HostVolumeUsesDeviceBaselineCoalescesAndNeverReplaysAcrossReconnect) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->volume_cap=true;wire->preview_cap=true;
-    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK(serial.StartupPatternReady());CHECK(serial.VolumeAvailable());CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));
     for(const auto& command:wire->commands)CHECK(command.rfind("BTVOL1 SET",0)!=0);
     wire->hold_volume=true;CHECK(serial.StepVolume(-1));CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));Pump(serial,80,82,&editor);CHECK(!std::strcmp(serial.VolumeStatus(),"Vol 73%"));CHECK_EQ(wire->volume,68u);CHECK(!wire->volume_reply.empty());CHECK(serial.StepVolume(-1));
@@ -295,13 +303,13 @@ TEST_CASE(HostVolumeUsesDeviceBaselineCoalescesAndNeverReplaysAcrossReconnect) {
     CHECK_EQ(wire->Loads(),1u);CHECK(!serial.Playing());
 }
 TEST_CASE(HostUnsupportedVolumeDoesNotBlockOtherwiseReadyTransport) {
-    auto peer=std::make_unique<StoragePeer>();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");Pump(serial);
+    auto peer=std::make_unique<StoragePeer>();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");serial.RequestFile(BringUpSerial::FileAction::Test,0);Pump(serial);
     CHECK(serial.StartupPatternReady());CHECK(!serial.VolumeAvailable());CHECK(!serial.StepVolume(-1));CHECK(std::strstr(serial.VolumeStatus(),"unsupported"));CHECK(serial.Start());
 }
 
 TEST_CASE(ReconnectPartialReadbackAndRepeatedDisconnectNeverDiscardRetainedWork) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
-    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");serial.RequestFile(BringUpSerial::FileAction::Test,0);LocalPatternEditor editor;
     Pump(serial,0,80,&editor);CHECK(editor.Apply(EditorAction::SetValue,75));serial.SyncEditor(editor,1601);
     const auto draft=*editor.Draft();const auto baseline=*editor.Baseline();
     wire->healthy=false;serial.Tick(1700);serial.SyncEditor(editor,1700);
@@ -318,4 +326,53 @@ TEST_CASE(ReconnectPartialReadbackAndRepeatedDisconnectNeverDiscardRetainedWork)
         CHECK(cmd.rfind("BTPREVIEW1 BEGIN",0)!=0);CHECK(cmd.rfind("BTPREVIEW1 DBEGIN",0)!=0);
         CHECK(cmd.rfind("BTSTORE1 SAVE",0)!=0);CHECK(cmd.rfind("BTSTORE1 RESTORE",0)!=0);
     }
+}
+
+TEST_CASE(NormalLaunchAndRunningReconnectNeverLoadStopSaveOrStart) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;wire->state="PLAYING";
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);CHECK(serial.Playing());CHECK(serial.StartupPatternReady());CHECK(editor.Ready());
+    CHECK_EQ(wire->Loads(),0u);const auto before=*editor.Draft();
+    wire->healthy=false;serial.Tick(1801);serial.SyncEditor(editor,1801);Pump(serial,145,230,&editor);
+    CHECK(serial.Playing());CHECK(!serial.ReconnectRecoveryPending());CHECK(SamePattern(before,*editor.Draft()));
+    for(const auto& c:wire->commands) {
+        CHECK(c!="BTTEST1 STOP");CHECK(c!="BTTEST1 START");CHECK(c.rfind("BTSTORE1 LOAD",0)!=0);CHECK(c!="BTSTORE1 SAVE 1");
+    }
+}
+TEST_CASE(TemporarySaveWaitsForAckAndDoesNotPublishAndDraftLoadUsesValidatedBarrier) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_save=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);const auto baseline=*editor.Baseline();
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Save,1801));Pump(serial,91,130,&editor);
+    CHECK(std::strstr(serial.PublicationStatus(),"queued"));CHECK(!wire->save_reply.empty());CHECK(editor.Locked());
+    CHECK(SamePattern(baseline.pattern,editor.Baseline()->pattern));
+    wire->rx+=wire->save_reply;wire->save_reply.clear();Pump(serial,130,150,&editor);
+    CHECK(std::strstr(serial.PublicationStatus(),"Tune Save: ok"));CHECK(!editor.Locked());
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,3001));Pump(serial,151,220,&editor);
+    CHECK(serial.StartupPatternReady());CHECK_EQ(editor.Draft()->cells[0][4].note,36);CHECK_EQ(wire->Loads(),0u);
+    for(const auto& c:wire->commands)CHECK(c.rfind("BTPUBLISH1 BEGIN",0)!=0);
+}
+TEST_CASE(FailedDraftLoadPreservesDraftAndBaselineAndExitNeverStopsPlaying) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);CHECK(editor.Apply(EditorAction::SetValue,75));serial.SyncEditor(editor,1801);
+    const auto draft=*editor.Draft(),baseline=editor.Baseline()->pattern;
+    wire->result="invalid";CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1802));Pump(serial,91,170,&editor);
+    CHECK(SamePattern(draft,*editor.Draft()));CHECK(SamePattern(baseline,editor.Baseline()->pattern));CHECK(std::strstr(serial.PublicationStatus(),"failed"));
+    wire->result="deferred-playing";wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";Pump(serial,170,180,&editor);
+    const auto count=wire->commands.size();serial.BeginExit(3601);Pump(serial,181,230,&editor);CHECK(serial.ExitReady());
+    for(unsigned i=count;i<wire->commands.size();++i)CHECK(wire->commands[i]!="BTTEST1 STOP");
+}
+
+TEST_CASE(DeferredTuneCompletionCannotAcknowledgeAnotherPendingFileAction) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);wire->result="deferred-playing";
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Save,1801));Pump(serial,91,120,&editor);
+    CHECK(std::strstr(serial.PublicationStatus(),"not yet saved"));
+    CHECK(!serial.RequestFile(BringUpSerial::FileAction::Save,2401));
+    wire->result="ok";wire->hold_save=true;
+    serial.BeginExit(2402);Pump(serial,121,150,&editor);CHECK(!serial.ExitReady());CHECK(!wire->save_reply.empty());
+    wire->rx+="BTSTORE1 RESULT 1 draft-save ok 0\n";Pump(serial,150,165,&editor);CHECK(!serial.ExitReady());
+    wire->rx+=wire->save_reply;wire->save_reply.clear();Pump(serial,165,190,&editor);CHECK(serial.ExitReady());
 }
