@@ -129,7 +129,18 @@ capability and memory investigations remain planning items without assigned orde
   and user power-cycle restoration with distinct unpublished edits (stopped).
 * [ ] Physical interrupted-write/card-failure and rollback injection; separately
   powered physical USB removal, acoustic/peripheral continuity and handheld checks.
-* [ ] Full BTT/BTP/BTM Load/Save/Save As dialogs and self-contained Sample storage.
+* [ ] **Pattern Load/Save foundation (future):** Add a separate Pattern screen,
+  navigable with directional controls on desktop and handheld, without dedicated
+  function keys or new handheld combinations for individual Load/Save operations.
+  Load Pattern replaces the selected pattern (currently one active pattern);
+  Save Pattern stores the current pattern in a selected pattern file. Load test
+  patterns through the same mechanism as other patterns. Automatically retain the
+  working session when safe, prioritizing audio consistency during playback.
+  Remove user-facing Publish/Restore; assess which internal synchronization
+  mechanisms remain necessary or can be removed. Design unsaved-change and file
+  overwrite handling; the exact UI remains open.
+* [ ] **Deferred:** Load/Save Tune and Load/Save Project, full BTT/BTP/BTM
+  Load/Save/Save As dialogs and self-contained Sample storage.
 
 Current contracts and recovery limitations are consolidated in
 [File Formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects),
