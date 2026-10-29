@@ -59,16 +59,37 @@ successful persistence. Host-only edits lost in a crash are not recoverable.
 
 A surviving BTX retains its draft/baseline before disconnected Sync could clear it.
 After complete baseline and working/pending readbacks, matching contents release
-the hold without writing. Mismatch or incomplete readback keeps the retained copy
-locked and blocks START/CONTINUE; STOP remains available. The running device is
-never automatically overwritten or stopped. Its authoritative transport is still
-observed, but retained editor cells have no live-position highlight.
+the hold without writing. The editor cursor is retained, including field/header
+selection, and clamped to valid visible rows/channels when installing a context.
 
-On mismatch, Shift+F4 / L1+X restores the retained local published baseline only;
-Shift+F5 / L1+A explicitly publishes retained work after stopping or eligible pause.
-Publication requires fresh identities and exact readback; uncertain transactions
-are read back before any explicit retry. Fresh BTX adopts actual device state.
-Revision IDs are not boot identities, and matching cells do not prove phase continuity.
+A playing edit can exist in BTX and device RAM while SD still contains an older
+working pattern. Power loss then restores the older disk session, stopped. When
+its published pattern/tempo matches the retained baseline, its working namespace
+has restored zero revision IDs, and authoritative transport is IDLE, BTX makes
+one automatic working-preview recovery attempt. It sends the retained draft as
+working data and restores the retained verified working tempo where supported.
+A full transfer requires complete checksum readback before editing and START/
+CONTINUE unlock. The published baseline stays separate and the recovered edit
+remains unpublished. No Publish, tune.btdraft write, fixture LOAD or START is sent.
+This recovers available host RAM; it does not claim the edit survived on SD before
+power loss. Normal stopped firmware persistence may subsequently save it.
+
+Running/paused devices, advanced working revisions, differing published baselines
+or dimensions, missing capabilities, rejected transfers and incomplete/failed
+readbacks do not authorize a blind overwrite. BTX retains available work and
+shows the recovery hold/failure. STOP remains available; a rejected/uncertain
+recovery is not automatically retransmitted in a loop. A fresh connection can
+perform new authoritative discovery. Revision counters alone are not boot UUIDs;
+the matching baseline, verified working data and stopped-state checks are also
+required. A newer working revision on a powered device is never overwritten
+automatically with the retained host draft.
+
+For an unresolved hold, Shift+F4 / L1+X restores the retained local published
+baseline only. If that now matches the verified device, the hold can clear without
+Publish. Shift+F5 / L1+A remains an explicit RAM publication option after stopping
+or eligible pause, including deliberate replacement of different dimensions.
+Uncertain publication is read back before explicit retry. Fresh BTX adopts actual
+device state. Matching cells do not establish uninterrupted playback/phase.
 
 ## Validation scope
 
@@ -80,6 +101,99 @@ without STOP, and both Select+Start press orders with held-chord suppression.
 Build/test and physical-test evidence for this change is recorded separately;
 the observations below describe the **previous implementation**, whose F4/F5
 bindings and automatic startup load have now been replaced.
+
+## Normal-session-launch recovery gate correction (2026-10-29)
+
+A subsequent physical failure was captured in the running deployed Windows BTX
+before restart or session changes. Process path, package/build SHA256 and in-memory
+PE/COFF headers matched the package from the prior fix (SHA256 prefix CC2CA3E1).
+The startup log's compile date belongs to an unchanged translation unit and is not
+sufficient whole-executable identity. The captured working draft was reconstructed
+from verified readback and edit transactions and matched its logged checksum.
+
+The device returned stopped at row/tick zero and acknowledged Enter/STOP, but
+Space sent no START. BTX logged that automatic recovery had begun, yet sent no
+working-preview transfer. A normal configured session launch uses
+`initial_sync_ready_`; disconnect clears it. Recovery was still gated by
+`StartupPatternReady()`, creating a circular wait: no transfer until ready, no
+ready until transfer/readback. The prior physical test explicitly used F3 first,
+which selected a different readiness path and masked this case.
+
+Only an already-authorized automatic working recovery may now pass the preview
+sending/start-transfer readiness gates. User START remains blocked until full
+working readback and normal editor synchronization finish. No START, Publish,
+fixture LOAD, draft-file save or relaxed device-authority check is added. STOP can
+be acknowledged during the hold but does not substitute for verified recovery.
+
+The exact regression starts BTX with configured test selection but never requests
+F3. It resumes a saved unpublished working pattern, starts and advances playback,
+edits back to the published content, simulates power loss restoring the older
+working session, and verifies automatic recovery. Both preview-capability paths
+check stopped transport at sample zero, retained cursor, unlocked editing, STOP
+acknowledgment and subsequent user START through the transport coordinator.
+Current evidence and build results are under `diagnostics/reconnect-current/`;
+these supersede the earlier test's coverage claim for normal session launch.
+
+Windows passed 10/10 tests and Eoan ARM64 passed 23/23 with ABI, offline package
+identity and isolated config-preserving installer checks. Production firmware
+built with unchanged HEX; no upload was performed. In the actual updated
+`deploy/windows/BroTrackerTerminal.exe` (SHA256 prefix 2AD5B33F), BTX launched
+normally from a session containing unpublished working edits, without F3. The
+playing test edit returned a cell to the published baseline, while the disk
+session still held the older unpublished note. After the user's power cycle,
+BTX recovered the retained draft automatically at 19:54:27-19:54:29 CET.
+Complete readbacks verified all 256 published and 256 working cells, OFF metadata
+and tempo. Transport was stopped at row/tick zero before user input; recovery sent
+no START, STOP, Publish, fixture LOAD or tune-file Save. Subsequent user Space
+received STARTED before any Enter; Enter then received STOPPED and Space started
+again. The user explicitly confirmed: Space works without needing Enter.
+Test patterns and tune.btdraft were not written. Available original host/session
+work was captured before the swap and the reconstructed host draft was checksum
+verified and restored through working preview before temporary session testing.
+
+## Playing-edit reconnect lock fix (2026-10-29)
+
+The Windows observation log showed complete baseline/working readbacks, followed
+by the old permanent mismatch hold. The baseline checksum was unchanged across
+the playing-edit power loss; the volatile working edit differed from the restored
+SD state. The old policy required explicit Publish to clear that hold. It also
+reset the editor context on matching recovery, losing the cursor. Stale file-action
+status could mask the reconnect explanation. These host paths now perform the
+verified working-only recovery described above, preserve/clamp the cursor and
+prioritize the recovery status. Firmware persistence/audio scheduling is unchanged.
+
+Regression coverage includes playing edits and fresh boot with full/sparse preview
+capability; unsent host changes; unpublished baseline separation; no automatic
+START, Publish, fixture LOAD or draft-file save; editing and Start/Pause/Continue/
+STOP after recovery; matching powered reconnect; cursor retention/clamping;
+rejected/incomplete recovery with STOP; and protection of advanced device working
+revisions. Current build/package and physical evidence is recorded under
+`diagnostics/reconnect-playing/`. Physical and final build results are recorded
+there separately from the prior implementation evidence below.
+
+Windows CTest passed 10/10 and ARM64 Eoan CTest passed 23/23, including ABI,
+offline/package identity and isolated config-preserving installer checks. An
+additional recovery-readback regression also passed the Windows and ARM64 core suites. The
+production Teensy build passed with the same HEX
+as the installed firmware; no upload was required. The user performed the physical
+Windows/PT8211 test with a note edited at row 5/channel 4 while Playing, then
+removed/reconnected USB/power with BTX open. At 18:45:16 BTX began working-only
+recovery and at 18:45:18 completed verified readback, stopped. Comparison of all
+256 published cells and 256 working cells, OFF metadata and tempo confirmed that
+the published baseline stayed unchanged and the retained edit was recovered as
+unpublished work. The recovery segment sent no Publish, fixture LOAD, draft-file
+Save, STOP or START. The user confirmed cursor retention, Space play/pause, then
+editing and Enter/STOP without Restore/Publish. Logs independently show subsequent
+edits at the retained row/channel, preview ACCEPTED/APPLIED and STOPPED.
+
+The first synthetic follow-up edit was suppressed by normal focus-loss handling
+while the user was replying in chat; Windows denied the test process foreground
+activation. User testing with BTX focused confirmed editing. This was not a second
+recovery lock. Physical failure injection, differing-baseline/dimension recovery,
+separately powered physical USB removal, acoustic/peripheral continuity and actual
+handheld operation remain unverified. Conservative holds for incompatible or
+advanced device state are intentional; automatic recovery does not claim a boot
+UUID or overwrite newer working revisions.
 
 ## Working-session validation (2026-10-28, CET)
 

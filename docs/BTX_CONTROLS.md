@@ -178,16 +178,23 @@ against source/test definitions; that inspection is not new physical validation.
 
 ## Reconnect recovery hold
 
-See [reconnect continuity](RECONNECT_CONTINUITY.md). If complete device data differs,
-BTX keeps its prior draft/baseline locked and blocks START/CONTINUE, while leaving
-the running device alone. Shift+F5 / row L1+A explicitly publishes retained work to
-RAM after STOP or eligible pause. Shift+F4 / L1+X restores the retained local
-published baseline, discarding local unpublished changes; the hold remains until
-explicit publication/readback. Neither action saves tune.btdraft. Uncertain
-publication requests authoritative readback before a possible explicit retry.
-F3/F4/F5 file actions are unavailable during this hold. There is no automatic
-Publish, fixture LOAD or START. The held host copy is RAM-only; delivered edits
-may also exist in the device/session, but unsent edits cannot survive a host crash.
+See [reconnect continuity](RECONNECT_CONTINUITY.md). After power loss, BTX can
+recover a compatible retained draft automatically through working preview while
+Teensy is stopped. Complete readback and tempo confirmation unlock editing and
+transport; the edit remains unpublished. Cursor row/channel/field/header survive
+when valid, with safe clamping on context installation. No manual Publish or
+automatic START is required. This also applies to a normal session launch
+without F3/Select+Start. Enter/STOP remains usable during recovery, but a STOP
+acknowledgment alone does not complete the required working-state verification. A RAM-only playing edit was not necessarily on SD
+before the interruption, even when BTX can recover it from retained host RAM.
+
+A running device, newer working revision, changed baseline/dimensions, failed or
+incomplete readback or rejected recovery keeps available work protected with an
+explicit status. STOP remains available. Shift+F4 / L1+X restores the retained RAM
+baseline; a resulting verified match can unlock without Publish. Shift+F5 / row
+L1+A is an explicit publication option for an unresolved mismatch, never a file
+Save. Uncertain publication requires readback before retry. F3/F4/F5 file actions
+remain unavailable during the hold. No fixture LOAD or START is replayed.
 
 ## Recorded confirmations and validation limits
 

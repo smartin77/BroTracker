@@ -815,3 +815,13 @@ TEST_CASE(BeatNavigationUsesHighlightedRowsVisibleBoundsAndPreservesEditorData) 
         }
     }
 }
+
+TEST_CASE(EditorRestoresValidCursorAndClampsChangedPatternDimensions) {
+    LocalPatternEditor editor;editor.Sync(ConnectedDraft());
+    EditCursor cursor{12,1,EditField::Instrument,false};editor.RestoreCursor(cursor);
+    CHECK_EQ(editor.Cursor().row,12u);CHECK_EQ(editor.Cursor().channel,1u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+    auto live=ConnectedDraft();live->device_pattern->pattern.active_rows=4;live->device_pattern->pattern.active_channels=1;
+    live->position.rows=4;live->position.channels=1;editor.ResetContext();editor.Sync(live);editor.RestoreCursor(cursor);
+    CHECK_EQ(editor.Cursor().row,3u);CHECK_EQ(editor.Cursor().channel,0u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+    cursor.header=true;editor.RestoreCursor(cursor);CHECK(editor.Cursor().header);CHECK_EQ(editor.Cursor().row,0u);
+}

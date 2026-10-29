@@ -37,7 +37,7 @@ public:
         instrument_cycle_empty_=false;
         baseline_ = *display.device_pattern;
         draft_ = baseline_.pattern;
-        ready_ = true;
+        ready_ = true;RestoreCursor(cursor_);
     }
     void SetLocked(bool locked) noexcept { locked_=locked; }
     bool Locked() const noexcept { return locked_; }
@@ -60,6 +60,14 @@ public:
     bool Ready() const noexcept { return ready_; }
     bool SelectHeader(unsigned channel) noexcept {if(!ready_ || channel>=draft_.active_channels) return false;cursor_.channel=channel;cursor_.header=true;cursor_.row=0;return true;}
     const EditCursor& Cursor() const noexcept { return cursor_; }
+    void RestoreCursor(EditCursor cursor) noexcept {
+        if(!ready_)return;
+        const auto rows=draft_.active_rows<32?draft_.active_rows:32u;
+        cursor.row=cursor.row<rows?cursor.row:rows-1;
+        cursor.channel=cursor.channel<draft_.active_channels?cursor.channel:draft_.active_channels-1;
+        if(cursor.header)cursor.row=0;
+        cursor_=cursor;
+    }
     const BroTracker::RealtimePattern* Draft() const noexcept { return ready_ ? &draft_ : nullptr; }
     std::optional<LocalNoteOffTiming> OffTiming(unsigned row, unsigned channel) const noexcept
     {

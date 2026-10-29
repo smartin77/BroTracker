@@ -63,6 +63,9 @@ public:
         return verified_ && (!pending_id_ || pending_verified_) && !Recovering() ?
             (pending_id_ ? &pending_ : &applied_) : nullptr;
     }
+    bool BootWorkingState() const noexcept {
+        return VerifiedWorking() && !published_id_ && !working_id_ && !pending_id_;
+    }
     void ConfirmMatchingWorking() noexcept {
         if(const auto* remote=VerifiedWorking()) {
             latest_=attempted_=*remote; latest_valid_=attempted_valid_=true;
@@ -72,6 +75,15 @@ public:
         }
     }
 
+    // One explicit host recovery attempt, only after verified stopped readback.
+    // Use a full transfer so APPLIED is followed by complete checksum readback.
+    bool RecoverRetained(const RealtimePattern& draft,std::uint32_t now) noexcept {
+        if(!VerifiedWorking() || TransferBusy() || draft.active_rows!=rows_ || draft.active_channels!=channels_) return false;
+        latest_=draft;latest_valid_=true;attempted_valid_=false;recovered_ready_=false;
+        changed_=first_change_=now;debouncing_=true;force_full_=true;
+        phase_=HostPreviewPhase::Ready;suspended_=false;Set("Recovering retained host edits to working RAM; not an SD-save confirmation");
+        return true;
+    }
     void FileLoaded() noexcept {
         latest_valid_=attempted_valid_=retain_local_=recovered_ready_=false;
         verified_=pending_verified_=state_fresh_=next_fresh_=false;
@@ -105,7 +117,7 @@ public:
         if(!supported_ || suspended_ || Recovering() || TransferBusy() || !next_fresh_ || !next_ || !latest_valid_ ||
             (attempted_valid_ && SamePattern(latest_,attempted_)) ||
             (now-changed_<kPreviewDebounceMs && now-first_change_<kPreviewMaximumDebounceMs)) return false;
-        delta_transfer_=sparse_supported_ && verified_;
+        delta_transfer_=sparse_supported_ && verified_ && !force_full_;force_full_=false;
         delta_count_=delta_line_=0;
         if(delta_transfer_) {
             const auto& base=pending_id_ && pending_verified_?pending_:applied_;
@@ -318,7 +330,7 @@ private:
         return {static_cast<std::uint8_t>(row),static_cast<std::uint8_t>(channel),p.cells[row][channel].note,
             p.cells[row][channel].instrument,p.note_off_timing[row][channel]};
     }
-    bool sparse_supported_=false,delta_transfer_=false;
+    bool sparse_supported_=false,delta_transfer_=false,force_full_=false;
     std::uint16_t delta_indices_[kSparsePreviewCellCapacity]{};
     unsigned delta_count_=0,delta_line_=0;
     std::uint32_t delta_base_=0,delta_hash_=0;

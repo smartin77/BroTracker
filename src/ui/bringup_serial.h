@@ -32,15 +32,18 @@ public:
     // Shift+F4 restores the retained local published baseline, without device writes.
     bool RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now);
     const char* PublicationStatus() const {
-        if(file_status_[0]) return file_status_;
         if(continuity_pending_) {
             if(publication_.Blocking() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
                 publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
             if(snapshot_failed_) return "Reconnect readback failed: local work retained; reconnect to retry";
+            if(continuity_auto_) return preview_.Phase()==BroTracker::HostPreviewPhase::Rejected ?
+                "Reconnect recovery rejected: host draft retained; STOP available; see preview/log" :
+                "Reconnect: recovering retained host edits; waiting for verified working readback; STOP available";
             return continuity_ready_ ? "Reconnect differs: local retained. Shift+F4 Restore local; Shift+F5 Publish" :
-                "Reconnect unverified: local work retained; waiting for readback";
+                "Reconnect unconfirmed: host work retained; waiting for safe stopped readback; STOP available";
         }
 
+        if(file_status_[0]) return file_status_;
         if(tempo_.Supported() && !tempo_.Synchronized() && !PublicationBusy()) {
             if(tempo_.Phase()==BroTracker::HostTempoPhase::Uncertain) return "Tempo uncertain; reading device state";
             std::snprintf(tempo_status_,sizeof(tempo_status_),"Tempo applied %u.%02u | desired %u.%02u (pending)",
@@ -192,7 +195,7 @@ private:
     BroTracker::DevicePatternSnapshot continuity_baseline_{};
     BroTracker::RealtimePattern continuity_draft_{};
     std::uint32_t continuity_tempo_=0;
-    bool continuity_pending_=false,continuity_ready_=false,continuity_frozen_=false;
+    bool continuity_pending_=false,continuity_ready_=false,continuity_frozen_=false,continuity_auto_=false;
 
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};

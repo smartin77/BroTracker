@@ -69,7 +69,7 @@ void BringUpSerial::Disconnect(const char* reason)
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
         if(!continuity_pending_) continuity_frozen_=false;
-        continuity_pending_=true; continuity_ready_=false;
+        continuity_pending_=true; continuity_ready_=false;continuity_auto_=false;file_status_[0]=0;
     }
     initial_sync_ready_=false;
     if(file_action_!=FileAction::None) {
@@ -143,22 +143,35 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
                 preview_.SetBaseline(*baseline); preview_.Published(baseline->pattern);
                 continuity_pending_=continuity_ready_=false;
                 Log("Explicit reconnect recovery published and verified; no SD save or START");
-            } else if(!continuity_ready_) {
-                const bool same=BroTracker::SamePattern(continuity_baseline_.pattern,baseline->pattern) &&
-                    continuity_baseline_.tempo_hundredths==baseline->tempo_hundredths &&
-                    BroTracker::SamePattern(continuity_draft_,*working) &&
-                    continuity_tempo_==(tempo_.Available()?tempo_.State().tempo:baseline->tempo_hundredths);
-                if(same) {
-                    continuity_pending_=false; editor.ResetContext(); editor.Sync(PlaybackView(now));
-                    (void)editor.RecoverDraft(*working); preview_.ConfirmMatchingWorking();
-                    Log("Reconnect readback matches retained pattern contents; boot/transport continuity not proven");
-                } else {
-                    continuity_ready_=true;
-                    Log("Reconnect continuity not established; local draft and published baseline retained; Shift+F5 explicitly publishes to RAM, Shift+F4 restores local baseline; no SD load/save or START");
+            } else {
+                const bool baseline_matches=BroTracker::SamePattern(continuity_baseline_.pattern,baseline->pattern) &&
+                    continuity_baseline_.tempo_hundredths==baseline->tempo_hundredths;
+                const bool tempo_matches=continuity_tempo_==(tempo_.Available()?tempo_.State().tempo:baseline->tempo_hundredths);
+                const bool same=baseline_matches && BroTracker::SamePattern(continuity_draft_,*working) && tempo_matches;
+                if(same && !preview_.TransferBusy() && !publication_.Blocking()) {
+                    const auto cursor=editor.Cursor();
+                    continuity_pending_=continuity_auto_=false;editor.ResetContext();editor.Sync(PlaybackView(now));
+                    (void)editor.RecoverDraft(*working);editor.RestoreCursor(cursor);preview_.ConfirmMatchingWorking();
+                    file_status_[0]=0;
+                    Log("Reconnect working state verified; retained host edits available; no Publish or START; disk persistence not inferred");
+                } else if(!continuity_ready_ && !publication_.Blocking()) {
+                    if(baseline_matches && preview_.Supported() && preview_.BootWorkingState() && !Playing() && !Paused() &&
+                        !std::strcmp(state_,"IDLE") && (!tempo_.Supported() || tempo_.Synchronized()) &&
+                        (tempo_matches || tempo_.Supported()) && preview_.RecoverRetained(continuity_draft_,now)) {
+                        continuity_ready_=continuity_auto_=true;
+                        if(!tempo_matches)(void)tempo_.Request(continuity_tempo_);
+                        Log("Reconnect: recovering retained host draft through working preview, published baseline unchanged; no START or draft-file save");
+                    } else if(!baseline_matches || !preview_.Supported() || !preview_.BootWorkingState()) {
+                        continuity_ready_=true;
+                        Log("Reconnect continuity not established: baseline differs, device running, or capabilities unavailable; host work retained; STOP available");
+                    }
                 }
             }
         }
-        if(continuity_pending_) return;
+        if(continuity_pending_) {
+            preview_.Suspend(!continuity_auto_ || Playing() || Paused() || publication_.Blocking());
+            return;
+        }
         preview_.Suspend(false);
     }
     const bool startup_barrier=startup_selection_enabled_ && !StartupPatternReady();
@@ -967,12 +980,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 next_snapshot_id_=next_snapshot_id_==UINT32_MAX ? 0 : next_snapshot_id_+1;
                 tx_size_=static_cast<unsigned>(length); tx_offset_=0;
             }
-            else if(StartupPatternReady() && preview_.Sending()) {
+            else if((StartupPatternReady() || continuity_auto_) && preview_.Sending()) {
                 if(preview_.FormatLine(tx_,sizeof(tx_),length)) {
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;
                 }
             }
-            else if(StartupPatternReady() && !continuity_pending_ && !publish_queued_ && pattern_assembler_.Snapshot() &&
+            else if((StartupPatternReady() || continuity_auto_) && (!continuity_pending_ || (continuity_auto_ && !Playing() && !Paused())) && !publish_queued_ && pattern_assembler_.Snapshot() &&
                 preview_.TryBegin(*pattern_assembler_.Snapshot(),now)) {
                 if(preview_.FormatLine(tx_,sizeof(tx_),length)) {
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;
