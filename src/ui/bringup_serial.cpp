@@ -34,7 +34,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     diagnostic_now_=now;
     const bool early_test=action==FileAction::Test && !attempted_;
     if((!early_test && (!connected_ || !storage_supported_)) || file_action_!=FileAction::None || (!early_test && !StartupPatternReady()) || continuity_pending_) {
-        std::strcpy(file_status_,"File action unavailable: connect/synchronize first");return false;
+        std::strcpy(file_status_,"File action unavailable: connect/synchronize first");Log("File action rejected:",file_status_);return false;
     }
     if(action==FileAction::Save && draft_deferred_) {
         std::strcpy(file_status_,"Tune Save already pending in device RAM; Pause/Stop to finish");return false;
@@ -44,7 +44,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     }
     if(action==FileAction::Load || action==FileAction::Test) {
         if((!early_test && !FileIdle()) || Playing() || Paused() || (action==FileAction::Test && !startup_pattern_valid_)) {
-            std::strcpy(file_status_,"Load unavailable: STOP and wait for synchronization; check filename");return false;
+            std::strcpy(file_status_,"Load unavailable: STOP and wait for synchronization; check filename");Log("File action rejected:",file_status_);return false;
         }
         load_rejected_=false;startup_selection_enabled_=true;startup_attempted_=startup_applied_=startup_done_=startup_failed_=false;
         startup_stop_sent_=startup_ready_sent_=startup_storage_ready_=false;
@@ -179,7 +179,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
         // An explicit SD selection establishes a new context. Discard pre-load
         // draft/captured edits once, before they can seed preview recovery.
         // Never repeat this on ordinary reconnect after startup synchronized.
-        if(startup_applied_ && !startup_context_cleared_) {editor.ResetContext();editor_seen_=false;startup_context_cleared_=true;}
+        if(startup_applied_ && !startup_context_cleared_) {editor.ResetContext(file_action_==FileAction::Load);editor_seen_=false;startup_context_cleared_=true;}
         editor.SetLocked(true);
         preview_.Suspend(true);
         preview_.RetainLocal(false);
@@ -529,7 +529,12 @@ void BringUpSerial::OnLine(std::uint32_t now)
         startup_storage_ready_=true;pending_=Command::None;return;
     }
     if(pending_==Command::StorageReady && !std::strncmp(line_,"BTSTORE1 NOTREADY 1 ",19)) {
-        startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;Log("SD startup readiness ERROR:",line_);return;
+        // READY rejection confirms that no file load was submitted. Retain the
+        // existing editor/session and release the Load barrier; this is not an
+        // uncertain applied-file outcome and must not require reconnect/Publish.
+        load_rejected_=editor_seen_;startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;
+        std::snprintf(file_status_,sizeof(file_status_),"Load not attempted; current work retained: %.105s",line_+19);
+        Log("SD startup readiness ERROR:",line_);return;
     }
     if(!std::strcmp(line_,"BTSTORE1 CAP 1")) {if(connected_)storage_supported_=true;return;}
     if(pending_==Command::Storage && !std::strncmp(line_,"BTSTORE1",8)) {

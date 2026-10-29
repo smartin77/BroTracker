@@ -43,7 +43,7 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | --- | --- | --- |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | B | Stop/reset and stay in BTX, including with L1 held. A fresh press can request STOP again. |
-| Exit | L1 + Start | Session persistence exit workflow; playback remains running. Start action occurs on release. |
+| Exit | L1 + Start | Session persistence exit workflow; playback remains running. Also exits with Teensy disconnected. Start action occurs on release. |
 | Previous / next row; enter / leave headers | D-pad Up / Down | Active row bounds; Up from first row enters headers, Down from header returns to first row. Hold repeats. |
 | Previous / next field or header | D-pad Left / Right | Row: move Note <-> Instrument across channel edges, bounded at outer edges. Header: adjacent header without wrapping. Hold repeats. |
 | Previous / next channel | L1 + D-pad Left / Right | Wraps active channels; selects Note in row context, preserves header context. Hold repeats. |
@@ -235,6 +235,22 @@ Publish never writes it. File Load intentionally establishes a new baseline and
 working copy only after validation/application. No Save As or file browser is
 implemented. Power loss restores the latest available disk session stopped, while
 a powered reconnect synchronizes with the actual device without STOP or LOAD.
+
+F4 Load and session resynchronization retain the known BTX edit cursor, including
+its field/header selection, clamped to the loaded pattern dimensions. Explicit
+F3 / Select+Start Test loads reset the cursor. A fresh
+editor with no previous cursor starts at the first row/channel. Cursor position
+is host state; it is not stored in tune or SD session files.
+
+If Teensy rejects the pre-load READY check (for example, MIDI cleanup has not
+completed), no file Load is sent. BTX retains the current work/cursor and releases
+the Load barrier for an existing editor; STOP and normal controls remain
+available. The status shows why Load was not attempted. Retry Load/Test after
+the device condition clears. Uncertain outcomes after a submitted Load still
+require verified recovery. This does not clear or bypass MIDI faults.
+
+F5/F4 do not save or load channel mutes. They retain the live Teensy mute mask
+while the device remains powered; device initialization clears that mask.
 
 New bindings are automated-test coverage, not a new physical handheld confirmation.
 Existing dated observations used the previous startup/F4/F5 behavior.

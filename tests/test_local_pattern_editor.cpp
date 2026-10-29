@@ -114,7 +114,7 @@ TEST_CASE(LocalEditorConnectionTelemetryAndDisplayIndependence) {
     CHECK(editor.Draft() == nullptr); CHECK(!editor.Apply(EditorAction::Restore));
     editor.Sync(incomplete); CHECK(!editor.Ready());
     editor.Sync(live); CHECK_EQ(editor.Draft()->cells[0][0].note, 90);
-    CHECK_EQ(editor.Cursor().row, 0); CHECK(!editor.Dirty());
+    CHECK_EQ(editor.Cursor().row, 1); CHECK(!editor.Dirty());
 }
 TEST_CASE(LocalEditorFramebufferUsesDraftAndSeparateFieldCursor) {
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
@@ -773,7 +773,7 @@ TEST_CASE(InstrumentCycleMatchingReadbackPreservesInteractionButReplacementReset
     CHECK_EQ(e.Draft()->cells[0][0].instrument,0); // Opposite direction leaves cycled empty correctly.
     CHECK(e.Apply(EditorAction::Decrement)); CHECK(!e.Apply(EditorAction::SetValue,99));
     CHECK(e.Apply(EditorAction::Decrement)); CHECK_EQ(e.Draft()->cells[0][0].instrument,98);
-    e.Sync(std::nullopt); e.Sync(ConnectedDraft()); CHECK(e.Apply(EditorAction::Right));
+    e.Sync(std::nullopt); e.Sync(ConnectedDraft()); CHECK_EQ(e.Cursor().field,EditField::Instrument);
     CHECK(e.Apply(EditorAction::Clear)); CHECK(e.Apply(EditorAction::Decrement));
     CHECK_EQ(e.Draft()->cells[0][0].instrument,0);
 }
@@ -824,4 +824,18 @@ TEST_CASE(EditorRestoresValidCursorAndClampsChangedPatternDimensions) {
     live->position.rows=4;live->position.channels=1;editor.ResetContext();editor.Sync(live);editor.RestoreCursor(cursor);
     CHECK_EQ(editor.Cursor().row,3u);CHECK_EQ(editor.Cursor().channel,0u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
     cursor.header=true;editor.RestoreCursor(cursor);CHECK(editor.Cursor().header);CHECK_EQ(editor.Cursor().row,0u);
+}
+
+TEST_CASE(SessionRestorationRetainsKnownCursorAndDefaultsOnlyForFreshEditor) {
+    for(bool header:{false,true}) {
+        LocalPatternEditor editor;editor.Sync(ConnectedDraft());editor.RestoreCursor({12,1,EditField::Instrument,header});
+        const auto cursor=editor.Cursor();editor.Sync(std::nullopt);editor.Sync(std::nullopt);
+        auto restored=ConnectedDraft();restored->device_pattern->pattern.active_rows=4;restored->device_pattern->pattern.active_channels=1;
+        restored->position.rows=4;restored->position.channels=1;editor.Sync(restored);
+        CHECK(editor.Ready());CHECK_EQ(editor.Cursor().row,header?0u:3u);CHECK_EQ(editor.Cursor().channel,0u);
+        CHECK_EQ(editor.Cursor().field,cursor.field);CHECK_EQ(editor.Cursor().header,header);
+        editor.ResetContext(true);editor.Sync(restored);CHECK_EQ(editor.Cursor().row,header?0u:3u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+        LocalPatternEditor fresh;fresh.Sync(restored);CHECK_EQ(fresh.Cursor().row,0u);CHECK_EQ(fresh.Cursor().channel,0u);
+        CHECK_EQ(fresh.Cursor().field,EditField::Note);CHECK(!fresh.Cursor().header);
+    }
 }

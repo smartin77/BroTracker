@@ -12,7 +12,7 @@
 using namespace BroTracker;
 namespace {
 struct StoragePeer:SerialTransport {
-    std::string rx,tx;std::vector<std::string> commands;bool healthy=true,cap=true,respond=true;unsigned pattern=1;std::string result="ok",state="IDLE";
+    std::string rx,tx;std::vector<std::string> commands;bool healthy=true,cap=true,respond=true;unsigned pattern=1,draft_pattern=3;std::string result="ok",state="IDLE";
     using Control=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
     Control control;StorageReadyWait readiness;
     bool real_control=false,initialized=false,cleanup_busy=false,transfer_busy=false,readiness_cap=true;
@@ -67,7 +67,7 @@ struct StoragePeer:SerialTransport {
             if(hold_save)save_reply+=reply;else rx+=reply;
         }
         else if(line=="BTSTORE1 DRAFTLOAD 1") {
-            if(result=="ok") {pattern=3;rx+="BTSTORE1 SUBMITTED 1 draft-load 1\n";}
+            if(result=="ok") {pattern=draft_pattern;rx+="BTSTORE1 SUBMITTED 1 draft-load 1\n";}
             rx+="BTSTORE1 RESULT 1 draft-load "+result+" 1\n";
         }
         else if(line=="BTSTORE1 READY 1") {CHECK(readiness.Begin(now));AudioService();}
@@ -375,4 +375,65 @@ TEST_CASE(DeferredTuneCompletionCannotAcknowledgeAnotherPendingFileAction) {
     serial.BeginExit(2402);Pump(serial,121,150,&editor);CHECK(!serial.ExitReady());CHECK(!wire->save_reply.empty());
     wire->rx+="BTSTORE1 RESULT 1 draft-save ok 0\n";Pump(serial,150,165,&editor);CHECK(!serial.ExitReady());
     wire->rx+=wire->save_reply;wire->save_reply.clear();Pump(serial,165,190,&editor);CHECK(serial.ExitReady());
+}
+
+TEST_CASE(DraftFileLoadRetainsCursorAndClampsToLoadedDimensions) {
+    for(bool small:{false,true}) for(bool header:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        Pump(serial,0,90,&editor);CHECK(editor.Ready());
+        editor.RestoreCursor({29,7,EditField::Instrument,header});wire->draft_pattern=small?5:3;
+        CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1801));Pump(serial,91,200,&editor);
+        CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
+        CHECK_EQ(editor.Cursor().row,header?0u:small?15u:29u);
+        CHECK_EQ(editor.Cursor().channel,small?2u:7u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);CHECK_EQ(editor.Cursor().header,header);
+        CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 DRAFTLOAD 1")!=wire->commands.end());
+        if(small) continue; // The dimension-only mock has no live-tempo protocol.
+        const auto cursor=editor.Cursor();wire->healthy=false;serial.Tick(4001);serial.SyncEditor(editor,4001);Pump(serial,250,350,&editor);
+        CHECK(!serial.ReconnectRecoveryPending());CHECK_EQ(editor.Cursor().row,cursor.row);CHECK_EQ(editor.Cursor().channel,cursor.channel);
+        CHECK_EQ(editor.Cursor().field,cursor.field);CHECK_EQ(editor.Cursor().header,cursor.header);
+    }
+}
+TEST_CASE(FailedDraftFileLoadDoesNotMoveKnownCursor) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));
+    serial.SetStartupPattern("patern4");LocalPatternEditor editor;Pump(serial,0,90,&editor);
+    editor.RestoreCursor({12,5,EditField::Instrument,false});wire->result="invalid";
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1801));Pump(serial,91,200,&editor);
+    CHECK_EQ(editor.Cursor().row,12u);CHECK_EQ(editor.Cursor().channel,5u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+}
+
+TEST_CASE(DraftLoadThenConfiguredTestLoadResetsCursorAndAllowsStart) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);editor.RestoreCursor({12,5,EditField::Instrument,false});
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1801));Pump(serial,91,190,&editor);
+    CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(editor.Cursor().row,12u);
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Test,3801));Pump(serial,191,290,&editor);
+    CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
+    CHECK_EQ(editor.Cursor().row,0u);CHECK_EQ(editor.Cursor().channel,0u);CHECK_EQ(editor.Cursor().field,EditField::Note);
+    CHECK(serial.Start());Pump(serial,291,295,&editor);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")!=wire->commands.end());
+}
+
+TEST_CASE(ReadinessRejectionAfterDraftLoadRetainsWorkAndReleasesControls) {
+    for(const auto action:{BringUpSerial::FileAction::Load,BringUpSerial::FileAction::Test}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+        Pump(serial,0,90,&editor);
+        CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1801));Pump(serial,91,190,&editor);
+        editor.RestoreCursor({12,5,EditField::Instrument,false});const auto draft=*editor.Draft();const auto baseline=*editor.Baseline();
+        wire->cleanup_busy=true;CHECK(serial.RequestFile(action,3801));
+        for(unsigned i=191;i<500;++i){wire->now=i*20;wire->AudioService();serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
+        CHECK(serial.StartupPatternReady());CHECK(editor.Ready());CHECK(!editor.Locked());
+        CHECK(SamePattern(draft,*editor.Draft()));CHECK(SamePattern(baseline.pattern,editor.Baseline()->pattern));
+        CHECK_EQ(editor.Cursor().row,12u);CHECK_EQ(editor.Cursor().channel,5u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+        CHECK(std::strstr(serial.PublicationStatus(),"Load not attempted"));CHECK_EQ(wire->Loads(),0u);
+        CHECK(editor.Apply(EditorAction::Increment));CHECK(editor.Apply(EditorAction::Restore));
+        CHECK(serial.Stop());Pump(serial,500,510,&editor);CHECK(serial.Stopped());CHECK(serial.Start());Pump(serial,510,515,&editor);
+        wire->rx+="BTTEST1 STARTED\n";Pump(serial,515,520,&editor);
+        CHECK(serial.Stop());Pump(serial,520,530,&editor);
+        // No automatic load retry; a fresh user request may retry after cleanup finishes.
+        wire->cleanup_busy=false;CHECK(serial.RequestFile(BringUpSerial::FileAction::Test,10601));Pump(serial,531,620,&editor);
+        CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
+    }
 }

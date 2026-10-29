@@ -65,7 +65,7 @@ static int NavigationRegression() {
     key(SDLK_TAB,18001); input.Tick(19000,KMOD_NONE,editor); CHECK(editor.Cursor().channel==0);
     key(SDLK_TAB,19001,SDL_KEYUP); key(SDLK_DOWN,20000);
     SDL_Event quit{}; quit.type=SDL_QUIT; input.Handle(quit,20001,editor);
-    input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==1);
+    input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==cursor.row+1);
     return 0;
 }
 static int BeatNavigationRegression() {
@@ -203,9 +203,13 @@ int main() {
     const auto modifier_saved = editor.Draft()->cells[editor.Cursor().row][editor.Cursor().channel];
     input.Tick(6000, KMOD_NONE, editor);
     CHECK(editor.Draft()->cells[editor.Cursor().row][editor.Cursor().channel].note == modifier_saved.note);
-    key(SDLK_PAGEUP, 6100); editor.Sync(std::nullopt); input.Tick(6500, KMOD_NONE, editor);
+    key(SDLK_PAGEUP, 6100); const auto retained_cursor=editor.Cursor();
+    editor.Sync(std::nullopt); input.Tick(6500, KMOD_NONE, editor);
     editor.Sync(live); input.Tick(7000, KMOD_NONE, editor);
+    CHECK(editor.Cursor().row==retained_cursor.row && editor.Cursor().channel==retained_cursor.channel);
+    CHECK(editor.Cursor().field==retained_cursor.field && editor.Cursor().header==retained_cursor.header);
     CHECK(editor.Draft()->cells[0][0].note == 60);
+    editor.RestoreCursor({}); // Start the independent held-edit/navigation case at its original cell.
     key(SDLK_PAGEUP, 7049, SDL_KEYUP);
     CHECK(key(SDLK_RIGHT, 7050)); CHECK(editor.Cursor().field == EditField::Instrument);
     key(SDLK_PAGEUP, 7051);

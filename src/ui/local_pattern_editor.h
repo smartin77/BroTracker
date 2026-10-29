@@ -21,7 +21,7 @@ class LocalPatternEditor
 public:
     void Sync(const std::optional<LivePlaybackView>& live) noexcept
     {
-        if (!live) { ClearCaptured(); instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; cursor_={}; return; }
+        if (!live) { ClearCaptured(); instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; return; }
         if (ready_) return;
         const auto display = ResolvePatternDisplay(live);
         if (!display.device_pattern) return;
@@ -84,10 +84,10 @@ public:
                     draft_.note_off_timing[r][c] != baseline_.pattern.note_off_timing[r][c]) return true;
         return false;
     }
-    // Explicit project/new-pattern/session termination boundary; no file identity assumed.
-    void ResetContext() noexcept {
+    // Clear edit/history context; file Load can retain the current cursor for Sync to clamp.
+    void ResetContext(bool retain_cursor=false) noexcept {
         ClearCaptured();
-        instrument_cycle_empty_=false; ready_=locked_=false; baseline_={}; draft_={}; cursor_={}; history_.Clear();
+        instrument_cycle_empty_=false; ready_=locked_=false; baseline_={}; draft_={}; if(!retain_cursor)cursor_={}; history_.Clear();
     }
     bool CanUndo() const noexcept { return ready_ && !locked_ && history_.CanUndo(); }
     bool CanRedo() const noexcept { return ready_ && !locked_ && history_.CanRedo(); }

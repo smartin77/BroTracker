@@ -45,7 +45,11 @@ public:
             if(pressed_[b]) blocked_|=1u<<b;
     }
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected || !focused_ || !editor.Ready()) { start_pending_=false;Cancel(); return; }
+        if(!connected || !focused_ || !editor.Ready()) {
+            // EXIT is local: preserve L1+Start until release even without Teensy/session data.
+            if(!focused_ || !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) start_pending_=false;
+            Cancel(); return;
+        }
         if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] && !navigation_.Active()) {tempo_step_=tempo_repeat_.Tick(now);return;}
         if(repeat_direction_<0) return;
         if(navigation_.Active()) {
@@ -57,7 +61,7 @@ public:
     }
     ArkOSInputResult Handle(const SDL_Event& event, std::uint32_t now,
                            bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected)start_pending_=false;
+        if(!connected && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])start_pending_=false;
         if(!connected || !editor.Ready() || (editor.Locked() && !navigation_.Active())) Cancel();
         if(event.type==SDL_QUIT) { Cancel(); return {BringUpAction::Exit,false}; }
         if(event.type==SDL_WINDOWEVENT) {

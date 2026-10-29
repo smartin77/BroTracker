@@ -489,3 +489,38 @@ TEST_CASE(ArkOSFileActionsConsumeSelectStartChordOnceInEitherOrder) {
     e.jbutton.button=8;CHECK(f.input.Handle(e,1,true,f.editor).file==BringUpSerial::FileAction::Test);
     e.type=SDL_JOYBUTTONUP;e.jbutton.button=9;CHECK(f.input.Handle(e,2,true,f.editor).transport==BringUpAction::None);
 }
+
+TEST_CASE(ArkOSOfflineExitSurvivesTicksAndUnavailableEditor) {
+    for(bool ready:{false,true}) {
+        InputFixture f;if(!ready)f.editor.Sync(std::nullopt);
+        const auto edge=[&](unsigned button,bool down) {
+            SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;
+            e.cbutton.which=7;e.cbutton.button=button;
+            return f.input.Handle(e,++f.now,false,f.editor);
+        };
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);
+        edge(SDL_CONTROLLER_BUTTON_START,true);
+        f.input.Tick(++f.now,false,f.editor);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::Exit);
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        edge(SDL_CONTROLLER_BUTTON_START,true);f.input.Tick(++f.now,false,f.editor);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::None);
+    }
+}
+TEST_CASE(ArkOSLoadThenTestChordAndStandaloneStartRemainAvailable) {
+    for(bool select_first:{false,true}) {
+        InputFixture f;f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::Load);
+        f.editor.ResetContext(true);f.input.Tick(++f.now,true,f.editor);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);f.editor.Sync(PatternView());
+        const auto first=select_first?SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START;
+        const auto second=select_first?SDL_CONTROLLER_BUTTON_START:SDL_CONTROLLER_BUTTON_BACK;
+        f.Edge(first);CHECK(f.Edge(second).file==BringUpSerial::FileAction::Test);
+        f.Edge(first,false);f.input.Tick(++f.now,true,f.editor);f.Edge(second,false);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::Load);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
+    }
+}
