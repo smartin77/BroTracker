@@ -124,6 +124,8 @@ TEST_CASE(MidiNoConsumerMixedPlaybackKeepsExactPcmAndTimelineAndNeedsExplicitRec
     CHECK(audible); CHECK(midi.Faulted()); CHECK(midi.PendingCleanup());
     CHECK_EQ(midi.Queued(),0); CHECK(midi.counters.transport_failure>=1);
     CHECK_EQ(midi.Reason(),MidiOutput::Fault::CompletionStall);
+    CHECK(midi.StorageReady(brotracker_midi_tx_idle()));
+    CHECK(!actual.StorageReady()); // Playback still vetoes SD despite idle MIDI quarantine.
     const auto before=calls;
     for(unsigned i=0;i<10;++i) Pump(midi,3000000+i*100,true);
     CHECK_EQ(calls,before); // No late backlog, including on consumer appearance.
@@ -140,4 +142,40 @@ TEST_CASE(MidiNoConsumerMixedPlaybackKeepsExactPcmAndTimelineAndNeedsExplicitRec
     // Genuine audio allocation failure remains fatal independently of MIDI.
     actual.AudioBlock(nullptr,128,false);
     CHECK_EQ(actual.Snapshot().fault,PatternFault::Allocation); CHECK(!actual.Snapshot().running);
+}
+
+TEST_CASE(MidiQuarantinedCleanupAllowsStorageOnlyAfterActualDmaCancellation) {
+    using namespace BroTracker;
+    ResetBackend();MidiOutput midi;midi.Lifecycle(true,brotracker_midi_generation);
+    CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    Pump(midi,0,true);Pump(midi,1,true);
+    CHECK(midi.StorageReady(brotracker_midi_tx_idle()));
+    VariableRateVoiceCommandBatch batch{};batch.count=1;
+    batch.commands[0].action=VariableRateVoiceAction::TriggerMidi;
+    batch.commands[0].channel=0;batch.commands[0].synth_note=69;
+    CHECK(midi.Enqueue(batch,0,100));CHECK(!midi.StorageReady(true));
+    Pump(midi,100,false);CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    Pump(midi,40101,false); // Original ON stalled; cancellation requested.
+    CHECK(midi.Faulted());CHECK(midi.PendingCleanup());
+    CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    Pump(midi,40102,false); // Cancellation finishes; targeted OFF submitted.
+    CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    Pump(midi,80103,false); // OFF also stalled; quarantine, still cancelling.
+    CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    Pump(midi,80104,false); // Hardware flush now complete; no active MIDI work.
+    CHECK(midi.StorageReady(brotracker_midi_tx_idle()));
+    CHECK(midi.PendingCleanup());CHECK(midi.Faulted());CHECK(!midi.Recover(true));
+    CHECK_EQ(midi.Reason(),MidiOutput::Fault::CompletionStall);
+    const auto submissions=calls;
+    for(unsigned n=0;n<20;++n) Pump(midi,81000+n,true);
+    CHECK_EQ(calls,submissions);CHECK(midi.PendingCleanup()); // Consumer arrival is not cleanup proof.
+    CHECK(!midi.StorageReady(false)); // DMA/flush uncertainty still vetoes storage.
+    midi.Reset();CHECK(!midi.StorageReady(true)); // Explicit STOP/reset re-arms reliable cleanup.
+    Pump(midi,82000,true);CHECK(!midi.StorageReady(brotracker_midi_tx_idle()));
+    CHECK_EQ(calls,submissions+1); // Uncertain pitch survived storage eligibility.
+    std::uint32_t cleanup_word=0;std::memcpy(&cleanup_word,txbuffer,sizeof(cleanup_word));
+    CHECK_EQ(cleanup_word,midi.Pack(false,69));
+    Pump(midi,82001,true);CHECK(!midi.PendingCleanup());CHECK(midi.Faulted());
+    CHECK(midi.StorageReady(brotracker_midi_tx_idle()));CHECK(!midi.Recover(false));
+    CHECK(midi.Recover(true));CHECK(!midi.Faulted());
 }

@@ -5,10 +5,13 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 package="$repo_root/deploy/arkos"
 launcher="$repo_root/tools/arkos/port/BroTracker Terminal.sh"
 diagnostics="$repo_root/tools/arkos/port/BroTracker Diagnostics.sh"
+midi_launcher="$repo_root/tools/arkos/port/BroTracker MIDI Connect.sh"
+midi_helper="$repo_root/tools/arkos/midi-connect.py"
 ports=/roms/ports
 app="$ports/brotracker"
 port_launcher="$ports/BroTracker Terminal.sh"
 diagnostic_launcher="$ports/BroTracker Diagnostics.sh"
+midi_entry="$ports/BroTracker MIDI Connect.sh"
 legacy_launcher="$ports/BroTracker.sh"
 obsolete="$app/BroTrackerArkOSUI"
 files=(
@@ -44,6 +47,8 @@ fi
 [[ -d "$ports" ]] || fail "Ports directory is missing: $ports"
 [[ -f "$launcher" ]] || fail "Launcher is missing: $launcher"
 [[ -f "$diagnostics" ]] || fail "Diagnostics launcher is missing: $diagnostics"
+[[ -f "$midi_launcher" ]] || fail "MIDI launcher is missing: $midi_launcher"
+[[ -f "$midi_helper" ]] || fail "MIDI helper is missing: $midi_helper"
 for file in "${files[@]}"; do
     [[ -f "$package/$file" ]] || fail "Package file is missing: $file"
 done
@@ -52,7 +57,7 @@ for dir in "$app" "$app/assets" "$app/assets/fonts" "$app/config"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
 done
-targets=("$diagnostic_launcher" "$port_launcher" "$legacy_launcher" "$obsolete")
+targets=("$midi_entry" "$app/midi-connect.py" "$diagnostic_launcher" "$port_launcher" "$legacy_launcher" "$obsolete")
 for file in "${files[@]}"; do
     targets+=("$app/$file")
 done
@@ -62,7 +67,7 @@ for target in "${targets[@]}"; do
 done
 
 # Use a unique backup name; never overwrite an earlier launcher backup.
-for existing in "$diagnostic_launcher" "$port_launcher" "$legacy_launcher"; do
+for existing in "$midi_entry" "$diagnostic_launcher" "$port_launcher" "$legacy_launcher"; do
     if [[ -f "$existing" ]]; then
         backup=$(mktemp "$existing.bak.XXXXXX")
         cp -p -- "$existing" "$backup"
@@ -80,6 +85,8 @@ for file in "${files[@]}"; do
 done
 install -m 0755 -- "$launcher" "$port_launcher"
 install -m 0755 -- "$diagnostics" "$diagnostic_launcher"
+install -m 0644 -- "$midi_helper" "$app/midi-connect.py"
+install -m 0755 -- "$midi_launcher" "$midi_entry"
 # Retire the legacy Ports entry only after the new launcher installs successfully.
 rm -f -- "$legacy_launcher"
 # Remove only the old executable, after the replacement package/launcher succeed.
@@ -87,5 +94,6 @@ rm -f -- "$obsolete"
 
 echo "Installed BroTracker Terminal (BTX) in $app"
 echo "Ports launcher: $port_launcher"
+echo "Development MIDI launcher: $midi_entry"
 echo "Runtime config: $app/config/config.ini (missing uses built-in defaults; never created or overwritten)."
 echo "Config example only: $app/config/config.ini.example; existing user config is never overwritten."

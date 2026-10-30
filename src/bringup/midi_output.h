@@ -43,6 +43,15 @@ public:
     bool Faulted() const noexcept { return fault_; }
     bool PendingCleanup() const noexcept { return cleanup_; }
     unsigned Queued() const noexcept { return count_; }
+    // Quarantined uncertainty is not active I/O. Keep the pitch ledger/fault,
+    // but allow stopped/paused storage once cancellation has completed and no
+    // DMA or queued event can still run. Explicit Reset re-arms cleanup and
+    // blocks storage again until completed or safely quarantined.
+    bool StorageReady(bool backend_idle) const noexcept {
+        return backend_idle && !abort_ && !count_ &&
+            (!cleanup_ || (fault_ && cleanup_blocked_));
+    }
+
     // Cancel unsent work, release only notes this adapter has submitted.
     // Submission is never an assertion of host/external delivery.
     void Reset() noexcept { head_=count_=0; cleanup_=true; cleanup_cursor_=0; cleanup_all_submitted_=false; cleanup_sent_=false; cleanup_blocked_=false; abort_=true; }

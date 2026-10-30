@@ -156,6 +156,15 @@ an idle endpoint or while disconnected. External release following these fault/
 disconnect cleanup paths remains unverified; the manual normal-OFF confirmation
 below is a separate result.
 
+Stopped/paused SD operations distinguish active cleanup from idle quarantine.
+A stalled cleanup remains reported as pending/uncertain, with its pitch ledger
+and fault retained. Once backend cancellation is complete, DMA is idle, and
+there are no queued MIDI events or pending abort, that quarantined state does
+not block Save/Load/session persistence. Active cleanup, queued events, pending
+cancellation and DMA still block storage; the audio/core readiness guards remain.
+An explicit STOP/reset re-arms cleanup and temporarily blocks storage again.
+Storage eligibility never confirms note release or clears a MIDI fault.
+
 Normal internal playback can START/Continue while MIDI is faulted. **MIDI recovery
 requires explicit STOP, completed cancellation and cleanup, then START while the
 engine is stopped and USB configured.** Wait for STOPPED and cleanup_pending=0.

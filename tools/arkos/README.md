@@ -9,6 +9,29 @@ glibc 2.30, libstdc++6 9.2.1-9ubuntu2, and system SDL2 2.0.10.
 Build inside a minimal Eoan ARM64 root under QEMU user emulation in WSL2.
 No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
 
+## Development MIDI connection launcher
+
+The existing `tools/arkos/install-port.sh` installer also installs
+**Ports > BroTracker MIDI Connect**. Run it manually before BroTracker Terminal,
+with Teensy and H4MIDI connected (planned hardware check: powered hub B).
+It requires Python 3 and `aconnect` from alsa-utils; prepare these while online.
+No Wi-Fi/SSH or running BTX is required during use.
+
+The tool discovers the exact ALSA sequencer port names `BroTracker USB audio MIDI 1`
+and `H4MIDI-WC MIDI 1`, connects only source to destination, and verifies the route.
+An existing route is a successful no-op. Missing/ambiguous names or failed commands
+produce an error. It never disconnects other routes, starts playback, edits BTX
+config, or runs a background reconnect service. Device removal can lose the route;
+run the tool again after reconnection. Other programs changing ports concurrently
+can invalidate a discovery/verification; the tool reports failure rather than
+removing routes to repair it.
+
+The console shows the result for eight seconds, then returns to Ports. The latest
+run remains in `$HOME/BroTracker/midi-connect.log` (separate from the BTX log).
+Run `python3 -B tools/arkos/check-midi-connect.py` and
+`bash tools/arkos/check-install-port.sh` for isolated checks. Visible console
+feedback and MIDI delivery on ArkOS and dArkOS remain physical checks.
+
 ## Current handheld controls
 
 Use [BTX_CONTROLS.md](../../docs/BTX_CONTROLS.md), the single current desktop and

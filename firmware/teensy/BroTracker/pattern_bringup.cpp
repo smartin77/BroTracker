@@ -436,9 +436,12 @@ namespace
         if(!g_audio_ready || !g_control.Snapshot().tempo) return "audio-initializing";
         if(!g_control.StorageReady(allow_paused)) return "core-not-ready";
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        if(g_midi.PendingCleanup()) return "midi-cleanup";
-        if(g_midi.Queued()) return "midi-queue";
-        if(!brotracker_midi_tx_idle()) return "midi-transfer";
+        const bool midi_idle=brotracker_midi_tx_idle();
+        if(!g_midi.StorageReady(midi_idle)) {
+            if(g_midi.Queued()) return "midi-queue";
+            if(!midi_idle) return "midi-transfer";
+            return "midi-cleanup";
+        }
 #endif
         return nullptr;
     }

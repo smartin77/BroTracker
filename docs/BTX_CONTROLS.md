@@ -246,7 +246,9 @@ If Teensy rejects the pre-load READY check (for example, MIDI cleanup has not
 completed), no file Load is sent. BTX retains the current work/cursor and releases
 the Load barrier for an existing editor; STOP and normal controls remain
 available. The status shows why Load was not attempted. Retry Load/Test after
-the device condition clears. Uncertain outcomes after a submitted Load still
+the device condition clears. Idle, cancelled MIDI quarantine no longer blocks
+file operations; MIDI fault/cleanup uncertainty remains visible. Active MIDI
+cleanup or DMA still blocks them. Uncertain outcomes after a submitted Load still
 require verified recovery. This does not clear or bypass MIDI faults.
 
 F5/F4 do not save or load channel mutes. They retain the live Teensy mute mask
