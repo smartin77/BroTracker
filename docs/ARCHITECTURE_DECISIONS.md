@@ -1897,3 +1897,36 @@ identities for later explicit revisions. Only established device-counter rollbac
 clears that floor; exhaustion never wraps. No uncertain transaction is blindly retried.
 Undo/Restore reaching a verified applied or pending revision requires no new transfer;
 report synchronized or waiting-for-application respectively, preserving the baseline.
+
+## D0060 - Non-Destructive Sample Slicing
+
+Sample slicing is a required planned BroTracker capability, not implemented
+functionality. It extends the sample storage and instrument foundation (D0008,
+D00010, D0042) and follows the host/realtime separation in D0039 and D0041.
+
+Represent slicing non-destructively as one source sample plus persistent slice
+boundaries; duplication into separate audio files must not be mandatory.
+Support transient-based automatic slicing, equal subdivision, and manual boundary
+addition, adjustment and removal, with slice audition.
+
+Support two playback modes:
+
+1. Play the selected slice and stop at its end: the next boundary, or sample end
+   for the final slice.
+2. Start at the selected slice and continue through subsequent boundaries to
+   sample end.
+
+Patterns must be able to select slices. Exact command encoding, note mapping and
+UI controls remain undecided.
+
+The host performs analysis and boundary editing. Teensy owns realtime playback
+using prepared, validated boundaries, independently of host availability. No
+transient analysis or dynamic allocation belongs in the realtime audio path.
+
+Preserve slice metadata with the instrument/project. Exact serialization, limits
+and interaction with looping, envelopes and streaming remain deferred.
+
+The inspiration was a modified original OctaMED 4 on Amiga with ReCycle-style
+transient slicing and commands 39xx/59xx. OctaMEDIC is a separate clone; this
+feature is not attributed to it. Those command numbers are not adopted for
+BroTracker.

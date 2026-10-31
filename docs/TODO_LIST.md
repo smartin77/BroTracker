@@ -37,6 +37,10 @@ Items may be added during development to record agreed next steps or work that n
   validation. No streaming code or
   buffer-size decision is authorized by this planning item.
 
+* [ ] Implement required [non-destructive sample slicing (D0060)](ARCHITECTURE_DECISIONS.md#d0060---non-destructive-sample-slicing):
+  host analysis/editing, persistent boundaries, pattern slice selection and both
+  playback modes; encoding, UI, limits and storage details remain deferred.
+
 ### Future front-panel hardware investigation
 
 * [ ] Investigate a PCB-mount male AC'97-compatible Shield header and two-audio-
