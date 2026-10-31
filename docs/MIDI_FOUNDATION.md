@@ -414,23 +414,69 @@ H4MIDI provides USB-to-DIN conversion/output, not a Teensy DIN implementation.
 | Direct PC | Teensy and H4MIDI on separate front-panel PC ports; Hub B bypassed | Not in route | No | **WORKS** |
 | Powered Hub B | Hub B on front USB panel; Teensy and H4MIDI both on B | Yes | No | **WORKS** |
 | Unpowered Hub B, powered H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | Yes | **WORKS** |
-| Unpowered Hub B and H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | No | **FAILS**: playback failed; HxMIDI Tools and MIDI-OX hangs observed during attempts |
+| Unpowered Hub B and H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | No | Earlier failure: playback failed; HxMIDI Tools and MIDI-OX hangs observed. Later tests passed (2026-10-31, below). |
 
-**Warning: this tested shared-hub setup fails when neither Hub B nor H4MIDI has
-external power.** Either externally powering Hub B or separately powering H4MIDI
-produced working playback. The user's conclusion is that power availability caused
-the failure in this setup. No electrical measurements were performed, and this is
-not a power requirement inferred for every USB hub. Each row is a separate
-user-confirmed physical result, not an automated test or long-term stability test.
-The earlier pure-USB OFF/envelope and subjective timing acceptance applies only to
-that USB topology; it is not transferred to these DIN routes. Measured
-offset/jitter/drift and handheld routing remain open; no compensation is introduced.
+The earlier unpowered shared-hub failure is a historical, intermittent observation,
+not a rule that this configuration necessarily fails. Power availability was
+suspected, but no electrical measurements or cause were established. The later
+successful tests below supersede the warning against using this arrangement.
+These are separate user confirmations, not automated or long-term stability tests.
+The pure-USB OFF/envelope and subjective timing acceptance above is not transferred
+to the DIN routes. Measured offset/jitter/drift remain open; no compensation is
+introduced.
 
 ![H4MIDI saved USB-to-DIN routing reference](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)
 
 Saved USB-to-DIN routing reference ([source image](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)).
 The image illustrates OUT1/OUT2 routing; only DIN **OUT1** playback is confirmed.
 OUT2 was not tested.
+
+### User-confirmed Windows shared-hub tests (2026-10-31)
+
+Setup: **Windows 11 25H2, PC front USB panel, hub B**, with Teensy 4.1,
+H4MIDI-WC and a Wi-Fi dongle attached to B. The route was **Teensy USB MIDI ->
+MIDI-OX -> H4MIDI USB-C device port -> configured DIN OUT -> Behringer WASP**.
+A standalone PowerShell arpeggio also tested H4MIDI independently of BTX and
+MIDI-OX.
+
+| Hub B external power | H4MIDI external power | User-confirmed result |
+| --- | --- | --- |
+| Connected | Connected | Arpeggio and BTX/WASP worked. |
+| Disconnected | Connected | BTX and MIDI kept working. Reconnecting the Wi-Fi dongle during pause and playback caused no visible interruption. |
+| Disconnected; entire hub reconnected with all devices attached | Connected | Arpeggio and BTX/MIDI worked. |
+| Disconnected | Disconnected | Arpeggio and BTX/MIDI worked; a subsequent reconnect of the entire chain also passed. |
+
+The PC has a **550 W PSU**. These successful unpowered hub/H4MIDI tests apply to
+this PC and front USB port; the PSU rating does not establish current available
+at that port. No electrical measurements or universal USB power requirement are
+inferred.
+
+### Open issues and platform limits (2026-10-31)
+
+- **Windows routing after reconnect:** MIDI-OX lost its Teensy input after a hub
+  reconnect. Restarting MIDI-OX restored routing while BTX stayed open.
+- **Windows MIDI hangs:** during earlier testing, MIDI-OX and a direct WinMM
+  PowerShell test hung, and Windows MIDI Service remained `STOP_PENDING`.
+  Forcibly ending that service's own process and starting the service restored
+  the arpeggio and later MIDI-OX operation. This is an observed recovery, not a
+  guaranteed fix; the underlying cause is unknown.
+- **Unstable USB tests:** earlier descriptor failures, hub disconnects and
+  SD-unavailable were observed. No shared cause is confirmed. After reconnecting
+  Teensy, the previous session returned; this does not explain the failures.
+- **Multiple BTX instances:** two simultaneous instances produced a misleading
+  waiting-for-device state. Prevention is an [open improvement](TODO_LIST.md#next-development-steps),
+  not an explanation for the unrelated MIDI or SD failures.
+- **dArkOS:** H4MIDI detection was intermittent, and direct notes sometimes failed
+  with USB enumeration/URB errors. Standalone arpeggio also worked directly and
+  through hub B in other tests. Full **BTX -> H4MIDI -> WASP** operation remains
+  open. These dArkOS observations do not validate ArkOS; ArkOS external routing
+  remains separately pending. Windows tests validate neither handheld platform.
+- **Handheld power/topology:** the R36H runs on battery. Power connected to its
+  separate USB-C charging port did not appear to improve the observed behavior,
+  but this was not measured or systematically isolated. Handheld USB power and
+  host-controller behavior may differ from the PC. Supply, controller and topology
+  remain possible factors to investigate; neither insufficient handheld USB power
+  nor a particular faulty hub has been proven.
 
 ### Earlier automated capture and other routing prerequisites
 
@@ -440,7 +486,7 @@ present in the observed WinMM output list (only Microsoft GS and Teensy).
 No external synth or two-channel audio measurement was available to this run.
 
 For the confirmed PC/CME/DIN route above, connect Teensy and the CME's USB
-**client/device** port to the PC, directly or through a tested powered arrangement.
+**client/device** port to the PC, directly or through a tested hub arrangement.
 Configure a host MIDI routing application (for example a user-chosen MIDI-OX route) from Teensy MIDI input to the appropriate
 CME MIDI output, then connect that CME DIN OUT to synth DIN IN. Confirm the
 CME's saved routing/filtering, output port, synth receive channel and patch.
@@ -528,8 +574,8 @@ Manual checklist:
   Teensy and confirm the new acknowledgment before playback.
 - Perform the two-channel measurement above before claiming measured alignment
   or choosing compensation; topology-specific listening acceptance is recorded above.
-- Keep inherited physical handheld tempo/Synth/beat-navigation validation pending;
-  no SSH or handheld deployment has been performed.
+- Keep remaining handheld checks separate from Windows results; neither ArkOS
+  nor dArkOS external MIDI routing is established by the PC confirmations.
 
 ## USB lifecycle review (2026-10-23)
 

@@ -24,6 +24,10 @@ Items may be added during development to record agreed next steps or work that n
   Teensy-owned routing, separate destination/channel/protocol settings. No new
   config/protocol, fan-out, fallback, resource reservation or schedule is approved.
 
+* [ ] Prevent simultaneous BTX instances from producing a misleading
+  waiting-for-device state (observed 2026-10-31). Keep this separate from the
+  unrelated MIDI/SD failures; see [routing issues and platform limits](MIDI_FOUNDATION.md#open-issues-and-platform-limits-2026-10-31).
+
 ### Future SD-streamed Sample playback
 
 * [ ] Explore [production Sample streaming](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
@@ -338,11 +342,13 @@ for bindings/startup behavior and distinguish automated from physical evidence.
   DIN OUT1 -> separately powered WASP DIN IN (WASP USB disconnected), channel 12.
   Separate results: direct front PC ports, no H4MIDI external supply: WORKS;
   both devices on front-connected externally powered Hub B, no H4MIDI supply: WORKS;
-  same hub unpowered, H4MIDI separately powered: WORKS; neither externally powered:
-  FAILS, with HxMIDI Tools/MIDI-OX hangs during attempts. User concludes power
-  availability caused this shared-hub failure: **do not use that setup with neither
-  externally powered**. Either power arrangement worked; no electrical measurement
-  or universal hub requirement is claimed. See the [routing matrix and reference](MIDI_FOUNDATION.md#user-confirmed-windows-h4mididin-routes-2026-10-24).
+  same hub unpowered, H4MIDI separately powered: WORKS. With neither externally
+  powered, an earlier failure and HxMIDI Tools/MIDI-OX hangs were observed;
+  this remains historical/intermittent, with cause unproven. On 2026-10-31,
+  Windows tests also passed with both unpowered, including chain reconnection.
+  See the [original routing matrix and image](MIDI_FOUNDATION.md#user-confirmed-windows-h4mididin-routes-2026-10-24)
+  and [later PC-specific tests and limits](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31).
+  No electrical measurement or universal power requirement is claimed.
   These are user playback confirmations, not automated or long-term stability tests;
   no DIN timing/listening acceptance is inferred from the separate pure-USB result.
 * [ ] Verify handheld routing and H4MIDI OUT2 if needed. Earlier automated capture

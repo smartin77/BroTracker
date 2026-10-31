@@ -68,6 +68,13 @@ During initial hardware development, BroTracker will use USB connectivity.
 
 The primary external MIDI routing hardware is the CME H4MIDI.
 
+H4MIDI is the current development routing hardware and should remain a supported
+external routing alternative alongside future BroTracker routing options. This is
+an interoperability direction, not a new built-in H4MIDI integration or implemented
+BroTracker router. Keep the MIDI core independent of this hardware choice.
+Platform-specific confirmations and open issues are recorded in the
+[MIDI foundation](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31).
+
 The current controllable route is Teensy USB device -> PC host MIDI router ->
 CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices
 do not route between themselves. The H4MIDI WC USB-A host port is a different
@@ -192,7 +199,9 @@ Examples include:
 - TXL MIDI Router
 - CME H4MIDI
 
-These examples are informative only and do not represent required integrations.
+These are external interoperability examples, not built-in integrations. The
+long-term H4MIDI compatibility direction above does not require a device-specific
+implementation.
 
 ## Future Considerations
 
