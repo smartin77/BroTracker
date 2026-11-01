@@ -117,6 +117,7 @@ void BringUpSerial::Disconnect(const char* reason)
     pattern_assembler_.Clear();
     snapshot_version_ = 1;
     snapshot_supported_ = snapshot_requested_ = snapshot_failed_ = false;
+    snapshot_retries_=0;snapshot_retry_pending_=false;
     transport_supported_ = false; transport_queued_ = Command::None;
     std::strcpy(state_, "UNKNOWN");
 }
@@ -261,7 +262,8 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 }
 
 const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& editor) const {
-    if(!StartupPatternReady()) return "Wait for SD startup pattern/readback";
+    if(!StartupPatternReady()) return snapshot_failed_ ?
+        "Device/session readback unconfirmed; available host work retained" : "Wait for device/session synchronization";
     if(!connected_) return "Connect Teensy to publish";
     if(!publication_supported_) return "Firmware does not support publication";
     if(tempo_.Supported() && !tempo_publication_) return "Tempo-aware publication unsupported";
@@ -654,7 +656,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         const auto result = pattern_assembler_.Accept(line_, used_, now);
         if (result == BroTracker::SnapshotAssemblyStatus::Rejected ||
-            result == BroTracker::SnapshotAssemblyStatus::Timeout) { snapshot_failed_ = true; publication_.ReadbackFailed(); if(startup_applied_ && !startup_done_)startup_failed_=true; }
+            result == BroTracker::SnapshotAssemblyStatus::Timeout) SnapshotFailed(now);
+        if(result==BroTracker::SnapshotAssemblyStatus::Complete) {
+            snapshot_failed_=false;snapshot_retry_pending_=false;
+        }
         if(result==BroTracker::SnapshotAssemblyStatus::Complete && publication_.NeedsReadback())
             (void)publication_.Verify(*pattern_assembler_.Snapshot());
         // Only the original startup transaction's awaited baseline completes startup.
@@ -755,6 +760,23 @@ void BringUpSerial::Tick(std::uint32_t now)
     }
 }
 
+void BringUpSerial::SnapshotFailed(std::uint32_t now)
+{
+    snapshot_failed_=true;
+    // Read-only initial/reconnect recovery. Never retry an uncertain file load
+    // or publication, or replace the retained editor/draft as a side effect.
+    const bool file_readback_pending=startup_selection_enabled_ && !startup_editor_ready_ && !load_rejected_;
+    if(!file_readback_pending && !initial_sync_ready_ && !publish_queued_ &&
+        !publication_.Blocking() && !publication_.NeedsReadback() && !snapshot_retry_pending_) {
+        if(snapshot_retries_<2) {
+            ++snapshot_retries_;snapshot_retry_pending_=true;snapshot_retry_at_=now;
+            Log("Device pattern readback unconfirmed; retry in 1000 ms (at most three attempts per connection); host work retained");
+        } else Log("Device pattern readback retries exhausted; recovery unconfirmed, host work retained; STOP remains available");
+    }
+    publication_.ReadbackFailed();
+    if(startup_applied_ && !startup_done_)startup_failed_=true;
+}
+
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
     tempo_.Tick(now);
@@ -764,8 +786,10 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     publication_.Tick(now);
     preview_.Tick(now);
     if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout) {
-        snapshot_failed_ = true; publication_.ReadbackFailed();
-        if(startup_applied_ && !startup_done_)startup_failed_=true;
+        SnapshotFailed(now);
+    }
+    if(snapshot_retry_pending_ && now-snapshot_retry_at_>=1000) {
+        snapshot_retry_pending_=false;snapshot_requested_=false;
     }
     if(publication_.NeedsReadback() && !publication_readback_requested_ && connected_ && snapshot_version_==2)
         snapshot_requested_=false;

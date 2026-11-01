@@ -153,11 +153,15 @@ private:
     void Send(Command command, std::uint32_t now);
     void OnLine(std::uint32_t now);
     void ServiceSerial(std::uint32_t now);
+    void SnapshotFailed(std::uint32_t now);
     bool write_backpressure_=false;
     void ClearPosition();
     BroTracker::PatternSnapshotAssembler pattern_assembler_;
     unsigned snapshot_version_ = 1;
     bool snapshot_supported_ = false, snapshot_requested_ = false, snapshot_failed_ = false;
+    unsigned snapshot_retries_=0;
+    bool snapshot_retry_pending_=false;
+    std::uint32_t snapshot_retry_at_=0;
     std::uint32_t next_snapshot_id_ = 1; // Never reused/wrapped within this host instance.
     LivePlaybackView live_;
     bool position_received_ = false;

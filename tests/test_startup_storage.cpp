@@ -106,6 +106,62 @@ void Pump(BringUpSerial& serial,unsigned first=0,unsigned last=80,LocalPatternEd
     for(unsigned i=first;i<last;++i){serial.Tick(i*20);serial.SyncEditor(editor,i*20);}
 }
 }
+TEST_CASE(InitialSessionReadbackRetriesTransientTimeoutWithoutLoadingOrStarting) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,270,&editor);CHECK(!editor.Ready());CHECK(!serial.StartupPatternReady());
+    wire->hold_baseline=false;Pump(serial,270,390,&editor);
+    CHECK(editor.Ready());CHECK(serial.StartupPatternReady());CHECK(!serial.PlaybackView(7800)->pattern_failed);
+    CHECK_EQ(wire->Loads(),0u);
+    CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& s){return s.rfind("BTPATTERN1 GET 2 ",0)==0;}),2);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+}
+
+TEST_CASE(InitialSessionReadbackFailureIsBoundedAndStopRemainsAvailable) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,1500,&editor);
+    CHECK(!editor.Ready());CHECK(!serial.StartupPatternReady());CHECK(serial.PlaybackView(30000)->pattern_failed);
+    CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& s){return s.rfind("BTPATTERN1 GET 2 ",0)==0;}),3);
+    CHECK_EQ(wire->Loads(),0u);CHECK(serial.Stop());Pump(serial,1500,1510,&editor);CHECK(serial.Stopped());
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+}
+
+TEST_CASE(RejectedInitialReadbackRetriesWithFreshIdentity) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,80,&editor);
+    const auto first=std::find_if(wire->commands.begin(),wire->commands.end(),[](const auto& s){return s.rfind("BTPATTERN1 GET 2 ",0)==0;});
+    CHECK(first!=wire->commands.end());const auto request=*first;
+    wire->rx+="BTPATTERN1 SNAPERR 2 "+request.substr(std::string("BTPATTERN1 GET 2 ").size())+"\n";
+    wire->hold_baseline=false;Pump(serial,80,180,&editor);
+    CHECK(editor.Ready());CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),0u);
+    std::vector<std::string> reads;for(const auto& s:wire->commands)if(s.rfind("BTPATTERN1 GET 2 ",0)==0)reads.push_back(s);
+    CHECK_EQ(reads.size(),2u);CHECK(reads[0]!=reads[1]);
+}
+
+TEST_CASE(ReconnectReadbackRetryPreservesDraftAndCursorWithoutStarting) {
+    for(bool previously_loaded:{false,true}) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");LocalPatternEditor editor;
+    Pump(serial,0,90,&editor);CHECK(editor.Ready());
+    if(previously_loaded) {
+        CHECK(serial.RequestFile(BringUpSerial::FileAction::Load,1801));Pump(serial,91,180,&editor);
+        CHECK(serial.StartupPatternReady());CHECK(editor.Ready());
+    }
+    editor.RestoreCursor({4,3,EditField::Instrument,false});
+    CHECK(editor.Apply(EditorAction::Increment));const auto retained=*editor.Draft();
+    wire->healthy=false;serial.Tick(3601);serial.SyncEditor(editor,3601);
+    wire->hold_baseline=true;Pump(serial,181,440,&editor);
+    wire->hold_baseline=false;Pump(serial,440,610,&editor);
+    CHECK(serial.PlaybackView(12200)->device_pattern.has_value());
+    CHECK(editor.Ready());CHECK(SamePattern(retained,*editor.Draft()));
+    CHECK_EQ(editor.Cursor().row,4u);CHECK_EQ(editor.Cursor().channel,3u);CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+    CHECK_EQ(wire->Loads(),0u);
+    CHECK_EQ(std::count(wire->commands.begin(),wire->commands.end(),"BTSTORE1 DRAFTLOAD 1"),previously_loaded?1:0);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+    }
+}
 TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
     for(auto selection:{"none","patern1","patern2","patern3","patern4","patern4.btdev"}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern(selection);serial.RequestFile(BringUpSerial::FileAction::Test,0);

@@ -17,6 +17,11 @@ Sample PCM and external instrument state are outside this bounded format.
 
 Normal BTX launch reads the actual device baseline and working/pending readbacks.
 It never loads `development.startup_pattern`, RESTOREs a file, or STARTs playback.
+An initial/reconnect baseline readback that times out or is rejected gets at most
+two read-only retries, separated by one second (three attempts per connection).
+Each request uses a new transfer identity. Failed verification remains visible;
+available host work is retained and STOP remains available. This does not retry
+an uncertain file load/publication or automatically overwrite a different baseline.
 The device reads its latest validated session at boot and remains stopped. Missing
 sessions leave the boot fixture available; corrupt/unrecoverable sessions are
 reported explicitly, without overwriting the file or pretending recovery succeeded.
@@ -34,6 +39,23 @@ explicit RAM Publish; Shift+F4 / L1+X remain in-memory Restore to the published
 baseline. [Controls](BTX_CONTROLS.md) is the binding reference.
 
 ## Storage and audio priority
+
+Device absence/CDC failure, failed RAM readback, and SD/session failure are separate
+conditions. An empty or unverified editor does not prove firmware has no pattern;
+an unavailable exit save does not prove an SD error or that no saved session exists.
+The current firmware initializes SD and attempts session restoration at boot only.
+It does not remount/reload SD automatically after a transient failure; such recovery
+must account for retained RAM work, prepared audio bindings and safe storage access.
+Software cannot confirm persistence or repair physical USB/power/SD faults merely
+because communication resumes.
+
+On ArkOS the normal launcher may supervise the independent ALSA bridge even when
+BTX selects PT8211. Bridge discovery/retry is not serial/session recovery, and a
+missing capture endpoint is not proof SD or the firmware pattern is unavailable.
+The current MIDI Connect helper routes only the named Teensy source to H4MIDI
+through ALSA; it does not own CDC or restore sessions. MIDI health/recovery remains
+separate from internal audio and device/session verification. Do not start a second
+serial owner to recover MIDI while BTX owns the device.
 
 The existing SD backend performs synchronous writes/sync/verification/rename, whose
 card latency has no realtime upper bound. It therefore performs **no persistence
