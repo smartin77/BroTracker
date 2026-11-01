@@ -1,10 +1,10 @@
 #!/bin/bash
-# Manual development utility. No BTX, playback, background service or network.
+# Development ALSA keeper. No BTX, CDC, playback control or network required.
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
 umask 077
 log_dir="$HOME/BroTracker"
 mkdir -p -- "$log_dir" || exit 1
-log="$log_dir/midi-connect.log"
+log="$log_dir/midi-connect-launch.log"
 if [[ -t 1 ]]; then
     exec 3>&1
 elif [[ -w /dev/tty1 ]]; then
@@ -22,7 +22,7 @@ fi
         echo 'FAILED: Python 3 is missing. Install it during development setup.'
         result=1
     fi
-    printf '\nLog: %s\nReturning to Ports in 8 seconds.\n' "$log"
+    printf '\nKeeper log: %s/midi-connect.log\nReturning to Ports in 8 seconds; keeper continues independently.\n' "$log_dir"
 } > "$log" 2>&1
 printf '\033c' >&3
 cat -- "$log" >&3

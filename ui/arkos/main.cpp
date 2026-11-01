@@ -16,6 +16,7 @@
 #include <cstring>
 
 #include "ui/bringup_serial.h"
+#include "ui/midi_status_exchange.h"
 #include "ui/host_config.h"
 #include "ui/sdl/host_paths.h"
 #include "ui/host_logging.h"
@@ -317,6 +318,8 @@ int main(int argc, char* argv[])
     std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
+    const char* midi_home=std::getenv("HOME");
+    BroTracker::MidiStatusExchange midi_exchange(midi_home?std::filesystem::path(midi_home)/"BroTracker":std::filesystem::path{},bring_up_log);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     LocalPatternEditor editor;
@@ -392,6 +395,8 @@ int main(int argc, char* argv[])
             editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
             serial.SupportsPatternTransport() ? kArkOSEditorHints : kArkOSLegacyEditorHints,
             serial.PublicationStatus(), {}, serial.MidiStatus()};
+        midi_exchange.Tick(serial.MidiHealth(SDL_GetTicks()),serial.Playing()?"playing":serial.Paused()?"paused":serial.MidiRecoveryStopped()?"stopped":"unknown",BroTracker::MidiStatusExchange::Now());
+        panel.midi_route_status=midi_exchange.route;panel.midi_usb_status=midi_exchange.usb;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
         panel.row_numbering=host_config.config.row_numbering;

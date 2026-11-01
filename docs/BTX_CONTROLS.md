@@ -251,6 +251,14 @@ file operations; MIDI fault/cleanup uncertainty remains visible. Active MIDI
 cleanup or DMA still blocks them. Uncertain outcomes after a submitted Load still
 require verified recovery. This does not clear or bypass MIDI faults.
 
+MIDI status is separate from transport: ArkOS shows the H4 route subscription and
+USB-path errors independently of Teensy firmware health. A subscription or healthy
+USB endpoint does not verify external delivery. For a MIDI fault, follow the shown
+action: explicitly STOP, wait for STOPPED and cleanup=0, then explicitly START to
+request recovery. BTX never sends those transport commands automatically. Missing
+or stale keeper/firmware status is shown as unavailable/unknown; internal audio and
+editing remain independent. No button bindings changed.
+
 F5/F4 do not save or load channel mutes. They retain the live Teensy mute mask
 while the device remains powered; device initialization clears that mask.
 

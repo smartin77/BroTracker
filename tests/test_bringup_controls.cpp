@@ -35,6 +35,22 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+          t.Tick();t.port->Expect("BTMIDI1 SET 1 12\n");t.Reply("BTMIDI1 SELECTED 1 12\n");
+          t.Reply("BTMIDI1 OUTPUT 1 1 1 1 8\n");CHECK(t.serial.MidiHealth(t.now).fault);
+          CHECK(std::strstr(t.serial.MidiStatus(),"wait STOPPED + cleanup=0"));t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 1 1 0 8\n");CHECK(std::strstr(t.serial.MidiStatus(),"START requests recovery"));t.port->Expect("");
+          const auto at=t.now;t.Reply("BTMIDI1 OUTPUT 1 1 1 0 8\n");
+          CHECK(t.serial.MidiHealth(at+3000).known);CHECK(!t.serial.MidiHealth(t.now+3001).known);
+          t.Reply("BTTEST1 STATE PLAYING\nBTMIDI1 OUTPUT 1 1 1 0 8\n");
+          CHECK(t.serial.Playing());CHECK(std::strstr(t.serial.MidiStatus(),"STOP; wait"));t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 0\n");CHECK(!t.serial.MidiHealth(t.now).fault);t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 0 1 1 8\n");CHECK(!t.serial.MidiHealth(t.now).configured);
+          CHECK(t.serial.MidiHealth(t.now).known);CHECK(std::strstr(t.serial.MidiStatus(),"restore USB"));t.port->Expect("");
+          t.port->online=false;t.Tick();CHECK(!t.serial.MidiHealth(t.now).known);
+          t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+          t.Reply("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");CHECK(!t.serial.MidiHealth(t.now).known);
+        }
         { Test t;std::string events;
           t.serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){*static_cast<std::string*>(context)+=std::string(event)+",";},&events);
           t.Ready("BTTEST1 STATE IDLE\nBTPATTERN1 TRANSPORTCAP 1\n");events.clear();

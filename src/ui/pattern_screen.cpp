@@ -839,10 +839,12 @@ static void RenderPatternScreen(
         // Connection/errors and pending transport stay visible even before HELLO.
         if(!host.volume_status.empty())info(host.volume_status,header_value);
         if (!host.connection_status.empty()) info(host.connection_status, header_value);
+        if (!host.midi_route_status.empty()) info(host.midi_route_status, header_value);
+        if (!host.midi_usb_status.empty()) info(host.midi_usb_status, header_value);
+        if (!host.midi_status.empty()) info(host.midi_status, header_value);
         if (!host.transport_hints.empty()) info(host.transport_hints, header_value);
         if (!host.publication_status.empty()) info(host.publication_status, header_value);
         if (!host.diagnostic_status.empty()) info(host.diagnostic_status, header_value);
-        if (!host.midi_status.empty()) info(host.midi_status, header_value);
         if(live && !live->mute_status.empty()) info(live->mute_status,header_value);
         if (display.device_mode)
         {

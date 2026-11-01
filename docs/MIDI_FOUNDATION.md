@@ -187,6 +187,14 @@ Reason values: 0 none, 1 unavailable at enqueue, 2 release deadline, 3 capacity,
 8 completion stall. The **first** reason stays latched across cleanup failures and
 disconnect until successful explicit recovery. Busy/late/overflow/disconnect and
 transport counters remain available in the existing STATE/TIMING replies.
+ArkOS BTX now exchanges observations with the persistent H4MIDI route keeper through
+[versioned local status files](../tools/arkos/README.md#btx-healthstatus-exchange).
+The keeper owns ALSA routing; BTX remains its only CDC participant. Route presence,
+USB-path errors and fresh firmware health are displayed separately, with dead-owner,
+restart and staleness checks. Windows uses the shared firmware-health/action text.
+Recovery still requires the explicit stopped/cleanup/START boundary above; no
+automatic transport action, session mutation or new firmware recovery command is
+added. USB configured=0 telemetry is valid and must not be discarded as a zero ID.
 The 2903 us release deadline, 40 ms completion watchdog, sample target timestamps,
 ordering, 100 us timer cadence and service/storage bounds are unchanged. BTX logs
 and displays MIDI health separately from transport; repeated identical health

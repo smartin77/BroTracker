@@ -558,20 +558,15 @@ void BringUpSerial::OnLine(std::uint32_t now)
         Log("SD startup pattern applied; awaiting v2 baseline readback:",line_);return;
     }
     if(!std::strncmp(line_,"BTMIDI1 OUTPUT 1 ",17)) {
-        std::uint32_t f[4]{};
-        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTMIDI1 OUTPUT 1 ",f,4) &&
-           f[0]<=1 && f[1]<=1 && f[2]<=1 && f[3]<=8) {
+        // SnapshotFields requires its first field to be nonzero: parse version
+        // explicitly so USB configured=0 remains valid health telemetry.
+        std::uint32_t fields[5]{};const auto* f=fields+1;
+        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTMIDI1 OUTPUT ",fields,5) &&
+           fields[0]==1 && f[0]<=1 && f[1]<=1 && f[2]<=1 && f[3]<=8) {
+            midi_health_at_=now; // Same-state replies renew evidence without log flooding.
             const unsigned state=f[0] | (f[1]<<1) | (f[2]<<2) | (f[3]<<3);
             if(state!=midi_output_state_) {
                 midi_output_state_=state;
-                static constexpr const char* reasons[]={"none","unavailable","deadline","overflow",
-                    "DMA error","invalid event","USB lifecycle","timer","completion stall"};
-                if(f[1]) std::snprintf(midi_output_status_,sizeof(midi_output_status_),
-                    "MIDI fault: %s; %s; %s",reasons[f[3]],f[0]?"STOP/START retry":"USB unavailable",
-                    f[2]?"cleanup uncertain":"external delivery unknown");
-                else std::snprintf(midi_output_status_,sizeof(midi_output_status_),"%s; %s",
-                    f[0]?"MIDI USB configured":"MIDI USB unavailable",
-                    f[2]?"cleanup uncertain":"external delivery unknown");
                 Log("MIDI output:",line_);
             }
         }

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include "serial_transport.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/development_pattern_selection.h"
@@ -13,6 +14,7 @@
 #include "bringup/host_channel_mute.h"
 #include "bringup/host_master_volume.h"
 #include "bringup/host_tempo.h"
+#include "midi_health.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -94,7 +96,23 @@ public:
     bool RequestFile(FileAction action, std::uint32_t now);
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
-    const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
+    BroTracker::HostMidiHealth MidiHealth(std::uint32_t now) const {
+        BroTracker::HostMidiHealth h;h.connected=connected_;h.supported=midi_supported_;
+        if(midi_output_state_!=UINT32_MAX) {
+            h.age_ms=now-midi_health_at_;h.known=connected_ && h.age_ms<=3000;
+            h.configured=midi_output_state_&1;h.fault=midi_output_state_&2;
+            h.cleanup=midi_output_state_&4;h.reason=midi_output_state_>>3;
+        }
+        return h;
+    }
+    const char* MidiStatus() const {
+        if(midi_failed_)return "MIDI rejected/restart required";
+        if(connected_ && midi_supported_ && midi_output_state_==UINT32_MAX)
+            return midi_confirmed_?"MIDI channel acknowledged; endpoint health unknown":"MIDI awaiting acknowledgment";
+        BroTracker::FormatMidiHealth(MidiHealth(diagnostic_now_),MidiRecoveryStopped(),midi_output_status_,sizeof(midi_output_status_));
+        return midi_output_status_;
+    }
+    bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
@@ -176,7 +194,8 @@ private:
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
     unsigned midi_channel_=12;
-    char midi_output_status_[96]{};
+    mutable char midi_output_status_[192]{};
+    std::uint32_t midi_health_at_=0;
     unsigned midi_output_state_=UINT32_MAX;
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
