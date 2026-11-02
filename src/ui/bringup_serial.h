@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include "serial_transport.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/development_pattern_selection.h"
@@ -13,6 +14,7 @@
 #include "bringup/host_channel_mute.h"
 #include "bringup/host_master_volume.h"
 #include "bringup/host_tempo.h"
+#include "midi_health.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -29,17 +31,21 @@ public:
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
     bool ReconnectRecoveryPending() const { return continuity_pending_; }
-    // F4 restores the retained local published baseline, without device writes.
+    // Shift+F4 restores the retained local published baseline, without device writes.
     bool RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now);
     const char* PublicationStatus() const {
         if(continuity_pending_) {
             if(publication_.Blocking() || publication_.Phase()==BroTracker::HostPublicationPhase::Rejected ||
                 publication_.Phase()==BroTracker::HostPublicationPhase::Mismatch) return publication_.Status();
             if(snapshot_failed_) return "Reconnect readback failed: local work retained; reconnect to retry";
-            return continuity_ready_ ? "Reconnect differs: local retained. F4 Restore local; F5 Publish" :
-                "Reconnect unverified: local work retained; waiting for readback";
+            if(continuity_auto_) return preview_.Phase()==BroTracker::HostPreviewPhase::Rejected ?
+                "Reconnect recovery rejected: host draft retained; STOP available; see preview/log" :
+                "Reconnect: recovering retained host edits; waiting for verified working readback; STOP available";
+            return continuity_ready_ ? "Reconnect differs: local retained. Shift+F4 Restore local; Shift+F5 Publish" :
+                "Reconnect unconfirmed: host work retained; waiting for safe stopped readback; STOP available";
         }
 
+        if(file_status_[0]) return file_status_;
         if(tempo_.Supported() && !tempo_.Synchronized() && !PublicationBusy()) {
             if(tempo_.Phase()==BroTracker::HostTempoPhase::Uncertain) return "Tempo uncertain; reading device state";
             std::snprintf(tempo_status_,sizeof(tempo_status_),"Tempo applied %u.%02u | desired %u.%02u (pending)",
@@ -83,10 +89,30 @@ public:
     void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
     // App config resolution always calls this, including missing/empty => None.
     // Standalone protocol clients may omit startup initialization entirely.
-    void SetStartupPattern(std::string_view value) { startup_selection_enabled_=true; if(!startup_pattern_.Assign(value))startup_failed_=true; }
+    void SetStartupPattern(std::string_view value) { startup_configured_=true;startup_pattern_valid_=startup_pattern_.Assign(value); }
     void SetStartupPattern(const BroTracker::DevelopmentPattern& value) { SetStartupPattern(std::string_view(value.stem)); }
-    bool StartupPatternReady() const {return !startup_selection_enabled_ || startup_editor_ready_;}
-    const char* MidiStatus() const { return midi_failed_?"MIDI rejected/restart required":!midi_supported_?"MIDI unsupported by firmware":midi_confirmed_?(midi_output_status_[0]?midi_output_status_:"MIDI channel acknowledged"):"MIDI awaiting acknowledgment"; }
+    bool StartupPatternReady() const {return startup_selection_enabled_ ? (startup_editor_ready_ || load_rejected_) : (!startup_configured_ || initial_sync_ready_);}
+    enum class FileAction { None, Save, Load, Test, Session };
+    bool RequestFile(FileAction action, std::uint32_t now);
+    void BeginExit(std::uint32_t now);
+    bool ExitReady() const {return exit_done_;}
+    BroTracker::HostMidiHealth MidiHealth(std::uint32_t now) const {
+        BroTracker::HostMidiHealth h;h.connected=connected_;h.supported=midi_supported_;
+        if(midi_output_state_!=UINT32_MAX) {
+            h.age_ms=now-midi_health_at_;h.known=connected_ && h.age_ms<=3000;
+            h.configured=midi_output_state_&1;h.fault=midi_output_state_&2;
+            h.cleanup=midi_output_state_&4;h.reason=midi_output_state_>>3;
+        }
+        return h;
+    }
+    const char* MidiStatus() const {
+        if(midi_failed_)return "MIDI rejected/restart required";
+        if(connected_ && midi_supported_ && midi_output_state_==UINT32_MAX)
+            return midi_confirmed_?"MIDI channel acknowledged; endpoint health unknown":"MIDI awaiting acknowledgment";
+        BroTracker::FormatMidiHealth(MidiHealth(diagnostic_now_),MidiRecoveryStopped(),midi_output_status_,sizeof(midi_output_status_));
+        return midi_output_status_;
+    }
+    bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
@@ -120,8 +146,17 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage };
+    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
     BroTracker::DevelopmentPattern startup_pattern_;
+    bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
+    FileAction file_action_=FileAction::None;
+    char file_status_[160]{};
+    bool exit_requested_=false,exit_done_=false;
+    std::uint32_t exit_started_=0,file_requested_at_=0;
+    bool FileIdle() const;
+    const char* LoadLabel() const;
+    char load_label_[40]{};
+    bool working_storage_supported_=false;
     bool storage_supported_=false,startup_attempted_=false,startup_applied_=false,startup_done_=false,startup_failed_=false;
     bool storage_ready_supported_=false,startup_stop_sent_=false,startup_ready_sent_=false,startup_storage_ready_=false;
     bool startup_context_cleared_=false,startup_editor_ready_=false;
@@ -136,11 +171,15 @@ private:
     void Send(Command command, std::uint32_t now);
     void OnLine(std::uint32_t now);
     void ServiceSerial(std::uint32_t now);
+    void SnapshotFailed(std::uint32_t now);
     bool write_backpressure_=false;
     void ClearPosition();
     BroTracker::PatternSnapshotAssembler pattern_assembler_;
     unsigned snapshot_version_ = 1;
     bool snapshot_supported_ = false, snapshot_requested_ = false, snapshot_failed_ = false;
+    unsigned snapshot_retries_=0;
+    bool snapshot_retry_pending_=false;
+    std::uint32_t snapshot_retry_at_=0;
     std::uint32_t next_snapshot_id_ = 1; // Never reused/wrapped within this host instance.
     LivePlaybackView live_;
     bool position_received_ = false;
@@ -155,7 +194,8 @@ private:
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
     unsigned midi_channel_=12;
-    char midi_output_status_[96]{};
+    mutable char midi_output_status_[192]{};
+    std::uint32_t midi_health_at_=0;
     unsigned midi_output_state_=UINT32_MAX;
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
@@ -178,7 +218,7 @@ private:
     BroTracker::DevicePatternSnapshot continuity_baseline_{};
     BroTracker::RealtimePattern continuity_draft_{};
     std::uint32_t continuity_tempo_=0;
-    bool continuity_pending_=false,continuity_ready_=false,continuity_frozen_=false;
+    bool continuity_pending_=false,continuity_ready_=false,continuity_frozen_=false,continuity_auto_=false;
 
     BroTracker::HostChannelGains gains_;
     mutable char tempo_status_[96]{};

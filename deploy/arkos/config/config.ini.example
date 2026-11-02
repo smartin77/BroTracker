@@ -66,8 +66,9 @@ bridge_audible_test=no
 ; patern4 and patern4.btdev -> /BroTracker/development/patern4.btdev; no truncation.
 ; Only exact unquoted none means clean empty32x8/125.00; none.btdev loads that file.
 ; No quoted INI values, paths, traversal, other dots/extensions or whitespace in names.
-; Missing/empty uses clean none; invalid warns/uses clean default, never invalid lookup.
+; F3 / Select+Start only. Normal startup/reconnect resumes the current device session.
+; Missing/empty selects none for that explicit action; invalid disables test loading.
 ; File contents determine dimensions/notes/OFFs/tempo. Never infer these from a name.
-; Restart BTX after edits. Stopped, once per host; final ACK/baseline/working recovery
-; gates editing/START. No automatic seed, retry/reconnect replay or autoSTART.
+; Restart BTX after edits. Explicit test load requires STOP; final ACK/readback gates
+; editing/START. No automatic fixture load, seed, retry or autoSTART.
 startup_pattern=none

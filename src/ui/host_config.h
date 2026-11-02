@@ -44,10 +44,10 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Linux bridge only; Windows recognizes configuration but does not record.
 // Optional [display]: row_numbering=d1/d0/h1/h0; absent/empty uses d1.
 // Invalid nonempty display mode warns once and uses d1.
-// Optional [development]: startup_pattern is a 1..24-byte ASCII alnum/_/-
-// filename stem, optional .btdev, or exact reserved none. No quoted values. Missing/empty/invalid =>
-// clean empty32x8/125.00 (invalid warns). Append .btdev under the fixed SD directory.
-// Content determines dimensions/tempo; startup once, stopped, no seed/START/replay.
+// Optional [development]: explicit F3/Select+Start only; startup_pattern is a 1..24-byte ASCII alnum/_/-
+// filename stem, optional .btdev, or exact reserved none. Missing/empty selects none
+// for explicit test loading; invalid warns and disables that action in BTX.
+// Content determines dimensions/tempo; no automatic startup/reconnect LOAD or START.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.

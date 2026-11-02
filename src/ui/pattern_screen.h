@@ -25,6 +25,7 @@ struct HostPanelInformation
     std::string midi_status{};
     BroTracker::RowNumbering row_numbering=BroTracker::RowNumbering::D1;
     std::string volume_status{};
+    std::string midi_route_status{},midi_usb_status{};
 };
 
 void RenderMainScreen(

@@ -94,3 +94,22 @@ whole documented example within the parser's 4096-byte bound and exercise it in 
 configuration tests. Refresh the ARM64 package copy with prepare-package.sh and
 verify equality; never copy a template over user config.ini or add runtime fallback
 to an example. Command-line flags/environment overrides are not INI keys.
+
+
+## Working-session hardware checks
+
+`tools/session/check_hardware.py --hardware --phase exercise --output <new-directory>`
+uses one discovered Teensy CDC port, modifies test RAM plus current.btsession and
+tune.btdraft, and never provisions/replaces development files. It requires clients
+closed, PT8211 available, and explicit authority for those file changes. Without
+that authority, back up/restore the SD directory before/after testing. Follow with
+a user power-cycle and `--phase verify-reboot` using the expected state in that
+same directory. `--phase inspect` is read-only.
+
+On Windows, `tools/session/check_windows.py --hardware --output <new-directory>`
+launches its own packaged BTX, sends F3/F4/F5/edit/transport/window-close messages
+only to that child, checks file results, and reads back the running Teensy after
+exit. It preserves config and development files. Its logs/expected-reboot.json
+support a subsequent physical power-cycle check with BTX left open. Neither tool
+proves acoustic continuity or physical interrupted-write behavior; these remain
+separate checks. Use a fresh output directory to preserve each run's evidence.

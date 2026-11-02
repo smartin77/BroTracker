@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include "bringup/working_session.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
@@ -258,4 +259,87 @@ TEST_CASE(DevelopmentStemLoadingUsesFileContentsAndRejectsPathsBeforeIo) {
     char path[kDevelopmentPathCapacity];CHECK(BuildDevelopmentPath(std::string(24,'x'),path,sizeof(path)));CHECK(!BuildDevelopmentPath(std::string(25,'x'),path,sizeof(path)));
     CHECK_EQ(std::string(path),"/BroTracker/development/"+std::string(24,'x')+".btdev");
     CHECK_EQ(store.LoadDevelopment(backend,"4",dest,tempo),PatternFileResult::Missing); // Literal4, no numbered alias.
+}
+
+TEST_CASE(WorkingSessionPreservesUnpublishedEditsAndIndependentSavedTune) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
+    WorkingSessionStore<SdPatternFiles> store;PatternFileStore<SdPatternFiles> tunes;
+    WorkingSession s;s.published=MakeDevelopmentPattern();s.working=s.published;s.working.cells[0][0].note=61;
+    s.published_tempo=15500;s.working_tempo=12753;
+    CHECK_EQ(tunes.SaveDraft(backend,s.published,15500),PatternFileResult::Ok);
+    const auto tune=FakePatternSd::files["/BroTracker/tune.btdraft"].bytes;
+    CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    Same(s.published,restored.published);Same(s.working,restored.working);
+    CHECK_EQ(restored.published_tempo,15500u);CHECK_EQ(restored.working_tempo,12753u);
+    CHECK(FakePatternSd::files["/BroTracker/tune.btdraft"].bytes==tune);
+    const auto good=FakePatternSd::files[kSessionPath].bytes;
+    for(std::size_t n=0;n<good.size();++n) {
+        auto bad=good;bad[n]^=64;
+        auto target=restored;CHECK(DecodeWorkingSession(bad.data(),bad.size(),target)!=PatternFileResult::Ok);
+        Same(target.working,restored.working);Same(target.published,restored.published);
+    }
+    for(std::size_t n=0;n<good.size();++n) {
+        auto target=restored;CHECK(DecodeWorkingSession(good.data(),n,target)!=PatternFileResult::Ok);
+        Same(target.working,restored.working);
+    }
+}
+TEST_CASE(WorkingSessionInterruptedReplacementRetainsCommittedCopyAndReportsUncertainty) {
+    for(unsigned fault=0;fault<9;++fault) {
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+        WorkingSession old;old.published=MakeDevelopmentPattern();old.working=old.published;
+        CHECK_EQ(store.Save(backend,old),PatternFileResult::Ok);const auto committed=FakePatternSd::files[kSessionPath].bytes;
+        auto next=old;next.working.cells[0][0].note=61;
+        FakePatternSd::rename_calls=0;
+        if(fault==0)FakePatternSd::short_write=true;
+        if(fault==1)FakePatternSd::fail_sync=true;
+        if(fault==2)FakePatternSd::corrupt_read=true;
+        if(fault==3)FakePatternSd::fail_rename_mask=1u<<1;
+        if(fault==4)FakePatternSd::fail_rename_mask=1u<<2;
+        if(fault==5)FakePatternSd::fail_rename_mask=(1u<<2)|(1u<<3);
+        if(fault==6)FakePatternSd::fail_remove=true;
+        if(fault==7)FakePatternSd::files[kSessionCandidatePath]={false,{1,2,3}};
+        if(fault==8)FakePatternSd::fail_open=true;
+        const auto result=store.Save(backend,next);CHECK(result!=PatternFileResult::Ok);
+        if(fault==5 || fault==6)CHECK(FakePatternSd::files[kSessionPreviousPath].bytes==committed);
+        else CHECK(FakePatternSd::files[kSessionPath].bytes==committed);
+    }
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession s;s.published=MakeDevelopmentPattern();s.working=s.published;s.working.cells[0][0].note=61;
+    CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    FakePatternSd::files[kSessionPreviousPath]=FakePatternSd::files[kSessionPath];FakePatternSd::files.erase(kSessionPath);
+    FakePatternSd::files[kSessionCandidatePath]={false,{1,2,3}};
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::BackupRetained);Same(s.working,restored.working);
+    CHECK_EQ(store.Save(backend,s),PatternFileResult::RecoveryRequired); // Never erase interrupted evidence.
+    FakePatternSd::files[kSessionPreviousPath].bytes[25]^=1;
+    const auto before=restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::RecoveryRequired);Same(before.working,restored.working);
+}
+TEST_CASE(PauseStorageBarrierAllowsCoherentPendingPreviewButPlayingNeverWrites) {
+    BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings> control;
+    auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
+    CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);
+    std::int16_t audio[128]{};PatternAppliedRequest ack;
+    CHECK(control.StorageReady(true));CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
+    CHECK(!control.StorageReady(true));control.AudioBlock(audio,128,true);while(control.TakeApplied(ack)){}
+    CHECK(!control.StorageReady(true));CHECK_EQ(control.Submit(PatternRequest::Pause),PatternRequestStatus::Accepted);
+    control.AudioBlock(audio,128,true);CHECK(!control.StorageReady(true));while(control.TakeApplied(ack)){}
+    CHECK(control.StorageReady(true));CHECK(!control.StorageReady());
+    p.cells[0][0].note=61;CHECK_EQ(control.SubmitPreview(p,1),PatternRequestStatus::Accepted);
+    control.AudioBlock(audio,128,true);while(control.TakeApplied(ack)){}
+    CHECK(control.StorageReady(true));CHECK(!control.StorageReady());
+}
+
+TEST_CASE(PowerRestartReconstructsWorkingContentAndPublishedTempoButNeverStarts) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> files;
+    WorkingSession saved;saved.published=MakeDevelopmentPattern();saved.working=saved.published;
+    saved.working.cells[0][0].note=61;saved.published_tempo=15500;saved.working_tempo=12753;
+    CHECK_EQ(files.Save(backend,saved),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(files.Load(backend,restored),PatternFileResult::Ok);
+    BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings> rebooted;
+    CHECK_EQ(rebooted.InitializeAudio(restored.working_tempo,44100,restored.working,SelectDevelopmentFixture({}).bindings,restored.published_tempo),PatternPlayerStatus::Success);
+    CHECK_EQ(rebooted.Snapshot().transport,PatternTransportState::Stopped);CHECK(!rebooted.Snapshot().running);
+    CHECK_EQ(rebooted.Snapshot().tempo,12753u);CHECK_EQ(rebooted.Snapshot().published_tempo,15500u);
+    std::int16_t audio[128]{};rebooted.AudioBlock(audio,128,true);
+    CHECK(!rebooted.Snapshot().running);for(auto sample:audio)CHECK_EQ(sample,0);
+    Same(restored.working,saved.working);Same(restored.published,saved.published);
 }

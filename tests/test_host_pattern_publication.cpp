@@ -153,8 +153,9 @@ TEST_CASE(HostPublicationStopExitPreservesPartialLinesAndUncertainSubmittedWork)
     CHECK(s.serial.Publish(s.editor,s.now)); s.Tick(); s.Tick(); // Partial BEGIN.
     BringUpControls controls(s.serial,nullptr); controls.Request(BringUpAction::Exit,"test",s.now);
     for(unsigned i=0;i<40;++i) { controls.Tick(s.now++); s.serial.SyncEditor(s.editor,s.now); }
-    CHECK(s.port->output.find("BTPUBLISH1 BEGIN 1 7 2 1 2\nBTTEST1 STOP\n")==0);
-    CHECK(s.port->output.find("BTPUBLISH1 COMMIT")==std::string::npos);
+    CHECK(s.port->output.find("BTTEST1 STOP")==std::string::npos);
+    CHECK(controls.Quit());
+
     s.Receive("BTTEST1 STOPPED\n"); controls.Tick(s.now++); CHECK(controls.Quit());
     HostPatternPublication submitted; auto b=Baseline(); CHECK(submitted.Begin(1,b,b.pattern,0)); Sent(submitted);
     submitted.StopRequested(); CHECK(submitted.Blocking()); submitted.Disconnect();

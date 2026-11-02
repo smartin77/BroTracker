@@ -5,6 +5,11 @@ void BringUpControls::Log(const char* message) {
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
+    if(action==BringUpAction::Exit) {
+        if(!exit_after_stop_) {exit_after_stop_=true;serial_.BeginExit(now);}
+        quit_=serial_.ExitReady();return;
+    }
+    if(exit_after_stop_)return;
     if (action == BringUpAction::PatternToggle) {
         if (!serial_.SupportsPatternTransport()) action = BringUpAction::Start;
         else {
@@ -41,6 +46,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 }
 void BringUpControls::Tick(std::uint32_t now) {
     serial_.Tick(now);
+    if(exit_after_stop_ && serial_.ExitReady()) {quit_=true;return;}
     if (!stop_pending_) return;
     if (serial_.Stopped()) {
         Log(exit_after_stop_ ? "STOP acknowledged; EXIT" : "STOP acknowledged; ready");

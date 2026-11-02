@@ -1,4 +1,4 @@
-# Live tempo control (session only)
+# Live tempo control
 
 Implemented on `feature/live-tempo-control`. Engine and Tune tempo is an integer
 number of hundredths of BPM, with a 12500 / **125.00 BPM** default for new projects.
@@ -8,7 +8,9 @@ sample rate and stretching are unchanged. Fractional-tempo regressions remain.
 Interactive requests accept 3200-30000 (32.00-300.00 BPM) transactionally. Existing
 fractional regression inputs such as 12753 remain intentional and unchanged.
 The existing decimal JSON input is converted once to integer hundredths; its
-format is unchanged. No SD persistence or config.ini rewrite is added.
+format is unchanged. Applied and published tempos now persist independently in the
+[working session](FILE_FORMATS.md#working-session-separate-from-tunesprojects);
+config.ini is never rewritten by tempo changes.
 
 The timing convention is unchanged, as confirmed by the user: **96 ticks per
 row, four rows per quarter note, 384 ticks per quarter note**. Tempo belongs to
@@ -95,9 +97,9 @@ logging, file I/O, locks or host timing in the render path.
 | Pause / Continue | Retain applied tempo; Continue replays the reported current row using the new tempo, preserving its loop identity. Unchanged tempo preserves its existing rational timing phase. |
 | STOP / START | Retain latest applied/acknowledged tempo; STOP cancels unacknowledged pending work. START resets transport position, not tempo. |
 | BTX reconnect | Read device-authoritative tempo and published baseline; no automatic START or replay of an uncertain old SET. |
-| Publish (F5 / A in a row) | Freeze coherent pattern + applied tempo as the new published baseline; requires synchronized tempo and stopped/paused transport. |
-| Restore (F4 / L1+Y) | Return the working pattern and desired tempo to the published snapshot baseline, using normal preview/tempo handoffs. Does not force 125.00 or change the published baseline. |
-| Device reboot / firmware reinitialization | Session ends; current development fixture starts at 155.00; new projects still default to 125.00. No disk persistence is implied. |
+| Publish (Shift+F5 / L1+A in a row) | Freeze coherent pattern + applied tempo as the new published baseline; requires synchronized tempo and stopped/paused transport. |
+| Restore (Shift+F4 / L1+X) | Return the working pattern and desired tempo to the published snapshot baseline, using normal preview/tempo handoffs. Does not force 125.00 or change the published baseline. |
+| Device reboot / firmware reinitialization | Restore latest validated published/working session tempos, stopped. Missing session uses the boot fixture; failed recovery is reported. New projects default to 125.00. |
 
 Current bindings and the reconnect-hold exception are defined in
 [BTX controls](BTX_CONTROLS.md). During that hold Restore changes only the retained

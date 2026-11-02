@@ -6,7 +6,8 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/repo/tools/arkos/port" "$work/repo/deploy" "$work/ports/brotracker"
 cp -a "$repo/deploy/arkos" "$work/repo/deploy/"
-cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/repo/tools/arkos/port/"
+cp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$repo/tools/arkos/port/BroTracker MIDI Connect.sh" "$work/repo/tools/arkos/port/"
+cp "$repo/tools/arkos/midi-connect.py" "$work/repo/tools/arkos/"
 # Change only the destination in a disposable copy; production paths stay fixed.
 sed "s|^ports=/roms/ports$|ports=$work/ports|" "$repo/tools/arkos/install-port.sh" > "$work/repo/tools/arkos/install-port.sh"
 export HOME="$work/user-home" XDG_DATA_HOME="$work/persistent-data"
@@ -29,7 +30,13 @@ done
 [[ ! -e "$app/config/config.ini" ]]
 cp "$work/config-original" "$app/config/config.ini"
 # Remove only fixture launchers so the upgrade backup assertions start as before.
-rm -- "$new_launcher" "$work/ports/BroTracker Diagnostics.sh"
+rm -- "$new_launcher" "$work/ports/BroTracker Diagnostics.sh" "$work/ports/BroTracker MIDI Connect.sh"
+# Missing MIDI helper must reject before touching the installed user files.
+mv "$work/repo/tools/arkos/midi-connect.py" "$work/midi-helper.saved"
+if bash "$installer" > "$work/missing-midi" 2>&1; then echo 'Accepted missing MIDI helper' >&2; exit 1; fi
+grep -q 'MIDI helper is missing' "$work/missing-midi"
+cmp "$app/config/config.ini" "$work/config-original"
+mv "$work/midi-helper.saved" "$work/repo/tools/arkos/midi-connect.py"
 # Missing config must fail preflight; the test must never repair the package.
 mv "$work/repo/deploy/arkos/config/config.ini.example" "$work/template.saved"
 if bash "$installer" > "$work/missing-config" 2>&1; then echo 'Accepted missing config example' >&2; exit 1; fi
@@ -76,6 +83,9 @@ cmp "$repo/tools/arkos/port/BroTracker Terminal.sh" "$new_launcher"
 [[ $(stat -c %a "$new_launcher") == 755 ]]
 cmp "$repo/tools/arkos/port/BroTracker Diagnostics.sh" "$work/ports/BroTracker Diagnostics.sh"
 [[ $(stat -c %a "$work/ports/BroTracker Diagnostics.sh") == 755 ]]
+cmp "$repo/tools/arkos/port/BroTracker MIDI Connect.sh" "$work/ports/BroTracker MIDI Connect.sh"
+cmp "$repo/tools/arkos/midi-connect.py" "$app/midi-connect.py"
+[[ $(stat -c %a "$work/ports/BroTracker MIDI Connect.sh") == 755 ]]
 cmp "$app/user-song.json" "$work/user-original"
 cmp "$app/custom-tool" "$work/tool-original"
 # Repeated update backs up only the new entry and preserves legacy backups.
@@ -84,6 +94,8 @@ backups=("$work/ports/"BroTracker.sh.bak.*)
 [[ ${#backups[@]} == 2 ]]
 new_backups=("$work/ports/"BroTracker\ Terminal.sh.bak.*)
 [[ ${#new_backups[@]} == 1 ]]
+midi_backups=("$work/ports/"BroTracker\ MIDI\ Connect.sh.bak.*)
+[[ ${#midi_backups[@]} == 1 ]]
 [[ ! -e "$legacy_launcher" ]]
 printf "preserved backup\n" | cmp - "$work/ports/BroTracker.sh.bak.saved"
 cmp "$app/user-song.json" "$work/user-original"
@@ -129,4 +141,14 @@ PATH="$work/advisory-bin:$PATH" SUDO_USER=root USER=root bash "$installer" > "$w
 grep -q 'runtime user is unknown' "$work/unknown-user"
 cmp "$work/repo/deploy/arkos/config/config.ini.example" "$app/config/config.ini.example"
 cmp "$app/config/config.ini" "$work/config-original"
+# The new entry/helper receive the same unsafe-destination protection.
+for target in "$work/ports/BroTracker MIDI Connect.sh" "$app/midi-connect.py"; do
+    mv "$target" "$work/midi-target.saved"
+    ln -s "$work/user-original" "$target"
+    if bash "$installer" > "$work/unsafe-midi" 2>&1; then echo 'Accepted MIDI symlink destination' >&2; exit 1; fi
+    grep -q 'Refusing a symlink destination' "$work/unsafe-midi"
+    cmp "$app/config/config.ini" "$work/config-original"
+    rm -- "$target"
+    mv "$work/midi-target.saved" "$target"
+done
 echo 'Installer/package upgrade and executable-relative user-config preservation checks passed (isolated temporary destination)'

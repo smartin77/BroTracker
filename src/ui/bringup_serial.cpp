@@ -23,14 +23,61 @@ void BringUpSerial::Log(const char* message, const char* detail)
     BroTracker::HostLog(log_, level==BroTracker::HostLogLevel::Basic || payload_level==BroTracker::HostLogLevel::Basic ? BroTracker::HostLogLevel::Basic : BroTracker::HostLogLevel::Debug,"USB bring-up",text);
 }
 
+const char* BringUpSerial::LoadLabel() const {
+    return load_label_;
+}
+bool BringUpSerial::FileIdle() const {
+    return connected_ && !PublicationBusy() && !TransportPending() &&
+        !pattern_assembler_.Active() && (!preview_.Supported() || !preview_.TransferBusy());
+}
+bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
+    diagnostic_now_=now;
+    const bool early_test=action==FileAction::Test && !attempted_;
+    if((!early_test && (!connected_ || !storage_supported_)) || file_action_!=FileAction::None || (!early_test && !StartupPatternReady()) || continuity_pending_) {
+        std::strcpy(file_status_,"File action unavailable: connect/synchronize first");Log("File action rejected:",file_status_);return false;
+    }
+    if(action==FileAction::Save && draft_deferred_) {
+        std::strcpy(file_status_,"Tune Save already pending in device RAM; Pause/Stop to finish");return false;
+    }
+    if(action!=FileAction::Test && !working_storage_supported_) {
+        std::strcpy(file_status_,"Working-session/tune storage unsupported: update Teensy firmware");return false;
+    }
+    if(action==FileAction::Load || action==FileAction::Test) {
+        if((!early_test && !FileIdle()) || Playing() || Paused() || (action==FileAction::Test && !startup_pattern_valid_)) {
+            std::strcpy(file_status_,"Load unavailable: STOP and wait for synchronization; check filename");Log("File action rejected:",file_status_);return false;
+        }
+        load_rejected_=false;startup_selection_enabled_=true;startup_attempted_=startup_applied_=startup_done_=startup_failed_=false;
+        startup_stop_sent_=startup_ready_sent_=startup_storage_ready_=false;
+        startup_context_cleared_=startup_editor_ready_=false;startup_revision_=0;
+        if(action==FileAction::Load) std::strcpy(load_label_,"draft-load");
+        else std::snprintf(load_label_,sizeof(load_label_),"load-%s",BroTracker::DevelopmentPatternName(startup_pattern_));
+        preview_.Suspend(true);
+    }
+    file_action_=action;file_requested_at_=now;
+    std::strcpy(file_status_,action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
+    Log("File action:",file_status_);return true;
+}
+void BringUpSerial::BeginExit(std::uint32_t now) {
+    exit_requested_=true;exit_started_=now;
+    if(!RequestFile(FileAction::Session,now)) {
+        Log("EXIT: session save unavailable; latest host-only edits may not be persisted");exit_done_=true;
+    }
+}
+
 void BringUpSerial::Disconnect(const char* reason)
 {
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
         if(!continuity_pending_) continuity_frozen_=false;
-        continuity_pending_=true; continuity_ready_=false;
+        continuity_pending_=true; continuity_ready_=false;continuity_auto_=false;file_status_[0]=0;
     }
-    storage_supported_=false;storage_ready_supported_=false;
+    initial_sync_ready_=false;
+    if(file_action_!=FileAction::None) {
+        std::strcpy(file_status_,"File outcome uncertain after disconnect; no automatic retry");
+        file_action_=FileAction::None;
+    }
+    if(exit_requested_)exit_done_=true;
+    storage_supported_=false;working_storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
@@ -70,6 +117,7 @@ void BringUpSerial::Disconnect(const char* reason)
     pattern_assembler_.Clear();
     snapshot_version_ = 1;
     snapshot_supported_ = snapshot_requested_ = snapshot_failed_ = false;
+    snapshot_retries_=0;snapshot_retry_pending_=false;
     transport_supported_ = false; transport_queued_ = Command::None;
     std::strcpy(state_, "UNKNOWN");
 }
@@ -96,30 +144,43 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
                 preview_.SetBaseline(*baseline); preview_.Published(baseline->pattern);
                 continuity_pending_=continuity_ready_=false;
                 Log("Explicit reconnect recovery published and verified; no SD save or START");
-            } else if(!continuity_ready_) {
-                const bool same=BroTracker::SamePattern(continuity_baseline_.pattern,baseline->pattern) &&
-                    continuity_baseline_.tempo_hundredths==baseline->tempo_hundredths &&
-                    BroTracker::SamePattern(continuity_draft_,*working) &&
-                    continuity_tempo_==(tempo_.Available()?tempo_.State().tempo:baseline->tempo_hundredths);
-                if(same) {
-                    continuity_pending_=false; editor.ResetContext(); editor.Sync(PlaybackView(now));
-                    (void)editor.RecoverDraft(*working); preview_.ConfirmMatchingWorking();
-                    Log("Reconnect readback matches retained pattern contents; boot/transport continuity not proven");
-                } else {
-                    continuity_ready_=true;
-                    Log("Reconnect continuity not established; local draft and published baseline retained; F5 explicitly publishes to RAM, F4 restores local baseline; no SD load/save or START");
+            } else {
+                const bool baseline_matches=BroTracker::SamePattern(continuity_baseline_.pattern,baseline->pattern) &&
+                    continuity_baseline_.tempo_hundredths==baseline->tempo_hundredths;
+                const bool tempo_matches=continuity_tempo_==(tempo_.Available()?tempo_.State().tempo:baseline->tempo_hundredths);
+                const bool same=baseline_matches && BroTracker::SamePattern(continuity_draft_,*working) && tempo_matches;
+                if(same && !preview_.TransferBusy() && !publication_.Blocking()) {
+                    const auto cursor=editor.Cursor();
+                    continuity_pending_=continuity_auto_=false;editor.ResetContext();editor.Sync(PlaybackView(now));
+                    (void)editor.RecoverDraft(*working);editor.RestoreCursor(cursor);preview_.ConfirmMatchingWorking();
+                    file_status_[0]=0;
+                    Log("Reconnect working state verified; retained host edits available; no Publish or START; disk persistence not inferred");
+                } else if(!continuity_ready_ && !publication_.Blocking()) {
+                    if(baseline_matches && preview_.Supported() && preview_.BootWorkingState() && !Playing() && !Paused() &&
+                        !std::strcmp(state_,"IDLE") && (!tempo_.Supported() || tempo_.Synchronized()) &&
+                        (tempo_matches || tempo_.Supported()) && preview_.RecoverRetained(continuity_draft_,now)) {
+                        continuity_ready_=continuity_auto_=true;
+                        if(!tempo_matches)(void)tempo_.Request(continuity_tempo_);
+                        Log("Reconnect: recovering retained host draft through working preview, published baseline unchanged; no START or draft-file save");
+                    } else if(!baseline_matches || !preview_.Supported() || !preview_.BootWorkingState()) {
+                        continuity_ready_=true;
+                        Log("Reconnect continuity not established: baseline differs, device running, or capabilities unavailable; host work retained; STOP available");
+                    }
                 }
             }
         }
-        if(continuity_pending_) return;
+        if(continuity_pending_) {
+            preview_.Suspend(!continuity_auto_ || Playing() || Paused() || publication_.Blocking());
+            return;
+        }
         preview_.Suspend(false);
     }
-    const bool startup_barrier=!StartupPatternReady();
+    const bool startup_barrier=startup_selection_enabled_ && !StartupPatternReady();
     if(startup_barrier) {
         // An explicit SD selection establishes a new context. Discard pre-load
         // draft/captured edits once, before they can seed preview recovery.
         // Never repeat this on ordinary reconnect after startup synchronized.
-        if(!startup_context_cleared_) {editor.ResetContext();startup_context_cleared_=true;}
+        if(startup_applied_ && !startup_context_cleared_) {editor.ResetContext(file_action_==FileAction::Load);editor_seen_=false;startup_context_cleared_=true;}
         editor.SetLocked(true);
         preview_.Suspend(true);
         preview_.RetainLocal(false);
@@ -158,7 +219,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     }
     if(startup_barrier && startup_done_ && !startup_failed_ && editor.Ready() &&
         (!preview_.Supported() || (preview_.Phase()==BroTracker::HostPreviewPhase::Synchronized && !preview_.RecoveredDraft()))) {
-        startup_editor_ready_=true;
+        startup_editor_ready_=true;file_action_=FileAction::None;std::strcpy(file_status_,"Load applied and verified; playback stopped");
         Log("SD startup editor/working-state recovery synchronized");
     }
     if(publication_.TakeConfirmed()) {
@@ -174,8 +235,10 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
             next_refresh_=true; publication_readback_requested_=false;
         }
     }
+    if(!startup_selection_enabled_ && connected_ && editor.Ready() && pattern_assembler_.Snapshot() &&
+        (!preview_.Supported() || preview_.VerifiedWorking())) initial_sync_ready_=true;
     if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
-    editor.SetLocked(!StartupPatternReady() || PublicationBusy());
+    editor.SetLocked(exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || !StartupPatternReady() || PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
     if(std::strcmp(logged_preview_status_,preview_.Status())) {
         std::snprintf(logged_preview_status_,sizeof(logged_preview_status_),"%s",preview_.Status());
@@ -199,7 +262,8 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 }
 
 const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& editor) const {
-    if(!StartupPatternReady()) return "Wait for SD startup pattern/readback";
+    if(!StartupPatternReady()) return snapshot_failed_ ?
+        "Device/session readback unconfirmed; available host work retained" : "Wait for device/session synchronization";
     if(!connected_) return "Connect Teensy to publish";
     if(!publication_supported_) return "Firmware does not support publication";
     if(tempo_.Supported() && !tempo_publication_) return "Tempo-aware publication unsupported";
@@ -220,8 +284,8 @@ const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& edit
 
 bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now)
 {
-    // Preserve F4's local Restore meaning. Never adopt the boot fixture or write
-    // to the device here. Publication remains a separate explicit F5 action.
+    // Preserve Shift+F4's local Restore meaning. Never adopt the boot fixture or write
+    // to the device here. Publication remains a separate explicit Shift+F5 action.
     if(!continuity_pending_ || !continuity_frozen_ || !editor.Ready() || PublicationBusy()) return false;
     editor.SetLocked(false);
     const bool restored=editor.Apply(EditorAction::Restore);
@@ -230,19 +294,19 @@ bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint3
     continuity_draft_=*editor.Draft();
     continuity_tempo_=continuity_baseline_.tempo_hundredths;
     publication_=BroTracker::HostPatternPublication{};
-    Log("Reconnect F4 Restore: retained local published baseline restored; device unchanged; F5 Publish remains explicit");
+    Log("Reconnect Shift+F4 Restore: retained local published baseline restored; device unchanged; Shift+F5 Publish remains explicit");
     diagnostic_now_=now; return true;
 }
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
-    // F5 may resolve an uncertain outcome with GET, never resend publication.
+    // Shift+F5 may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
         if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
     if(continuity_pending_) {
-        // F5 is explicit RAM publication, not an automatic recovery or SD save.
+        // Shift+F5 is explicit RAM publication, not an automatic recovery or SD save.
         // Freeze the retained candidate directly: preview dimensions may differ
         // from the reboot fixture, so preview-before-publication is inappropriate.
         const auto* baseline=pattern_assembler_.Snapshot();
@@ -281,7 +345,7 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
-    if(!StartupPatternReady() || continuity_pending_) return false;
+    if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
     if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
     if(midi_supported_ && !midi_confirmed_) return false;
@@ -317,7 +381,7 @@ bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, 
 bool BringUpSerial::QueueTransport(Command command) {
     if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
-    if(command==Command::Continue && continuity_pending_) return false;
+    if(command==Command::Continue && (continuity_pending_ || file_action_!=FileAction::None || !StartupPatternReady())) return false;
     if(command==Command::Continue && midi_supported_ && !midi_confirmed_) return false;
     transport_queued_ = command; stopped_ = false; return true;
 }
@@ -362,7 +426,7 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     const char* verb = command == Command::Hello ? "HELLO" :
                        command == Command::Status ? "STATUS" :
                        command == Command::Start ? "START" :
-                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Midi ? "MIDI" : command == Command::Storage ? "SD LOAD" : "STOP";
+                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Midi ? "MIDI" : command == Command::Storage ? "SD LOAD" : command==Command::File ? "SD SAVE" : command==Command::StorageReady ? "SD READY" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
     if(command==Command::Midi) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTMIDI1 SET 1 %u\n",midi_channel_); midi_sent_=true;
@@ -375,8 +439,11 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");startup_ready_sent_=true;
     }
     if(command==Command::Storage) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(startup_pattern_));
+        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Load?"BTSTORE1 DRAFTLOAD 1\n":"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(startup_pattern_));
         startup_attempted_=true;
+    }
+    if(command==Command::File) {
+        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Save?"BTSTORE1 DRAFTSAVE 1\n":"BTSTORE1 SAVE 1\n");
     }
     tx_offset_ = 0; tx_publication_=false;
     if(command==Command::Hello || command==Command::Status) {
@@ -436,40 +503,70 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    const bool draft_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 draft-save ",sizeof("BTSTORE1 RESULT 1 draft-save ")-1);
+    const bool session_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 save ",sizeof("BTSTORE1 RESULT 1 save ")-1);
+    const bool command_reply=pending_==Command::File &&
+        ((draft_result && file_action_==FileAction::Save) || (session_result && file_action_==FileAction::Session));
+    if(command_reply || (draft_result && draft_deferred_)) {
+        const auto* result=line_+(draft_result?sizeof("BTSTORE1 RESULT 1 draft-save ")-1:sizeof("BTSTORE1 RESULT 1 save ")-1);
+        std::snprintf(file_status_,sizeof(file_status_),"%s: %.120s",draft_result?"Tune Save":"Session save",result);
+        if(draft_result)draft_deferred_=!std::strncmp(result,"deferred-playing ",17);
+        if(draft_result && draft_deferred_)std::strcpy(file_status_,"Tune Save pending in device RAM; will write after Pause/Stop (not yet saved)");
+        Log("File result:",file_status_);
+        if(command_reply) {
+            pending_=Command::None;file_action_=FileAction::None;
+            if(exit_requested_)exit_done_=true;
+        }
+        return;
+    }
+    if(!std::strncmp(line_,"BTSTORE1 RESULT 1 session-",25)) {
+        Log("Session persistence:",line_);
+        if(!std::strstr(line_," ok ") && !std::strstr(line_," missing "))
+            std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
+        return;
+    }
+    if(!std::strcmp(line_,"BTSTORE1 SESSIONCAP 2")) {if(connected_)working_storage_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 READYCAP 1")) {if(connected_)storage_ready_supported_=true;return;}
     if(pending_==Command::StorageReady && !std::strcmp(line_,"BTSTORE1 READY 1")) {
         startup_storage_ready_=true;pending_=Command::None;return;
     }
     if(pending_==Command::StorageReady && !std::strncmp(line_,"BTSTORE1 NOTREADY 1 ",19)) {
-        startup_failed_=true;pending_=Command::None;Log("SD startup readiness ERROR:",line_);return;
+        // READY rejection confirms that no file load was submitted. Retain the
+        // existing editor/session and release the Load barrier; this is not an
+        // uncertain applied-file outcome and must not require reconnect/Publish.
+        load_rejected_=editor_seen_;startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;
+        std::snprintf(file_status_,sizeof(file_status_),"Load not attempted; current work retained: %.105s",line_+19);
+        Log("SD startup readiness ERROR:",line_);return;
     }
     if(!std::strcmp(line_,"BTSTORE1 CAP 1")) {if(connected_)storage_supported_=true;return;}
     if(pending_==Command::Storage && !std::strncmp(line_,"BTSTORE1",8)) {
         char prefix[80];std::uint32_t id=0;
-        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 SUBMITTED 1 load-%s ",BroTracker::DevelopmentPatternName(startup_pattern_));
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 SUBMITTED 1 %s ",LoadLabel());
         if(BroTracker::SnapshotFields(line_,used_,prefix,&id,1)) {startup_revision_=id;return;}
-        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 RESULT 1 load-%s ok ",BroTracker::DevelopmentPatternName(startup_pattern_));
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 RESULT 1 %s ok ",LoadLabel());
         const bool ok=BroTracker::SnapshotFields(line_,used_,prefix,&id,1) && startup_revision_ && id==startup_revision_;
         pending_=Command::None;
-        if(!ok) {startup_failed_=true;Log("SD startup pattern ERROR:",line_);return;}
+        if(!ok) {startup_failed_=true;file_action_=FileAction::None;
+            load_rejected_=!startup_revision_ && (std::strstr(line_," missing ") || std::strstr(line_," invalid ") ||
+                std::strstr(line_," unsupported ") || std::strstr(line_," busy-or-not-ready ") || std::strstr(line_," sd-unavailable "));
+
+            std::snprintf(file_status_,sizeof(file_status_),"Load failed/uncertain: %.110s",line_);Log("File load ERROR:",line_);return;}
+        preview_.FileLoaded();
+        preview_session_=false;pattern_assembler_.Clear();snapshot_failed_=false;editor_seen_=false;
+        tempo_.Refresh();
         startup_applied_=true;snapshot_requested_=false;next_refresh_=true;
         Log("SD startup pattern applied; awaiting v2 baseline readback:",line_);return;
     }
     if(!std::strncmp(line_,"BTMIDI1 OUTPUT 1 ",17)) {
-        std::uint32_t f[4]{};
-        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTMIDI1 OUTPUT 1 ",f,4) &&
-           f[0]<=1 && f[1]<=1 && f[2]<=1 && f[3]<=8) {
+        // SnapshotFields requires its first field to be nonzero: parse version
+        // explicitly so USB configured=0 remains valid health telemetry.
+        std::uint32_t fields[5]{};const auto* f=fields+1;
+        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTMIDI1 OUTPUT ",fields,5) &&
+           fields[0]==1 && f[0]<=1 && f[1]<=1 && f[2]<=1 && f[3]<=8) {
+            midi_health_at_=now; // Same-state replies renew evidence without log flooding.
             const unsigned state=f[0] | (f[1]<<1) | (f[2]<<2) | (f[3]<<3);
             if(state!=midi_output_state_) {
                 midi_output_state_=state;
-                static constexpr const char* reasons[]={"none","unavailable","deadline","overflow",
-                    "DMA error","invalid event","USB lifecycle","timer","completion stall"};
-                if(f[1]) std::snprintf(midi_output_status_,sizeof(midi_output_status_),
-                    "MIDI fault: %s; %s; %s",reasons[f[3]],f[0]?"STOP/START retry":"USB unavailable",
-                    f[2]?"cleanup uncertain":"external delivery unknown");
-                else std::snprintf(midi_output_status_,sizeof(midi_output_status_),"%s; %s",
-                    f[0]?"MIDI USB configured":"MIDI USB unavailable",
-                    f[2]?"cleanup uncertain":"external delivery unknown");
                 Log("MIDI output:",line_);
             }
         }
@@ -554,7 +651,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
     {
         const auto result = pattern_assembler_.Accept(line_, used_, now);
         if (result == BroTracker::SnapshotAssemblyStatus::Rejected ||
-            result == BroTracker::SnapshotAssemblyStatus::Timeout) { snapshot_failed_ = true; publication_.ReadbackFailed(); if(startup_applied_ && !startup_done_)startup_failed_=true; }
+            result == BroTracker::SnapshotAssemblyStatus::Timeout) SnapshotFailed(now);
+        if(result==BroTracker::SnapshotAssemblyStatus::Complete) {
+            snapshot_failed_=false;snapshot_retry_pending_=false;
+        }
         if(result==BroTracker::SnapshotAssemblyStatus::Complete && publication_.NeedsReadback())
             (void)publication_.Verify(*pattern_assembler_.Snapshot());
         // Only the original startup transaction's awaited baseline completes startup.
@@ -655,6 +755,23 @@ void BringUpSerial::Tick(std::uint32_t now)
     }
 }
 
+void BringUpSerial::SnapshotFailed(std::uint32_t now)
+{
+    snapshot_failed_=true;
+    // Read-only initial/reconnect recovery. Never retry an uncertain file load
+    // or publication, or replace the retained editor/draft as a side effect.
+    const bool file_readback_pending=startup_selection_enabled_ && !startup_editor_ready_ && !load_rejected_;
+    if(!file_readback_pending && !initial_sync_ready_ && !publish_queued_ &&
+        !publication_.Blocking() && !publication_.NeedsReadback() && !snapshot_retry_pending_) {
+        if(snapshot_retries_<2) {
+            ++snapshot_retries_;snapshot_retry_pending_=true;snapshot_retry_at_=now;
+            Log("Device pattern readback unconfirmed; retry in 1000 ms (at most three attempts per connection); host work retained");
+        } else Log("Device pattern readback retries exhausted; recovery unconfirmed, host work retained; STOP remains available");
+    }
+    publication_.ReadbackFailed();
+    if(startup_applied_ && !startup_done_)startup_failed_=true;
+}
+
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
     tempo_.Tick(now);
@@ -664,8 +781,10 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     publication_.Tick(now);
     preview_.Tick(now);
     if (pattern_assembler_.Tick(now) == BroTracker::SnapshotAssemblyStatus::Timeout) {
-        snapshot_failed_ = true; publication_.ReadbackFailed();
-        if(startup_applied_ && !startup_done_)startup_failed_=true;
+        SnapshotFailed(now);
+    }
+    if(snapshot_retry_pending_ && now-snapshot_retry_at_>=1000) {
+        snapshot_retry_pending_=false;snapshot_requested_=false;
     }
     if(publication_.NeedsReadback() && !publication_readback_requested_ && connected_ && snapshot_version_==2)
         snapshot_requested_=false;
@@ -760,10 +879,23 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
     }
     if((pending_==Command::Storage || pending_==Command::StorageReady) && now-sent_at_>=15000) {
-        startup_failed_=true;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
+        startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
         if(tx_offset_!=tx_size_) {Disconnect("partial storage command; outcome unknown");return;}
     }
-    if (pending_ != Command::None && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
+    if((file_action_==FileAction::Save || file_action_==FileAction::Session) && pending_!=Command::File && now-file_requested_at_>=15000) {
+        std::strcpy(file_status_,"Save not sent: working edits/tempo could not be verified; current work retained");
+        Log("File ERROR:",file_status_);file_action_=FileAction::None;
+        if(exit_requested_)exit_done_=true;
+    }
+    if(pending_==Command::File && now-sent_at_>=15000) {
+        std::strcpy(file_status_,"Save outcome uncertain: timed out; inspect device files before retry");
+        Log("File ERROR:",file_status_);file_action_=FileAction::None;pending_=Command::None;
+        if(exit_requested_)exit_done_=true;
+    }
+    if(exit_requested_ && !exit_done_ && now-exit_started_>=16000) {
+        Log("EXIT: session save unconfirmed; host-only edits may be lost; playback left running");exit_done_=true;
+    }
+    if (pending_ != Command::None && pending_!=Command::File && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
@@ -772,12 +904,18 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
         else if(connected_ && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
-            if(!storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || std::strcmp(state_,"IDLE") || snapshot_version_!=2) {
+            if(!storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || snapshot_version_!=2) {
                 startup_failed_=true;Log("SD startup pattern ERROR: readiness-capable storage, setup and stopped v2 firmware required");
             } else if(!startup_stop_sent_) {
                 startup_stop_sent_=true;stopped_=false;Send(Command::Stop,now);
             } else if(!startup_ready_sent_) Send(Command::StorageReady,now);
             else if(startup_storage_ready_) Send(Command::Storage,now);
+        }
+        else if((file_action_==FileAction::Save || file_action_==FileAction::Session) && FileIdle() &&
+            editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
+                BroTracker::SamePattern(observed_editor_,*preview_.VerifiedWorking()))) &&
+            (!tempo_.Supported() || tempo_.Synchronized())) {
+            Send(Command::File,now);
         }
         else if (start_queued_)
         {
@@ -866,12 +1004,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 next_snapshot_id_=next_snapshot_id_==UINT32_MAX ? 0 : next_snapshot_id_+1;
                 tx_size_=static_cast<unsigned>(length); tx_offset_=0;
             }
-            else if(StartupPatternReady() && preview_.Sending()) {
+            else if((StartupPatternReady() || continuity_auto_) && preview_.Sending()) {
                 if(preview_.FormatLine(tx_,sizeof(tx_),length)) {
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;
                 }
             }
-            else if(StartupPatternReady() && !continuity_pending_ && !publish_queued_ && pattern_assembler_.Snapshot() &&
+            else if((StartupPatternReady() || continuity_auto_) && (!continuity_pending_ || (continuity_auto_ && !Playing() && !Paused())) && !publish_queued_ && pattern_assembler_.Snapshot() &&
                 preview_.TryBegin(*pattern_assembler_.Snapshot(),now)) {
                 if(preview_.FormatLine(tx_,sizeof(tx_),length)) {
                     tx_size_=static_cast<unsigned>(length); tx_offset_=0; tx_preview_=true;

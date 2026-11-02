@@ -66,7 +66,7 @@ HostLogLevel ClassifyHostDiagnostic(std::string_view source,std::string_view mes
         if(Contains(message,token)) return HostLogLevel::Debug;
     for(auto token:{"error","ERROR","failed","failure","fault","rejected","REJECTED","invalid","Invalid",
         "ignored","suppressed","confirmed","mismatch","Mismatch","Device identities reset","Draft not applied","unavailable","disabled","timeout","denied","disconnected","recover","uncertain",
-        "waiting","synchronized"," APPLIED "," SUPERSEDED ","connected:","opened:","opened identified","routing started","STATE PLAYING","STATE IDLE",
+        "File result:","Session persistence:","waiting","synchronized"," APPLIED "," SUPERSEDED ","connected:","opened:","opened identified","routing started","STATE PLAYING","STATE IDLE",
         "STATE PAUSED","STATE ERROR","STARTED","STOPPED","CONTINUED","BTTEST1 PAUSED","waiting:"})
         if(Contains(message,token)) return HostLogLevel::Basic;
     if(source=="Terminal" || source=="Configuration" || source=="Logging" || source=="Transport input") return HostLogLevel::Basic;
@@ -167,7 +167,7 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
     HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
     if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
-        "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); using clean 32x8 baseline at 125.00 BPM");
+        "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); explicit test-pattern load disabled; current session is unchanged");
     HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
     if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");

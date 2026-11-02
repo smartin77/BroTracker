@@ -65,7 +65,7 @@ static int NavigationRegression() {
     key(SDLK_TAB,18001); input.Tick(19000,KMOD_NONE,editor); CHECK(editor.Cursor().channel==0);
     key(SDLK_TAB,19001,SDL_KEYUP); key(SDLK_DOWN,20000);
     SDL_Event quit{}; quit.type=SDL_QUIT; input.Handle(quit,20001,editor);
-    input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==1);
+    input.Tick(21000,KMOD_NONE,editor); CHECK(editor.Cursor().row==cursor.row+1);
     return 0;
 }
 static int BeatNavigationRegression() {
@@ -150,7 +150,7 @@ int main() {
     CHECK(TempoRegression()==0);
     for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
         SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
-        CHECK(MapWindowsPublish(publish)==(mod==KMOD_NONE));
+        CHECK(MapWindowsPublish(publish)==(mod==KMOD_SHIFT));
         CHECK(MapWindowsAction(publish)==BringUpAction::None);
         CHECK(MapWindowsEditorAction(publish)==EditorAction::None);
         publish.key.repeat=1; CHECK(!MapWindowsPublish(publish));
@@ -203,9 +203,13 @@ int main() {
     const auto modifier_saved = editor.Draft()->cells[editor.Cursor().row][editor.Cursor().channel];
     input.Tick(6000, KMOD_NONE, editor);
     CHECK(editor.Draft()->cells[editor.Cursor().row][editor.Cursor().channel].note == modifier_saved.note);
-    key(SDLK_PAGEUP, 6100); editor.Sync(std::nullopt); input.Tick(6500, KMOD_NONE, editor);
+    key(SDLK_PAGEUP, 6100); const auto retained_cursor=editor.Cursor();
+    editor.Sync(std::nullopt); input.Tick(6500, KMOD_NONE, editor);
     editor.Sync(live); input.Tick(7000, KMOD_NONE, editor);
+    CHECK(editor.Cursor().row==retained_cursor.row && editor.Cursor().channel==retained_cursor.channel);
+    CHECK(editor.Cursor().field==retained_cursor.field && editor.Cursor().header==retained_cursor.header);
     CHECK(editor.Draft()->cells[0][0].note == 60);
+    editor.RestoreCursor({}); // Start the independent held-edit/navigation case at its original cell.
     key(SDLK_PAGEUP, 7049, SDL_KEYUP);
     CHECK(key(SDLK_RIGHT, 7050)); CHECK(editor.Cursor().field == EditField::Instrument);
     key(SDLK_PAGEUP, 7051);
@@ -223,7 +227,7 @@ int main() {
     input.Tick(8500, KMOD_NONE, editor); CHECK(editor.Draft()->cells[0][0].note == 59);
     key(SDLK_PAGEDOWN, 8501, SDL_KEYUP);
     for (auto key : {SDLK_UP, SDLK_DOWN, SDLK_LEFT, SDLK_RIGHT, SDLK_TAB,
-        SDLK_PAGEUP, SDLK_PAGEDOWN, SDLK_o, SDLK_DELETE, SDLK_F4}) {
+        SDLK_PAGEUP, SDLK_PAGEDOWN, SDLK_o, SDLK_DELETE}) {
         SDL_Event edit{}; edit.type = SDL_KEYDOWN; edit.key.keysym.sym = key;
         CHECK(MapWindowsEditorAction(edit) != EditorAction::None);
         CHECK(MapWindowsAction(edit) == BringUpAction::None);
@@ -234,6 +238,14 @@ int main() {
     for (auto key : {SDLK_SPACE, SDLK_RETURN, SDLK_x}) {
         SDL_Event transport{}; transport.type = SDL_KEYDOWN; transport.key.keysym.sym = key;
         CHECK(MapWindowsEditorAction(transport) == EditorAction::None);
+    }
+    for(auto key:{SDLK_F3,SDLK_F4,SDLK_F5}) {
+        SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=key;
+        const auto expected=key==SDLK_F3?BringUpSerial::FileAction::Test:key==SDLK_F4?BringUpSerial::FileAction::Load:BringUpSerial::FileAction::Save;
+        CHECK(MapWindowsFile(event)==expected);CHECK(MapWindowsEditorAction(event)==EditorAction::None);
+        event.key.repeat=1;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.key.repeat=0;
+        event.type=SDL_KEYUP;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.type=SDL_KEYDOWN;
+        for(auto modifier:{KMOD_SHIFT,KMOD_CTRL,KMOD_ALT,KMOD_GUI}) {event.key.keysym.mod=modifier;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);}
     }
     SDL_Event e{}; e.type = SDL_KEYDOWN;
     e.key.keysym.sym = SDLK_SPACE; CHECK(MapWindowsAction(e) == BringUpAction::PatternToggle);

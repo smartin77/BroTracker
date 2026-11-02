@@ -9,6 +9,149 @@ glibc 2.30, libstdc++6 9.2.1-9ubuntu2, and system SDL2 2.0.10.
 Build inside a minimal Eoan ARM64 root under QEMU user emulation in WSL2.
 No Docker, console compiler, copied console sysroot, or bundled SDL2 is needed.
 
+## Development MIDI connection launcher
+
+The existing `tools/arkos/install-port.sh` installer also installs
+**Ports > BroTracker MIDI Connect**. Run it manually before BroTracker Terminal.
+It starts one detached, user-owned route keeper; Teensy and H4MIDI can arrive in
+either order, before or after launch. Reopening the entry shows the existing
+keeper's current status rather than starting another. No boot service is installed.
+It requires Python 3 and `aconnect` from alsa-utils; prepare these while online.
+`amidi` (also alsa-utils) supplies read-only identity listings when the installed
+`aconnect` omits `card=`. Missing `amidi` reduces USB visibility; routing can continue.
+No Wi-Fi/SSH or running BTX is required during use.
+
+The launcher shows a compact system-console summary for up to ten seconds:
+device discovery, ALSA route, USB observation and fresh BTX MIDI health remain
+separate. Positive values request ANSI bold green; errors, unavailable and unknown
+values request bold red, with explicit words for use without color (`NO_COLOR`
+disables it). The console may show intensity rather than a heavier font.
+Cleanup is complete only with fresh, valid MIDI health; otherwise a false cleanup
+flag is shown as unknown. A reported pending/uncertain cleanup remains visible.
+The MIDI row is omitted when BTX health is unknown (for example, BTX is closed
+or its telemetry is stale). Known health/faults and pending cleanup stay visible;
+route, device and USB observations are independent and remain displayed.
+An existing route never establishes external MIDI delivery. Details remain in
+the existing launch/keeper logs rather than being dumped onto the small screen.
+A failed launch/ensure command is shown separately in red above any valid status
+snapshot, with its exit code and a pointer to `midi-connect-launch.log`.
+Any new button press on the R36H's `GO-Super Gamepad` (or `retrogame_joypad`)
+returns early, using read-only Linux input events without grabbing the controller
+or starting a mapping daemon.
+Queued launch events and button releases are ignored. If the input device is
+missing or inaccessible, the screen reports that buttons are unavailable and
+uses the timeout. The 2026-11-02 R36H physical test confirmed readable spacing,
+red/green values, the approximately ten-second timeout and early return with
+A/B/X/Y and L/R shoulder buttons. The user saw no heavier bold font. Analog stick
+movement is not supported or required. The older `retrogame_joypad` name remains
+covered by fixtures; it was not physically verified in this run.
+The same offline run passed PT8211 audio, H4MIDI LED activity and audible WASP
+playback with an unpowered OTG hub and externally powered H4MIDI. H4MIDI stayed
+connected while Teensy and Wi-Fi were swapped for playback and SSH respectively;
+this does not validate all three devices together or establish a USB failure cause.
+
+The tool discovers the exact ALSA sequencer port names `BroTracker USB audio MIDI 1`
+and `H4MIDI-WC MIDI 1`, connects only source to destination, and verifies the route.
+Only the expected kernel ALSA clients are accepted, with direction/identity
+rechecked before connecting. USB path, bus/device number and sysfs incarnation are
+recorded where available. An existing subscription is a no-op. States are missing,
+ambiguous, connecting, connected and unavailable; **connected means subscription
+verified, not delivered MIDI**. BTX health is a separate observation, never a route
+acknowledgement or permission for the keeper to control playback.
+
+The keeper observes every two seconds, with five connection attempts per stable
+device/port identity and capped 2/4/8/16-second backoff. After exhaustion it keeps
+observing without repeated connection attempts; device/port changes, observed
+removal/reappearance, or loss after a verified connection permit a new bounded
+attempt sequence. Each aconnect command has a five-second timeout. Numeric ALSA
+addresses are rediscovered; unrelated subscriptions are never changed. It never
+opens CDC, sends MIDI notes or STOP/START, resets USB, changes system/BTX config,
+or loads/saves sessions. It neither clears firmware fault 8 nor initiates its
+explicit STOP/cleanup/START recovery. BTX exit does not stop the keeper or its route.
+
+USB attribution uses the sequencer's `card=` when provided. On the handheld format
+without that field, exact supported raw-MIDI names/directions from `amidi -l` are
+joined to actual control character devices, `/sys/dev/char` and sound-card/raw-MIDI
+ancestry. Proven control-device aliases are collapsed; multiple physical matches,
+missing ancestry or identities changing during the read remain reduced visibility.
+Client/card-number equality and USB VID/PID alone never establish identity.
+
+Read-only kernel-ring observations attribute new USB errors to supported paths
+and the current device incarnation. The first readable ring is a baseline, not a
+new fault. New errors and lifecycle tokens are retained in bounded memory while
+ALSA/sysfs discovery catches up. A verified incarnation receives its deferred
+errors only when path, device number and lifecycle ordering establish the match;
+old-device errors are not transferred to a replacement. Missing or conflicting
+evidence stays explicitly reduced visibility, including exhausted history buffers.
+Disconnect/replacement records racing a device snapshot prevent attribution to
+that stale incarnation. Missing mappings/history, unreadable logs or missing dmesg
+are explicitly reduced visibility. This is not USB packet tracing or an H4MIDI
+delivery acknowledgement. A latched error remains unavailable for that incarnation
+even if its subscription is present: reconnecting a route is not USB repair.
+Physical USB/power/kernel failures can exceed what this tool can recover.
+
+The console shows the result for eight seconds, then returns to Ports while the
+keeper continues independently. State transitions/errors are timestamped with
+wall/monotonic time, boot identity, process and device identity in
+`$HOME/BroTracker/midi-connect.log` (128 KiB, three rotating backups). Duplicate
+unchanged observations are not logged. `midi-connect-status.json` is atomic current
+status, with stale/dead/previous-boot keeper checks; it is not a delivery receipt.
+`midi-connect-launch.log` holds the latest console invocation separately. Run
+`python3 -B /roms/ports/brotracker/midi-connect.py --status` for read-only status.
+The process lock is held for the keeper lifetime, including concurrent launches.
+To stop monitoring deliberately, identify its current PID from a fresh status and
+send TERM to that keeper only; the intended subscription is left intact. No broad
+route teardown, USB reset or playback command is performed at shutdown. After a
+reboot, launch the Ports entry again. Updating installed helper files does not
+replace an already-running keeper; stop that keeper explicitly before upgrading.
+
+This is the temporary H4MIDI-only route authority. A future BroTracker MIDI host
+must explicitly take over this ownership rather than run a competing route writer.
+
+### BTX health/status exchange
+
+ArkOS BTX displays route subscription state, attributed USB-path errors and Teensy
+MIDI health separately. Windows retains the shared firmware-health display without
+an ArkOS route-keeper connection. Neither display proves H4MIDI/DIN/WASP delivery.
+Start the keeper through Ports explicitly; BTX does not start or replace it.
+
+The keeper atomically publishes `midi-connect-status.btx`, a bounded four-line v1
+observation consumed by BTX, alongside its existing JSON status. Header:
+`BTMIDIROUTE 1 pid process_start boot_id monotonic_ms state subscription`;
+following lines are `detail ...`, `usb ...`, `visibility ...`. Text cannot inject
+extra lines. BTX rejects malformed, future-dated, dead/reused-owner, prior-boot or
+older-than-20-second observations. A missing/stopped keeper is shown without
+blocking editing, transport, file operations or internal audio.
+
+BTX alone atomically publishes `btx-midi-health.state`, at most once per second:
+`BTMIDIHEALTH 1 pid process_start boot_id monotonic_ms connected supported known configured fault cleanup reason firmware_age_ms transport`.
+The keeper rejects dead/reused-owner, prior-boot, malformed and older-than-three-
+second publications, and also expires the underlying firmware observation at
+three seconds including its age before publication. Firmware STATUS replies renew
+same-state health without logging every reply. No extra CDC query/owner is added.
+BTX removes its observation on orderly exit; a crash expires through owner/freshness
+checks. With BTX closed, firmware health is unknown while route maintenance continues.
+
+The BTX health-publisher lock prevents competing writers from overwriting that
+file; it is not general BTX single-instance or serial-port exclusion. The keeper
+never opens CDC. Published health and errors are observations, not commands.
+Keeper logs add BTX owner/health/cleanup transitions but not every heartbeat.
+BTX logs route/USB visibility transitions. No status-file field can issue transport,
+change the session or alter an unrelated ALSA route.
+
+Fault 8 is a Teensy USB completion stall, separate from Linux H4MIDI URB errors.
+Current firmware permits recovery only at an explicit stopped START boundary after
+cancellation/cleanup. BTX shows `STOP; wait STOPPED + cleanup=0; then START` while
+cleanup is uncertain or transport running/paused; once stopped and clean, it shows
+`START requests recovery`. Missing USB must be restored first. Cleanup completion
+alone never clears a latched fault. No hidden STOP/START, automatic playback restart,
+USB reset or firmware command was introduced. If cleanup cannot finish, MIDI remains
+uncertain while internal playback remains usable. See [MIDI recovery policy](../../docs/MIDI_FOUNDATION.md#midi-output-failure-isolation-2026-10-22).
+
+Run `python3 -B tools/arkos/check-midi-connect.py` and
+`bash tools/arkos/check-install-port.sh` for isolated checks. Visible console
+feedback and MIDI delivery on ArkOS and dArkOS remain physical checks.
+
 ## Current handheld controls
 
 Use [BTX_CONTROLS.md](../../docs/BTX_CONTROLS.md), the single current desktop and

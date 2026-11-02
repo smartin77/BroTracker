@@ -35,6 +35,22 @@ struct Test {
 };
 int main() {
     try {
+        { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
+          t.Tick();t.port->Expect("BTMIDI1 SET 1 12\n");t.Reply("BTMIDI1 SELECTED 1 12\n");
+          t.Reply("BTMIDI1 OUTPUT 1 1 1 1 8\n");CHECK(t.serial.MidiHealth(t.now).fault);
+          CHECK(std::strstr(t.serial.MidiStatus(),"wait STOPPED + cleanup=0"));t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 1 1 0 8\n");CHECK(std::strstr(t.serial.MidiStatus(),"START requests recovery"));t.port->Expect("");
+          const auto at=t.now;t.Reply("BTMIDI1 OUTPUT 1 1 1 0 8\n");
+          CHECK(t.serial.MidiHealth(at+3000).known);CHECK(!t.serial.MidiHealth(t.now+3001).known);
+          t.Reply("BTTEST1 STATE PLAYING\nBTMIDI1 OUTPUT 1 1 1 0 8\n");
+          CHECK(t.serial.Playing());CHECK(std::strstr(t.serial.MidiStatus(),"STOP; wait"));t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 1 0 0 0\n");CHECK(!t.serial.MidiHealth(t.now).fault);t.port->Expect("");
+          t.Reply("BTMIDI1 OUTPUT 1 0 1 1 8\n");CHECK(!t.serial.MidiHealth(t.now).configured);
+          CHECK(t.serial.MidiHealth(t.now).known);CHECK(std::strstr(t.serial.MidiStatus(),"restore USB"));t.port->Expect("");
+          t.port->online=false;t.Tick();CHECK(!t.serial.MidiHealth(t.now).known);
+          t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+          t.Reply("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");CHECK(!t.serial.MidiHealth(t.now).known);
+        }
         { Test t;std::string events;
           t.serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){*static_cast<std::string*>(context)+=std::string(event)+",";},&events);
           t.Ready("BTTEST1 STATE IDLE\nBTPATTERN1 TRANSPORTCAP 1\n");events.clear();
@@ -176,15 +192,14 @@ int main() {
           t.Reply("BTTEST1 CONTINUED\n"); CHECK(t.serial.Playing());
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 PAUSE\n");
           t.Action(BringUpAction::Exit); t.Reply("BTTEST1 PAUSED\n");
-          t.Send("BTTEST1 STOP\n"); t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+          t.port->Expect("");CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); // No capability: preserve legacy restart.
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 START\n"); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Action(BringUpAction::Exit);
           t.Reply("BTTEST1 STATE PLAYING\n"); t.Send("BTTEST1 PAUSE\n");
-          t.Reply("BTTEST1 PAUSED\n"); t.Send("BTTEST1 STOP\n");
-          t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+          t.Reply("BTTEST1 PAUSED\n"); t.port->Expect(""); CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 STATE ERROR\n");
@@ -204,18 +219,14 @@ int main() {
           t.Action(BringUpAction::Start); t.Send("BTTEST1 START\n");
           t.Reply("BTTEST1 STARTED\nBTTEST1 DONE\n");
           t.Action(BringUpAction::Exit); CHECK(t.controls.Quit()); t.port->Expect(""); }
-        // STATUS pending: queued START then exit must preserve START -> STOP.
-        { Test t; t.Ready(); t.now = 1000; t.Send("BTTEST1 STATUS\n");
-          t.Action(BringUpAction::Start); t.Action(BringUpAction::Exit); t.Action(BringUpAction::Start);
-          CHECK(!t.controls.Quit()); t.Reply("BTTEST1 STATE DONE\n");
-          t.Send("BTTEST1 START\n"); t.Reply("BTTEST1 STARTED\n");
-          t.Send("BTTEST1 STOP\n"); t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+        // Closing the terminal never synthesizes STOP, even with START queued.
+        { Test t; t.Ready();t.Action(BringUpAction::Start);t.Action(BringUpAction::Exit);
+          CHECK(t.controls.Quit());t.port->Expect(""); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Stop);
           t.Action(BringUpAction::Exit); t.Send("BTTEST1 STOP\n");
           t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Exit);
-          t.Send("BTTEST1 STOP\n"); t.now += 6000; t.Tick();
-          CHECK(t.controls.Quit() && !t.serial.Stopped()); }
+          t.port->Expect("");CHECK(t.controls.Quit() && !t.serial.Stopped()); }
         for (bool exiting : {false, true}) {
           Test t; t.Ready(); t.Action(BringUpAction::Start);
           if (exiting) t.Action(BringUpAction::Exit);

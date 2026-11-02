@@ -128,7 +128,7 @@ namespace BroTracker {
     private:
         unsigned Count() const noexcept { return unsigned(pattern_.active_rows)*pattern_.active_channels; }
         void Set(const char* text) noexcept { std::snprintf(status_,sizeof(status_),"%s",text); }
-        void Uncertain() noexcept { phase_=HostPublicationPhase::Uncertain; Set("Publication uncertain - F5 requests readback"); }
+        void Uncertain() noexcept { phase_=HostPublicationPhase::Uncertain; Set("Publication uncertain - Shift+F5 requests readback"); }
         RealtimePattern pattern_;
         std::uint32_t id_=0,last_id_=0,hash_=0,tempo_=0,started_=0;
         unsigned line_index_=0;

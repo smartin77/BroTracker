@@ -156,6 +156,15 @@ an idle endpoint or while disconnected. External release following these fault/
 disconnect cleanup paths remains unverified; the manual normal-OFF confirmation
 below is a separate result.
 
+Stopped/paused SD operations distinguish active cleanup from idle quarantine.
+A stalled cleanup remains reported as pending/uncertain, with its pitch ledger
+and fault retained. Once backend cancellation is complete, DMA is idle, and
+there are no queued MIDI events or pending abort, that quarantined state does
+not block Save/Load/session persistence. Active cleanup, queued events, pending
+cancellation and DMA still block storage; the audio/core readiness guards remain.
+An explicit STOP/reset re-arms cleanup and temporarily blocks storage again.
+Storage eligibility never confirms note release or clears a MIDI fault.
+
 Normal internal playback can START/Continue while MIDI is faulted. **MIDI recovery
 requires explicit STOP, completed cancellation and cleanup, then START while the
 engine is stopped and USB configured.** Wait for STOPPED and cleanup_pending=0.
@@ -178,6 +187,23 @@ Reason values: 0 none, 1 unavailable at enqueue, 2 release deadline, 3 capacity,
 8 completion stall. The **first** reason stays latched across cleanup failures and
 disconnect until successful explicit recovery. Busy/late/overflow/disconnect and
 transport counters remain available in the existing STATE/TIMING replies.
+ArkOS BTX now exchanges observations with the persistent H4MIDI route keeper through
+[versioned local status files](../tools/arkos/README.md#btx-healthstatus-exchange).
+The keeper owns ALSA routing; BTX remains its only CDC participant. Route presence,
+USB-path errors and fresh firmware health are displayed separately, with dead-owner,
+restart and staleness checks. Windows uses the shared firmware-health/action text.
+Recovery still requires the explicit stopped/cleanup/START boundary above; no
+automatic transport action, session mutation or new firmware recovery command is
+added. USB configured=0 telemetry is valid and must not be discarded as a zero ID.
+On ArkOS, USB attribution also supports `aconnect` headers without `card=` through
+exact raw-MIDI identity and verified sysfs ancestry. Ambiguous or missing mappings
+remain explicitly reduced visibility; historical ring contents are not new faults.
+This improves error reporting, not USB delivery: an earlier 2026-11-02 offline run had a
+present subscription and healthy Teensy telemetry while H4MIDI logged URB -32 and
+produced no observed LED/WASP output.
+A subsequent read-only candidate check mapped the current H4MIDI incarnation and
+attributed 18 new URB -32 errors. The installed route keeper was unchanged during
+that check; this validates attribution, not USB recovery or end-to-end MIDI.
 The 2903 us release deadline, 40 ms completion watchdog, sample target timestamps,
 ordering, 100 us timer cadence and service/storage bounds are unchanged. BTX logs
 and displays MIDI health separately from transport; repeated identical health
@@ -387,7 +413,8 @@ unmeasured: this is listening acceptance, not measured synchronization proof.
 No compensation is introduced or inferred for another topology.
 
 Windows H4MIDI/DIN playback is separately confirmed below; handheld routing
-remains unverified. The newly replaced SD bass
+was unverified in that run. See the later [ArkOS confirmation](#user-confirmed-arkos-manual-midi-route-2026-11-02).
+The newly replaced SD bass
 fixture was verified by authoritative readback, not auditioned during provisioning;
 this manual confirmation does not relabel that run as a listening test.
 
@@ -405,23 +432,126 @@ H4MIDI provides USB-to-DIN conversion/output, not a Teensy DIN implementation.
 | Direct PC | Teensy and H4MIDI on separate front-panel PC ports; Hub B bypassed | Not in route | No | **WORKS** |
 | Powered Hub B | Hub B on front USB panel; Teensy and H4MIDI both on B | Yes | No | **WORKS** |
 | Unpowered Hub B, powered H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | Yes | **WORKS** |
-| Unpowered Hub B and H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | No | **FAILS**: playback failed; HxMIDI Tools and MIDI-OX hangs observed during attempts |
+| Unpowered Hub B and H4MIDI | Hub B on front USB panel; Teensy and H4MIDI both on B | No | No | Earlier failure: playback failed; HxMIDI Tools and MIDI-OX hangs observed. Later tests passed (2026-10-31, below). |
 
-**Warning: this tested shared-hub setup fails when neither Hub B nor H4MIDI has
-external power.** Either externally powering Hub B or separately powering H4MIDI
-produced working playback. The user's conclusion is that power availability caused
-the failure in this setup. No electrical measurements were performed, and this is
-not a power requirement inferred for every USB hub. Each row is a separate
-user-confirmed physical result, not an automated test or long-term stability test.
-The earlier pure-USB OFF/envelope and subjective timing acceptance applies only to
-that USB topology; it is not transferred to these DIN routes. Measured
-offset/jitter/drift and handheld routing remain open; no compensation is introduced.
+The earlier unpowered shared-hub failure is a historical, intermittent observation,
+not a rule that this configuration necessarily fails. Power availability was
+suspected, but no electrical measurements or cause were established. The later
+successful tests below supersede the warning against using this arrangement.
+These are separate user confirmations, not automated or long-term stability tests.
+The pure-USB OFF/envelope and subjective timing acceptance above is not transferred
+to the DIN routes. Measured offset/jitter/drift remain open; no compensation is
+introduced.
 
 ![H4MIDI saved USB-to-DIN routing reference](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)
 
 Saved USB-to-DIN routing reference ([source image](https://github.com/smartin77/m8-headless-on-r36-game-consoles/raw/main/images/H4MIDI-OUT1-2-routing.png)).
 The image illustrates OUT1/OUT2 routing; only DIN **OUT1** playback is confirmed.
 OUT2 was not tested.
+
+### User-confirmed Windows shared-hub tests (2026-10-31)
+
+Setup: **Windows 11 25H2, PC front USB panel, hub B**, with Teensy 4.1,
+H4MIDI-WC and a Wi-Fi dongle attached to B. The route was **Teensy USB MIDI ->
+MIDI-OX -> H4MIDI USB-C device port -> configured DIN OUT -> Behringer WASP**.
+A standalone PowerShell arpeggio also tested H4MIDI independently of BTX and
+MIDI-OX.
+
+| Hub B external power | H4MIDI external power | User-confirmed result |
+| --- | --- | --- |
+| Connected | Connected | Arpeggio and BTX/WASP worked. |
+| Disconnected | Connected | BTX and MIDI kept working. Reconnecting the Wi-Fi dongle during pause and playback caused no visible interruption. |
+| Disconnected; entire hub reconnected with all devices attached | Connected | Arpeggio and BTX/MIDI worked. |
+| Disconnected | Disconnected | Arpeggio and BTX/MIDI worked; a subsequent reconnect of the entire chain also passed. |
+
+The PC has a **550 W PSU**. These successful unpowered hub/H4MIDI tests apply to
+this PC and front USB port; the PSU rating does not establish current available
+at that port. No electrical measurements or universal USB power requirement are
+inferred.
+
+### User-confirmed ArkOS manual MIDI route (2026-11-02)
+
+The user confirmed a working configuration on the **ArkOS handheld USB-C OTG**:
+an **unpowered USB hub** with **Teensy 4.1** and **externally powered H4MIDI**
+attached, **Wi-Fi dongle disconnected**, and H4MIDI routing to WASP. The manual
+ALSA connection was **BroTracker USB audio MIDI 1 (24:0) -> H4MIDI-WC MIDI 1 (20:0)**.
+Addresses belong to this capture; device discovery must continue to use names.
+The hub model and detailed USB topology are not identified by the supplied log.
+
+**Physical confirmation:** BTX playback, audible PT8211 audio, H4MIDI LED activity
+and audible WASP output all worked in this test.
+
+**Log evidence:** The supplied log lists both named ALSA ports and the same
+one-way subscription at both endpoints
+(`Connecting To: 20:0` / `Connected From: 24:0`). It has no timestamps, MIDI event
+trace, USB completion records or BTX/firmware health telemetry. It verifies the
+listed subscription, while audible delivery is the user's separate observation;
+it does not establish automatic keeper operation or absence of USB errors.
+
+This is a working ArkOS configuration for this test, not a stability guarantee,
+measured timing/alignment result or explanation of the earlier descriptor/address
+and URB -32 failures. Those failures and recovery questions remain open. It does
+not validate dArkOS or other hubs, power conditions, reconnects or Wi-Fi coexistence.
+
+### User-confirmed ArkOS MIDI Connect keeper test (2026-11-02)
+
+In a later test, the **MIDI Connect keeper** provided the ALSA route with an
+**unpowered USB-C OTG hub**, **Teensy 4.1** and **externally powered H4MIDI**,
+with the **Wi-Fi dongle disconnected**. The user confirmed **BTX playback,
+audible PT8211 audio, H4MIDI LED activity and audible WASP output**. This is a
+separate confirmation from the earlier manual ALSA test above.
+
+For development, **H4MIDI remains connected and externally powered while Teensy
+and the Wi-Fi dongle are swapped** between offline playback and SSH access.
+The user confirmed repeated successful swaps and subsequent SSH reconnections.
+Launcher and status-screen details remain in the
+[ArkOS launcher documentation](../tools/arkos/README.md#development-midi-connection-launcher).
+
+This confirms the tested offline configuration, not simultaneous Teensy/H4MIDI/
+Wi-Fi operation, general stability or automatic fault recovery. Earlier USB
+failures remain distinct and unexplained; this result establishes no root cause
+and does not validate dArkOS.
+
+### User-confirmed dArkOS offline MIDI Connect tests (2026-11-02)
+
+The user independently confirmed **MIDI Connect, BTX playback, PT8211 audio and
+audible WASP output** on dArkOS with an **unpowered USB-C OTG hub**, **Teensy 4.1**
+and **externally powered H4MIDI**, with **Wi-Fi disconnected during playback**.
+The same sequence also worked after a system reboot. Replacing Teensy with the
+Wi-Fi dongle restored Wi-Fi promptly; H4MIDI remained connected and powered.
+
+These are user-confirmed physical results, separate from the ArkOS tests and
+earlier dArkOS USB failures. They confirm this offline setup and reboot repeat,
+not simultaneous operation of all three devices, general USB stability or a
+proven cause of the previous failures. Those stability questions remain open.
+
+### Open issues and platform limits (2026-10-31, updated 2026-11-02)
+
+- **Windows routing after reconnect:** MIDI-OX lost its Teensy input after a hub
+  reconnect. Restarting MIDI-OX restored routing while BTX stayed open.
+- **Windows MIDI hangs:** during earlier testing, MIDI-OX and a direct WinMM
+  PowerShell test hung, and Windows MIDI Service remained `STOP_PENDING`.
+  Forcibly ending that service's own process and starting the service restored
+  the arpeggio and later MIDI-OX operation. This is an observed recovery, not a
+  guaranteed fix; the underlying cause is unknown.
+- **Unstable USB tests:** earlier descriptor failures, hub disconnects and
+  SD-unavailable were observed. No shared cause is confirmed. After reconnecting
+  Teensy, the previous session returned; this does not explain the failures.
+- **Multiple BTX instances:** two simultaneous instances produced a misleading
+  waiting-for-device state. Prevention is an [open improvement](TODO_LIST.md#next-development-steps),
+  not an explanation for the unrelated MIDI or SD failures.
+- **Earlier dArkOS tests:** H4MIDI detection was intermittent, and direct notes sometimes failed
+  with USB enumeration/URB errors. Standalone arpeggio also worked directly and
+  through hub B in other tests. The later
+  [dArkOS offline confirmations](#user-confirmed-darkos-offline-midi-connect-tests-2026-11-02)
+  establish one working setup, including a repeat after reboot; they do not
+  resolve the earlier failures. ArkOS and Windows results remain separate.
+- **Handheld power/topology:** the R36H runs on battery. Power connected to its
+  separate USB-C charging port did not appear to improve the observed behavior,
+  but this was not measured or systematically isolated. Handheld USB power and
+  host-controller behavior may differ from the PC. Supply, controller and topology
+  remain possible factors to investigate; neither insufficient handheld USB power
+  nor a particular faulty hub has been proven.
 
 ### Earlier automated capture and other routing prerequisites
 
@@ -431,7 +561,7 @@ present in the observed WinMM output list (only Microsoft GS and Teensy).
 No external synth or two-channel audio measurement was available to this run.
 
 For the confirmed PC/CME/DIN route above, connect Teensy and the CME's USB
-**client/device** port to the PC, directly or through a tested powered arrangement.
+**client/device** port to the PC, directly or through a tested hub arrangement.
 Configure a host MIDI routing application (for example a user-chosen MIDI-OX route) from Teensy MIDI input to the appropriate
 CME MIDI output, then connect that CME DIN OUT to synth DIN IN. Confirm the
 CME's saved routing/filtering, output port, synth receive channel and patch.
@@ -519,8 +649,8 @@ Manual checklist:
   Teensy and confirm the new acknowledgment before playback.
 - Perform the two-channel measurement above before claiming measured alignment
   or choosing compensation; topology-specific listening acceptance is recorded above.
-- Keep inherited physical handheld tempo/Synth/beat-navigation validation pending;
-  no SSH or handheld deployment has been performed.
+- Keep remaining handheld checks separate from Windows results; neither ArkOS
+  nor dArkOS external MIDI routing is established by the PC confirmations.
 
 ## USB lifecycle review (2026-10-23)
 

@@ -157,3 +157,9 @@ TEST_CASE(HostLoggingWindowsRenamePartialFailurePreservesUnarchivedCurrent) {
     }
 }
 #endif
+
+TEST_CASE(SessionSaveOutcomesRemainVisibleInBasicLogs) {
+    for(const auto* message:{"File result: Session save: deferred-playing 0", "File result: Tune Save: io 0",
+        "File result: Tune Save: backup-retained 0", "Session persistence: session-auto ok 0"})
+        CHECK(ClassifyHostDiagnostic("USB bring-up",message)==HostLogLevel::Basic);
+}

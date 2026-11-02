@@ -68,7 +68,22 @@ During initial hardware development, BroTracker will use USB connectivity.
 
 The primary external MIDI routing hardware is the CME H4MIDI.
 
-The current controllable route is Teensy USB device -> PC host MIDI router ->
+H4MIDI is the current development routing hardware and should remain a supported
+external routing alternative alongside future BroTracker routing options. This is
+an interoperability direction, not a new built-in H4MIDI integration or implemented
+BroTracker router. Keep the MIDI core independent of this hardware choice.
+Platform-specific confirmations and open issues are recorded in the MIDI foundation:
+[Windows tests](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31)
+and the ArkOS [manual ALSA test](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02)
+and later [MIDI Connect keeper test](MIDI_FOUNDATION.md#user-confirmed-arkos-midi-connect-keeper-test-2026-11-02).
+The keeper test confirms offline BTX/PT8211 and H4MIDI/WASP playback. Separate
+[dArkOS confirmations](MIDI_FOUNDATION.md#user-confirmed-darkos-offline-midi-connect-tests-2026-11-02)
+cover the same offline topology and a successful repeat after reboot, with prompt
+Wi-Fi reconnection after swapping out Teensy. These tests establish neither
+simultaneous Teensy/H4MIDI/Wi-Fi operation, general handheld stability, automatic
+keeper fault recovery nor the cause of earlier USB failures.
+
+The confirmed route is Teensy USB device -> host MIDI router (Windows PC or ArkOS ALSA) ->
 CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices
 do not route between themselves. The H4MIDI WC USB-A host port is a different
 physical topology and does not automatically preserve BTX's Teensy CDC control.
@@ -192,7 +207,9 @@ Examples include:
 - TXL MIDI Router
 - CME H4MIDI
 
-These examples are informative only and do not represent required integrations.
+These are external interoperability examples, not built-in integrations. The
+long-term H4MIDI compatibility direction above does not require a device-specific
+implementation.
 
 ## Future Considerations
 
