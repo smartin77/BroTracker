@@ -195,6 +195,15 @@ restart and staleness checks. Windows uses the shared firmware-health/action tex
 Recovery still requires the explicit stopped/cleanup/START boundary above; no
 automatic transport action, session mutation or new firmware recovery command is
 added. USB configured=0 telemetry is valid and must not be discarded as a zero ID.
+On ArkOS, USB attribution also supports `aconnect` headers without `card=` through
+exact raw-MIDI identity and verified sysfs ancestry. Ambiguous or missing mappings
+remain explicitly reduced visibility; historical ring contents are not new faults.
+This improves error reporting, not USB delivery: the 2026-11-02 offline run had a
+present subscription and healthy Teensy telemetry while H4MIDI logged URB -32 and
+produced no observed LED/WASP output.
+A subsequent read-only candidate check mapped the current H4MIDI incarnation and
+attributed 18 new URB -32 errors. The installed route keeper was unchanged during
+that check; this validates attribution, not USB recovery or end-to-end MIDI.
 The 2903 us release deadline, 40 ms completion watchdog, sample target timestamps,
 ordering, 100 us timer cadence and service/storage bounds are unchanged. BTX logs
 and displays MIDI health separately from transport; repeated identical health

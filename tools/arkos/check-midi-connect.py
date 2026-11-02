@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import stat
+from types import SimpleNamespace
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
@@ -54,6 +56,164 @@ class Peer:
 
 
 class Checks(unittest.TestCase):
+    @contextlib.contextmanager
+    def usb_fixture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); sysfs = root/'sys'; dev = root/'dev/snd'
+            (sysfs/'class/sound').mkdir(parents=True); (sysfs/'dev/char').mkdir(parents=True);dev.mkdir(parents=True)
+            def add(card, path, number):
+                usb = sysfs/'devices/usb1'/path; interface = usb/(path+':1.2')
+                node = interface/'sound'/('card'+str(card));node.mkdir(parents=True)
+                for key,value in dict(idVendor='7104',idProduct='2100',busnum='1',devnum=str(number)).items():
+                    (usb/key).write_text(value)
+                (node/'device').symlink_to(interface)
+                (sysfs/'class/sound'/node.name).symlink_to(node)
+                for name in ('controlC'+str(card),'midiC{}D0'.format(card)):
+                    (node/name).touch();(sysfs/'class/sound'/name).symlink_to(node/name)
+                (sysfs/'dev/char'/('116:'+str(card+5))).symlink_to(node/('controlC'+str(card)))
+                (dev/('controlC'+str(card))).touch()
+                return usb
+            original = os.stat
+            def character(path, *args, **kwargs):
+                p=Path(path)
+                if p.parent==dev:
+                    canonical=p.resolve(strict=True);card=int(canonical.name[len('controlC'):])
+                    return SimpleNamespace(st_mode=stat.S_IFCHR,st_rdev=os.makedev(116,card+5))
+                return original(path,*args,**kwargs)
+            with mock.patch.object(tool.os,'stat',side_effect=character):
+                yield sysfs,dev,add
+
+    def test_handheld_raw_identity_uses_real_control_ancestry_and_collapses_alias(self):
+        captured="client 20: 'BroTracker USB audio' [type=kernel]\n    0 'BroTracker USB audio MIDI 1'\nclient 24: 'H4MIDI-WC' [type=kernel]\n    0 'H4MIDI-WC MIDI 1'\n"
+        with self.usb_fixture() as (sysfs,dev,add):
+            add(1,'1-1.3',5);add(2,'1-1.2',6)
+            (dev/'controlC7').symlink_to(dev/'controlC1')
+            raw='Dir Device    Name\nIO  hw:1,0,0  BroTracker USB audio MIDI 1\nIO  hw:7,0,0  BroTracker USB audio MIDI 1\nIO  hw:2,0,0  H4MIDI-WC MIDI 1\n'
+            source=tool.identity(captured,'20:0',lambda:raw,sysfs,dev)
+            dest=tool.identity(captured,'24:0',lambda:raw,sysfs,dev)
+            self.assertEqual(source['usb']['path'],'1-1.3');self.assertEqual(dest['usb']['path'],'1-1.2')
+            self.assertEqual(dest['usb']['devnum'],'6')
+            # Captured after H4 arrival: the handheld retargets controlC7 to H4.
+            (dev/'controlC7').unlink();(dev/'controlC7').symlink_to(dev/'controlC2')
+            raw=raw.replace('hw:7,0,0  BroTracker USB audio MIDI 1','hw:7,0,0  H4MIDI-WC MIDI 1')
+            raw+='IO hw:2,0,1 H4MIDI-WC MIDI 2\nIO hw:7,0,1 H4MIDI-WC MIDI 2\n'
+            self.assertEqual(tool.identity(captured,'24:0',lambda:raw,sysfs,dev)['usb'],dest['usb'])
+            modern=captured.replace('[type=kernel]','[type=kernel,card=2]')
+            self.assertEqual(tool.identity(modern,'24:0',lambda:self.fail('unnecessary fallback'),sysfs,dev)['usb'],dest['usb'])
+
+    def test_raw_identity_rejects_ambiguity_missing_ancestry_and_wrong_direction(self):
+        captured="client 24: 'H4MIDI-WC' [type=kernel]\n    0 'H4MIDI-WC MIDI 1'\n"
+        with self.usb_fixture() as (sysfs,dev,add):
+            add(2,'1-1.2',6);add(3,'1-1.4',7)
+            raw='IO hw:2,0,0 H4MIDI-WC MIDI 1\n'
+            def resolve(text=raw): return tool.identity(captured,'24:0',lambda:text,sysfs,dev)
+            self.assertNotIn('usb',resolve(raw+'IO hw:3,0,0 H4MIDI-WC MIDI 1\n'))
+            self.assertNotIn('usb',resolve(raw.replace('IO','I')))
+            self.assertNotIn('usb',resolve(raw+'IO hw:9,0,0 H4MIDI-WC MIDI 1\n'))
+            (sysfs/'class/sound/midiC2D0').unlink()
+            self.assertNotIn('usb',resolve())
+            self.assertNotIn('usb',tool.identity(captured.replace('kernel','kernel,card=9'),'24:0',lambda:raw,sysfs,dev))
+
+    def test_raw_identity_follows_reenumeration_and_changing_card_client_numbers(self):
+        captured="client 24: 'H4MIDI-WC' [type=kernel]\n    0 'H4MIDI-WC MIDI 1'\n"
+        with self.usb_fixture() as (sysfs,dev,add):
+            add(2,'1-1.2',6)
+            old=tool.identity(captured,'24:0',lambda:'IO hw:2,0,0 H4MIDI-WC MIDI 1\n',sysfs,dev)
+            (sysfs/'class/sound/card2').unlink()
+            self.assertNotIn('usb',tool.identity(captured,'24:0',lambda:'IO hw:2,0,0 H4MIDI-WC MIDI 1\n',sysfs,dev))
+            shutil.rmtree(sysfs/'devices/usb1/1-1.2')
+            add(4,'1-1.2',8)
+            new=tool.identity(captured.replace('24:','36:'),'36:0',lambda:'IO hw:4,0,0 H4MIDI-WC MIDI 1\n',sysfs,dev)
+            self.assertNotEqual(old['usb'],new['usb']);self.assertEqual(new['usb']['devnum'],'8')
+
+    def test_captured_offline_h4_errors_only_after_baseline_and_for_current_incarnation(self):
+        ring=['[ 655.654389] usb 1-1.3: new high-speed USB device number 5 using dwc2\n'
+              '[ 831.575724] usb 1-1.4: USB disconnect, device number 4']
+        errors=tool.KernelErrors(lambda:ring[0]);errors.poll(())
+        ids=[{'address':'20:0','usb':{'path':'1-1.3','devnum':'5','inode':1}},
+             {'address':'24:0','usb':{'path':'1-1.2','devnum':'6','inode':2}}]
+        ring[0]+='\n[ 834.083375] usb 1-1.2: new full-speed USB device number 6 using dwc2'
+        self.assertEqual(errors.poll(ids)[1],'')
+        ring[0]+='\n[ 1109.965043] usb 1-1.2: urb status -32'
+        self.assertIn('usb 1-1.2: urb status -32',errors.poll(ids)[1])
+        # Client renumbering does not make historical errors new, or erase this fault.
+        ids[1]['address']='36:0';self.assertIn('urb status',errors.poll(ids)[1])
+        ring[0]+='\n[ 1217.878955] usb 1-1.2: USB disconnect, device number 6'
+        visibility,error=errors.poll(ids);self.assertIn('rediscovery',visibility);self.assertEqual(error,'')
+        ring[0]+='\n[ 1230.0] usb 1-1.2: new full-speed USB device number 8 using dwc2\n[ 1231.0] usb 1-1.2: urb status -32'
+        self.assertEqual(errors.poll(ids)[1],'')  # Stale ALSA snapshot cannot label replacement errors.
+        ids[1]['usb']=dict(path='1-1.2',devnum='8',inode=3)
+        self.assertIn('urb status',errors.poll(ids)[1])  # Deferred error is proven to belong to device 8.
+        ring[0]+='\n[ 1232.0] usb 1-1.4: urb status -32'
+        self.assertEqual(errors.poll(ids)[1],'usb 1-1.2: urb status -32')  # Sibling cannot replace the H4 fault.
+        ring[0]+='\n[ 1233.0] usb 1-1.2: urb status -32'
+        self.assertIn('urb status',errors.poll(ids)[1])
+
+    def test_identity_failures_and_changed_raw_port_never_guess_usb(self):
+        captured="client 24: 'H4MIDI-WC' [type=kernel]\n    0 'H4MIDI-WC MIDI 1'\n"
+        with self.usb_fixture() as (sysfs,dev,add):
+            add(2,'1-1.2',6)
+            for error in (FileNotFoundError('amidi'),subprocess.TimeoutExpired('amidi',3)):
+                with mock.patch.object(tool,'raw_listing',side_effect=error):
+                    self.assertNotIn('usb',tool.identity(captured,'24:0',tool.raw_listing,sysfs,dev))
+            samples=iter(['IO hw:2,0,0 H4MIDI-WC MIDI 1\n','IO hw:2,0,0 Other MIDI 1\n'])
+            self.assertNotIn('usb',tool.identity(captured,'24:0',lambda:next(samples),sysfs,dev))
+
+    def test_kernel_read_failure_during_replacement_does_not_replay_old_device_error(self):
+        ring=['[ 1.0] usb 1-1.2: new full-speed USB device number 6 using dwc2']
+        errors=tool.KernelErrors(lambda:ring[0]);errors.poll([{'usb':dict(path='1-1.2',devnum='6')}])
+        ids=[{'usb':dict(path='1-1.2',devnum='8')}]
+        def denied(): raise RuntimeError('unreadable')
+        errors.read=denied;self.assertIn('reduced',errors.poll(ids)[0])
+        ring[0]+='\n[ 2.0] usb 1-1.2: urb status -32\n[ 3.0] usb 1-1.2: new full-speed USB device number 8 using dwc2'
+        errors.read=lambda:ring[0];self.assertEqual(errors.poll(ids)[1],'')
+        ring[0]+='\n[ 4.0] usb 1-1.2: urb status -32'
+        self.assertIn('urb status',errors.poll(ids)[1])
+
+    def test_deferred_error_survives_missing_alsa_identity_and_ring_rollover(self):
+        ring=['[ 1.0] usb 1-1.2: new full-speed USB device number 6 using dwc2']
+        errors=tool.KernelErrors(lambda:ring[0]);old=[{'usb':dict(path='1-1.2',devnum='6',inode=1)}]
+        errors.poll(old)
+        ring[0]+='\n[ 2.0] usb 1-1.2: USB disconnect, device number 6\n[ 3.0] usb 1-1.2: new full-speed USB device number 8 using dwc2\n[ 4.0] usb 1-1.2: urb status -32'
+        self.assertEqual(errors.poll(old)[1],'')
+        errors.poll(())  # ALSA disappears while sysfs/port discovery catches up.
+        ring[0]='[ 5.0] unrelated ring data after the lifecycle records scrolled out'
+        visibility,error=errors.poll([{'usb':dict(path='1-1.2',devnum='8',inode=2)}])
+        self.assertIn('urb status -32',error);self.assertNotIn('reduced',visibility)
+
+    def test_missing_or_ambiguous_lifecycle_keeps_deferred_error_explicitly_uncertain(self):
+        for lifecycle in ('', '[ 3.0] usb 1-1.2: new full-speed USB device number 8 using dwc2\n[ 3.0] usb 1-1.2: new full-speed USB device number 9 using dwc2\n'):
+            with self.subTest(lifecycle=lifecycle):
+                ring=['[ 1.0] initial baseline']
+                errors=tool.KernelErrors(lambda:ring[0]);errors.poll(())
+                ring[0]+='\n'+lifecycle+'[ 4.0] usb 1-1.2: urb status -32'
+                errors.poll(())
+                ids=[{'usb':dict(path='1-1.2',devnum='8',inode=2)}]
+                visibility,error=errors.poll(ids)
+                self.assertEqual(error,'');self.assertIn('reduced',visibility)
+                visibility,error=errors.poll(ids)
+                self.assertEqual(error,'');self.assertIn('reduced',visibility)
+
+    def test_old_error_cannot_transfer_to_another_replacement_and_buffers_are_bounded(self):
+        ring=['[ 1.0] usb 1-1.2: new full-speed USB device number 6 using dwc2']
+        errors=tool.KernelErrors(lambda:ring[0]);errors.poll(())
+        ring[0]+='\n[ 2.0] usb 1-1.2: urb status -32\n[ 3.0] usb 1-1.2: USB disconnect, device number 6\n[ 4.0] usb 1-1.2: new full-speed USB device number 8 using dwc2'
+        errors.poll(())
+        self.assertEqual(errors.poll([{'usb':dict(path='1-1.2',devnum='8')}])[1],'')
+        ring[0]+=''.join('\n[ {}.0] usb 1-1.2: urb status -32'.format(i) for i in range(5,150))
+        errors.poll(())
+        self.assertLessEqual(len(errors.pending),128)
+        self.assertIn('reduced',errors.poll([{'usb':dict(path='1-1.2',devnum='8')}])[0])
+
+    def test_late_lifecycle_evidence_can_resolve_previously_uncertain_error(self):
+        ring=['[ 1.0] usb 1-1.2: new full-speed USB device number 6 using dwc2']
+        errors=tool.KernelErrors(lambda:ring[0]);errors.poll(())
+        ring[0]+='\n[ 4.0] usb 1-1.2: urb status -32'
+        ids=[{'usb':dict(path='1-1.2',devnum='8',inode=2)}]
+        visibility,error=errors.poll(ids);self.assertIn('reduced',visibility);self.assertEqual(error,'')
+        ring[0]=ring[0].replace('[ 4.0]', '[ 2.0] usb 1-1.2: USB disconnect, device number 6\n[ 3.0] usb 1-1.2: new full-speed USB device number 8 using dwc2\n[ 4.0]')
+        visibility,error=errors.poll(ids);self.assertIn('urb status -32',error);self.assertNotIn('reduced',visibility)
+
     def test_btx_health_freshness_fault_cleanup_disconnect_and_restart(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); path = root / 'btx-midi-health.state'
@@ -175,7 +335,7 @@ sys.stdin.read()
         self.assertFalse(peer.route)
 
     def test_kernel_error_latches_without_route_repair_and_visibility_failures(self):
-        ring = ['[ 1.0] usb 1-1.1: urb status -32']
+        ring = ['[ 0.5] usb 1-1.1: new full-speed USB device number 4 using dwc2\n[ 1.0] usb 1-1.1: urb status -32']
         errors = tool.KernelErrors(lambda: ring[0])
         peer = Peer(); keeper = self.keeper(peer, errors)
         keeper.identify = lambda listing, address: {'address': address, 'usb': {'path': '1-1.1', 'devnum': '4'}}
@@ -197,6 +357,8 @@ sys.stdin.read()
                 '[ 3.0] usb 1-1.1: urb status -32')
         errors = tool.KernelErrors(lambda: ring)
         current = [{'usb': {'path': '1-1.1', 'devnum': '4'}}]
+        self.assertEqual(errors.poll(current)[1], '')  # Existing ring is history.
+        ring += '\n[ 3.5] usb 1-1.1: urb status -32'
         self.assertIn('urb status', errors.poll(current)[1])
         errors.poll(())  # Transient ALSA disappearance must not erase this incarnation's fault.
         self.assertIn('urb status', errors.poll(current)[1])

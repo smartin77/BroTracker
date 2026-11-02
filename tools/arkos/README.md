@@ -17,6 +17,8 @@ It starts one detached, user-owned route keeper; Teensy and H4MIDI can arrive in
 either order, before or after launch. Reopening the entry shows the existing
 keeper's current status rather than starting another. No boot service is installed.
 It requires Python 3 and `aconnect` from alsa-utils; prepare these while online.
+`amidi` (also alsa-utils) supplies read-only identity listings when the installed
+`aconnect` omits `card=`. Missing `amidi` reduces USB visibility; routing can continue.
 No Wi-Fi/SSH or running BTX is required during use.
 
 The tool discovers the exact ALSA sequencer port names `BroTracker USB audio MIDI 1`
@@ -38,10 +40,22 @@ opens CDC, sends MIDI notes or STOP/START, resets USB, changes system/BTX config
 or loads/saves sessions. It neither clears firmware fault 8 nor initiates its
 explicit STOP/cleanup/START recovery. BTX exit does not stop the keeper or its route.
 
-Read-only kernel-ring observations attribute USB errors to supported USB paths
-and current enumeration where that history is available. Existing errors from a
-known current enumeration are reported; old errors at reused paths are not treated
-as new-device faults. Missing mappings/history, unreadable logs or missing dmesg
+USB attribution uses the sequencer's `card=` when provided. On the handheld format
+without that field, exact supported raw-MIDI names/directions from `amidi -l` are
+joined to actual control character devices, `/sys/dev/char` and sound-card/raw-MIDI
+ancestry. Proven control-device aliases are collapsed; multiple physical matches,
+missing ancestry or identities changing during the read remain reduced visibility.
+Client/card-number equality and USB VID/PID alone never establish identity.
+
+Read-only kernel-ring observations attribute new USB errors to supported paths
+and the current device incarnation. The first readable ring is a baseline, not a
+new fault. New errors and lifecycle tokens are retained in bounded memory while
+ALSA/sysfs discovery catches up. A verified incarnation receives its deferred
+errors only when path, device number and lifecycle ordering establish the match;
+old-device errors are not transferred to a replacement. Missing or conflicting
+evidence stays explicitly reduced visibility, including exhausted history buffers.
+Disconnect/replacement records racing a device snapshot prevent attribution to
+that stale incarnation. Missing mappings/history, unreadable logs or missing dmesg
 are explicitly reduced visibility. This is not USB packet tracing or an H4MIDI
 delivery acknowledgement. A latched error remains unavailable for that incarnation
 even if its subscription is present: reconnecting a route is not USB repair.

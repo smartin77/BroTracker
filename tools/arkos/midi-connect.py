@@ -95,24 +95,80 @@ def connect(run=aconnect):
     print('OK: connected\n' + label)
 
 
-def identity(listing, address):
+def raw_listing():
+    result = subprocess.run(['amidi', '-l'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            universal_newlines=True, env=dict(os.environ, LC_ALL='C'), timeout=3)
+    if result.returncode:
+        raise RuntimeError('raw-MIDI identity listing unavailable')
+    return result.stdout
+
+
+def raw_card(name, direction, text, sys=Path('/sys'), dev=Path('/dev/snd')):
+    """Exact ALSA raw-port identity, canonicalized through control-device sysfs.
+
+    Numeric client/card equality and USB VID/PID are never selection criteria.
+    Control aliases are collapsed only when their actual character-device ancestry
+    proves that they refer to the same raw-MIDI subdevice.
+    """
+    candidates = set()
+    for line in text.splitlines():
+        match = re.fullmatch(r'\s*([IO]+)\s+hw:(\d+),(\d+),(\d+)\s+(.+?)\s*', line)
+        if not match or match[5] != name or direction not in match[1]:
+            continue
+        info = os.stat(str(dev / ('controlC' + match[2])))
+        if not stat.S_ISCHR(info.st_mode):
+            return None
+        control = (sys / 'dev/char' / '{}:{}'.format(os.major(info.st_rdev), os.minor(info.st_rdev))).resolve(strict=True)
+        canonical = re.fullmatch(r'controlC(\d+)', control.name)
+        if not canonical:
+            return None
+        card = (sys / 'class/sound' / ('card' + canonical[1])).resolve(strict=True)
+        midi = (sys / 'class/sound' / ('midiC{}D{}'.format(canonical[1], match[3]))).resolve(strict=True)
+        if control.parent != card or midi.parent != card:
+            return None
+        candidates.add((canonical[1], match[3], match[4]))
+    return next(iter(candidates))[0] if len(candidates) == 1 else None
+
+
+def identity(listing, address, read_raw=raw_listing, sys=Path('/sys'), dev=Path('/dev/snd')):
     """Card/USB incarnation supplements the supported name; never selects a port."""
     client = address.split(':')[0]
     match = re.search(r"^client " + client + r": (.*)$", listing, re.M)
     header = match.group(1) if match else ''
     result = {'address': address, 'client': header[:200]}
     card = re.search(r'\bcard=(\d+)\b', header)
-    if card:
-        node = (Path('/sys/class/sound') / ('card' + card.group(1)) / 'device').resolve()
+    try:
+        number = card.group(1) if card else None
+        if card is None:
+            name = ports(listing).get(address)
+            if name not in (SOURCE, DESTINATION):
+                return result
+            # Same supported sequencer name must itself be unambiguous.
+            if discover(listing, name) != address:
+                return result
+            number = raw_card(name, 'I' if name == SOURCE else 'O', read_raw(), sys, dev)
+        if number is None:
+            return result
+        node = (sys / 'class/sound' / ('card' + number) / 'device').resolve(strict=True)
         for parent in (node, *node.parents):
             try:
-                result['usb'] = {k: (parent / k).read_text().strip()[:100]
-                                 for k in ('idVendor', 'idProduct', 'busnum', 'devnum')}
-                result['usb']['path'] = parent.name
-                result['usb']['inode'] = parent.stat().st_ino
+                usb = {k: (parent / k).read_text().strip()[:100]
+                       for k in ('idVendor', 'idProduct', 'busnum', 'devnum')}
+                usb.update(path=parent.name, inode=parent.stat().st_ino)
+                if not re.fullmatch(r'\d+-\d+(?:\.\d+)*', parent.name):
+                    return result
+                if (sys / 'class/sound' / ('card' + number) / 'device').resolve(strict=True) != node:
+                    return result
+                if card is None and raw_card(name, 'I' if name == SOURCE else 'O', read_raw(), sys, dev) != number:
+                    return result
+                if parent.stat().st_ino != usb['inode'] or (parent/'devnum').read_text().strip() != usb['devnum']:
+                    return result
+                result['usb'] = usb
                 break
             except OSError:
                 pass
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        pass  # Missing/ambiguous ancestry is reduced visibility, never a guess.
     return result
 
 
@@ -124,6 +180,9 @@ class KernelErrors:
         self.key = None
         self.error = ''
         self.latched = {}
+        self.lifecycle = {}
+        self.pending = []
+        self.history_lost = False
 
     @staticmethod
     def read_ring():
@@ -135,10 +194,10 @@ class KernelErrors:
         return r.stdout
 
     def poll(self, identities):
-        key = json.dumps(identities, sort_keys=True)
+        key = json.dumps([item.get('usb') for item in identities], sort_keys=True)
         changed = key != self.key
         if changed:
-            self.key, self.error = key, self.latched.get(key, '')
+            self.key, self.error = key, ''
         paths = set()
         for item in identities:
             path = item.get('usb', {}).get('path')
@@ -156,42 +215,93 @@ class KernelErrors:
             match = re.match(r'^\[\s*(\d+\.\d+)\]\s+(.*)', line)
             if match:
                 lines.append((float(match.group(1)), match.group(2)))
-        previous = None if changed else self.watermark
+        previous = self.watermark
         if not lines:
             return 'reduced: kernel timestamps unavailable; USB errors cannot be attributed', self.error
         if lines:
             self.watermark = lines[-1][0]
-        births = []
-        birth_paths = {}
-        if changed:
-            for item in identities:
-                usb = item.get('usb', {})
-                pattern = r'^usb ' + re.escape(usb.get('path', '?')) + r': new .* USB device number ' + re.escape(usb.get('devnum', '?')) + r' using '
-                stamps = [stamp for stamp, line in lines if re.search(pattern, line)]
-                if stamps:
-                    births.append(stamps[-1])
-                    path = usb['path']
-                    while True:
-                        birth_paths[path] = min(stamps[-1], birth_paths.get(path, stamps[-1]))
-                        if '.' not in path:
-                            break
-                        path = path.rsplit('.', 1)[0]
+        if previous is not None and self.watermark < previous:
+            self.lifecycle.clear()
+            self.pending.clear()
+            self.latched.clear()
+            self.history_lost = True
+        # Preserve newly observed errors independently of ALSA discovery. Their
+        # lifecycle token can later be joined to a verified USB incarnation.
         for stamp, line in lines:
-            path = next((path for path in paths if ('usb ' + path + ':') in line), None)
-            since = birth_paths.get(path) if changed else previous
-            if since is not None and stamp > since and path and re.search(
-                    r'urb status -\d+|error -\d+|over-current|disabled by hub', line, re.I):
+            event = re.match(r'^usb (\d+-\d+(?:\.\d+)*): (?:new .* USB device number (\d+) using |USB disconnect, device number (\d+))', line)
+            if event:
+                path = event[1]
+                token = (stamp, 'new' if event[2] else 'disconnect', event[2] or event[3])
+                old = self.lifecycle.get(path)
+                if old is None or stamp > old[0]:
+                    self.lifecycle[path] = token
+                elif stamp == old[0] and token != old:
+                    self.lifecycle[path] = (stamp, 'ambiguous', None)
+            error = re.match(r'^usb (\d+-\d+(?:\.\d+)*): .*?(?:urb status -\d+|error -\d+|over-current|disabled by hub)', line, re.I)
+            if previous is not None and stamp > previous and error:
+                token = self.lifecycle.get(error[1])
+                proof = token if token and token[1] == 'new' else None
+                self.pending.append((stamp, error[1], line[:500], proof))
+        if len(self.lifecycle) > 128:
+            self.history_lost = True
+            self.lifecycle = dict(sorted(self.lifecycle.items(), key=lambda item: item[1][0])[-128:])
+        if len(self.pending) > 128:
+            self.history_lost = True
+            self.pending = self.pending[-128:]
+        # A disconnect/replacement can race the ALSA/sysfs snapshot. Do not label
+        # its errors with the stale incarnation observed just before that event.
+        stale_paths = set()
+        for item in identities:
+            usb = item.get('usb', {})
+            path = usb.get('path')
+            if not path:
+                continue
+            lifecycle = self.lifecycle.get(path)
+            if lifecycle and (lifecycle[1] != 'new' or lifecycle[2] != usb.get('devnum')):
+                stale_paths.add(path)
+        if stale_paths:
+            paths = {p for p in paths if p not in stale_paths}
+            self.error = ''
+        births = []
+        for item in identities:
+            usb = item.get('usb', {})
+            token = self.lifecycle.get(usb.get('path'))
+            if token and token[1] == 'new' and token[2] == usb.get('devnum'):
+                births.append(token[0])
+        incarnation = json.dumps([key, [self.lifecycle.get(item.get('usb', {}).get('path')) for item in identities]])
+        self.error = '' if stale_paths else self.latched.get(incarnation, '')
+        unresolved = False
+        for stamp, path, line, proof in self.pending:
+            related = [item['usb'] for item in identities if 'usb' in item and
+                       (item['usb']['path'] == path or item['usb']['path'].startswith(path + '.'))]
+            if not related:
+                continue
+            current = self.lifecycle.get(path)
+            if current and current[1] == 'new' and current[0] > stamp:
+                continue  # The error precedes this replacement's enumeration.
+            exact = [usb for usb in related if usb['path'] == path and usb['devnum'] == (current[2] if current else None)]
+            proven = current and current[1] == 'new' and (current == proof or
+                     (current[0] < stamp and (proof is None or proof[0] < current[0])))
+            if proven and exact and path not in stale_paths:
                 self.error = line[:500]
-                self.latched[key] = self.error
+                self.latched[incarnation] = self.error
                 if len(self.latched) > 16:
                     del self.latched[next(iter(self.latched))]
+            else:
+                unresolved = True
         visibility = 'kernel log observed; delivery unverified'
         if not paths or any('usb' not in item for item in identities):
             visibility = 'reduced: ALSA identity lacks USB mapping; error attribution incomplete'
-        elif changed and len(births) != len(identities):
+        elif stale_paths:
+            visibility = 'reduced: USB incarnation changed during observation; awaiting rediscovery'
+        elif unresolved:
+            visibility = 'reduced: observed USB errors awaiting proven incarnation attribution'
+        elif len(births) != len(identities):
             visibility = 'reduced: enumeration history missing; observing new USB errors only'
         if previous is not None and lines and self.watermark < previous:
             visibility = 'reduced: kernel log discontinuity; USB history incomplete'
+        if self.history_lost:
+            visibility = 'reduced: USB observation history incomplete; attribution may be unavailable'
         return visibility, self.error
 
 
