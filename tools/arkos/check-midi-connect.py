@@ -35,6 +35,143 @@ def listing(source=28, destination=41, route=False, extra=''):
                      else '\tConnecting To: 77:2\n', destination, extra)
 
 
+class ScreenTests(unittest.TestCase):
+    def display(self, value, color=False, health=None):
+        with mock.patch.object(tool, 'status_snapshot', return_value=value), mock.patch.object(
+                tool, 'btx_health', return_value=health or {'state': 'unknown'}):
+            return tool.screen(Path('/unused'), color)
+
+    def test_route_usb_error_and_health_are_independent(self):
+        value = dict(state='connected', subscription=True, identities=[{}, {}],
+                     usb_error='usb 1-1.2: urb status -32', visibility='kernel log observed', detail='')
+        shown = self.display(value, True, dict(state='healthy', cleanup=False))
+        self.assertIn('\033[1;32mPRESENT\033[0m', shown)
+        self.assertIn('\033[1;31mERROR -32 1-1.2\033[0m', shown)
+        self.assertIn('Delivery: UNVERIFIED', shown)
+        plain = self.display(value)
+        self.assertNotIn('\033', plain)
+        self.assertIn('MIDI: UNKNOWN', plain)
+        self.assertTrue(all(len(line) <= 50 for line in plain.splitlines()))
+
+    def test_partial_discovery_never_invents_other_device(self):
+        for state in ('missing', 'ambiguous'):
+            value = dict(state=state, subscription=False, identities=[], usb_error='',
+                         visibility='reduced: missing mapping', detail=tool.DESTINATION)
+            shown = self.display(value)
+            self.assertIn('H4MIDI: ' + state.upper(), shown)
+            self.assertIn('Teensy: UNKNOWN', shown)
+            self.assertIn('USB: REDUCED VISIBILITY', shown)
+        for reason, expected in [('unavailable: keeper status stale', 'STALE'),
+                                 ('unavailable: keeper exited', 'UNAVAILABLE')]:
+            self.assertIn('Route: ' + expected, self.display(reason))
+
+    def test_screen_reuses_real_keeper_age_and_process_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            start = Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19]
+            value = dict(pid=os.getpid(), process_start=start,
+                         boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                         observed_monotonic=time.monotonic() - 21)
+            path = root / 'midi-connect-status.json'
+            path.write_text(json.dumps(value))
+            self.assertIn('Route: STALE', tool.screen(root))
+            value['observed_monotonic'] = time.monotonic()
+            value['process_start'] = '0'
+            path.write_text(json.dumps(value))
+            self.assertIn('Route: STALE', tool.screen(root))
+            path.unlink()
+            self.assertIn('Route: UNAVAILABLE', tool.screen(root))
+
+    def test_fault_cleanup_and_control_characters(self):
+        shown = self.display('unavailable', health=dict(state='fault', reason=8, cleanup=True))
+        self.assertIn('MIDI: FAULT 8', shown)
+        self.assertIn('Cleanup: PENDING / UNCERTAIN', shown)
+
+    def test_cleanup_completion_requires_valid_health(self):
+        for state in ('unknown', 'unavailable', 'healthy', 'fault'):
+            for pending in (False, True):
+                with self.subTest(state=state, pending=pending):
+                    health = dict(state=state, cleanup=pending, reason=8)
+                    shown = self.display('unavailable', color=True, health=health)
+                    expected = ('PENDING / UNCERTAIN' if pending else
+                                'COMPLETE' if state in ('healthy', 'fault') else 'UNKNOWN')
+                    color = 32 if expected == 'COMPLETE' else 31
+                    self.assertIn('Cleanup: \033[1;{}m{}\033[0m'.format(color, expected), shown)
+                    if expected != 'COMPLETE':
+                        self.assertNotIn('COMPLETE', shown)
+        for state in ('unknown', 'unavailable'):
+            shown = self.display('unavailable', health=dict(state=state))
+            self.assertNotIn('Cleanup:', shown)
+
+    def test_cleanup_display_from_real_health_telemetry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+            start = Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19]
+            cases = [
+                ('1 1 1 1 0 0', 0, 0, 'COMPLETE'),
+                ('1 1 1 1 1 0', 8, 0, 'COMPLETE'),
+                ('1 1 1 1 1 1', 8, 0, 'PENDING / UNCERTAIN'),
+                ('0 0 0 0 0 0', 0, 0, 'UNKNOWN'),
+                ('1 1 1 0 0 0', 0, 0, 'UNKNOWN'),
+                ('0 0 0 0 0 1', 0, 0, 'PENDING / UNCERTAIN'),
+                ('1 0 0 0 0 0', 0, 0, 'UNKNOWN'),
+                ('1 1 0 0 0 0', 0, 0, 'UNKNOWN'),
+                ('1 1 1 1 0 0', 0, 3001, 'UNKNOWN'),
+            ]
+            for flags, reason, age, expected in cases:
+                with self.subTest(flags=flags, age=age):
+                    (root / 'btx-midi-health.state').write_text(
+                        'BTMIDIHEALTH 1 {} {} {} 100000 {} {} {} stopped\n'.format(
+                            os.getpid(), start, boot, flags, reason, age))
+                    with mock.patch.object(tool.time, 'monotonic', return_value=100):
+                        shown = tool.screen(root)
+                    if expected is None:
+                        self.assertNotIn('Cleanup:', shown)
+                    else:
+                        self.assertIn('Cleanup: ' + expected, shown)
+                    if expected != 'COMPLETE':
+                        self.assertNotIn('COMPLETE', shown)
+
+    def test_button_wait_timeout_and_missing_input(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(tool.time, 'monotonic',
+                side_effect=[100, 100, 100, 110]), mock.patch.object(tool.select, 'select',
+                return_value=([], [], [])) as wait, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(tool.wait_for_handheld(inputs=Path(temp)))
+            self.assertIn('Buttons: UNAVAILABLE', out.getvalue())
+            wait.assert_called_once_with([], [], [], 10)
+
+    def test_inaccessible_gamepad_reports_timeout_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'event2/device').mkdir(parents=True)
+            (root / 'event2/device/name').write_text('GO-Super Gamepad\n')
+            with mock.patch.object(tool.os, 'open', side_effect=PermissionError()), mock.patch.object(
+                    tool.time, 'monotonic', side_effect=[100, 110]), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertFalse(tool.wait_for_handheld(inputs=root))
+                self.assertIn('Buttons: UNAVAILABLE', out.getvalue())
+
+    def test_native_gamepad_press_drains_launch_and_ignores_release(self):
+        for name in ('retrogame_joypad', 'GO-Super Gamepad'):
+            with self.subTest(name=name):
+                self.check_native_gamepad(name)
+
+    def check_native_gamepad(self, name):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'event2/device').mkdir(parents=True)
+            (root / 'event2/device/name').write_text(name + '\n')
+            event = tool.struct.Struct('@llHHi')
+            press = event.pack(0, 0, 1, 304, 1)
+            release = event.pack(0, 0, 1, 304, 0)
+            with mock.patch.object(tool.os, 'open', return_value=77), mock.patch.object(
+                    tool.os, 'read', side_effect=[press, BlockingIOError(), release, press]), mock.patch.object(
+                    tool.os, 'close') as close, mock.patch.object(tool.select, 'select',
+                    return_value=([77], [], [])), contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(tool.wait_for_handheld(inputs=root))
+                close.assert_called_once_with(77)
+
+
 class Peer:
     def __init__(self, source=28, destination=41):
         self.source, self.destination = source, destination
@@ -490,21 +627,43 @@ sys.stdin.read()
             self.assertEqual(run.call_args[0][0], ['aconnect', '-i'])
 
     def test_ports_entry_shows_feedback_and_keeps_log_without_btx(self):
+        self.check_ports_feedback(0)
+
+    def test_failed_ensure_remains_prominent_with_existing_snapshot(self):
+        self.check_ports_feedback(42)
+        self.check_ports_feedback(42, no_color=True)
+
+    def check_ports_feedback(self, failure, no_color=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'ports').mkdir()
             (root / 'bin').mkdir()
             launcher = root / 'ports' / 'BroTracker MIDI Connect.sh'
             shutil.copyfile(HERE / 'port' / launcher.name, launcher)
-            for name, script in [('python3', '#!/bin/sh\necho "OK: fixture feedback"\nexit 0\n'),
+            (root / 'ports/brotracker').mkdir()
+            shutil.copyfile(HERE / 'midi-connect.py', root / 'ports/brotracker/midi-connect.py')
+            directory = root / 'BroTracker'
+            directory.mkdir()
+            (directory / 'midi-connect-status.json').write_text(json.dumps(dict(
+                pid=os.getpid(), process_start=Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19],
+                boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                observed_monotonic=time.monotonic(), state='connected', subscription=True,
+                identities=[{}, {}], usb_error='', visibility='kernel log observed', detail='verified subscription')))
+            for name, script in [('python3', '#!/bin/sh\ncase "$*" in\n*--screen*) exec "$TEST_PYTHON" "$@";;\n*--wait-buttons*) echo "Buttons: fixture";;\n*) echo "VERBOSE diagnostic fixture"; exit "$TEST_FAILURE";;\nesac\nexit 0\n'),
                                  ('sleep', '#!/bin/sh\nexit 0\n')]:
                 path = root / 'bin' / name
                 path.write_text(script)
                 path.chmod(0o755)
             master, slave = pty.openpty()
+            env = dict(os.environ, HOME=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'],
+                       TEST_PYTHON=sys.executable, TEST_FAILURE=str(failure))
+            if no_color:
+                env['NO_COLOR'] = '1'
+            else:
+                env.pop('NO_COLOR', None)
             try:
                 result = subprocess.run(['bash', str(launcher)], stdout=slave, stderr=slave,
-                                        env=dict(os.environ, HOME=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH']),
+                                        env=env,
                                         timeout=5)
                 os.close(slave)
                 slave = None
@@ -513,9 +672,23 @@ sys.stdin.read()
                 os.close(master)
                 if slave is not None:
                     os.close(slave)
-            self.assertEqual(result.returncode, 0)
-            self.assertIn('OK: fixture feedback', shown)
-            self.assertIn('OK: fixture feedback', (root / 'BroTracker' / 'midi-connect-launch.log').read_text())
+            self.assertEqual(result.returncode, failure)
+            self.assertIn('PRESENT', shown)
+            if failure:
+                self.assertIn('Launch: FAILED (exit 42)', shown)
+                self.assertIn('midi-connect-launch.log', shown)
+                self.assertLess(shown.index('Launch: FAILED'), shown.index('BroTracker MIDI Connect'))
+                if not no_color:
+                    self.assertIn('\033[1;31m  Launch: FAILED', shown)
+            else:
+                self.assertNotIn('Launch: FAILED', shown)
+            self.assertIn('Buttons: fixture', shown)
+            self.assertNotIn('VERBOSE', shown)
+            self.assertTrue(shown.endswith('\033[0m'))
+            logged = (root / 'BroTracker' / 'midi-connect-launch.log').read_text()
+            self.assertIn('VERBOSE diagnostic fixture', logged)
+            self.assertNotIn('\033', logged)
+            self.assertIn('within 10 seconds', logged)
 
 
 if __name__ == '__main__':

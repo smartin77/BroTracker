@@ -21,6 +21,32 @@ It requires Python 3 and `aconnect` from alsa-utils; prepare these while online.
 `aconnect` omits `card=`. Missing `amidi` reduces USB visibility; routing can continue.
 No Wi-Fi/SSH or running BTX is required during use.
 
+The launcher shows a compact system-console summary for up to ten seconds:
+device discovery, ALSA route, USB observation and fresh BTX MIDI health remain
+separate. Positive values request ANSI bold green; errors, unavailable and unknown
+values request bold red, with explicit words for use without color (`NO_COLOR`
+disables it). The console may show intensity rather than a heavier font.
+Cleanup is complete only with fresh, valid MIDI health; otherwise a false cleanup
+flag is shown as unknown. A reported pending/uncertain cleanup remains visible.
+An existing route never establishes external MIDI delivery. Details remain in
+the existing launch/keeper logs rather than being dumped onto the small screen.
+A failed launch/ensure command is shown separately in red above any valid status
+snapshot, with its exit code and a pointer to `midi-connect-launch.log`.
+Any new button press on the R36H's `GO-Super Gamepad` (or `retrogame_joypad`)
+returns early, using read-only Linux input events without grabbing the controller
+or starting a mapping daemon.
+Queued launch events and button releases are ignored. If the input device is
+missing or inaccessible, the screen reports that buttons are unavailable and
+uses the timeout. The 2026-11-02 R36H physical test confirmed readable spacing,
+red/green values, the approximately ten-second timeout and early return with
+A/B/X/Y and L/R shoulder buttons. The user saw no heavier bold font. Analog stick
+movement is not supported or required. The older `retrogame_joypad` name remains
+covered by fixtures; it was not physically verified in this run.
+The same offline run passed PT8211 audio, H4MIDI LED activity and audible WASP
+playback with an unpowered OTG hub and externally powered H4MIDI. H4MIDI stayed
+connected while Teensy and Wi-Fi were swapped for playback and SSH respectively;
+this does not validate all three devices together or establish a USB failure cause.
+
 The tool discovers the exact ALSA sequencer port names `BroTracker USB audio MIDI 1`
 and `H4MIDI-WC MIDI 1`, connects only source to destination, and verifies the route.
 Only the expected kernel ALSA clients are accepted, with direction/identity

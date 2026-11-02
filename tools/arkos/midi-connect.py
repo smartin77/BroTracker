@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 import stat
+import select
+import struct
 
 SOURCE = 'BroTracker USB audio MIDI 1'
 DESTINATION = 'H4MIDI-WC MIDI 1'
@@ -393,7 +395,7 @@ def lock_keeper(directory):
     return lock
 
 
-def status(directory):
+def status_snapshot(directory):
     try:
         value = json.loads((directory / 'midi-connect-status.json').read_text())
         boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
@@ -403,13 +405,116 @@ def status(directory):
             return 'unavailable: keeper exited; route not revalidated'
         if value['boot_id'] != boot or value['process_start'] != start:
             return 'unavailable: keeper identity stale; MIDI delivery unverified'
-        if time.monotonic() - value['observed_monotonic'] > 20:
+        if not 0 <= time.monotonic() - value['observed_monotonic'] <= 20:
             return 'unavailable: keeper status stale; MIDI delivery unverified'
-        return '{}: {}\nRoute USB: {}\nTeensy: {}\nVisibility: {}\nKeeper PID: {}'.format(
-            value['state'], value['detail'], value.get('usb_error') or 'no attributed error observed; delivery unverified',
-            value.get('teensy', {}).get('detail', 'BTX health unavailable'), value['visibility'], value['pid'])
+        return value
     except (OSError, ValueError, KeyError, IndexError):
         return 'unavailable: keeper status not yet available; MIDI delivery unverified'
+
+
+def status(directory):
+    value = status_snapshot(directory)
+    if isinstance(value, str):
+        return value
+    return '{}: {}\nRoute USB: {}\nTeensy: {}\nVisibility: {}\nKeeper PID: {}'.format(
+            value['state'], value['detail'], value.get('usb_error') or 'no attributed error observed; delivery unverified',
+            value.get('teensy', {}).get('detail', 'BTX health unavailable'), value['visibility'], value['pid'])
+
+
+def screen(directory, color=False):
+    """Presentation only; reuse keeper identity/freshness and live BTX checks."""
+    value = status_snapshot(directory)
+    lines = ['BroTracker MIDI Connect', '']
+    def row(label, text, good=False):
+        # Never render untrusted control characters from diagnostics on the VT.
+        text = ''.join(c if 32 <= ord(c) < 127 else ' ' for c in str(text))[:38 - len(label) - 4]
+        if color:
+            text = '\033[1;{}m{}\033[0m'.format(32 if good else 31, text)
+        lines.append('  {}: {}'.format(label, text))
+    if isinstance(value, str):
+        row('Route', 'STALE' if 'stale' in value else 'UNAVAILABLE')
+        row('Teensy', 'UNKNOWN')
+        row('H4MIDI', 'UNKNOWN')
+        row('USB', 'UNKNOWN')
+    else:
+        state = value['state']
+        row('Route', 'PRESENT' if value['subscription'] else state.upper(), value['subscription'])
+        # A failed discovery may stop at the first missing port: never infer
+        # that the other device was found from that partial observation.
+        for label, name in (('Teensy', SOURCE), ('H4MIDI', DESTINATION)):
+            found = len(value.get('identities', [])) == 2 and (value['subscription'] or
+                state == 'connecting' or value['detail'].startswith('Route absent;'))
+            row(label, 'FOUND' if found else state.upper()
+                if state in ('missing', 'ambiguous') and name in value['detail'] else 'UNKNOWN', found)
+        error = value.get('usb_error')
+        match = re.search(r'(\d+-\d+(?:\.\d+)*).*?status\s+(-?\d+)', error or '')
+        brief = 'ERROR {} {}'.format(match[2], match[1]) if match else 'ERROR (SEE LOG)'
+        row('USB', brief if error else 'REDUCED VISIBILITY' if value['visibility'].startswith('reduced')
+            else 'NO NEW ERROR OBSERVED', not error and not value['visibility'].startswith('reduced'))
+    health = btx_health(directory)
+    row('MIDI', 'FAULT {}'.format(health['reason']) if health['state'] == 'fault' else health['state'].upper(),
+        health['state'] == 'healthy')
+    if 'cleanup' in health:
+        complete = not health['cleanup'] and health['state'] in ('healthy', 'fault')
+        row('Cleanup', 'PENDING / UNCERTAIN' if health['cleanup'] else
+            'COMPLETE' if complete else 'UNKNOWN', complete)
+    lines += ['', '  Delivery: UNVERIFIED', '  Details: midi-connect.log', '']
+    return '\n'.join(lines)
+
+
+def wait_for_handheld(seconds=10, inputs=Path('/sys/class/input'), devices=Path('/dev/input')):
+    """Read native R36H gamepad events; no grabs, mapping daemon or SDL UI.
+
+    Support the captured mapping and the actual R36H evdev controller name.
+    Ignore already queued events so the button launching Ports cannot dismiss it.
+    """
+    handles = []
+    event = struct.Struct('@llHHi')  # native Linux struct input_event (32/64 bit)
+    try:
+        for node in inputs.glob('event*'):
+            try:
+                if (node / 'device/name').read_text().strip() not in ('retrogame_joypad', 'GO-Super Gamepad'):
+                    continue
+                fd = os.open(str(devices / node.name), os.O_RDONLY | os.O_NONBLOCK)
+                handles.append(fd)
+                try:
+                    while os.read(fd, event.size * 64):
+                        pass
+                except BlockingIOError:
+                    pass
+            except OSError:
+                continue
+        if not handles:
+            unavailable = 'UNAVAILABLE'
+            if sys.stdout.isatty() and 'NO_COLOR' not in os.environ:
+                unavailable = '\033[1;31mUNAVAILABLE\033[0m'
+            print('  Buttons: {} (10s timeout)'.format(unavailable), flush=True)
+        else:
+            print('  Any gamepad button to return (10s)', flush=True)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select(handles, [], [], max(0, deadline - time.monotonic()))
+            for fd in ready:
+                try:
+                    data = os.read(fd, event.size * 64)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    handles.remove(fd)
+                    os.close(fd)
+                    continue
+                if not data:
+                    handles.remove(fd)
+                    os.close(fd)
+                    continue
+                for offset in range(0, len(data) - event.size + 1, event.size):
+                    _, _, kind, code, pressed = event.unpack_from(data, offset)
+                    if kind == 1 and pressed == 1:  # EV_KEY, new press only
+                        return True
+        return False
+    finally:
+        for fd in handles:
+            os.close(fd)
 
 
 def btx_health(directory, now=None):
@@ -543,10 +648,18 @@ def ensure(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--status', action='store_true')
+    parser.add_argument('--screen', action='store_true')
+    parser.add_argument('--wait-buttons', action='store_true')
     parser.add_argument('--keeper-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     os.umask(0o077)
     directory = Path.home() / 'BroTracker'
+    if args.screen:
+        print(screen(directory, sys.stdout.isatty() and 'NO_COLOR' not in os.environ))
+        return
+    if args.wait_buttons:
+        wait_for_handheld()
+        return
     if args.status:
         print(status(directory))
         return
