@@ -72,10 +72,13 @@ H4MIDI is the current development routing hardware and should remain a supported
 external routing alternative alongside future BroTracker routing options. This is
 an interoperability direction, not a new built-in H4MIDI integration or implemented
 BroTracker router. Keep the MIDI core independent of this hardware choice.
-Platform-specific confirmations and open issues are recorded in the
-[MIDI foundation](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31).
+Platform-specific confirmations and open issues are recorded in the MIDI foundation:
+[Windows tests](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31)
+and the [single working ArkOS configuration](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02).
+The ArkOS result uses manual ALSA routing and does not establish general handheld
+stability, dArkOS MIDI delivery or automatic keeper recovery.
 
-The current controllable route is Teensy USB device -> PC host MIDI router ->
+The confirmed route is Teensy USB device -> host MIDI router (Windows PC or ArkOS ALSA) ->
 CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices
 do not route between themselves. The H4MIDI WC USB-A host port is a different
 physical topology and does not automatically preserve BTX's Teensy CDC control.

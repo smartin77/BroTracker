@@ -413,7 +413,8 @@ unmeasured: this is listening acceptance, not measured synchronization proof.
 No compensation is introduced or inferred for another topology.
 
 Windows H4MIDI/DIN playback is separately confirmed below; handheld routing
-remains unverified. The newly replaced SD bass
+was unverified in that run. See the later [ArkOS confirmation](#user-confirmed-arkos-manual-midi-route-2026-11-02).
+The newly replaced SD bass
 fixture was verified by authoritative readback, not auditioned during provisioning;
 this manual confirmation does not relabel that run as a listening test.
 
@@ -468,6 +469,30 @@ this PC and front USB port; the PSU rating does not establish current available
 at that port. No electrical measurements or universal USB power requirement are
 inferred.
 
+### User-confirmed ArkOS manual MIDI route (2026-11-02)
+
+The user confirmed a working configuration on the **ArkOS handheld USB-C OTG**:
+an **unpowered USB hub** with **Teensy 4.1** and **externally powered H4MIDI**
+attached, **Wi-Fi dongle disconnected**, and H4MIDI routing to WASP. The manual
+ALSA connection was **BroTracker USB audio MIDI 1 (24:0) -> H4MIDI-WC MIDI 1 (20:0)**.
+Addresses belong to this capture; device discovery must continue to use names.
+The hub model and detailed USB topology are not identified by the supplied log.
+
+**Physical confirmation:** BTX playback, audible PT8211 audio, H4MIDI LED activity
+and audible WASP output all worked in this test.
+
+**Log evidence:** The supplied log lists both named ALSA ports and the same
+one-way subscription at both endpoints
+(`Connecting To: 20:0` / `Connected From: 24:0`). It has no timestamps, MIDI event
+trace, USB completion records or BTX/firmware health telemetry. It verifies the
+listed subscription, while audible delivery is the user's separate observation;
+it does not establish automatic keeper operation or absence of USB errors.
+
+This is a working ArkOS configuration for this test, not a stability guarantee,
+measured timing/alignment result or explanation of the earlier descriptor/address
+and URB -32 failures. Those failures and recovery questions remain open. It does
+not validate dArkOS or other hubs, power conditions, reconnects or Wi-Fi coexistence.
+
 ### Open issues and platform limits (2026-10-31)
 
 - **Windows routing after reconnect:** MIDI-OX lost its Teensy input after a hub
@@ -486,8 +511,9 @@ inferred.
 - **dArkOS:** H4MIDI detection was intermittent, and direct notes sometimes failed
   with USB enumeration/URB errors. Standalone arpeggio also worked directly and
   through hub B in other tests. Full **BTX -> H4MIDI -> WASP** operation remains
-  open. These dArkOS observations do not validate ArkOS; ArkOS external routing
-  remains separately pending. Windows tests validate neither handheld platform.
+  open. The separate [ArkOS success](#user-confirmed-arkos-manual-midi-route-2026-11-02)
+  confirms one configuration; dArkOS remains unverified by that result. Windows
+  tests validate neither handheld platform.
 - **Handheld power/topology:** the R36H runs on battery. Power connected to its
   separate USB-C charging port did not appear to improve the observed behavior,
   but this was not measured or systematically isolated. Handheld USB power and

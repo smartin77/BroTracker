@@ -232,7 +232,8 @@ for bindings/startup behavior and distinguish automated from physical evidence.
   configured row labels pending. Severe console crackling unresolved; bridge
   diagnostics paused. Windows/MIDI-OX/WASP USB playback/listening is accepted;
   Windows H4MIDI/DIN playback is separately confirmed below; exact offset/jitter/drift
-  and handheld routing remain unverified.
+  remain unmeasured. One [ArkOS routing configuration is now confirmed](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02);
+  other handheld cases remain pending.
 
 ### Session channel mute (2026-10-22)
 
@@ -250,7 +251,8 @@ for bindings/startup behavior and distinguish automated from physical evidence.
 * [ ] Remaining Windows/handheld mute UX and listening cases pending; use the linked
   checklist. Separate Windows USB MIDI playback/listening is confirmed below;
   Windows H4MIDI/DIN playback is separately confirmed below; measured audible
-  alignment and handheld routing remain unverified.
+  alignment remains unverified. One [ArkOS routing configuration is now confirmed](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02);
+  other handheld cases remain pending.
   Bridge diagnostics paused; no SSH/console deployment.
 
 ### Development fixture tempo and physical confirmation (2026-10-22)
