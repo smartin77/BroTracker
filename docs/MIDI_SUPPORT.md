@@ -74,9 +74,11 @@ an interoperability direction, not a new built-in H4MIDI integration or implemen
 BroTracker router. Keep the MIDI core independent of this hardware choice.
 Platform-specific confirmations and open issues are recorded in the MIDI foundation:
 [Windows tests](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31)
-and the [single working ArkOS configuration](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02).
-The ArkOS result uses manual ALSA routing and does not establish general handheld
-stability, dArkOS MIDI delivery or automatic keeper recovery.
+and the ArkOS [manual ALSA test](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02)
+and later [MIDI Connect keeper test](MIDI_FOUNDATION.md#user-confirmed-arkos-midi-connect-keeper-test-2026-11-02).
+The keeper test confirms offline BTX/PT8211 and H4MIDI/WASP playback; neither
+ArkOS test establishes simultaneous Teensy/H4MIDI/Wi-Fi operation, general
+handheld stability, dArkOS MIDI delivery or automatic keeper fault recovery.
 
 The confirmed route is Teensy USB device -> host MIDI router (Windows PC or ArkOS ALSA) ->
 CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices

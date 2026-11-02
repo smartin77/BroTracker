@@ -198,7 +198,7 @@ added. USB configured=0 telemetry is valid and must not be discarded as a zero I
 On ArkOS, USB attribution also supports `aconnect` headers without `card=` through
 exact raw-MIDI identity and verified sysfs ancestry. Ambiguous or missing mappings
 remain explicitly reduced visibility; historical ring contents are not new faults.
-This improves error reporting, not USB delivery: the 2026-11-02 offline run had a
+This improves error reporting, not USB delivery: an earlier 2026-11-02 offline run had a
 present subscription and healthy Teensy telemetry while H4MIDI logged URB -32 and
 produced no observed LED/WASP output.
 A subsequent read-only candidate check mapped the current H4MIDI incarnation and
@@ -492,6 +492,25 @@ This is a working ArkOS configuration for this test, not a stability guarantee,
 measured timing/alignment result or explanation of the earlier descriptor/address
 and URB -32 failures. Those failures and recovery questions remain open. It does
 not validate dArkOS or other hubs, power conditions, reconnects or Wi-Fi coexistence.
+
+### User-confirmed ArkOS MIDI Connect keeper test (2026-11-02)
+
+In a later test, the **MIDI Connect keeper** provided the ALSA route with an
+**unpowered USB-C OTG hub**, **Teensy 4.1** and **externally powered H4MIDI**,
+with the **Wi-Fi dongle disconnected**. The user confirmed **BTX playback,
+audible PT8211 audio, H4MIDI LED activity and audible WASP output**. This is a
+separate confirmation from the earlier manual ALSA test above.
+
+For development, **H4MIDI remains connected and externally powered while Teensy
+and the Wi-Fi dongle are swapped** between offline playback and SSH access.
+The user confirmed repeated successful swaps and subsequent SSH reconnections.
+Launcher and status-screen details remain in the
+[ArkOS launcher documentation](../tools/arkos/README.md#development-midi-connection-launcher).
+
+This confirms the tested offline configuration, not simultaneous Teensy/H4MIDI/
+Wi-Fi operation, general stability or automatic fault recovery. Earlier USB
+failures remain distinct and unexplained; this result establishes no root cause
+and does not validate dArkOS.
 
 ### Open issues and platform limits (2026-10-31)
 
