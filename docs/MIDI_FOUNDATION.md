@@ -512,7 +512,20 @@ Wi-Fi operation, general stability or automatic fault recovery. Earlier USB
 failures remain distinct and unexplained; this result establishes no root cause
 and does not validate dArkOS.
 
-### Open issues and platform limits (2026-10-31)
+### User-confirmed dArkOS offline MIDI Connect tests (2026-11-02)
+
+The user independently confirmed **MIDI Connect, BTX playback, PT8211 audio and
+audible WASP output** on dArkOS with an **unpowered USB-C OTG hub**, **Teensy 4.1**
+and **externally powered H4MIDI**, with **Wi-Fi disconnected during playback**.
+The same sequence also worked after a system reboot. Replacing Teensy with the
+Wi-Fi dongle restored Wi-Fi promptly; H4MIDI remained connected and powered.
+
+These are user-confirmed physical results, separate from the ArkOS tests and
+earlier dArkOS USB failures. They confirm this offline setup and reboot repeat,
+not simultaneous operation of all three devices, general USB stability or a
+proven cause of the previous failures. Those stability questions remain open.
+
+### Open issues and platform limits (2026-10-31, updated 2026-11-02)
 
 - **Windows routing after reconnect:** MIDI-OX lost its Teensy input after a hub
   reconnect. Restarting MIDI-OX restored routing while BTX stayed open.
@@ -527,12 +540,12 @@ and does not validate dArkOS.
 - **Multiple BTX instances:** two simultaneous instances produced a misleading
   waiting-for-device state. Prevention is an [open improvement](TODO_LIST.md#next-development-steps),
   not an explanation for the unrelated MIDI or SD failures.
-- **dArkOS:** H4MIDI detection was intermittent, and direct notes sometimes failed
+- **Earlier dArkOS tests:** H4MIDI detection was intermittent, and direct notes sometimes failed
   with USB enumeration/URB errors. Standalone arpeggio also worked directly and
-  through hub B in other tests. Full **BTX -> H4MIDI -> WASP** operation remains
-  open. The separate [ArkOS success](#user-confirmed-arkos-manual-midi-route-2026-11-02)
-  confirms one configuration; dArkOS remains unverified by that result. Windows
-  tests validate neither handheld platform.
+  through hub B in other tests. The later
+  [dArkOS offline confirmations](#user-confirmed-darkos-offline-midi-connect-tests-2026-11-02)
+  establish one working setup, including a repeat after reboot; they do not
+  resolve the earlier failures. ArkOS and Windows results remain separate.
 - **Handheld power/topology:** the R36H runs on battery. Power connected to its
   separate USB-C charging port did not appear to improve the observed behavior,
   but this was not measured or systematically isolated. Handheld USB power and

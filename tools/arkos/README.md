@@ -28,6 +28,9 @@ values request bold red, with explicit words for use without color (`NO_COLOR`
 disables it). The console may show intensity rather than a heavier font.
 Cleanup is complete only with fresh, valid MIDI health; otherwise a false cleanup
 flag is shown as unknown. A reported pending/uncertain cleanup remains visible.
+The MIDI row is omitted when BTX health is unknown (for example, BTX is closed
+or its telemetry is stale). Known health/faults and pending cleanup stay visible;
+route, device and USB observations are independent and remain displayed.
 An existing route never establishes external MIDI delivery. Details remain in
 the existing launch/keeper logs rather than being dumped onto the small screen.
 A failed launch/ensure command is shown separately in red above any valid status

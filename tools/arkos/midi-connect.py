@@ -452,8 +452,9 @@ def screen(directory, color=False):
         row('USB', brief if error else 'REDUCED VISIBILITY' if value['visibility'].startswith('reduced')
             else 'NO NEW ERROR OBSERVED', not error and not value['visibility'].startswith('reduced'))
     health = btx_health(directory)
-    row('MIDI', 'FAULT {}'.format(health['reason']) if health['state'] == 'fault' else health['state'].upper(),
-        health['state'] == 'healthy')
+    if health['state'] != 'unknown':
+        row('MIDI', 'FAULT {}'.format(health['reason']) if health['state'] == 'fault' else health['state'].upper(),
+            health['state'] == 'healthy')
     if 'cleanup' in health:
         complete = not health['cleanup'] and health['state'] in ('healthy', 'fault')
         row('Cleanup', 'PENDING / UNCERTAIN' if health['cleanup'] else

@@ -76,9 +76,12 @@ Platform-specific confirmations and open issues are recorded in the MIDI foundat
 [Windows tests](MIDI_FOUNDATION.md#user-confirmed-windows-shared-hub-tests-2026-10-31)
 and the ArkOS [manual ALSA test](MIDI_FOUNDATION.md#user-confirmed-arkos-manual-midi-route-2026-11-02)
 and later [MIDI Connect keeper test](MIDI_FOUNDATION.md#user-confirmed-arkos-midi-connect-keeper-test-2026-11-02).
-The keeper test confirms offline BTX/PT8211 and H4MIDI/WASP playback; neither
-ArkOS test establishes simultaneous Teensy/H4MIDI/Wi-Fi operation, general
-handheld stability, dArkOS MIDI delivery or automatic keeper fault recovery.
+The keeper test confirms offline BTX/PT8211 and H4MIDI/WASP playback. Separate
+[dArkOS confirmations](MIDI_FOUNDATION.md#user-confirmed-darkos-offline-midi-connect-tests-2026-11-02)
+cover the same offline topology and a successful repeat after reboot, with prompt
+Wi-Fi reconnection after swapping out Teensy. These tests establish neither
+simultaneous Teensy/H4MIDI/Wi-Fi operation, general handheld stability, automatic
+keeper fault recovery nor the cause of earlier USB failures.
 
 The confirmed route is Teensy USB device -> host MIDI router (Windows PC or ArkOS ALSA) ->
 CME USB client port -> configured CME DIN OUT -> external synth. Two USB devices

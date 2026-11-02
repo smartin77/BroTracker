@@ -50,8 +50,48 @@ class ScreenTests(unittest.TestCase):
         self.assertIn('Delivery: UNVERIFIED', shown)
         plain = self.display(value)
         self.assertNotIn('\033', plain)
-        self.assertIn('MIDI: UNKNOWN', plain)
+        self.assertNotIn('  MIDI:', plain)
         self.assertTrue(all(len(line) <= 50 for line in plain.splitlines()))
+
+    def test_unknown_health_is_hidden_without_hiding_route_or_usb(self):
+        value = dict(state='unavailable', subscription=True, identities=[{}, {}],
+                     usb_error='usb 1-1.2: urb status -32', visibility='kernel log observed', detail='')
+        shown = self.display(value, health=dict(state='unknown', cleanup=True))
+        self.assertNotIn('  MIDI:', shown)
+        self.assertIn('Route: PRESENT', shown)
+        self.assertIn('Teensy: FOUND', shown)
+        self.assertIn('H4MIDI: FOUND', shown)
+        self.assertIn('USB: ERROR -32 1-1.2', shown)
+        self.assertIn('Cleanup: PENDING / UNCERTAIN', shown)
+        self.assertIn('Delivery: UNVERIFIED', shown)
+
+    def test_available_health_and_faults_remain_visible(self):
+        for state, expected, color in [('healthy', 'HEALTHY', 32),
+                                       ('unavailable', 'UNAVAILABLE', 31),
+                                       ('fault', 'FAULT 8', 31)]:
+            with self.subTest(state=state):
+                shown = self.display('unavailable', color=True,
+                                     health=dict(state=state, reason=8, cleanup=state != 'healthy'))
+                self.assertIn('MIDI: \033[1;{}m{}\033[0m'.format(color, expected), shown)
+                if state != 'healthy':
+                    self.assertIn('Cleanup: \033[1;31mPENDING / UNCERTAIN\033[0m', shown)
+
+    def test_missing_stale_and_restarted_btx_hide_old_health(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / 'btx-midi-health.state'
+            start = Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19]
+            boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+            self.assertNotIn('  MIDI:', tool.screen(root))
+            for observed, owner_start in [(96000, start), (100000, str(int(start) + 1))]:
+                with self.subTest(observed=observed, owner_start=owner_start):
+                    path.write_text('BTMIDIHEALTH 1 {} {} {} {} 1 1 1 1 1 1 8 0 stopped\n'.format(
+                        os.getpid(), owner_start, boot, observed))
+                    with mock.patch.object(tool.time, 'monotonic', return_value=100):
+                        shown = tool.screen(root)
+                    self.assertNotIn('  MIDI:', shown)
+                    self.assertNotIn('FAULT 8', shown)
+                    self.assertNotIn('Cleanup:', shown)
 
     def test_partial_discovery_never_invents_other_device(self):
         for state in ('missing', 'ambiguous'):
@@ -126,6 +166,8 @@ class ScreenTests(unittest.TestCase):
                             os.getpid(), start, boot, flags, reason, age))
                     with mock.patch.object(tool.time, 'monotonic', return_value=100):
                         shown = tool.screen(root)
+                        unknown = tool.btx_health(root)['state'] == 'unknown'
+                    self.assertEqual('  MIDI:' not in shown, unknown)
                     if expected is None:
                         self.assertNotIn('Cleanup:', shown)
                     else:
