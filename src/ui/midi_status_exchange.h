@@ -38,7 +38,16 @@ inline bool ParseMidiRoute(const std::string& text,MidiRouteObservation& out) {
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
+#include <cerrno>
+#include <cstdlib>
 namespace BroTracker {
+inline std::filesystem::path MidiRuntimeDirectory() {
+    const char* value=std::getenv("TMPDIR");
+    std::filesystem::path base=value?value:"/tmp";
+    std::error_code error;
+    if(!base.is_absolute() || !std::filesystem::is_directory(base,error))base="/tmp";
+    return base/("brotracker-"+std::to_string(getuid()));
+}
 class MidiStatusExchange {
     std::filesystem::path directory_;
     std::string boot_,start_,last_log_;
@@ -93,7 +102,9 @@ public:
         boot_=Token(SystemRead("/proc/sys/kernel/random/boot_id"));
         start_=OwnerStart(getpid());
         if(directory_.empty() || boot_.empty() || start_.empty())return;
-        std::error_code e;std::filesystem::create_directories(directory_,e);if(e)return;
+        if(mkdir(directory_.c_str(),0700) && errno!=EEXIST)return;
+        struct stat info{};
+        if(lstat(directory_.c_str(),&info) || !S_ISDIR(info.st_mode) || info.st_uid!=getuid() || (info.st_mode&0077))return;
         lock_=open((directory_/"btx-midi-health.lock").c_str(),O_WRONLY|O_CREAT|O_NOFOLLOW|O_CLOEXEC,0600);
         if(lock_>=0 && flock(lock_,LOCK_EX|LOCK_NB)) {close(lock_);lock_=-1;}
     }

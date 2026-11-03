@@ -35,6 +35,173 @@ def listing(source=28, destination=41, route=False, extra=''):
                      else '\tConnecting To: 77:2\n', destination, extra)
 
 
+class KeeperNameTests(unittest.TestCase):
+    def test_set_and_get_kernel_name_are_verified(self):
+        libc = mock.Mock()
+        def call(operation, buffer, *unused):
+            if operation == 16:
+                tool.ctypes.memmove(buffer, tool.KEEPER_NAME.encode() + b'\0', len(tool.KEEPER_NAME) + 1)
+            return 0
+        libc.prctl.side_effect = call
+        with mock.patch.object(tool.ctypes, 'CDLL', return_value=libc):
+            tool.set_keeper_name()
+        self.assertEqual([c.args[0] for c in libc.prctl.call_args_list], [15, 16])
+        self.assertLessEqual(len(tool.KEEPER_NAME.encode('ascii')), 15)
+
+    def test_bad_names_syscall_failure_and_verification_mismatch(self):
+        for name in ('', 'x' * 16, 'bad\0name', '\u00e9'):
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                tool.set_keeper_name(name)
+        for results, expected in [([-1], 'setup failed'), ([0, -1], 'setup failed'), ([0, 0], 'verification mismatch')]:
+            libc = mock.Mock(); libc.prctl.side_effect = results
+            with mock.patch.object(tool.ctypes, 'CDLL', return_value=libc), self.assertRaisesRegex(RuntimeError, expected):
+                tool.set_keeper_name()
+
+    def test_naming_failure_logs_without_readiness_or_routing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp); lock = tool.lock_keeper(directory)
+            with mock.patch.object(tool, 'set_keeper_name', side_effect=RuntimeError('denied')), mock.patch.object(tool, 'Keeper') as route:
+                with self.assertRaisesRegex(RuntimeError, 'denied'):
+                    tool.serve(directory, lock)
+                route.assert_not_called()
+            self.assertFalse((directory / 'midi-connect-status.json').exists())
+            self.assertFalse((directory / 'midi-connect-status.btx').exists())
+            self.assertIn('process name not verified', (directory / 'brotracker-midi-connect.log').read_text())
+            self.assertTrue(lock.closed)
+
+    def test_parent_reports_child_failure_and_releases_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            child = mock.Mock(pid=123, returncode=1); child.poll.return_value = 1
+            with mock.patch.object(tool, 'migrate_legacy'), mock.patch.object(tool.subprocess, 'Popen', return_value=child):
+                with self.assertRaisesRegex(RuntimeError, 'process-name/initialization errors'):
+                    tool.ensure(directory)
+            lock = tool.lock_keeper(directory); self.assertIsNotNone(lock); lock.close()
+            child.terminate.assert_not_called(); child.kill.assert_not_called()
+
+    def test_parent_timeout_never_claims_readiness_or_kills_child(self):
+        with tempfile.TemporaryDirectory() as temp:
+            child = mock.Mock(pid=123); child.poll.return_value = None
+            with mock.patch.object(tool, 'migrate_legacy'), mock.patch.object(tool, 'status_snapshot', return_value='unavailable'), mock.patch.object(
+                    tool.subprocess, 'Popen', return_value=child), mock.patch.object(tool.time, 'monotonic', side_effect=[0, 0, 3]), mock.patch.object(tool.time, 'sleep'):
+                with self.assertRaisesRegex(RuntimeError, 'startup/name not confirmed'):
+                    tool.ensure(Path(temp))
+            child.terminate.assert_not_called(); child.kill.assert_not_called()
+
+    def test_actual_named_keeper_accepts_pid_targeted_sigterm(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root / 'bin').mkdir()
+            for name, text in [('aconnect', '#!/bin/sh\nexit 0\n'), ('dmesg', '#!/bin/sh\necho "[ 1.0] fixture"\n')]:
+                path = root / 'bin' / name; path.write_text(text); path.chmod(0o755)
+            directory = root / ('brotracker-' + str(os.getuid())); tool.prepare_directory(directory)
+            lock = tool.lock_keeper(directory); child = None
+            try:
+                env = dict(os.environ, HOME=temp, TMPDIR=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'])
+                child = subprocess.Popen([sys.executable, '-B', str(HERE / 'midi-connect.py'), '--keeper-fd', str(lock.fileno())],
+                                         env=env, pass_fds=(lock.fileno(),), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                lock.close()
+                deadline = time.monotonic() + 5
+                value = 'unavailable'
+                while time.monotonic() < deadline:
+                    value = tool.status_snapshot(directory)
+                    if tool.keeper_identity_ready(value): break
+                    if child.poll() is not None: self.fail(child.stderr.read().decode())
+                    time.sleep(.02)
+                self.assertTrue(tool.keeper_identity_ready(value))
+                self.assertEqual(value['pid'], child.pid)
+                child.terminate()
+                self.assertEqual(child.wait(timeout=5), -signal.SIGTERM)
+                released = tool.lock_keeper(directory); self.assertIsNotNone(released); released.close()
+                self.assertIn('unavailable', tool.status(directory))
+            finally:
+                lock.close()
+                if child is not None:
+                    if child.poll() is None: child.kill(); child.wait(timeout=5)
+                    child.stderr.close()
+
+    def test_locked_legacy_identity_is_not_reported_as_ready(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp); lock = tool.lock_keeper(directory)
+            try:
+                with mock.patch.object(tool, 'status_snapshot', return_value=dict(pid=os.getpid())), mock.patch.object(tool.subprocess, 'Popen') as spawn:
+                    with self.assertRaisesRegex(RuntimeError, 'process name/status unverified'):
+                        tool.ensure(directory)
+                    spawn.assert_not_called()
+            finally:
+                lock.close()
+
+
+class RuntimeTests(unittest.TestCase):
+    def test_private_per_user_path_ignores_checkout_and_bad_temp(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, HOME=temp, TMPDIR=temp):
+            expected = Path(temp) / ('brotracker-' + str(os.getuid()))
+            self.assertEqual(tool.runtime_directory(), expected)
+            tool.prepare_directory(expected)
+            self.assertEqual(stat.S_IMODE(expected.stat().st_mode), 0o700)
+            expected.chmod(0o755)
+            with self.assertRaisesRegex(RuntimeError, 'Unsafe'):
+                tool.prepare_directory(expected)
+            with mock.patch.dict(os.environ, TMPDIR='relative'):
+                self.assertEqual(tool.runtime_directory().parent, Path('/tmp'))
+
+    def test_legacy_migration_preserves_logs_state_and_project(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, HOME=temp, TMPDIR=temp):
+            legacy = Path(temp) / 'BroTracker'
+            legacy.mkdir(); (legacy / '.git').mkdir()
+            (legacy / 'config.ini').write_text('unchanged')
+            files = {'midi-connect.log': 'original log', 'midi-connect.log.1': 'older log',
+                     'midi-connect-status.json': 'old state', 'midi-connect.lock': '',
+                     'btx-midi-health.state': 'health', 'btx-midi-health.lock': '', 'btx-midi-health.next.123': 'partial'}
+            for name, value in files.items(): (legacy / name).write_text(value)
+            directory = tool.runtime_directory(); tool.prepare_directory(directory)
+            with contextlib.redirect_stdout(io.StringIO()): tool.migrate_legacy(directory)
+            archives = list(directory.glob('legacy-*')); self.assertEqual(len(archives), 1)
+            for name, value in files.items():
+                self.assertFalse((legacy / name).exists())
+                self.assertEqual((archives[0] / name).read_text(), value)
+            tool.migrate_legacy(directory)
+            self.assertEqual(len(list(directory.glob('legacy-*'))), 1)
+            self.assertEqual((legacy / 'config.ini').read_text(), 'unchanged')
+            self.assertTrue((legacy / '.git').is_dir())
+
+    def test_migration_only_cli_never_starts_keeper_or_routes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); legacy = root / 'BroTracker'; legacy.mkdir()
+            (legacy / 'midi-connect.log').write_text('preserve me')
+            env = dict(os.environ, HOME=temp, TMPDIR=temp)
+            result = subprocess.run([sys.executable, '-B', str(HERE / 'midi-connect.py'), '--migrate-legacy'],
+                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            directory = root / ('brotracker-' + str(os.getuid()))
+            self.assertEqual(list(legacy.iterdir()), [])
+            archive = list(directory.glob('legacy-*'))[0]
+            self.assertEqual((archive / 'midi-connect.log').read_text(), 'preserve me')
+            self.assertFalse((directory / 'midi-connect-status.json').exists())
+            self.assertFalse((directory / 'brotracker-midi-connect.log').exists())
+            lock = tool.lock_keeper(directory); self.assertIsNotNone(lock); lock.close()
+
+    def test_active_legacy_owner_or_symlink_blocks_migration(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ, HOME=temp, TMPDIR=temp):
+            legacy = Path(temp) / 'BroTracker'; legacy.mkdir()
+            directory = tool.runtime_directory(); tool.prepare_directory(directory)
+            for name in ('midi-connect.lock', 'btx-midi-health.lock'):
+                with (legacy / name).open('w') as lock:
+                    tool.fcntl.flock(lock, tool.fcntl.LOCK_EX | tool.fcntl.LOCK_NB)
+                    with self.assertRaisesRegex(RuntimeError, 'still active'):
+                        tool.migrate_legacy(directory)
+                    self.assertTrue((legacy / name).exists())
+                    with mock.patch.object(tool.subprocess, 'Popen') as spawn:
+                        with self.assertRaisesRegex(RuntimeError, 'still active'):
+                            tool.ensure(directory)
+                        spawn.assert_not_called()
+                    released = tool.lock_keeper(directory)
+                    self.assertIsNotNone(released); released.close()
+            (legacy / 'midi-connect.log').symlink_to(legacy / 'midi-connect.lock')
+            with self.assertRaisesRegex(RuntimeError, 'Unsafe'):
+                tool.migrate_legacy(directory)
+            self.assertFalse(list(directory.glob('legacy-*')))
+
+
 class ScreenTests(unittest.TestCase):
     def display(self, value, color=False, health=None):
         with mock.patch.object(tool, 'status_snapshot', return_value=value), mock.patch.object(
@@ -48,6 +215,7 @@ class ScreenTests(unittest.TestCase):
         self.assertIn('\033[1;32mPRESENT\033[0m', shown)
         self.assertIn('\033[1;31mERROR -32 1-1.2\033[0m', shown)
         self.assertIn('Delivery: UNVERIFIED', shown)
+        self.assertIn('Live for 10s; reopen after USB swap', shown)
         plain = self.display(value)
         self.assertNotIn('\033', plain)
         self.assertNotIn('  MIDI:', plain)
@@ -175,6 +343,98 @@ class ScreenTests(unittest.TestCase):
                     if expected != 'COMPLETE':
                         self.assertNotIn('COMPLETE', shown)
 
+    def test_partial_discovery_and_reduced_visibility_are_not_errors(self):
+        for missing, other in ((tool.SOURCE, 'H4MIDI'), (tool.DESTINATION, 'Teensy')):
+            value = dict(state='missing', subscription=False, identities=[], usb_error='',
+                         visibility='reduced: ALSA identity lacks USB mapping', detail='Missing port: ' + missing)
+            shown = self.display(value, True)
+            self.assertIn('\033[1;31mMISSING\033[0m', shown)
+            self.assertIn(other + ': \033[1;33mUNKNOWN\033[0m', shown)
+            self.assertIn('USB: \033[1;33mREDUCED VISIBILITY\033[0m', shown)
+            self.assertNotIn('ERROR', shown)
+            plain = self.display(value)
+            self.assertIn(other + ': UNKNOWN', plain)
+            self.assertIn('USB: REDUCED VISIBILITY', plain)
+            self.assertIn('MISSING', plain)
+            self.assertNotIn('\033', plain)
+
+    def test_visible_screen_refreshes_changes_without_repainting_unchanged_text(self):
+        with mock.patch.object(tool, 'screen', side_effect=['missing', 'missing', 'connected', 'fault']), mock.patch.object(
+                tool.sys.stdout, 'isatty', return_value=True), contextlib.redirect_stdout(io.StringIO()) as out:
+            # redirect_stdout supplies the terminal stream used by watch_screen.
+            with mock.patch.object(out, 'isatty', return_value=True), mock.patch.object(tool, 'wait_for_handheld') as wait:
+                def watching(**kwargs):
+                    for unused in range(4): kwargs['refresh']()
+                    return True
+                wait.side_effect = watching
+                self.assertTrue(tool.watch_screen(Path('/unused')))
+            self.assertEqual(out.getvalue(), '\033[smissing\n\033[u\033[Jconnected\n\033[u\033[Jfault\n')
+
+    def test_button_footer_stays_below_status_when_rows_appear_and_disappear(self):
+        for available in (False, True):
+            with self.subTest(buttons_available=available), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                if available:
+                    (root / 'event2/device').mkdir(parents=True)
+                    (root / 'event2/device/name').write_text('GO-Super Gamepad')
+                clock = [0.0]
+                frames = ['Route: MISSING', 'Route: PRESENT\nMIDI: FAULT 8\nCleanup: PENDING',
+                          'Route: PRESENT', 'Route: PRESENT']
+                def select_wait(handles, write, error, timeout):
+                    clock[0] += timeout
+                    return [], [], []
+                original_wait = tool.wait_for_handheld
+                def wait(**kwargs):
+                    return original_wait(seconds=2, inputs=root, **kwargs)
+                with contextlib.redirect_stdout(io.StringIO()) as out, mock.patch.object(out, 'isatty', return_value=True), mock.patch.object(
+                        tool, 'screen', side_effect=frames), mock.patch.object(tool, 'wait_for_handheld', side_effect=wait), mock.patch.object(
+                        tool.time, 'monotonic', side_effect=lambda: clock[0]), mock.patch.object(tool.select, 'select', side_effect=select_wait), mock.patch.object(
+                        tool.os, 'open', return_value=77), mock.patch.object(tool.os, 'read', side_effect=BlockingIOError), mock.patch.object(tool.os, 'close'):
+                    self.assertFalse(tool.watch_screen(root))
+                shown = out.getvalue()
+                self.assertTrue(shown.startswith('\033[sRoute: MISSING'))
+                displays = shown[len('\033[s'):].split('\033[u\033[J')
+                self.assertEqual(len(displays), 3)  # Unchanged final observation is not repainted.
+                footer = 'Any gamepad button to return' if available else 'Buttons:'
+                for display in displays:
+                    self.assertEqual(display.count(footer), 1)
+                    self.assertIn(footer, display.splitlines()[-1])
+                self.assertIn('MIDI: FAULT 8', displays[1])
+                self.assertNotIn('MIDI:', displays[2])
+                self.assertNotIn('Cleanup:', displays[2])
+
+    def test_open_screen_uses_each_new_keeper_observation(self):
+        missing = dict(state='missing', subscription=False, identities=[], usb_error='',
+                       visibility='reduced: no mapping', detail='Missing port: ' + tool.SOURCE)
+        connected = dict(state='connected', subscription=True, identities=[{}, {}],
+                         usb_error='', visibility='kernel log observed', detail='verified subscription')
+        error = dict(connected, state='unavailable', usb_error='usb 1-1.4: urb status -32')
+        def watching(**kwargs):
+            for unused in range(4): kwargs['refresh']()
+            return False
+        with mock.patch.object(tool, 'status_snapshot', side_effect=[missing, connected, error, 'unavailable: keeper status stale']), mock.patch.object(
+                tool, 'btx_health', return_value={'state': 'unknown'}), mock.patch.object(tool, 'wait_for_handheld', side_effect=watching), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(tool.watch_screen(Path('/unused')))
+        shown = out.getvalue()
+        self.assertLess(shown.index('Route: MISSING'), shown.index('Route: PRESENT'))
+        self.assertLess(shown.index('H4MIDI: UNKNOWN'), shown.index('H4MIDI: FOUND'))
+        self.assertLess(shown.index('Route: PRESENT'), shown.index('USB: ERROR -32 1-1.4'))
+        self.assertIn('Route: STALE', shown)
+        self.assertNotIn('  MIDI:', shown)
+
+    def test_refresh_wait_keeps_original_deadline(self):
+        clock = [100.0]
+        def select_wait(handles, write, error, timeout):
+            self.assertLessEqual(timeout, .5)
+            clock[0] += timeout
+            return [], [], []
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(tool.time, 'monotonic', side_effect=lambda: clock[0]), mock.patch.object(
+                tool.select, 'select', side_effect=select_wait), contextlib.redirect_stdout(io.StringIO()):
+            refresh = mock.Mock()
+            self.assertFalse(tool.wait_for_handheld(inputs=Path(temp), refresh=refresh))
+            self.assertEqual(clock[0], 110)
+            self.assertEqual(refresh.call_count, 20)
+
     def test_button_wait_timeout_and_missing_input(self):
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(tool.time, 'monotonic',
                 side_effect=[100, 100, 100, 110]), mock.patch.object(tool.select, 'select',
@@ -210,7 +470,9 @@ class ScreenTests(unittest.TestCase):
                     tool.os, 'read', side_effect=[press, BlockingIOError(), release, press]), mock.patch.object(
                     tool.os, 'close') as close, mock.patch.object(tool.select, 'select',
                     return_value=([77], [], [])), contextlib.redirect_stdout(io.StringIO()):
-                self.assertTrue(tool.wait_for_handheld(inputs=root))
+                refresh = mock.Mock()
+                self.assertTrue(tool.wait_for_handheld(inputs=root, refresh=refresh))
+                self.assertEqual(refresh.call_count, 2)
                 close.assert_called_once_with(77)
 
 
@@ -474,6 +736,72 @@ sys.stdin.read()
             self.assertEqual(peer.calls.count(('28:0', '41:0')), 1)
             self.assertTrue(tool.connected(listing(route=True), '88:9', '99:0'))
 
+    def test_independent_devices_when_either_or_both_are_absent(self):
+        for absent in ({tool.SOURCE}, {tool.DESTINATION}, {tool.SOURCE, tool.DESTINATION}):
+            with self.subTest(absent=absent):
+                calls = []
+                def run(*args):
+                    calls.append(args)
+                    self.assertTrue(args[0].startswith('-'))
+                    text = listing()
+                    for name in absent: text = text.replace(name, 'absent')
+                    return text
+                events = []
+                value = self.keeper(run, events=events).step(0)
+                for label, name in (('Teensy', tool.SOURCE), ('H4MIDI', tool.DESTINATION)):
+                    expected = 'missing' if name in absent else 'found'
+                    self.assertEqual(value['devices'][label]['state'], expected)
+                    with mock.patch.object(tool, 'status_snapshot', return_value=value), mock.patch.object(tool, 'btx_health', return_value={'state': 'unknown'}):
+                        self.assertIn(label + ': ' + expected.upper(), tool.screen(Path('/unused')))
+                self.assertFalse(value['subscription'])
+                self.assertEqual(value['delivery'], 'unverified')
+                self.assertEqual(events[-1]['devices'], value['devices'])
+                self.assertEqual(calls, [('-i',), ('-o',), ('-l',)])
+
+    def test_independent_h4_ambiguity_wrong_client_and_incomplete_usb_visibility(self):
+        for problem, expected in (('duplicate', 'ambiguous'), ('software', 'unknown'), ('no-usb', 'found'), ('wrong-usb', 'unknown')):
+            with self.subTest(problem=problem):
+                text = listing().replace(tool.SOURCE, 'absent')
+                if problem == 'duplicate': text += "client 70: 'H4MIDI-WC' [type=kernel]\n    0 'H4MIDI-WC MIDI 1'\n"
+                if problem == 'software': text = text.replace("'H4MIDI-WC' [type=kernel,card=1]", "'H4MIDI-WC' [type=user,pid=1]")
+                def run(*args):
+                    self.assertTrue(args[0].startswith('-'))
+                    return text
+                keeper = self.keeper(run)
+                if problem == 'wrong-usb': keeper.identify = lambda listing, address: dict(address=address, usb=dict(idVendor='0000', idProduct='0000'))
+                value = keeper.step(0)
+                self.assertEqual(value['devices']['H4MIDI']['state'], expected)
+                self.assertFalse(value['subscription'])
+                if problem == 'no-usb':
+                    self.assertIn('USB mapping unavailable', value['devices']['H4MIDI']['detail'])
+                    self.assertIn('reduced', value['visibility'])
+                if problem == 'wrong-usb': self.assertIn('does not match', value['devices']['H4MIDI']['detail'])
+
+    def test_directional_port_disappearing_before_combined_listing_is_unknown(self):
+        def run(*args):
+            self.assertTrue(args[0].startswith('-'))
+            return listing().replace(tool.DESTINATION, 'absent') if args == ('-l',) else listing()
+        value = self.keeper(run).step(0)
+        self.assertEqual(value['devices']['H4MIDI']['state'], 'unknown')
+        self.assertIn('could not verify directional port', value['devices']['H4MIDI']['detail'])
+        self.assertEqual(value['devices']['Teensy']['state'], 'found')
+        self.assertFalse(value['subscription'])
+
+    def test_verified_h4_usb_without_teensy_and_unknown_observation(self):
+        text = listing().replace(tool.SOURCE, 'absent')
+        keeper = self.keeper(lambda *args: text)
+        keeper.identify = lambda listing, address: dict(address=address, usb=dict(
+            path='1-1.3', devnum='4', idVendor='7104', idProduct='2100'))
+        value = keeper.step(0)
+        self.assertEqual(value['devices']['H4MIDI']['state'], 'found')
+        self.assertEqual(value['identities'][0]['usb']['devnum'], '4')
+        self.assertFalse(value['subscription'])
+        def failed(*args): raise RuntimeError('ALSA observation failed')
+        keeper.run = failed
+        value = keeper.step(2)
+        self.assertEqual(value['devices']['H4MIDI']['state'], 'unknown')
+        self.assertEqual(value['identities'], [])
+
     def test_route_loss_and_reconnect_with_new_numbers(self):
         peer = Peer(); keeper = self.keeper(peer)
         self.assertEqual(keeper.step(0)['state'], 'connected')
@@ -517,7 +845,8 @@ sys.stdin.read()
         ring = ['[ 0.5] usb 1-1.1: new full-speed USB device number 4 using dwc2\n[ 1.0] usb 1-1.1: urb status -32']
         errors = tool.KernelErrors(lambda: ring[0])
         peer = Peer(); keeper = self.keeper(peer, errors)
-        keeper.identify = lambda listing, address: {'address': address, 'usb': {'path': '1-1.1', 'devnum': '4'}}
+        keeper.identify = lambda listing, address: {'address': address, 'usb': dict(path='1-1.1', devnum='4',
+            idVendor='16c0' if address == '28:0' else '7104', idProduct='048a' if address == '28:0' else '2100')}
         self.assertEqual(keeper.step(0)['state'], 'connected')  # Historical error is baselined.
         ring[0] += '\n[ 2.0] usb 1-1.1: urb status -32'
         state = keeper.step(2)
@@ -558,22 +887,29 @@ sys.stdin.read()
             for name, script in [('aconnect', '#!/bin/sh\nexit 0\n'),
                                  ('dmesg', '#!/bin/sh\necho "[ 1.0] fixture"\n')]:
                 path = root / 'bin' / name; path.write_text(script); path.chmod(0o755)
-            env = dict(os.environ, HOME=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'])
+            env = dict(os.environ, HOME=temp, TMPDIR=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'])
+            directory = root / ('brotracker-' + str(os.getuid()))
+            directory.mkdir(mode=0o700)
+            (directory / 'brotracker-midi-connect.log').write_text('x' * 131100)
             pid = None
             try:
                 commands = [[sys.executable, '-B', str(HERE / 'midi-connect.py')]] * 2
                 children = [subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for cmd in commands]
                 for child in children:
                     out, err = child.communicate(timeout=8); self.assertEqual(child.returncode, 0, err)
-                directory = root / 'BroTracker'
+                directory = root / ('brotracker-' + str(os.getuid()))
                 value = json.loads((directory / 'midi-connect-status.json').read_text()); pid = value['pid']
                 self.assertEqual(value['teensy']['state'], 'unknown')
+                self.assertEqual(value['process_name'], tool.KEEPER_NAME)
+                self.assertEqual(Path('/proc/{}/comm'.format(pid)).read_text().strip(), tool.KEEPER_NAME)
                 self.assertTrue((directory / 'midi-connect-status.btx').read_text().startswith('BTMIDIROUTE 1 '))
                 again = subprocess.run(commands[0], env=env, stdout=subprocess.PIPE, timeout=5)
                 self.assertIn(str(pid), again.stdout.decode())
                 self.assertIsNone(tool.lock_keeper(directory))
                 self.assertEqual(value['state'], 'missing')
-                self.assertTrue((directory / 'midi-connect.log').exists())
+                self.assertTrue((directory / 'brotracker-midi-connect.log').exists())
+                self.assertEqual((directory / 'brotracker-midi-connect(1).log').read_text(), 'x' * 131100)
+                self.assertFalse((root / 'BroTracker').exists())
                 os.kill(pid, signal.SIGTERM)
                 for unused in range(100):
                     lock = tool.lock_keeper(directory)
@@ -684,20 +1020,21 @@ sys.stdin.read()
             shutil.copyfile(HERE / 'port' / launcher.name, launcher)
             (root / 'ports/brotracker').mkdir()
             shutil.copyfile(HERE / 'midi-connect.py', root / 'ports/brotracker/midi-connect.py')
-            directory = root / 'BroTracker'
-            directory.mkdir()
+            directory = root / ('brotracker-' + str(os.getuid()))
+            directory.mkdir(mode=0o700)
+            (directory / 'brotracker-midi-connect-launch.log').write_text('previous launch evidence')
             (directory / 'midi-connect-status.json').write_text(json.dumps(dict(
                 pid=os.getpid(), process_start=Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19],
                 boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
                 observed_monotonic=time.monotonic(), state='connected', subscription=True,
                 identities=[{}, {}], usb_error='', visibility='kernel log observed', detail='verified subscription')))
-            for name, script in [('python3', '#!/bin/sh\ncase "$*" in\n*--screen*) exec "$TEST_PYTHON" "$@";;\n*--wait-buttons*) echo "Buttons: fixture";;\n*) echo "VERBOSE diagnostic fixture"; exit "$TEST_FAILURE";;\nesac\nexit 0\n'),
+            for name, script in [('python3', '#!/bin/sh\ncase "$*" in\n*--screen*) "$TEST_PYTHON" -B "$2" --screen; echo "Buttons: fixture";;\n*--wait-buttons*) echo "Buttons: fixture";;\n*) echo "VERBOSE diagnostic fixture"; exit "$TEST_FAILURE";;\nesac\nexit 0\n'),
                                  ('sleep', '#!/bin/sh\nexit 0\n')]:
                 path = root / 'bin' / name
                 path.write_text(script)
                 path.chmod(0o755)
             master, slave = pty.openpty()
-            env = dict(os.environ, HOME=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'],
+            env = dict(os.environ, HOME=temp, TMPDIR=temp, PATH=str(root / 'bin') + ':' + os.environ['PATH'],
                        TEST_PYTHON=sys.executable, TEST_FAILURE=str(failure))
             if no_color:
                 env['NO_COLOR'] = '1'
@@ -718,19 +1055,21 @@ sys.stdin.read()
             self.assertIn('PRESENT', shown)
             if failure:
                 self.assertIn('Launch: FAILED (exit 42)', shown)
-                self.assertIn('midi-connect-launch.log', shown)
+                self.assertIn('brotracker-midi-connect-launch.log', shown)
                 self.assertLess(shown.index('Launch: FAILED'), shown.index('BroTracker MIDI Connect'))
                 if not no_color:
                     self.assertIn('\033[1;31m  Launch: FAILED', shown)
             else:
                 self.assertNotIn('Launch: FAILED', shown)
             self.assertIn('Buttons: fixture', shown)
+            self.assertIn(str(directory), shown)
+            self.assertEqual((directory / 'brotracker-midi-connect-launch(1).log').read_text(), 'previous launch evidence')
             self.assertNotIn('VERBOSE', shown)
             self.assertTrue(shown.endswith('\033[0m'))
-            logged = (root / 'BroTracker' / 'midi-connect-launch.log').read_text()
+            logged = (directory / 'brotracker-midi-connect-launch.log').read_text()
             self.assertIn('VERBOSE diagnostic fixture', logged)
             self.assertNotIn('\033', logged)
-            self.assertIn('within 10 seconds', logged)
+            self.assertIn('Ports cleanup may stop the keeper', logged)
 
 
 if __name__ == '__main__':

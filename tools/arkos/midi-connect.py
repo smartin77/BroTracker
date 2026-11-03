@@ -14,9 +14,102 @@ import time
 import stat
 import select
 import struct
+import tempfile
+import shutil
+import ctypes
 
 SOURCE = 'BroTracker USB audio MIDI 1'
-DESTINATION = 'H4MIDI-WC MIDI 1'
+# The only supported external destination; names select it, USB identity verifies it.
+H4MIDI_PROFILE = dict(port_name='H4MIDI-WC MIDI 1', client_name='H4MIDI-WC',
+                     usb_identity=('7104', '2100'))
+DESTINATION = H4MIDI_PROFILE['port_name']
+KEEPER_NAME = 'btx-midi-keep'
+
+
+def set_keeper_name(name=KEEPER_NAME):
+    """Name the actual Linux keeper thread, not merely its argv or parent."""
+    try:
+        encoded = name.encode('ascii')
+    except UnicodeEncodeError as error:
+        raise RuntimeError('Keeper process name must be ASCII') from error
+    if not encoded or len(encoded) > 15 or b'\0' in encoded:
+        raise RuntimeError('Keeper process name must be 1-15 ASCII bytes without NUL')
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.restype = ctypes.c_int
+        prctl.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+        desired = ctypes.create_string_buffer(encoded)
+        actual = ctypes.create_string_buffer(16)
+        for operation, buffer in ((15, desired), (16, actual)):  # PR_SET_NAME / PR_GET_NAME
+            if prctl(operation, ctypes.byref(buffer), 0, 0, 0) != 0:
+                raise OSError(ctypes.get_errno(), 'prctl process-name operation failed')
+        if actual.value != encoded:
+            raise RuntimeError('Kernel process-name verification mismatch')
+    except (OSError, AttributeError) as error:
+        raise RuntimeError('Keeper process-name setup failed: ' + str(error)) from error
+
+
+def keeper_identity_ready(value):
+    if isinstance(value, str) or value.get('process_name') != KEEPER_NAME:
+        return False
+    try:
+        return Path('/proc/{}/comm'.format(value['pid'])).read_text().strip() == KEEPER_NAME
+    except (OSError, KeyError):
+        return False
+
+
+def runtime_directory():
+    base = Path(os.environ.get('TMPDIR', '/tmp'))
+    if not base.is_absolute() or not base.is_dir():
+        base = Path('/tmp')
+    return base / ('brotracker-' + str(os.getuid()))
+
+
+def prepare_directory(directory):
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise RuntimeError('Unsafe MIDI runtime directory: ' + str(directory))
+
+
+def migrate_legacy(directory):
+    """Preserve recognized old runtime files; never touch tunes/config/project files."""
+    legacy = Path.home() / 'BroTracker'
+    locks = []
+    try:
+        for name in ('midi-connect.lock', 'btx-midi-health.lock'):
+            path = legacy / name
+            if path.exists():
+                if path.is_symlink():
+                    raise RuntimeError('Refusing legacy runtime symlink: ' + str(path))
+                lock = path.open('r')
+                locks.append(lock)
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise RuntimeError('Legacy keeper/BTX still active; close it before runtime-path upgrade')
+        names = ['midi-connect.log', 'midi-connect-launch.log', 'midi-connect.lock',
+                 'midi-connect-status.json', 'midi-connect-status.btx', 'midi-connect-status.next',
+                 'midi-connect-status.btx.next', 'btx-midi-health.state', 'btx-midi-health.lock']
+        names += ['midi-connect.log.' + str(n) for n in range(1, 4)]
+        if legacy.is_dir():
+            names += [path.name for path in legacy.glob('btx-midi-health.next.*')
+                      if path.name.rsplit('.', 1)[-1].isdigit()]
+        # Check all candidates before moving any of them.
+        paths = [legacy / name for name in names if (legacy / name).exists() or (legacy / name).is_symlink()]
+        for path in paths:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                raise RuntimeError('Unsafe legacy runtime file: ' + str(path))
+        if paths:
+            archive = Path(tempfile.mkdtemp(prefix='legacy-', dir=str(directory)))
+            for path in paths:
+                shutil.move(str(path), str(archive / path.name))
+            print('Preserved legacy runtime files: ' + str(archive))
+    finally:
+        for lock in locks:
+            lock.close()
 
 
 def ports(text):
@@ -41,7 +134,7 @@ def discover(text, name):
     if not matches:
         raise RuntimeError('Missing port: {}. Connect and power the device, then retry.'.format(name))
     if len(matches) != 1:
-        raise RuntimeError('Ambiguous port: {} ({}) — no route changed.'.format(name, ', '.join(matches)))
+        raise RuntimeError('Ambiguous port: {} ({}) â€” no route changed.'.format(name, ', '.join(matches)))
     return matches[0]
 
 
@@ -172,6 +265,32 @@ def identity(listing, address, read_raw=raw_listing, sys=Path('/sys'), dev=Path(
     except (OSError, RuntimeError, subprocess.TimeoutExpired):
         pass  # Missing/ambiguous ancestry is reduced visibility, never a guess.
     return result
+
+
+def observe_device(directional, listing, port_name, client_name, identify):
+    """Read-only independent supported-port observation; USB mapping supplements ALSA."""
+    try:
+        address = discover(directional, port_name)
+        try:
+            combined_address = discover(listing, port_name)
+        except RuntimeError as error:
+            raise RuntimeError('ALSA combined observation could not verify directional port: ' + str(error))
+        if combined_address != address:
+            raise RuntimeError('ALSA identity changed during device observation')
+        if not re.search(r"^client " + address.split(':')[0] + r": '" + re.escape(client_name) +
+                         r"' \[type=kernel(?:,|\])", listing, re.M):
+            raise RuntimeError('Supported port is not on its expected hardware ALSA client: ' + address)
+        observed = identify(listing, address)
+        expected = ('16c0', '048a') if port_name == SOURCE else H4MIDI_PROFILE['usb_identity']
+        usb = observed.get('usb')
+        if usb and (usb.get('idVendor'), usb.get('idProduct')) != expected:
+            raise RuntimeError('USB identity does not match supported device profile: ' + address)
+        return dict(state='found', identity=observed, detail='Supported hardware ALSA port verified: ' + address +
+                    ('; USB incarnation mapped' if usb else '; USB mapping unavailable; reduced visibility'))
+    except (OSError, RuntimeError) as error:
+        detail = str(error)
+        state = 'ambiguous' if detail.startswith(('Ambiguous', 'Duplicate')) else 'missing' if detail.startswith('Missing port:') else 'unknown'
+        return dict(state=state, detail=detail)
 
 
 class KernelErrors:
@@ -316,33 +435,38 @@ class Keeper:
         self.key, self.attempts, self.next_try = None, 0, 0
         self.was_connected = False
         self.last = None
+        self.devices = {}
 
     def report(self, state, detail, identities=(), route=False, visibility='unknown', usb_error=''):
         value = dict(state=state, detail=str(detail)[:1000], identities=list(identities),
                      subscription=route, delivery='unverified', visibility=visibility,
-                     attempts=self.attempts, usb_error=usb_error)
+                     attempts=self.attempts, usb_error=usb_error, devices=dict(self.devices))
         if value != self.last:
             self.emit(value)
             self.last = value
         return value
 
     def step(self, now):
+        self.devices = {label: dict(state='unknown', detail='ALSA observation unavailable for this sample')
+                        for label in ('Teensy', 'H4MIDI')}
         ids = []
         visibility = 'reduced: USB/kernel observation unavailable for this sample'
         try:
             incoming, outgoing, listing = self.run('-i'), self.run('-o'), self.run('-l')
-            try:
-                source = discover(incoming, SOURCE)
-                destination = discover(outgoing, DESTINATION)
-            except RuntimeError as error:
+            for label, directional, port_name, client_name in (
+                    ('Teensy', incoming, SOURCE, 'BroTracker USB audio'),
+                    ('H4MIDI', outgoing, DESTINATION, H4MIDI_PROFILE['client_name'])):
+                self.devices[label] = observe_device(directional, listing, port_name, client_name, self.identify)
+            ids = [device['identity'] for device in self.devices.values() if device['state'] == 'found']
+            unavailable = [device for device in self.devices.values() if device['state'] != 'found']
+            if unavailable:
                 self.key, self.attempts, self.was_connected = None, 0, False
-                visibility, _ = self.errors.poll(())
-                return self.report('ambiguous' if 'Ambiguous' in str(error) else 'missing', str(error), visibility=visibility)
-            ids = [self.identify(listing, a) for a in (source, destination)]
-            for address, name in ((source, 'BroTracker USB audio'), (destination, 'H4MIDI-WC')):
-                if not re.search(r"^client " + address.split(':')[0] + r": '" + re.escape(name) +
-                                 r"' \[type=kernel(?:,|\])", listing, re.M):
-                    raise RuntimeError('Supported port is not on its expected hardware ALSA client: ' + address)
+                visibility, usb_error = self.errors.poll(ids)
+                state = 'ambiguous' if any(d['state'] == 'ambiguous' for d in unavailable) else 'unavailable' if any(
+                    d['state'] == 'unknown' for d in unavailable) else 'missing'
+                return self.report(state, '; '.join(d['detail'] for d in unavailable), ids,
+                                   visibility=visibility, usb_error=usb_error)
+            source, destination = [device['identity']['address'] for device in self.devices.values()]
             key = json.dumps(ids, sort_keys=True)
             if key != self.key:
                 self.key, self.attempts, self.next_try, self.was_connected = key, 0, now, False
@@ -424,33 +548,39 @@ def status(directory):
 def screen(directory, color=False):
     """Presentation only; reuse keeper identity/freshness and live BTX checks."""
     value = status_snapshot(directory)
-    lines = ['BroTracker MIDI Connect', '']
-    def row(label, text, good=False):
+    lines = ['BroTracker MIDI Connect', '  Live for 10s; reopen after USB swap', '']
+    def row(label, text, good=False, uncertain=False):
         # Never render untrusted control characters from diagnostics on the VT.
         text = ''.join(c if 32 <= ord(c) < 127 else ' ' for c in str(text))[:38 - len(label) - 4]
         if color:
-            text = '\033[1;{}m{}\033[0m'.format(32 if good else 31, text)
+            text = '\033[1;{}m{}\033[0m'.format(32 if good else 33 if uncertain else 31, text)
         lines.append('  {}: {}'.format(label, text))
     if isinstance(value, str):
         row('Route', 'STALE' if 'stale' in value else 'UNAVAILABLE')
-        row('Teensy', 'UNKNOWN')
-        row('H4MIDI', 'UNKNOWN')
-        row('USB', 'UNKNOWN')
+        row('Teensy', 'UNKNOWN', uncertain=True)
+        row('H4MIDI', 'UNKNOWN', uncertain=True)
+        row('USB', 'UNKNOWN', uncertain=True)
     else:
         state = value['state']
         row('Route', 'PRESENT' if value['subscription'] else state.upper(), value['subscription'])
-        # A failed discovery may stop at the first missing port: never infer
-        # that the other device was found from that partial observation.
+        # New keepers publish independent observations. Older snapshots retain
+        # conservative display behavior until that keeper is explicitly upgraded.
         for label, name in (('Teensy', SOURCE), ('H4MIDI', DESTINATION)):
-            found = len(value.get('identities', [])) == 2 and (value['subscription'] or
-                state == 'connecting' or value['detail'].startswith('Route absent;'))
-            row(label, 'FOUND' if found else state.upper()
-                if state in ('missing', 'ambiguous') and name in value['detail'] else 'UNKNOWN', found)
+            device = value.get('devices', {}).get(label)
+            if device is not None:
+                device_state = device['state']
+                row(label, device_state.upper(), device_state == 'found', uncertain=device_state == 'unknown')
+            else:
+                found = len(value.get('identities', [])) == 2 and (value['subscription'] or
+                    state == 'connecting' or value['detail'].startswith('Route absent;'))
+                row(label, 'FOUND' if found else state.upper()
+                    if state in ('missing', 'ambiguous') and name in value['detail'] else 'UNKNOWN', found, uncertain=not found and not (state in ('missing', 'ambiguous') and name in value['detail']))
         error = value.get('usb_error')
         match = re.search(r'(\d+-\d+(?:\.\d+)*).*?status\s+(-?\d+)', error or '')
         brief = 'ERROR {} {}'.format(match[2], match[1]) if match else 'ERROR (SEE LOG)'
         row('USB', brief if error else 'REDUCED VISIBILITY' if value['visibility'].startswith('reduced')
-            else 'NO NEW ERROR OBSERVED', not error and not value['visibility'].startswith('reduced'))
+            else 'NO NEW ERROR OBSERVED', not error and not value['visibility'].startswith('reduced'),
+            uncertain=not error and value['visibility'].startswith('reduced'))
     health = btx_health(directory)
     if health['state'] != 'unknown':
         row('MIDI', 'FAULT {}'.format(health['reason']) if health['state'] == 'fault' else health['state'].upper(),
@@ -459,11 +589,30 @@ def screen(directory, color=False):
         complete = not health['cleanup'] and health['state'] in ('healthy', 'fault')
         row('Cleanup', 'PENDING / UNCERTAIN' if health['cleanup'] else
             'COMPLETE' if complete else 'UNKNOWN', complete)
-    lines += ['', '  Delivery: UNVERIFIED', '  Details: midi-connect.log', '']
+    lines += ['', '  Delivery: UNVERIFIED', '  Logs: ' + str(directory),
+              '  Details: brotracker-midi-connect.log', '']
     return '\n'.join(lines)
 
 
-def wait_for_handheld(seconds=10, inputs=Path('/sys/class/input'), devices=Path('/dev/input')):
+def watch_screen(directory):
+    """Redraw changed status and its bottom button message as one display."""
+    terminal = sys.stdout.isatty()
+    color = terminal and 'NO_COLOR' not in os.environ
+    previous = [None]
+    def refresh(button_message=None):
+        shown = screen(directory, color)
+        if button_message is not None:
+            shown += '\n' + button_message
+        if shown != previous[0]:
+            if terminal:
+                # Erase the entire old display, including its footer, before repainting.
+                sys.stdout.write('\033[s' if previous[0] is None else '\033[u\033[J')
+            print(shown, flush=True)
+            previous[0] = shown
+    return wait_for_handheld(refresh=refresh)
+
+
+def wait_for_handheld(seconds=10, inputs=Path('/sys/class/input'), devices=Path('/dev/input'), refresh=None):
     """Read native R36H gamepad events; no grabs, mapping daemon or SDL UI.
 
     Support the captured mapping and the actual R36H evdev controller name.
@@ -489,12 +638,17 @@ def wait_for_handheld(seconds=10, inputs=Path('/sys/class/input'), devices=Path(
             unavailable = 'UNAVAILABLE'
             if sys.stdout.isatty() and 'NO_COLOR' not in os.environ:
                 unavailable = '\033[1;31mUNAVAILABLE\033[0m'
-            print('  Buttons: {} (10s timeout)'.format(unavailable), flush=True)
+            button_message = '  Buttons: {} (10s timeout)'.format(unavailable)
         else:
-            print('  Any gamepad button to return (10s)', flush=True)
+            button_message = '  Any gamepad button to return (10s)'
+        if refresh is None:
+            print(button_message, flush=True)
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            ready, _, _ = select.select(handles, [], [], max(0, deadline - time.monotonic()))
+            if refresh is not None:
+                refresh(button_message)
+            remaining = max(0, deadline - time.monotonic())
+            ready, _, _ = select.select(handles, [], [], min(.5, remaining) if refresh else remaining)
             for fd in ready:
                 try:
                     data = os.read(fd, event.size * 64)
@@ -579,13 +733,23 @@ def route_wire(value):
 def serve(directory, lock):
     logger = logging.getLogger('midi-connect')
     logger.setLevel(logging.INFO)
-    handler = RotatingFileHandler(str(directory / 'midi-connect.log'), maxBytes=131072, backupCount=3)
+    handler = RotatingFileHandler(str(directory / 'brotracker-midi-connect.log'), maxBytes=131072, backupCount=3)
+    handler.namer = lambda name: re.sub(r'\.log\.(\d+)$', r'(\1).log', name)
     class BoundedFormatter(logging.Formatter):
         def format(self, record):
             return ('{} mono={:.6f} {}'.format(time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                     time.monotonic(), super().format(record)))[:4096]
     handler.setFormatter(BoundedFormatter())
     logger.addHandler(handler)
+    try:
+        set_keeper_name()
+    except Exception:
+        logger.exception('Keeper startup failed: process name not verified; no readiness or routing')
+        handler.flush()
+        lock.close()
+        logger.removeHandler(handler)
+        handler.close()
+        raise
     boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
     start = Path('/proc/self/stat').read_text().split(') ', 1)[1].split()[19]
     last_health = [None]
@@ -594,7 +758,7 @@ def serve(directory, lock):
         health_key = {k: v for k, v in health.items() if k not in ('observed_ms', 'firmware_age_ms')}
         health_changed = health_key != last_health[0]
         last_health[0] = health_key
-        value = dict(value, schema=1, pid=os.getpid(), boot_id=boot, process_start=start,
+        value = dict(value, schema=1, pid=os.getpid(), boot_id=boot, process_start=start, process_name=KEEPER_NAME,
                      wall_time=time.strftime('%Y-%m-%dT%H:%M:%S%z'), observed_monotonic=time.monotonic(), teensy=health)
         temp = directory / 'midi-connect-status.next'
         temp.write_text(json.dumps(value, sort_keys=True))
@@ -607,7 +771,7 @@ def serve(directory, lock):
             handler.flush()
             os.fsync(handler.stream.fileno())
     keeper = Keeper(emit=lambda value: publish(value, True))
-    logger.info('keeper started pid=%s boot=%s; ALSA only; no CDC or playback control', os.getpid(), boot)
+    logger.info('keeper started pid=%s boot=%s name=%s verified; ALSA only; no CDC or playback control', os.getpid(), boot, KEEPER_NAME)
     try:
         while True:
             publish(keeper.step(time.monotonic()))
@@ -622,9 +786,17 @@ def serve(directory, lock):
 def ensure(directory):
     lock = lock_keeper(directory)
     if lock is None:
-        print(status(directory))
-        return
+        # Another launch may still be initializing its named child. Reuse the
+        # same bounded readiness wait; never spawn a competing keeper.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if keeper_identity_ready(status_snapshot(directory)):
+                print(status(directory))
+                return
+            time.sleep(.05)
+        raise RuntimeError('Keeper lock held but process name/status unverified; inspect logs; an old keeper requires explicit stop/relaunch')
     try:
+        migrate_legacy(directory)
         child = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()),
                                   '--keeper-fd', str(lock.fileno())], pass_fds=(lock.fileno(),),
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -633,15 +805,20 @@ def ensure(directory):
         ready = False
         while time.monotonic() < deadline:
             try:
-                if json.loads((directory / 'midi-connect-status.json').read_text())['pid'] == child.pid:
+                value = status_snapshot(directory)
+                if not isinstance(value, str) and value['pid'] == child.pid and keeper_identity_ready(value):
                     ready = True
                     break
             except (OSError, ValueError, KeyError):
                 pass
             if child.poll() is not None:
-                raise RuntimeError('Keeper failed to start; inspect Python/ALSA availability')
+                raise RuntimeError('Keeper startup failed (exit {}); inspect {} for process-name/initialization errors'.format(
+                    child.returncode, directory / 'brotracker-midi-connect.log'))
             time.sleep(.05)
-        print(status(directory) if ready else 'connecting: keeper starting; route and MIDI delivery unverified')
+        if not ready:
+            raise RuntimeError('Keeper startup/name not confirmed within 2 seconds; child may still finish; inspect ' +
+                               str(directory / 'brotracker-midi-connect.log'))
+        print(status(directory))
     finally:
         lock.close()  # Child retains the same locked open file description.
 
@@ -651,11 +828,17 @@ def main():
     parser.add_argument('--status', action='store_true')
     parser.add_argument('--screen', action='store_true')
     parser.add_argument('--wait-buttons', action='store_true')
+    parser.add_argument('--migrate-legacy', action='store_true', help='Preserve inactive legacy runtime files without starting routing')
     parser.add_argument('--keeper-fd', type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     os.umask(0o077)
-    directory = Path.home() / 'BroTracker'
+    directory = runtime_directory()
+    if directory.exists() or directory.is_symlink():
+        prepare_directory(directory)
     if args.screen:
+        if args.wait_buttons:
+            watch_screen(directory)
+            return
         print(screen(directory, sys.stdout.isatty() and 'NO_COLOR' not in os.environ))
         return
     if args.wait_buttons:
@@ -664,7 +847,16 @@ def main():
     if args.status:
         print(status(directory))
         return
-    directory.mkdir(parents=True, exist_ok=True)
+    prepare_directory(directory)
+    if args.migrate_legacy:
+        lock = lock_keeper(directory)
+        if lock is None:
+            raise RuntimeError('Keeper active; migrate only while stopped')
+        try:
+            migrate_legacy(directory)
+        finally:
+            lock.close()
+        return
     if args.keeper_fd is not None:
         serve(directory, os.fdopen(args.keeper_fd, 'a'))
     else:
