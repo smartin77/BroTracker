@@ -525,10 +525,27 @@ earlier dArkOS USB failures. They confirm this offline setup and reboot repeat,
 not simultaneous operation of all three devices, general USB stability or a
 proven cause of the previous failures. Those stability questions remain open.
 
-### Open issues and platform limits (2026-10-31, updated 2026-11-02)
+### Open issues and platform limits (2026-10-31, updated 2026-11-03)
 
 - **Windows routing after reconnect:** MIDI-OX lost its Teensy input after a hub
   reconnect. Restarting MIDI-OX restored routing while BTX stayed open.
+- **dArkOS keeper lifetime (2026-11-03):** matched process/signal captures identify
+  `sudo killall python3` in EmulationStation's `game-end/batt_warning_stop.sh` as
+  the source of SIGTERM terminating the normally waiting keeper after Ports return.
+  The hook runs when verbal battery warnings are enabled. This is distinct from
+  USB delivery failures and from the currently disconnected Teensy. An ALSA route may outlive
+  its keeper, so the earlier audible offline confirmations do not prove sustained
+  monitoring. Runtime-path changes prevent checkout pollution. The keeper now sets
+  and verifies its distinct Linux name before readiness, retaining ordinary TERM
+  shutdown. Physical verification on dArkOS confirmed repeated-launch PID reuse,
+  timeout/B-button return, targeted TERM shutdown and fresh status beyond thirty
+  seconds after Ports return. After relaunch and the Wi-Fi/Teensy swap, the user
+  confirmed PT8211 audio, H4MIDI flashes and WASP playback in the offline topology
+  above. Captured hook execution and advancing status establish that the same
+  named keeper survived BTX exit for over 100 seconds. ArkOS verification of this
+  change remains pending; earlier USB failures and stability questions remain open.
+  The OS hook and battery settings remain unchanged; see the
+  [lifetime behavior and log locations](../tools/arkos/README.md#darkos-ports-lifetime-limitation-2026-11-03).
 - **Windows MIDI hangs:** during earlier testing, MIDI-OX and a direct WinMM
   PowerShell test hung, and Windows MIDI Service remained `STOP_PENDING`.
   Forcibly ending that service's own process and starting the service restored

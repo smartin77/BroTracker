@@ -23,6 +23,18 @@ namespace {
 void Put(const std::filesystem::path& path,const std::string& text) {std::ofstream file(path);file<<text;}
 std::string Get(const std::filesystem::path& path) {std::ifstream file(path);return {std::istreambuf_iterator<char>(file),{}};}
 }
+TEST_CASE(MidiRuntimeDirectoryMatchesHelperAndIsPrivate) {
+    char pattern[]="/tmp/btx-midi-path-XXXXXX";const char* made=mkdtemp(pattern);CHECK(made);
+    const auto previous=std::getenv("TMPDIR");const std::string saved=previous?previous:"";
+    setenv("TMPDIR",made,1);
+    const auto directory=MidiRuntimeDirectory();
+    CHECK(directory==std::filesystem::path(made)/("brotracker-"+std::to_string(getuid())));
+    {MidiStatusExchange exchange(directory);exchange.Tick({},"stopped",10000);}
+    struct stat info{};CHECK(!lstat(directory.c_str(),&info));CHECK_EQ(info.st_mode&0077,0u);
+    setenv("TMPDIR","relative",1);CHECK(MidiRuntimeDirectory().parent_path()=="/tmp");
+    if(previous)setenv("TMPDIR",saved.c_str(),1);else unsetenv("TMPDIR");
+    std::filesystem::remove_all(made);
+}
 TEST_CASE(MidiExchangeHandlesMissingStaleRestartedOwnersAndAtomicHealthPublication) {
     char pattern[]="/tmp/btx-midi-exchange-XXXXXX";const char* made=mkdtemp(pattern);CHECK(made);
     const std::filesystem::path dir(made);

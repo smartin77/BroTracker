@@ -318,8 +318,7 @@ int main(int argc, char* argv[])
     std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
-    const char* midi_home=std::getenv("HOME");
-    BroTracker::MidiStatusExchange midi_exchange(midi_home?std::filesystem::path(midi_home)/"BroTracker":std::filesystem::path{},bring_up_log);
+    BroTracker::MidiStatusExchange midi_exchange(BroTracker::MidiRuntimeDirectory(),bring_up_log);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     LocalPatternEditor editor;

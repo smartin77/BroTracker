@@ -34,7 +34,7 @@ route, device and USB observations are independent and remain displayed.
 An existing route never establishes external MIDI delivery. Details remain in
 the existing launch/keeper logs rather than being dumped onto the small screen.
 A failed launch/ensure command is shown separately in red above any valid status
-snapshot, with its exit code and a pointer to `midi-connect-launch.log`.
+snapshot, with its exit code and the runtime path to `brotracker-midi-connect-launch.log`.
 Any new button press on the R36H's `GO-Super Gamepad` (or `retrogame_joypad`)
 returns early, using read-only Linux input events without grabbing the controller
 or starting a mapping daemon.
@@ -90,13 +90,16 @@ delivery acknowledgement. A latched error remains unavailable for that incarnati
 even if its subscription is present: reconnecting a route is not USB repair.
 Physical USB/power/kernel failures can exceed what this tool can recover.
 
-The console shows the result for eight seconds, then returns to Ports while the
-keeper continues independently. State transitions/errors are timestamped with
-wall/monotonic time, boot identity, process and device identity in
-`$HOME/BroTracker/midi-connect.log` (128 KiB, three rotating backups). Duplicate
+The console shows the result for ten seconds (or until a gamepad button), then
+returns to Ports. The detached keeper is intended to continue, but external
+Ports cleanup can terminate it; see the dArkOS limitation below. State transitions/
+errors are timestamped with wall/monotonic time, boot, process and device identity in
+`/tmp/brotracker-<uid>/brotracker-midi-connect.log` (128 KiB, three rotating backups,
+named `brotracker-midi-connect(1).log` through `(3).log`, following BTX naming). Duplicate
 unchanged observations are not logged. `midi-connect-status.json` is atomic current
 status, with stale/dead/previous-boot keeper checks; it is not a delivery receipt.
-`midi-connect-launch.log` holds the latest console invocation separately. Run
+`brotracker-midi-connect-launch.log` holds each console invocation separately,
+retaining three previous launches with the same parenthesized naming. Run
 `python3 -B /roms/ports/brotracker/midi-connect.py --status` for read-only status.
 The process lock is held for the keeper lifetime, including concurrent launches.
 To stop monitoring deliberately, identify its current PID from a fresh status and
@@ -104,6 +107,64 @@ send TERM to that keeper only; the intended subscription is left intact. No broa
 route teardown, USB reset or playback command is performed at shutdown. After a
 reboot, launch the Ports entry again. Updating installed helper files does not
 replace an already-running keeper; stop that keeper explicitly before upgrading.
+
+All MIDI status, health and lock files use the same private `brotracker-<uid>`
+directory, outside the checkout. A valid absolute `TMPDIR` replaces `/tmp` for
+the helper, MIDI Connect launcher and BTX; use the same environment for all three.
+The unrelated BroTracker Diagnostics collector keeps its existing persistent
+`$HOME/BroTracker/diagnostics/` location; it has no dependency on this MIDI runtime
+directory. These MIDI files, like `/tmp/brotracker-arkos.log`, may disappear on
+reboot. Collect logs before rebooting. Existing legacy logs/state under `~/BroTracker` are moved
+without replacement into a unique `legacy-*` archive in the new runtime directory
+on the next keeper start. Active legacy keeper/BTX locks block migration; close
+both before upgrading all cooperating files together. For migration alone use
+`python3 -B /roms/ports/brotracker/midi-connect.py --migrate-legacy`; it starts no
+keeper and changes no ALSA route. Project/configuration files are never moved.
+
+### dArkOS Ports lifetime limitation (2026-11-03)
+
+On the inspected Debian 13 dArkOS installation, the EmulationStation game-end
+hook `~/.emulationstation/scripts/game-end/batt_warning_stop.sh` runs
+`sudo killall python3` when `~/.config/.NOVERBALBATTERYWARNING` is absent. The
+2026-11-03 bounded process/signal capture matched sender PID 132609 (`killall
+python3`), parent PID 132603 (`sudo killall python3`) and the hook's shell back
+to EmulationStation. Keeper PID 132492 received that sender's SIGTERM and exited.
+Thus a battery-warning cleanup intended for another Python program also kills
+the keeper; no Python exception or missing-port exit was involved in that run.
+The same broad cleanup also targets ordinary Python observers.
+The keeper now sets its main thread's Linux name to `btx-midi-keep` (13 ASCII
+bytes) using `PR_SET_NAME`, and checks it with `PR_GET_NAME` before publishing
+readiness or making any route attempt. The launcher verifies the live kernel name
+and fresh PID/start-time/boot status before confirming startup or reusing an
+existing keeper. A concurrent launch waits up to two seconds for initialization;
+failed/unconfirmed naming is an explicit launch error, with details in the log.
+Old unnamed keepers require an explicit stop/relaunch after upgrade. No battery
+setting or system hook is changed. PID-targeted SIGTERM retains normal shutdown;
+this is a distinct process identity, not a signal-ignore or restart workaround.
+On dArkOS, physical verification on 2026-11-03 confirmed timeout and B-button
+return, reuse of the same keeper PID, and fresh status beyond thirty seconds
+after Ports return. Explicit PID-targeted TERM stopped it and released the lock.
+After relaunch, Teensy arrival after Ports return established the supported route;
+the user confirmed PT8211 audio, H4MIDI flashes and audible WASP playback with
+the unpowered OTG hub, externally powered H4MIDI and Wi-Fi absent. The same named
+keeper remained fresh more than 100 seconds after BTX exit and the captured
+`killall python3` hook. No new H4MIDI USB error was reported in this run.
+ArkOS verification of this process-name change remains pending. This single
+dArkOS run does not establish general USB stability or simultaneous Wi-Fi use.
+Check fresh BTX keeper status rather than assuming detachment guarantees survival.
+An ALSA subscription can remain after keeper exit, so earlier confirmed offline
+playback does not prove persistent monitoring. A missing Teensy while it is
+physically disconnected is not evidence for the earlier playback failure or for
+the keeper's termination. Scoping the OS hook to the battery-warning process
+remains a useful upstream improvement, independent of the keeper's own identity.
+
+For physical verification, initially leave Teensy disconnected: keep the existing
+battery-warning setting, return from Ports by timeout and early button press, and
+verify the same named PID and advancing status timestamps after at least thirty
+seconds and repeated launches. Check explicit PID-targeted TERM and relaunch too.
+Then prepare offline logs and swap Wi-Fi for Teensy while H4MIDI stays connected;
+verify discovery after Ports return, user-started PT8211/WASP playback and keeper
+survival after BTX exits. Do not connect all three devices just for this check.
 
 This is the temporary H4MIDI-only route authority. A future BroTracker MIDI host
 must explicitly take over this ownership rather than run a competing route writer.
@@ -704,3 +765,37 @@ result. With existing `[logging] mode=debug`, the wire log also shows
 START; basic logging can omit these wire/acknowledgment lines. Keep all other
 existing runtime config; absent
 [midi] uses channel 12. No console compiler or Teensy upload is needed.
+
+The MIDI Connect screen refreshes fresh keeper observations every 0.5 seconds during
+the existing 10-second button wait, repainting only changed text. Confirmed missing
+devices and errors are red; unknown devices and reduced USB visibility are bright yellow (bold ANSI 33, supported by the handheld Linux console).
+Text labels retain their meaning when color is disabled.
+Reduced visibility is not an observed USB error. Unknown MIDI health stays hidden;
+reported faults remain visible. External MIDI delivery remains unverified.
+
+The screen observes only its 10-second visible window. If Teensy is connected
+after that window, reopen MIDI Connect to view the new keeper observation.
+The 2026-11-03 follow-up captured a 21:09:17 launch before Teensy device 18
+appeared at 21:10:03; the route was verified at 21:10:04. This timing does not
+establish a failed refresh while the screen was visible.
+
+MIDI Connect observes Teensy and H4MIDI independently. FOUND requires an exact,
+unambiguous directional port and the expected kernel ALSA client, rechecked in
+the combined listing. Available USB identity must match the supported profile.
+Missing USB mapping alone does not invalidate that ALSA observation: the device
+can be FOUND while USB visibility is reduced. A missing or ambiguous port, wrong
+client/profile, or failed observation is reported separately for each device;
+the keeper JSON log records the reason. Device FOUND does not imply a route or
+verified external delivery. Routing still requires both supported devices and
+its existing identity rechecks.
+
+Read-only inspection on dArkOS, 2026-11-03 21:34 CET, verified H4MIDI with Wi-Fi
+connected and Teensy absent: kernel client H4MIDI-WC, output 20:0, raw MIDI port
+H4MIDI-WC MIDI 1, USB 7104:2100 at 1-1.3, device 4. Raw card aliases 1 and 7
+resolve through the existing identity routine. There was no observed Wi-Fi
+limitation preventing this identification. This boot's identity differs from
+the earlier tests; previous device numbers/errors are not evidence for it.
+The bottom button-message layout was physically confirmed by the user.
+Independent discovery still needs physical screen verification after deployment.
+An already-running keeper retains its old code; copying a helper alone does
+not upgrade its observations. Older snapshots are displayed conservatively.
