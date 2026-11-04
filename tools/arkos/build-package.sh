@@ -29,9 +29,15 @@ cmake -S "$repo_root" -B "$build_dir" -G "Unix Makefiles" \
     -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
     -DBROTRACKER_BUILD_ARKOS_UI=ON \
     -DBROTRACKER_BUILD_ALSA_BRIDGE=ON
-# Verify every existing CMake target with Eoan's compiler and CMake.
-cmake --build "$build_dir" --parallel "$jobs"
-(cd "$build_dir" && ctest --output-on-failure)
+# Delivery-only refresh builds just the shipped binaries; normal workflow keeps tests.
+if [[ ${BROTRACKER_ARKOS_DELIVERY_ONLY:-0} == 1 ]]; then
+    for target in BroTrackerTerminal BroTrackerAlsaBridge; do
+        cmake --build "$build_dir" --target "$target" --parallel "$jobs"
+    done
+else
+    cmake --build "$build_dir" --parallel "$jobs"
+    (cd "$build_dir" && ctest --output-on-failure)
+fi
 
 binary="$build_dir/BroTrackerTerminal"
 readelf -h "$binary" | grep -q 'Machine:.*AArch64'

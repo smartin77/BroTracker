@@ -799,3 +799,20 @@ The bottom button-message layout was physically confirmed by the user.
 Independent discovery still needs physical screen verification after deployment.
 An already-running keeper retains its old code; copying a helper alone does
 not upgrade its observations. Older snapshots are displayed conservatively.
+
+## Warning-task asset delivery (2026-11-04)
+
+The normal delivery and installer include native Terminus 6x12/8x14 BDFs and
+font notices under `assets/fonts/terminus`, canonical `assets/translations/en_US.ini`,
+the runtime warning SVG under `assets/icons`, and `licenses/NanoSVG.txt`.
+These paths are included in the existing checksum/package and isolated installer
+checks. User `config/config.ini` remains untouched.
+
+For a delivery-only refresh with the existing Eoan root/toolchain, use
+`BROTRACKER_ARKOS_DELIVERY_ONLY=1 bash tools/arkos/prepare-package.sh`.
+It builds only BroTrackerTerminal/BroTrackerAlsaBridge and skips the full test
+suite while retaining the existing ABI, package and isolated installer checks.
+The ordinary workflow without that flag is unchanged. See
+[warning validation](../../docs/WARNING_VALIDATION.md) for the separate owner-reported
+Windows confirmation, unresolved SD validation, firmware upload instructions and
+pending physical handheld validation.

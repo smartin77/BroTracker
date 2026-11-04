@@ -23,7 +23,7 @@ cp "$app/user-song.json" "$work/user-original"
 cp "$app/custom-tool" "$work/tool-original"
 # A genuinely clean install must succeed using only delivered package files.
 bash "$installer" > "$work/clean-install" 2>&1
-for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm; do
+for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm assets/fonts/terminus/ter-u12n.bdf assets/fonts/terminus/ter-u14n.bdf assets/fonts/terminus/ter-u14b.bdf assets/fonts/terminus/OFL-bitmap.txt assets/fonts/terminus/SOURCES.md assets/translations/en_US.ini assets/icons/font-preview-warning.svg licenses/NanoSVG.txt; do
     cmp "$repo/deploy/arkos/$file" "$app/$file"
 done
 (cd "$app" && sha256sum -c SHA256SUMS)
@@ -73,7 +73,7 @@ backups=("$work/ports/"BroTracker.sh.bak.*)
 [[ -f "$new_launcher" ]]
 old_backup=$(find "$work/ports" -name 'BroTracker.sh.bak.*' ! -name '*.saved')
 printf 'old launcher\n' | cmp - "$old_backup"
-for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm; do
+for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example SHA256SUMS assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm assets/fonts/terminus/ter-u12n.bdf assets/fonts/terminus/ter-u14n.bdf assets/fonts/terminus/ter-u14b.bdf assets/fonts/terminus/OFL-bitmap.txt assets/fonts/terminus/SOURCES.md assets/translations/en_US.ini assets/icons/font-preview-warning.svg licenses/NanoSVG.txt; do
     cmp "$repo/deploy/arkos/$file" "$app/$file"
 done
 for file in BroTrackerTerminal BroTrackerAlsaBridge launch.sh; do
