@@ -51,13 +51,14 @@ while ($queue.Count) {
         $queue.Enqueue((Join-Path $package $dll))
     }
 }
-foreach ($asset in @("config/config.ini.example", "assets/dummy_my_tune.json", "assets/fonts/brotracker.btf", "assets/fonts/brotracker.bfm")) {
+foreach ($asset in @("config/config.ini.example", "assets/dummy_my_tune.json", "assets/fonts/brotracker.btf", "assets/fonts/brotracker.bfm", "assets/fonts/terminus/ter-u12n.bdf", "assets/fonts/terminus/ter-u14n.bdf", "assets/fonts/terminus/ter-u14b.bdf", "assets/fonts/terminus/OFL-bitmap.txt", "assets/fonts/terminus/SOURCES.md", "assets/translations/en_US.ini", "assets/icons/font-preview-warning.svg")) {
     $destination = Join-Path $package $asset
     New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo $asset) -Destination $destination
 }
 Copy-Item -LiteralPath "$repo/LICENSE" -Destination $package
 New-Item -ItemType Directory -Force "$package/licenses" | Out-Null
+Copy-Item -LiteralPath "$repo/third_party/nanosvg/LICENSE.txt" -Destination "$package/licenses/NanoSVG.txt"
 foreach ($license in @("SDL2", "gcc-libs", "libwinpthread")) {
     Copy-Item -LiteralPath "$ToolchainBin/../share/licenses/$license" -Destination "$package/licenses" -Recurse -Force
 }

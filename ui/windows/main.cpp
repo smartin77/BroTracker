@@ -17,6 +17,7 @@
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
+#include "ui/host_warning.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
 
@@ -67,6 +68,9 @@ int main(int argc, char* argv[]) try {
     if (!LoadUiFont("assets/fonts/brotracker.btf")) return failure("Font load failed");
     Tune tune = LoadTuneFromJson("assets/dummy_my_tune.json");
     if (tune.patterns.empty()) return failure("Tune load failed");
+    const auto warning_assets=RuntimeAssetsPath();
+    WarningRenderer warning_renderer(warning_assets);
+    WarningText warning_text;warning_text.Select(warning_assets,host_config.config.language);
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
 #if BROTRACKER_WINDOWS_EMPTY_TITLE
     SdlDisplayBackend display("", false);
@@ -104,8 +108,26 @@ int main(int argc, char* argv[]) try {
             WindowsDiagnostic(log_file,"Diagnostic channel gains",accepted ? "One complete request accepted; no automatic retry/reconnect replay" : "Request not accepted; no retry");
         }
         if (audio) audio->PollDiagnostics();
+        if(serial.UserActionsBlocked()) {editor_input.Cancel();tempo_input.Cancel();}
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if(serial.UserActionsBlocked()) {
+                editor_input.Cancel();tempo_input.Cancel();
+                // Track physical releases/presses against an unready sink; never mutate the retained editor.
+                LocalPatternEditor blocked_editor;
+                (void)editor_input.Handle(event,SDL_GetTicks(),blocked_editor);
+                (void)tempo_input.Handle(event,SDL_GetTicks(),false);
+                (void)header_input.Handle(event,0,0,false);
+                const auto action=MapWindowsAction(event);
+                if(action==BringUpAction::Exit || action==BringUpAction::ResetStop)
+                    controls.Request(action,"warning input",SDL_GetTicks());
+                if(serial.ReconnectRecoveryActionsAvailable() && !controls.Exiting()) {
+                    if(MapWindowsPublish(event))(void)serial.Publish(editor,SDL_GetTicks());
+                    if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT))
+                        (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());
+                }
+                continue;
+            }
             int mouse_x=0,mouse_y=0;
             const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
             const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
@@ -143,7 +165,8 @@ int main(int argc, char* argv[]) try {
         controls.Tick(SDL_GetTicks());
         serial.SyncEditor(editor,SDL_GetTicks());
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
-        editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
+        if(!serial.UserActionsBlocked())editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
+        else editor_input.Cancel();
         HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish" :
@@ -151,6 +174,7 @@ int main(int argc, char* argv[]) try {
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
+        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text);
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;
             controls.Request(BringUpAction::Exit, "display error", SDL_GetTicks());

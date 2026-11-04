@@ -18,16 +18,18 @@ unchanged. The composition is provisionally accepted; a future task will reduce
 vertical padding by roughly one third to one half. No padding adjustment is made
 here, and no device detection/blocking behavior is implemented.
 
-The original SVG icon and provenance remain in assets/icons. A restricted,
-standard-library Python converter produces its native 64x64 palette header at
-build time. There is no runtime SVG loader, SDL viewer, TTF rasterizer or ARM64
-application in this tool.
+The original SVG icon and provenance remain in assets/icons. Both runtime and
+preview now load it through the shared host-side NanoSVG wrapper. Its paths,
+round strokes and fills are antialiased only while drawing vector geometry;
+native bitmap text is not smoothed or rescaled. The generated palette header
+and warning-specific build-time converter have been removed.
 
 ## Generation reference
 
-The existing OFF-by-default BROTRACKER_BUILD_FONT_PREVIEW option retains the
-BroTrackerFontPreview target as an offline generator only. Its build-time Python
-dependency is confined to the SVG conversion. No font-preview tests are registered.
+The OFF-by-default BROTRACKER_BUILD_FONT_PREVIEW option retains the
+BroTrackerFontPreview target as an offline generator only. NanoSVG is vendored
+under third_party/nanosvg with its zlib license; no build-time SVG conversion or
+font-preview screenshot tests exist.
 For a future authorized regeneration, from the repository root:
 
 ```sh
@@ -83,4 +85,22 @@ format and all production text behavior unchanged.
 Font licenses and pinned provenance are in assets/fonts/terminus/SOURCES.md and
 OFL-bitmap.txt. TTF assets, stb dependency/notices, interactive viewing modes,
 comparison-only test/package scripts, old screenshots and generated experiment
-reports/caches were removed. Neither native bitmap size is selected yet.
+reports/caches were removed. Runtime selection is documented below.
+
+## Runtime warning integration
+
+The BDF reader, scalar decoder, measurement and glyph drawing are now shared in
+`src/ui/bitmap_font.h`. Runtime warnings use `src/ui/warning_renderer.h` and the
+runtime SVG in `assets/icons/font-preview-warning.svg` (parsed once, drawn through
+NanoSVG into the existing framebuffer). The original three comparison
+exports above remain available as historical fixtures. To export just the two
+current runtime compositions over the production Pattern fixture (no serial or
+hardware access), run:
+
+```
+build/BroTrackerFontPreview.exe . diagnostics/blocking-warnings --blocking-warnings
+```
+
+These exports contain no comparison labels or diagnostic footer. They are offline
+fixtures, not physical validation. Runtime 8x14 Regular/genuine Bold is the default;
+the same renderer supports native 6x12 Regular for heading and body.

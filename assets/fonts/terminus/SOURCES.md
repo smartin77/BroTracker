@@ -1,6 +1,7 @@
 # Native Terminus bitmap assets
 
-Both native sizes remain available for future UI integration. Neither is selected.
+Runtime warnings default to native 8x14 Regular/genuine Bold. Native 6x12 Regular
+remains selectable for both heading and body through `kWarningFont`.
 These are UI host resources, not firmware assets.
 
 | File | Native cell/style | Bytes | SHA-256 |

@@ -4,7 +4,9 @@
 #include "ui/text_renderer.h"
 #include "core/tune_loader.h"
 #include "tools/ui_preview/pattern_fixture.h"
-#include "warning_icon.h"
+#include "ui/bitmap_font.h"
+#include "ui/warning_renderer.h"
+#include "ui/warning_text.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -18,127 +20,12 @@
 namespace fs = std::filesystem;
 namespace {
 constexpr Color background{16,16,16}, foreground{225,225,225}, accent{140,190,220};
-void Require(bool condition, const std::string& message) {
-    if (!condition) throw std::runtime_error(message);
-}
-// Strict scalar decoding, local to the preview. Invalid bytes consume one byte
-// and become U+FFFD; production decoding/geometry is deliberately untouched.
-std::vector<unsigned> Decode(const std::string& text) {
-    std::vector<unsigned> result;
-    for (size_t i=0; i<text.size();) {
-        unsigned first=static_cast<unsigned char>(text[i]);
-        unsigned cp=first; int count=1;
-        if (first>=0xc2 && first<=0xdf) {cp=first&31; count=2;}
-        else if (first>=0xe0 && first<=0xef) {cp=first&15; count=3;}
-        else if (first>=0xf0 && first<=0xf4) {cp=first&7; count=4;}
-        else if (first>=0x80) {result.push_back(0xfffd); ++i; continue;}
-        bool valid=i+count<=text.size();
-        for (int j=1; valid && j<count; ++j) {
-            unsigned b=static_cast<unsigned char>(text[i+j]);
-            if ((b&0xc0)!=0x80) valid=false;
-            else cp=(cp<<6)|(b&63);
-        }
-        if ((count==2 && cp<0x80)||(count==3 && cp<0x800)||
-            (count==4 && cp<0x10000)||cp>0x10ffff||(cp>=0xd800 && cp<=0xdfff)) valid=false;
-        result.push_back(valid?cp:0xfffd); i+=valid?count:1;
-    }
-    return result;
-}
 const std::vector<std::string> samples={
     "Pattern Load/Save", "Load pattern", "Save pattern", "patern1.btdev", "patern4.btdev",
     "SD CARD UNAVAILABLE", "TEENSY BOARD NOT CONNECTED", "Replace the current working session?",
     "Confirm / Cancel", "0123456789  Il1 O0  [] () + - / :",
     u8"Príliš žltý kôň úpenlivo erdží.", u8"ľščťžýáíéôä ĽŠČŤŽÝÁÍÉÔÄ ŕĺďň ŔĹĎŇ"};
-struct RasterGlyph {
-    int width=0,height=0,left=0,top=0,advance=0;
-    std::vector<unsigned char> pixels;
-};
-struct Face {
-    std::map<unsigned,RasterGlyph> glyphs;
-    int ascent=0,descent=0,line=0,cell=0;
-    const RasterGlyph* Find(unsigned cp) const {
-        auto it=glyphs.find(cp); return it==glyphs.end()?nullptr:&it->second;
-    }
-};
-// Restricted BDF 2.1 reader: fixed-width, <=16px cells, Unicode encoding,
-// horizontal metrics. Reject unsupported input rather than resize/crop it.
-Face ReadBdf(std::istream& in) {
-    Face face; std::string line; int declared=-1, seen=0;
-    bool header=false, ended=false;
-    while(std::getline(in,line)) {
-        std::istringstream fields(line); std::string key; fields>>key;
-        if(key=="STARTFONT") {std::string version; fields>>version; header=version=="2.1";}
-        else if(key=="FONTBOUNDINGBOX") {
-            int height=0,x=0,y=0; fields>>face.cell>>height>>x>>y;
-            Require(face.cell>0 && face.cell<=16 && height>0 && height<=32 && x==0,"Unsupported BDF cell");
-        } else if(key=="FONT_ASCENT") fields>>face.ascent;
-        else if(key=="FONT_DESCENT") fields>>face.descent;
-        else if(key=="CHARS") fields>>declared;
-        else if(key=="ENDFONT") ended=true;
-        else if(key=="STARTCHAR") {
-            RasterGlyph glyph; int encoding=-1; bool bitmap=false, end=false;
-            while(std::getline(in,line)) {
-                std::istringstream item(line); item>>key;
-                if(key=="ENCODING") item>>encoding;
-                else if(key=="DWIDTH") {int dy=0; item>>glyph.advance>>dy; Require(dy==0,"Vertical BDF advance");}
-                else if(key=="BBX") {int bottom=0; item>>glyph.width>>glyph.height>>glyph.left>>bottom;
-                    glyph.top=-bottom-glyph.height;}
-                else if(key=="BITMAP") {
-                    Require(glyph.width>0 && glyph.width<=16 && glyph.height>0 && glyph.height<=32,"Unsupported BDF glyph");
-                    bitmap=true;
-                    for(int row=0; row<glyph.height; ++row) {
-                        Require(bool(std::getline(in,line)),"Truncated BDF bitmap");
-                        if(!line.empty() && line.back()=='\r') line.pop_back();
-                        int digits=((glyph.width+7)/8)*2;
-                        Require(int(line.size())==digits && line.find_first_not_of("0123456789abcdefABCDEF")==std::string::npos,"Invalid BDF row");
-                        unsigned bits=std::stoul(line,nullptr,16);
-                        for(int col=0; col<glyph.width; ++col)
-                            glyph.pixels.push_back(bits & (1u<<(digits*4-col-1)) ? 255:0);
-                    }
-                } else if(key=="ENDCHAR") {end=true; break;}
-            }
-            Require(end && bitmap && encoding>=0 && encoding<=0x10ffff && glyph.advance==face.cell &&
-                !face.Find(encoding),"Invalid/duplicate BDF glyph");
-            face.glyphs.emplace(encoding,std::move(glyph)); ++seen;
-        }
-    }
-    Require(header && ended && seen==declared && seen>0 && face.ascent>0 && face.descent>=0,"Incomplete BDF");
-    face.line=face.ascent+face.descent;
-    return face;
-}
-Face Bdf(const fs::path& path) {
-    std::ifstream input(path); Require(bool(input),"Cannot open "+path.string()); return ReadBdf(input);
-}
-struct Bounds {int width=0,top=0,bottom=0,missing=0;};
-Bounds Measure(const Face& face,const std::string& text) {
-    Bounds b;
-    for(auto cp:Decode(text)) {
-        const auto* glyph=face.Find(cp);
-        if(!glyph) {++b.missing; glyph=face.Find(0xfffd);}
-        if(glyph) {
-            for(int row=0; row<glyph->height; ++row) for(int col=0; col<glyph->width; ++col)
-                if(glyph->pixels[row*glyph->width+col]>=128) {
-                    b.top=std::min(b.top,glyph->top+row);
-                    b.bottom=std::max(b.bottom,glyph->top+row+1);
-                }
-            b.width+=glyph->advance;
-        } else b.width+=face.cell;
-    }
-    return b;
-}
-// Pixel clipping is provided by the production framebuffer. A visible box is
-// used if a face has neither the requested character nor U+FFFD.
-void Text(Framebuffer& fb,const Face& face,int x,int baseline,const std::string& text,Color color=foreground) {
-    for(auto cp:Decode(text)) {
-        const auto* glyph=face.Find(cp); if(!glyph) glyph=face.Find(0xfffd);
-        if(!glyph) {fb.Rectangle(x,baseline-face.ascent,face.cell-1,face.line-1,color); x+=face.cell; continue;}
-        for(int row=0; row<glyph->height; ++row) for(int col=0; col<glyph->width; ++col)
-            if(glyph->pixels[row*glyph->width+col]>=128) {
-                fb.SetPixel(x+glyph->left+col,baseline+glyph->top+row,color);
-            }
-        x+=glyph->advance;
-    }
-}
+using namespace HostBitmap;
 void Label(Framebuffer& fb,int y,const std::string& text) {DrawFixedText(fb,12,y,text,accent);}
 enum class Flow { BR, Paragraph };
 struct Content { Flow flow; std::string text; };
@@ -195,12 +82,11 @@ Framebuffer Warning(const fs::path& root,const Face& regular,const Face& bold,bo
         auto p=fb.PixelData()[y*640+x]; fb.SetPixel(x,y,Color{std::uint8_t(p.r/2),std::uint8_t(p.g/2),std::uint8_t(p.b/2)});
     }
     RoundedPanel(fb,48,164,544,152,20);
-    for(int y=0;y<64;++y) for(int x=0;x<64;++x) {
-        auto pixel=warning_icon[y*64+x]; if(pixel) fb.SetPixel(76+x,208+y,pixel==1?warningRed:background);
-    }
+    SvgImage icon;(void)icon.Load(root/"assets/icons/font-preview-warning.svg");
+    (void)icon.Draw(fb,76,208,64,64);
     const std::string heading=sd?"SD CARD UNAVAILABLE":"TEENSY BOARD NOT CONNECTED";
     ContentPage explanation{"warning",sd?std::vector<Content>{
-        {Flow::Paragraph,"BroTracker requires an SD card."}, {Flow::Paragraph,"Please exit the application."}}:
+        {Flow::Paragraph,"The application cannot continue without an SD card."}}:
         std::vector<Content>{{Flow::Paragraph,"Connect the Teensy board to continue."}}};
     Require(Measure(bold,heading).missing==0 && Measure(bold,heading).width<=400,"Warning heading bounds");
     Text(fb,bold,164,220,heading,warningRed);
@@ -233,6 +119,18 @@ void ExportStaticThree(const fs::path& root,const fs::path& output) {
 }
 } // namespace
 int main(int argc,char** argv) try {
+    if(argc==4 && std::string(argv[3])=="--blocking-warnings") {
+        const fs::path root=fs::absolute(argv[1]),output=fs::absolute(argv[2]);fs::create_directories(output);
+        Require(LoadUiFont((root/"assets/fonts/brotracker.btf").string().c_str()),"BT font load");
+        Tune tune=LoadTuneFromJson((root/"assets/dummy_my_tune.json").string().c_str());
+        WarningRenderer renderer(root/"assets");WarningText text;text.Select(root/"assets","en_US");
+        for(bool sd:{false,true}) {
+            Framebuffer fb(640,480);Require(RenderProductionPatternFixture(fb,tune,tune.patterns.front()),"Pattern fixture");
+            renderer.Draw(fb,text.Get(sd?WarningText::SdHeading:WarningText::TeensyHeading),text.Get(sd?WarningText::SdBody:WarningText::TeensyBody));
+            Require(fb.SaveBMP(output/(sd?"sd-unavailable-offline.bmp":"teensy-disconnected-offline.bmp")),"Warning export");
+        }
+        return 0;
+    }
     if((argc!=3 && argc!=4) || (argc==4 && std::string(argv[3])!="--static-three")) {
         std::cerr<<"Usage: BroTrackerFontPreview <repo-root> <output-dir> [--static-three]\n";
         return 2;

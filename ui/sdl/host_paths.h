@@ -9,3 +9,12 @@ inline std::filesystem::path RuntimeConfigPath() {
     SDL_free(base);
     return path;
 }
+
+// Runtime artwork must not depend on the caller's working directory. The offline
+// fixture supplies its explicit repository assets path instead of using SDL.
+inline std::filesystem::path RuntimeAssetsPath() {
+    char* base=SDL_GetBasePath();
+    const auto path=base ? std::filesystem::u8path(base)/"assets" : std::filesystem::path{};
+    SDL_free(base);
+    return path;
+}

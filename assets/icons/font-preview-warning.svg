@@ -1,9 +1,10 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later
-     Original BroTracker contributors' warning symbol, created for the offline
-     font fixture, 2026-11-04. No external icon library or traced artwork. -->
+     Original BroTracker contributors' warning symbol. Rounded SVG strokes retain
+     the accepted 64x64 triangle/exclamation composition; transparent interior. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <polygon fill="#ff4b4b" points="32,4 62,58 2,58"/>
-  <polygon fill="#101010" points="32,11 56,55 8,55"/>
-  <rect fill="#ff4b4b" x="29" y="23" width="6" height="19" rx="3"/>
-  <circle fill="#ff4b4b" cx="32" cy="49" r="3"/>
+  <path d="M29 8.68 Q32 3.32 35 8.68 L59 51 Q62 56 56 56 H8 Q2 56 5 51 Z" fill="none" stroke="#ff4b4b"
+        stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M32 27 V37" fill="none" stroke="#ff4b4b"
+        stroke-width="4" stroke-linecap="round"/>
+  <circle fill="#ff4b4b" cx="32" cy="45" r="2"/>
 </svg>

@@ -10,6 +10,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         quit_=serial_.ExitReady();return;
     }
     if(exit_after_stop_)return;
+    if(serial_.UserActionsBlocked() && !(action==BringUpAction::ResetStop && serial_.StopAvailable()))return;
     if (action == BringUpAction::PatternToggle) {
         if (!serial_.SupportsPatternTransport()) action = BringUpAction::Start;
         else {

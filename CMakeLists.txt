@@ -84,20 +84,16 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 option(BROTRACKER_BUILD_FONT_PREVIEW "Build offline native-bitmap preview generator" OFF)
+if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL OR BROTRACKER_BUILD_FONT_PREVIEW)
+    # CPU SVG parsing/rasterization belongs exclusively to the terminal/host preview.
+    add_library(BroTrackerHostSvg STATIC src/ui/svg_image.cpp)
+    target_include_directories(BroTrackerHostSvg PUBLIC src PRIVATE third_party/nanosvg)
+endif()
 if(BROTRACKER_BUILD_FONT_PREVIEW)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/font_preview/rasterize_icon.py
-            ${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/font-preview-warning.svg
-            ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
-        DEPENDS tools/font_preview/rasterize_icon.py assets/icons/font-preview-warning.svg
-        VERBATIM)
     add_executable(BroTrackerFontPreview tools/font_preview/main.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
         src/ui/font.cpp src/ui/text_renderer.cpp src/ui/pattern_screen.cpp src/renderer/framebuffer.cpp)
-    target_link_libraries(BroTrackerFontPreview PRIVATE BroTrackerCore)
-    target_include_directories(BroTrackerFontPreview PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated)
+    target_link_libraries(BroTrackerFontPreview PRIVATE BroTrackerCore BroTrackerHostSvg)
+    target_include_directories(BroTrackerFontPreview PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 if(BROTRACKER_BUILD_ARKOS_UI)
@@ -112,7 +108,7 @@ if(BROTRACKER_BUILD_ARKOS_UI)
     )
 
     target_link_libraries(BroTrackerTerminal PRIVATE
-        BroTrackerCore BroTrackerBringUp
+        BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
         ${BROTRACKER_SDL2_MAIN_TARGET}
         ${BROTRACKER_SDL2_TARGET}
     )
@@ -133,7 +129,7 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
     target_compile_definitions(BroTrackerTerminal PRIVATE
         BROTRACKER_WINDOWS_EMPTY_TITLE=$<BOOL:${BROTRACKER_WINDOWS_EMPTY_TITLE}>)
     target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp
+    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
         ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}
         setupapi advapi32 ole32 uuid avrt Threads::Threads)
 endif()

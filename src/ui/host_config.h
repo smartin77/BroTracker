@@ -13,6 +13,7 @@ namespace BroTracker {
 enum class HostLogMode { Basic, Debug };
 enum class ValueStepDirection { Normal, Reversed };
 struct HostConfig {
+    char language[32]="en_US"; // Optional [btx] language; English fallback.
     DevelopmentPattern startup_pattern;
     bool startup_pattern_invalid=false;
     bool bridge_audible_test = false;
@@ -32,7 +33,8 @@ struct HostConfig {
 constexpr std::size_t kMaxHostConfigBytes = 4096;
 enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, Unreadable };
 // Strict INI subset: [btx], schema_version and new_pattern_length are required
-// exactly once. Optional [logging]: mode=basic/debug, preserve_last=0..20.
+// exactly once. Optional [btx] language=en_US (English), using language_REGION notation.
+// Invalid/empty language falls back to en_US. Optional [logging]: mode=basic/debug, preserve_last=0..20.
 // Optional [editing]: value_step_direction=normal/reversed; deprecated alias
 // note_step_direction is accepted, but supplying both names rejects.
 // Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.

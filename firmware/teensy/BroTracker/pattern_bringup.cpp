@@ -220,9 +220,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 27 lines including session capability and boot result.
-    constexpr std::size_t kDiscoveryReserve = 27;
-    constexpr std::size_t kTxCapacity = 28;
+    // Full production HELLO is 29 lines including explicit SD capability and boot status.
+    constexpr std::size_t kDiscoveryReserve = 29;
+    constexpr std::size_t kTxCapacity = 30;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -337,6 +337,8 @@ namespace
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         if (advertise_snapshot) { (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
+            (void)QueueLine("BTSTORE1 SDCAP 1\n");
+            (void)QueueLine(g_storage_backend.ready ? "BTSTORE1 SD 1 available\n" : "BTSTORE1 SD 1 unavailable\n");
                     StorageReply("session-boot",PatternFileResultName(g_session_result)); }
 #endif
         if(advertise_snapshot)(void)QueueLine("BTVOL1 CAP 1\n");
