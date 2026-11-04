@@ -9,7 +9,7 @@
 // Minimal host-only warning catalog. Selection/reload is independent of drawing.
 class WarningText {
 public:
-    enum Key { TeensyHeading, TeensyBody, SdHeading, SdBody, SyncHeading, SyncBody };
+    enum Key { TeensyHeading, TeensyBody, SdHeading, SdBody };
     WarningText() { Reset(); }
     const std::string& Get(Key key) const {return values_[key];}
     void Parse(std::string_view source) {
@@ -28,7 +28,7 @@ public:
                 if(value[i]=='\\' && i+1<value.size() && value[i+1]=='n') {decoded+='\n';++i;}
                 else decoded+=value[i];
             }
-            for(unsigned i=0;i<6;++i)if(key==keys_[i])values_[i]=decoded;
+            for(unsigned i=0;i<4;++i)if(key==keys_[i])values_[i]=decoded;
         }
     }
     void Select(const std::filesystem::path& assets,std::string language="en_US") {
@@ -38,7 +38,7 @@ public:
         if(input) {std::ostringstream data;data<<input.rdbuf();Parse(data.str());}
     }
 private:
-    void Reset() {values_={"TEENSY BOARD NOT CONNECTED","Connect the Teensy board to continue.","SD CARD UNAVAILABLE","The application cannot continue without an SD card.","SYNCHRONIZING TEENSY BOARD","Waiting for verified device state."};}
-    const std::array<const char*,6> keys_{"teensy_heading","teensy_body","sd_heading","sd_body","sync_heading","sync_body"};
-    std::array<std::string,6> values_;
+    void Reset() {values_={"TEENSY BOARD NOT CONNECTED","Connect the Teensy board to continue.","SD CARD UNAVAILABLE","The application cannot continue without an SD card."};}
+    const std::array<const char*,4> keys_{"teensy_heading","teensy_body","sd_heading","sd_body"};
+    std::array<std::string,4> values_;
 };

@@ -274,10 +274,16 @@ mute, tempo, volume, publication and file actions, are blocked in these states.
 Exit remains available (Ctrl+X/window close on Windows; existing L1+Start on
 handhelds). Exit with confirmed unavailable SD skips session persistence.
 Communication and reconnection servicing continue; held actions are cancelled.
+At initial BTX startup, the disconnected overlay is suppressed for 5000 ms to
+allow discovery/boot/enumeration. The named code constant
+`kInitialTeensyDiscoveryGraceMs` is not a config setting. This nonblocking grace
+never relaxes input readiness. Any observed connection ends initial grace, so a
+subsequent genuine disconnect shows its warning immediately.
 
 Opening a serial port is not synchronization. Connected synchronization/recovery
-shows a synchronization warning until authoritative baseline/working recovery
-is usable. Normal actions remain blocked; connected STOP and Exit remain available.
+shows synchronization/recovery information only in the existing right-side status.
+Once connected there is no disconnected or synchronization overlay; normal actions
+remain blocked until authoritative state is usable. Connected STOP and Exit remain available.
 Existing explicit retained-work Restore/Publish recovery paths remain available
 under their existing safety checks. This never displays an invented SD failure. Existing retained-work recovery protections remain in
 place; no automatic START or new overwrite policy is introduced.
@@ -286,7 +292,7 @@ The optional `[btx] language=en_US` selects `assets/translations/en_US.ini`; ano
 `language_REGION` locale (for example `sk_SK`) selects `<locale>.ini` there.
 Absent language defaults to `en_US`; `en`/`en_us` are accepted English aliases.
 Files are UTF-8 INI with a `[warnings]` section and stable `teensy_heading`,
-`teensy_body`, `sd_heading`, `sd_body`, `sync_heading`, `sync_body` keys. A literal `\n` in a value means an
+`teensy_body`, `sd_heading`, `sd_body` keys. A literal `\n` in a value means an
 explicit line break at native spacing; soft wrapping uses 1.5 native line spacing.
 Absent/unreadable files, missing/empty keys and invalid language selections fall
 back to built-in English. Only these warnings are translated. `WarningText::Select`

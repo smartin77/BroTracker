@@ -74,6 +74,7 @@ void WriteSdlFailure(
 
 int main(int argc, char* argv[])
 {
+    HostWarningPresentation warning_presentation(SDL_GetTicks());
     if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-info")) {
         std::puts("{\"id\":\"btx-offline-clicks-v2\"}"); return 0;
     }
@@ -337,6 +338,7 @@ int main(int argc, char* argv[])
     while (!controls.Quit() && !diagnostic.Exit())
     {
         controls.Tick(SDL_GetTicks());
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
         editor_input.SetActionBarrier(serial.UserActionsBlocked(),serial.StopAvailable(),serial.ReconnectRecoveryActionsAvailable());
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
@@ -405,6 +407,7 @@ int main(int argc, char* argv[])
         if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
         HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
@@ -417,7 +420,7 @@ int main(int argc, char* argv[])
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
-        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text);
+        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text,warning_presentation,SDL_GetTicks());
 
         if(diagnostic_status) DrawDiagnosticStatus(framebuffer,diagnostic_status);
         if (!controls.Quit() && !display.Present(framebuffer))

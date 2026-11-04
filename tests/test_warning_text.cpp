@@ -30,7 +30,7 @@ TEST_CASE(OptionalWarningLanguageKeepsExistingConfigCompatible) {
 TEST_CASE(CanonicalLocaleLoadsEditedIniInsteadOfEnglishFallback) {
     TemporaryTestDirectory temp;std::filesystem::create_directories(temp.Path()/"translations");
     const auto english=temp.Path()/"translations/en_US.ini";
-    {std::ofstream file(english);file<<"[warnings]\nsd_body=Edited English from the INI\nsync_heading=EDITED SYNC\n";}
+    {std::ofstream file(english);file<<"[warnings]\nsd_body=Edited English from the INI\n";}
     WarningText text;
     for(const auto* language:{"en_US","en","en_us",""}) {
         BroTracker::HostConfig config;
@@ -39,7 +39,6 @@ TEST_CASE(CanonicalLocaleLoadsEditedIniInsteadOfEnglishFallback) {
         CHECK_EQ(std::string(config.language),"en_US");
         text.Select(temp.Path(),config.language);
         CHECK_EQ(text.Get(WarningText::SdBody),"Edited English from the INI");
-        CHECK_EQ(text.Get(WarningText::SyncHeading),"EDITED SYNC");
         CHECK_EQ(text.Get(WarningText::TeensyHeading),"TEENSY BOARD NOT CONNECTED");
     }
     {std::ofstream file(english);file<<"[warnings]\nsd_body=Reloaded English\n";}

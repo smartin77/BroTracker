@@ -35,6 +35,7 @@ int ReportFailure(FILE* log, const std::string& detail, const std::string& log_p
 }
 }
 int main(int argc, char* argv[]) try {
+    HostWarningPresentation warning_presentation(SDL_GetTicks());
     char* preference_path = SDL_GetPrefPath("BroTracker", "BroTracker Terminal");
     if (!preference_path) return ReportFailure(nullptr, std::string("No writable log location: ") + SDL_GetError(), "");
     const std::filesystem::path log_path = std::filesystem::u8path(preference_path) / "brotracker-terminal.log";
@@ -101,6 +102,7 @@ int main(int argc, char* argv[]) try {
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
         BroTracker::Pcm16ChannelGains diagnostic_request;
         if(diagnostic_gains.TakeRequest(serial.Connected(),serial.ChannelGainsSupported(),serial.ChannelGainsSynchronized(),diagnostic_request)) {
@@ -163,6 +165,7 @@ int main(int argc, char* argv[]) try {
         serial.SyncEditor(editor,SDL_GetTicks()); // Capture edits before incoming recovery replies.
         // Service freshly queued transport before rendering/presenting the UI.
         controls.Tick(SDL_GetTicks());
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
         if(!serial.UserActionsBlocked())editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
@@ -174,7 +177,7 @@ int main(int argc, char* argv[]) try {
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
-        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text);
+        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text,warning_presentation,SDL_GetTicks());
         if (!controls.Quit() && !display_failed && !display.Present(framebuffer)) {
             WindowsDiagnostic(log_file, "Terminal error", SDL_GetError()); display_failed = true;
             controls.Request(BringUpAction::Exit, "display error", SDL_GetTicks());
@@ -184,6 +187,7 @@ int main(int argc, char* argv[]) try {
             // Capture already accepted edits before processing recovery replies.
             serial.SyncEditor(editor,SDL_GetTicks());
             controls.Tick(SDL_GetTicks());
+            warning_presentation.ObserveConnection(serial.Connected());
             serial.SyncEditor(editor,SDL_GetTicks());
         }
     }

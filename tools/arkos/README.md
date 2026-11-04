@@ -814,5 +814,15 @@ It builds only BroTrackerTerminal/BroTrackerAlsaBridge and skips the full test
 suite while retaining the existing ABI, package and isolated installer checks.
 The ordinary workflow without that flag is unchanged. See
 [warning validation](../../docs/WARNING_VALIDATION.md) for the separate owner-reported
-Windows confirmation, unresolved SD validation, firmware upload instructions and
+Windows confirmation, SD validation scope, firmware upload instructions and
 pending physical handheld validation.
+
+## Standing host delivery workflow
+
+Windows BTX is the development platform; ArkOS/dArkOS are the physical validation
+platforms. Relevant host changes must include refreshed Windows **and** ARM64
+deliveries, with current runtime assets and existing installer compatibility,
+ready for the owner's Git commit/push and handheld pull/install. Preserve user
+configuration. Completing only the Windows package does not complete delivery.
+Use the established delivery-only ARM64 workflow when broader tests are not
+needed; physical validation and Git operations remain owner-controlled.

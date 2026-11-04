@@ -11,10 +11,10 @@ This confirms only that reported Windows connection workflow. It does not valida
 SD-unavailable presentation, a blocked card, handheld behavior, or every reconnect
 and synchronization failure path.
 
-The SD-unavailable warning **did not appear** in the reported card-absent scenario.
-That validation remains unsuccessful/unresolved. No cause or installed firmware
-version was established by this report, and this delivery does not claim to fix
-that physical result. A blocked/unresponsive SD card has **not** been tested.
+An earlier report said the SD-unavailable warning did not appear in a card-absent
+scenario, with no cause or installed firmware identity established. In the latest
+owner report, the SD warning is confirmed OK in the tested scenario. This does not
+establish validation of blocked/unresponsive SD cards, which have **not** been tested.
 
 At the time of that report, dArkOS had been updated with git pull and
 `tools/arkos/install-port.sh`, but a warning-task ARM64 delivery had not yet been
@@ -40,9 +40,8 @@ nor arbitrary later I/O failures are classified as unavailable SD.
 This detects boot-time initialization failure **when initialization returns
 false**. A later blocked/unresponsive card, or an initialization call that does
 not return, is a separate unimplemented/unverified case. No card-health monitor,
-watchdog, hot mounting, repair or automatic recovery was added. The reported
-card-absent failure to show the warning remains unresolved until the owner
-validates the actual firmware/status exchange and physical result.
+watchdog, hot mounting, repair or automatic recovery was added. The latest owner confirmation applies only to the tested SD-warning scenario;
+blocked/unresponsive-card behavior is not inferred from it.
 
 Owner-controlled upload, from the repository root after closing BTX/other serial
 clients:
