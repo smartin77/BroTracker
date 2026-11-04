@@ -17,6 +17,7 @@
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
+#include "pattern_fixture.h"
 
 int main(int argc, char* argv[])
 {
@@ -62,38 +63,10 @@ int main(int argc, char* argv[])
 
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    // Feed the same snapshot/editor path as BTX without connecting to hardware.
-    LivePlaybackView live;
-    live.telemetry_available = true;
-    BroTracker::DevicePatternSnapshot snapshot;
-    snapshot.transfer_id = 1;
-    snapshot.tempo_hundredths = tune.tempo_hundredths;
-    snapshot.pattern.active_rows = std::min<unsigned>(pattern.length, 32);
-    snapshot.pattern.active_channels = std::min<unsigned>(pattern.channels.size(), 8);
-    live.position.rows = snapshot.pattern.active_rows;
-    live.position.channels = snapshot.pattern.active_channels;
-    for (unsigned row=0; row<snapshot.pattern.active_rows; ++row)
-        for (unsigned channel=0; channel<snapshot.pattern.active_channels; ++channel)
-            if (row < pattern.channels[channel].rows.size()) {
-                const auto& event = pattern.channels[channel].rows[row];
-                snapshot.pattern.cells[row][channel] = {event.note, event.instrument};
-            }
-    live.device_pattern = snapshot;
-    live.tempo_hundredths = snapshot.tempo_hundredths;
-    LocalPatternEditor editor;
-    editor.Sync(live);
-    if (!editor.Ready()) {
+    if (!RenderProductionPatternFixture(framebuffer, tune, pattern, beat_fixture, argc==4)) {
         LogError("Preview editor could not initialize.");
         return 1;
     }
-    for (unsigned row=0; row<12; ++row) editor.Apply(EditorAction::Down);
-    if(beat_fixture) {
-        const bool unmuted_digits=argc==4;
-        editor.SelectHeader(unmuted_digits?0:6);
-        live.mute_mask=unmuted_digits?2:65;
-        live.mute_status="Mute synchronized (fixture)";
-    }
-    RenderMainScreen(framebuffer, tune, pattern, live, &editor);
 
     const std::filesystem::path output_path = beat_fixture ? argv[2] : "assets/ui_main_screen.bmp";
 

@@ -83,6 +83,23 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL)
 
 endif()
 
+option(BROTRACKER_BUILD_FONT_PREVIEW "Build offline native-bitmap preview generator" OFF)
+if(BROTRACKER_BUILD_FONT_PREVIEW)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/font_preview/rasterize_icon.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/font-preview-warning.svg
+            ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
+        DEPENDS tools/font_preview/rasterize_icon.py assets/icons/font-preview-warning.svg
+        VERBATIM)
+    add_executable(BroTrackerFontPreview tools/font_preview/main.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated/warning_icon.h
+        src/ui/font.cpp src/ui/text_renderer.cpp src/ui/pattern_screen.cpp src/renderer/framebuffer.cpp)
+    target_link_libraries(BroTrackerFontPreview PRIVATE BroTrackerCore)
+    target_include_directories(BroTrackerFontPreview PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/font-preview-generated)
+endif()
+
 if(BROTRACKER_BUILD_ARKOS_UI)
     add_executable(BroTrackerTerminal
         ui/arkos/main.cpp

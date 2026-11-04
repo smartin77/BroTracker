@@ -1,0 +1,9 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later
+     Original BroTracker contributors' warning symbol, created for the offline
+     font fixture, 2026-11-04. No external icon library or traced artwork. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <polygon fill="#ff4b4b" points="32,4 62,58 2,58"/>
+  <polygon fill="#101010" points="32,11 56,55 8,55"/>
+  <rect fill="#ff4b4b" x="29" y="23" width="6" height="19" rx="3"/>
+  <circle fill="#ff4b4b" cx="32" cy="49" r="3"/>
+</svg>
