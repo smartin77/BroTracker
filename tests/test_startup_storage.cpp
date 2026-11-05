@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "ui/bringup_serial.h"
+#include "ui/bringup_controls.h"
 #include "ui/host_logging.h"
 #include "bringup/pattern_file_store.h"
 #include "bringup/pattern_control.h"
@@ -34,6 +35,7 @@ struct StoragePeer:SerialTransport {
     }
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
+    std::string boot_sd;
     bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false,hold_save=false;std::string save_reply;
     std::string load_reply,baseline_reply,working_reply;
     bool Open(FILE*,const char*) override {healthy=true;return true;}
@@ -48,6 +50,7 @@ struct StoragePeer:SerialTransport {
             rx+="BTTEST1 STATE "+state+"\n";
             rx+=std::string("BTPATTERN1 POS 2 ")+(state=="PLAYING"?"1":"0")+(pattern==5?" 0 0 0 0 16 3\n":" 0 0 0 0 32 8\n");
             if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\nBTSTORE1 SESSIONCAP 2\n"):std::string{});
+            if(line=="BTTEST1 HELLO" && !boot_sd.empty())rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 "+boot_sd+"\n";
             if(volume_cap) {if(line=="BTTEST1 HELLO")rx+="BTVOL1 CAP 1\n";rx+=VolumeState();}
             if(line=="BTTEST1 HELLO" && readiness_cap)rx+="BTSTORE1 READYCAP 1\n";
             if(preview_cap) {
@@ -492,4 +495,80 @@ TEST_CASE(ReadinessRejectionAfterDraftLoadRetainsWorkAndReleasesControls) {
         wire->cleanup_busy=false;CHECK(serial.RequestFile(BringUpSerial::FileAction::Test,10601));Pump(serial,531,620,&editor);
         CHECK(serial.StartupPatternReady());CHECK(!editor.Locked());CHECK_EQ(wire->Loads(),1u);
     }
+}
+
+TEST_CASE(ExplicitSdInitializationStatusIsSeparateFromSessionErrorsAndClearedOnDisconnect) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    CHECK(serial.UserActionsBlocked());Pump(serial,0,90,&editor);CHECK(serial.Connected());
+    CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unknown);
+    wire->rx+="BTSTORE1 RESULT 1 session-boot invalid 0\nBTSTORE1 RESULT 1 draft-load sd-unavailable 0\nBTSTORE1 SD 1 unavailable\n";
+    Pump(serial,90,95,&editor);CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unknown);
+    wire->rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 available\nBTSTORE1 RESULT 1 session-boot recovery-required 0\n";
+    Pump(serial,95,100,&editor);CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Available);
+    wire->rx+="BTSTORE1 SD 1 unavailable\n";Pump(serial,100,105,&editor);
+    CHECK(serial.UserActionsBlocked());CHECK(editor.Locked());
+    CHECK(!serial.Start());CHECK(!serial.Stop());CHECK(!serial.Pause());CHECK(!serial.Continue());
+    CHECK(!serial.StepTempo(5));CHECK(!serial.ToggleChannelMute(0));CHECK(!serial.Publish(editor,2101));
+    CHECK(!serial.RequestFile(BringUpSerial::FileAction::Test,2101));
+    BringUpControls controls(serial,nullptr);const auto count=wire->commands.size();
+    controls.Request(BringUpAction::PatternToggle,"fixture",2102);controls.Tick(2102);
+    CHECK_EQ(wire->commands.size(),count);
+    wire->rx+="BTSTORE1 SD 1 available\n";Pump(serial,106,110,&editor);
+    CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unavailable); // No hot-card recovery.
+    wire->healthy=false;serial.Tick(2300);serial.SyncEditor(editor,2300);
+    CHECK(!serial.Connected());CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unknown);
+    Pump(serial,200,290,&editor);CHECK(serial.Connected());
+    CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unknown);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+}
+TEST_CASE(ConfirmedUnavailableSdAllowsImmediateExitWithoutPersistenceOrTransport) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));
+    serial.SetStartupPattern("none");LocalPatternEditor editor;Pump(serial,0,90,&editor);
+    wire->rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 unavailable\n";Pump(serial,90,95,&editor);
+    const auto count=wire->commands.size();BringUpControls controls(serial,nullptr);
+    controls.Request(BringUpAction::ResetStop,"fixture",1901);CHECK(!controls.Quit());
+    controls.Request(BringUpAction::Exit,"fixture",1902);CHECK(controls.Quit());CHECK_EQ(wire->commands.size(),count);
+}
+
+TEST_CASE(BootSdFailureBlocksAnEarlyQueuedTestLoadButKeepsStatusServiceAlive) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->boot_sd="unavailable";
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("patern4");
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Test,0));LocalPatternEditor editor;
+    Pump(serial,0,180,&editor);CHECK(serial.Connected());CHECK(serial.UserActionsBlocked());
+    CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Unavailable);
+    CHECK_EQ(wire->Loads(),0u);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")==wire->commands.end());
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STATUS")!=wire->commands.end());
+    serial.BeginExit(3601);CHECK(serial.ExitReady());
+}
+
+TEST_CASE(WarningBarrierWaitsForInitialBaselineAndWorkingReadbackWithStopAvailable) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->preview_cap=true;wire->hold_baseline=wire->hold_working=true;wire->boot_sd="available";
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    Pump(serial,0,60,&editor);CHECK(serial.Connected());CHECK(serial.UserActionsBlocked());
+    CHECK_EQ(serial.SdStatus(),BringUpSerial::SdAvailability::Available);
+    CHECK(!serial.Start());CHECK(!serial.Pause());CHECK(!serial.StepVolume(1));CHECK(!serial.StepTempo(5));
+    CHECK(!serial.ToggleChannelMute(0));CHECK(!serial.Publish(editor,1201));
+    CHECK(!serial.RequestFile(BringUpSerial::FileAction::Test,1201));
+    BringUpControls controls(serial,nullptr);
+    controls.Request(BringUpAction::PatternToggle,"delayed sync",1201);
+    controls.Request(BringUpAction::ResetStop,"delayed sync",1202);Pump(serial,61,70,&editor);
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 STOP")!=wire->commands.end());
+    CHECK(serial.UserActionsBlocked());
+    CHECK(!wire->baseline_reply.empty());wire->hold_baseline=false;wire->rx+=wire->baseline_reply;wire->baseline_reply.clear();
+    Pump(serial,70,95,&editor);CHECK(editor.Ready());CHECK(editor.Locked());CHECK(serial.UserActionsBlocked());
+    CHECK(!wire->working_reply.empty());wire->hold_working=false;wire->rx+=wire->working_reply;wire->working_reply.clear();
+    Pump(serial,95,130,&editor);CHECK(serial.StartupPatternReady());CHECK(!serial.UserActionsBlocked());CHECK(!editor.Locked());
+    CHECK_EQ(wire->Loads(),0u);CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
+    CHECK(serial.Start());
+}
+TEST_CASE(WarningBarrierAllowsExitWhileInitialWorkingReadbackIsDelayed) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->preview_cap=true;wire->hold_working=true;
+    BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+    Pump(serial,0,70,&editor);CHECK(serial.Connected());CHECK(serial.UserActionsBlocked());
+    BringUpControls controls(serial,nullptr);controls.Request(BringUpAction::Exit,"delayed sync",1401);CHECK(controls.Quit());
+    CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 SAVE 1")==wire->commands.end());
 }

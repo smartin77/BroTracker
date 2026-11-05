@@ -209,9 +209,18 @@ struct TempoSerialFake : SerialTransport {
 }
 TEST_CASE(TempoSerialCapabilityCoalescingStopPriorityAndHybridPublicationRejection) {
     auto fake=std::make_unique<TempoSerialFake>();auto* wire=fake.get();BringUpSerial serial(nullptr,std::move(fake));
-    serial.Tick(0);wire->rx="BTTEST1 STATE IDLE\nBTTEMPO1 CAP 1\nBTTEMPO1 STATE 1 0 0 1 0 12500 12500\nBTPUBLISH1 CAP 1\n";serial.Tick(1);
+    serial.Tick(0);wire->rx="BTTEST1 STATE IDLE\nBTPATTERN1 POS 1 0 0 0 0 0 1 1\nBTPATTERN1 SNAPCAP 1\n";serial.Tick(1);serial.Tick(1);
+    CHECK_EQ(wire->tx,"BTTEST1 HELLO\nBTPATTERN1 GET 1 1\n");
+    RealtimePattern pattern;pattern.active_rows=pattern.active_channels=1;
+    PatternSnapshotSender sender(pattern,12500);CHECK(sender.Begin(1,1));
+    while(sender.HasData()) {
+        std::size_t size;const auto* data=sender.Data(size);
+        wire->rx.assign(data,size);sender.Consume(size);serial.Tick(1);
+    }
+    LocalPatternEditor editor;serial.SyncEditor(editor,1);CHECK(!serial.UserActionsBlocked());
+    wire->rx="BTTEMPO1 CAP 1\nBTTEMPO1 STATE 1 0 0 1 0 12500 12500\nBTPUBLISH1 CAP 1\n";serial.Tick(1);
     CHECK(serial.Connected());CHECK(serial.TempoAvailable());
-    LocalPatternEditor editor;CHECK(!serial.Publish(editor,1));CHECK(std::strstr(serial.PublicationStatus(),"Tempo-aware publication unsupported"));
+    CHECK(!serial.Publish(editor,1));CHECK(std::strstr(serial.PublicationStatus(),"Tempo-aware publication unsupported"));
     CHECK(serial.StepTempo(5));CHECK(serial.StepTempo(5));serial.Tick(2);
     CHECK(wire->tx.find("BTTEMPO1 SET 1 1 12510\n")!=std::string::npos);
     CHECK(serial.StepTempo(5));CHECK_EQ(serial.Tempo().Desired(),12515);

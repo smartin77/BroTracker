@@ -32,7 +32,9 @@ bool BringUpSerial::FileIdle() const {
 }
 bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     diagnostic_now_=now;
+    if(SdStatus()==SdAvailability::Unavailable)return false;
     const bool early_test=action==FileAction::Test && !attempted_;
+    if(!early_test && UserActionsBlocked())return false;
     if((!early_test && (!connected_ || !storage_supported_)) || file_action_!=FileAction::None || (!early_test && !StartupPatternReady()) || continuity_pending_) {
         std::strcpy(file_status_,"File action unavailable: connect/synchronize first");Log("File action rejected:",file_status_);return false;
     }
@@ -59,6 +61,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
 }
 void BringUpSerial::BeginExit(std::uint32_t now) {
     exit_requested_=true;exit_started_=now;
+    if(UserActionsBlocked()) {exit_done_=true;return;}
     if(!RequestFile(FileAction::Session,now)) {
         Log("EXIT: session save unavailable; latest host-only edits may not be persisted");exit_done_=true;
     }
@@ -77,6 +80,7 @@ void BringUpSerial::Disconnect(const char* reason)
         file_action_=FileAction::None;
     }
     if(exit_requested_)exit_done_=true;
+    sd_status_supported_=false;sd_status_=SdAvailability::Unknown;
     storage_supported_=false;working_storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
@@ -125,6 +129,7 @@ void BringUpSerial::Disconnect(const char* reason)
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
     diagnostic_now_=now;
+    if(SdStatus()==SdAvailability::Unavailable) {editor.SetLocked(true);preview_.Suspend(true);return;}
     if(continuity_pending_) {
         // Freeze the actual editor before its normal disconnected Sync can clear it.
         // This also captures a last edit made immediately before the failed I/O.
@@ -238,7 +243,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     if(!startup_selection_enabled_ && connected_ && editor.Ready() && pattern_assembler_.Snapshot() &&
         (!preview_.Supported() || preview_.VerifiedWorking())) initial_sync_ready_=true;
     if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
-    editor.SetLocked(exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || !StartupPatternReady() || PublicationBusy());
+    editor.SetLocked(UserActionsBlocked() || exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || !StartupPatternReady() || PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
     if(std::strcmp(logged_preview_status_,preview_.Status())) {
         std::snprintf(logged_preview_status_,sizeof(logged_preview_status_),"%s",preview_.Status());
@@ -286,7 +291,7 @@ bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint3
 {
     // Preserve Shift+F4's local Restore meaning. Never adopt the boot fixture or write
     // to the device here. Publication remains a separate explicit Shift+F5 action.
-    if(!continuity_pending_ || !continuity_frozen_ || !editor.Ready() || PublicationBusy()) return false;
+    if(!ReconnectRecoveryActionsAvailable() || !editor.Ready() || PublicationBusy()) return false;
     editor.SetLocked(false);
     const bool restored=editor.Apply(EditorAction::Restore);
     editor.SetLocked(true);
@@ -300,11 +305,13 @@ bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint3
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
+    if(SdStatus()==SdAvailability::Unavailable)return false;
     // Shift+F5 may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
-        if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
+        if(!PublicationReadbackRetryAvailable()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
+    if(UserActionsBlocked() && !ReconnectRecoveryActionsAvailable())return false;
     if(continuity_pending_) {
         // Shift+F5 is explicit RAM publication, not an automatic recovery or SD save.
         // Freeze the retained candidate directly: preview dimensions may differ
@@ -345,6 +352,7 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
+    if(UserActionsBlocked())return false;
     if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
     if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
@@ -359,6 +367,7 @@ bool BringUpSerial::Start()
 
 bool BringUpSerial::Stop()
 {
+    if(!StopAvailable())return false;
     tempo_.StopRequested();
     if (!connected_) { Log("STOP unavailable: device disconnected"); return false; }
     publication_.StopRequested();
@@ -379,6 +388,7 @@ bool BringUpSerial::TransportPending() const
 bool BringUpSerial::Paused() const { return connected_ && !std::strcmp(state_, "PAUSED"); }
 bool BringUpSerial::Playing() const { return connected_ && !std::strcmp(state_, "PLAYING"); }
 bool BringUpSerial::QueueTransport(Command command) {
+    if(UserActionsBlocked())return false;
     if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
     if(command==Command::Continue && (continuity_pending_ || file_action_!=FileAction::None || !StartupPatternReady())) return false;
@@ -503,6 +513,15 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTSTORE1 SDCAP 1")) {if(connected_)sd_status_supported_=true;return;}
+    if(connected_ && sd_status_supported_) {
+        if(!std::strcmp(line_,"BTSTORE1 SD 1 available")) {if(sd_status_==SdAvailability::Unknown)sd_status_=SdAvailability::Available;return;}
+        if(!std::strcmp(line_,"BTSTORE1 SD 1 unavailable")) {
+            sd_status_=SdAvailability::Unavailable;
+            start_queued_=stop_queued_=false;transport_queued_=Command::None;
+            preview_.Suspend(true);return;
+        }
+    }
     const bool draft_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 draft-save ",sizeof("BTSTORE1 RESULT 1 draft-save ")-1);
     const bool session_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 save ",sizeof("BTSTORE1 RESULT 1 save ")-1);
     const bool command_reply=pending_==Command::File &&
@@ -899,6 +918,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
+        // Confirmed boot SD failure permits communication only. In particular an
+        // early queued test load or retained preview must never pass this barrier.
+        if(SdStatus()==SdAvailability::Unavailable) {
+            if(now-sent_at_>=1000)Send(Command::Status,now);
+            return;
+        }
         if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
             Send(Command::Audio,now);
         }

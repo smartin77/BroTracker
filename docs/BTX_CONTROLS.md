@@ -264,3 +264,56 @@ while the device remains powered; device initialization clears that mask.
 
 New bindings are automated-test coverage, not a new physical handheld confirmation.
 Existing dated observations used the previous startup/F4/F5 behavior.
+
+## Blocking device/storage warnings
+
+Windows and handheld BTX display one centered warning over the production Pattern
+screen when Teensy is disconnected or its boot-time SD initialization explicitly
+failed. All normal user actions, including STOP, edits, navigation, playback,
+mute, tempo, volume, publication and file actions, are blocked in these states.
+Exit remains available (Ctrl+X/window close on Windows; existing L1+Start on
+handhelds). Exit with confirmed unavailable SD skips session persistence.
+Communication and reconnection servicing continue; held actions are cancelled.
+At initial BTX startup, the disconnected overlay is suppressed for 5000 ms to
+allow discovery/boot/enumeration. The named code constant
+`kInitialTeensyDiscoveryGraceMs` is not a config setting. This nonblocking grace
+never relaxes input readiness. Any observed connection ends initial grace, so a
+subsequent genuine disconnect shows its warning immediately.
+
+Opening a serial port is not synchronization. Connected synchronization/recovery
+shows synchronization/recovery information only in the existing right-side status.
+Once connected there is no disconnected or synchronization overlay; normal actions
+remain blocked until authoritative state is usable. Connected STOP and Exit remain available.
+Existing explicit retained-work Restore/Publish recovery paths remain available
+under their existing safety checks. This never displays an invented SD failure. Existing retained-work recovery protections remain in
+place; no automatic START or new overwrite policy is introduced.
+
+The optional `[btx] language=en_US` selects `assets/translations/en_US.ini`; another
+`language_REGION` locale (for example `sk_SK`) selects `<locale>.ini` there.
+Absent language defaults to `en_US`; `en`/`en_us` are accepted English aliases.
+Files are UTF-8 INI with a `[warnings]` section and stable `teensy_heading`,
+`teensy_body`, `sd_heading`, `sd_body` keys. A literal `\n` in a value means an
+explicit line break at native spacing; soft wrapping uses 1.5 native line spacing.
+Absent/unreadable files, missing/empty keys and invalid language selections fall
+back to built-in English. Only these warnings are translated. `WarningText::Select`
+reloads/selects independently of rendering for future runtime switching; no
+selection screen or hotkey exists.
+
+`kWarningFont` in `src/ui/warning_renderer.h` selects native Terminus 8x14
+Regular/genuine Bold (default), or native 6x12 Regular for both text roles.
+The bundled BDFs and license live in `assets/fonts/terminus`; the Pattern BTF
+font and grid geometry are unchanged. Layout constants in that header are code
+settings, including 18px top/bottom padding reduced from the accepted mockup.
+
+### Runtime warning artwork
+
+`assets/icons/font-preview-warning.svg` is the runtime vector source, loaded once
+from the executable's assets directory independently of the launch directory.
+Host-only `SvgImage::Load`/`Draw` wraps vendored NanoSVG (zlib license in
+`third_party/nanosvg/LICENSE.txt`; packaged as `licenses/NanoSVG.txt`). Parsed
+geometry stays resident; CPU rasterization antialiases paths, fills and rounded
+strokes into an RGBA workspace at the requested size. Straight-alpha source-over
+blending affects just the icon's pixels. No generated bitmap/header replaces SVG,
+and no full-frame filtering is applied. Missing/unusable icon files leave the
+warning text, panel and blocking behavior available. Native Terminus text and
+both size choices remain unchanged.

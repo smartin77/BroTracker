@@ -8,6 +8,8 @@
 ; Invalid structure rejects the entire file. Field-local fallbacks noted below.
 
 [btx]
+; Optional warning language, default en_US.
+language=en_US
 ; Required decimal version, only 1 supported; built-in 1.
 schema_version=1
 ; Required new-pattern metadata: 16/32/64; built-in 32. Does not resize device.
@@ -17,7 +19,6 @@ new_pattern_length=32
 [logging]
 ; basic/debug; built-in basic. Debug adds protocol/edit/audio/system detail.
 ; Basic includes startup/config, connection/transport, errors and shutdown.
-; Host timestamps do not prove physical timing. Example opts into debug.
 mode=debug
 ; Previous startup logs: 0..20, built-in 0; example 5. Debug+N>0 rotates once
 ; before log open; basic/0 replaces. Rotation failure appends, preserving evidence.

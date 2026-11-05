@@ -58,25 +58,25 @@ public:
         return preview_.Supported() ? preview_.Status() : publication_.Status();
     }
     // Shared explicit request API. No editor, UI, dirty state or history mutation.
-    bool VolumeAvailable() const {return connected_ && volume_.Available();}
-    bool StepVolume(int direction) {return connected_ && volume_.Step(direction);}
+    bool VolumeAvailable() const {return !UserActionsBlocked() && volume_.Available();}
+    bool StepVolume(int direction) {return !UserActionsBlocked() && volume_.Step(direction);}
     const char* VolumeStatus() const {
         if(!connected_)return "Vol --";
         if(!volume_.Supported())return "Vol -- (unsupported)";
         if(!volume_.Available())return "Vol ? (synchronizing)";
         std::snprintf(volume_status_,sizeof(volume_status_),"Vol %u%%",volume_.Percent());return volume_status_;
     }
-    bool TempoAvailable() const { return connected_ && tempo_.Available() && !PublicationBusy() && !TransportPending(); }
+    bool TempoAvailable() const { return !UserActionsBlocked() && tempo_.Available() && !PublicationBusy() && !TransportPending(); }
     bool StepTempo(int amount) { return TempoAvailable() && tempo_.Step(amount); }
     bool RestoreTempo() {
         const auto* published=pattern_assembler_.Snapshot();
         return TempoAvailable() && published && tempo_.Request(published->tempo_hundredths);
     }
     const BroTracker::HostTempo& Tempo() const { return tempo_; }
-    bool ToggleChannelMute(unsigned channel) { return connected_ && mute_.Toggle(channel); }
-    bool MuteAvailable() const {return connected_ && mute_.Available();}
+    bool ToggleChannelMute(unsigned channel) { return !UserActionsBlocked() && mute_.Toggle(channel); }
+    bool MuteAvailable() const {return !UserActionsBlocked() && mute_.Available();}
     bool RequestChannelGains(const BroTracker::Pcm16ChannelGains& gains) {
-        return connected_ && gains_.Request(gains);
+        return !UserActionsBlocked() && gains_.Request(gains);
     }
     bool ChannelGainsSupported() const { return connected_ && gains_.Supported(); }
     bool ChannelGainsAvailable() const { return connected_ && gains_.Available(); }
@@ -132,6 +132,24 @@ public:
     bool Playing() const;
     bool TransportPending() const;
     bool Connected() const { return connected_; }
+    enum class SdAvailability { Unknown, Available, Unavailable };
+    SdAvailability SdStatus() const {return connected_ ? sd_status_ : SdAvailability::Unknown;}
+    // Unknown/legacy status is never converted into a card failure.
+    bool UserActionsBlocked() const {
+        return !connected_ || SdStatus()==SdAvailability::Unavailable || !StartupPatternReady() ||
+            (!startup_selection_enabled_ && !initial_sync_ready_) || !pattern_assembler_.Snapshot() || continuity_pending_;
+    }
+    bool StopAvailable() const {return connected_ && SdStatus()!=SdAvailability::Unavailable;}
+    // Only re-arm GET for an uncertain publication; never authorize host writes.
+    bool PublicationReadbackRetryAvailable() const {
+        return StopAvailable() && publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain &&
+            snapshot_version_==2 && !pattern_assembler_.Active();
+    }
+    // Explicit existing recovery operations only, never ordinary editing/transport.
+    bool ReconnectRecoveryActionsAvailable() const {
+        return StopAvailable() && continuity_pending_ && continuity_frozen_ &&
+            pattern_assembler_.Snapshot() && (!preview_.Supported() || preview_.VerifiedWorking());
+    }
     bool Stopped() const { return stopped_; }
     bool Finished() const;
     bool StartCancelled() const { return start_cancelled_; }
@@ -143,6 +161,8 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    bool sd_status_supported_=false;
+    SdAvailability sd_status_=SdAvailability::Unknown;
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}

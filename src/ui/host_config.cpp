@@ -1,4 +1,5 @@
 #include "host_config.h"
+#include "warning_locale.h"
 #include <array>
 #include <fstream>
 #include <system_error>
@@ -28,7 +29,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     HostConfig candidate;
     unsigned section=0;
     bool display=false,numbering=false,diagnostics=false,audible=false;
-    bool development=false,startup_pattern=false;
+    bool development=false,startup_pattern=false,language=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
@@ -47,7 +48,10 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==8 && key=="startup_pattern" && !startup_pattern) {
+        if(section==1 && key=="language" && !language) {
+            language=true;
+            (void)NormalizeWarningLocale(raw,candidate.language,sizeof(candidate.language));
+        } else if(section==8 && key=="startup_pattern" && !startup_pattern) {
             startup_pattern=true;
             if(!raw.empty() && !candidate.startup_pattern.Assign(raw))candidate.startup_pattern_invalid=true;
         } else if(section==7 && key=="bridge_audible_test" && !audible) {

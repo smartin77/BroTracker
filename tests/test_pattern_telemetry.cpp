@@ -48,6 +48,20 @@ namespace
             CHECK(serial.Connected());
         }
         LivePlaybackView View() const { return *serial.PlaybackView(now); }
+        void Synchronize() {
+            // Dimensions, including stopped/paused state, also come from the device.
+            Receive(serial.Paused() ? "BTPATTERN1 POS 2 2 0 0 0 0 16 2\n" :
+                "BTPATTERN1 POS 1 1 0 0 0 0 16 2\n");
+            Receive("BTPATTERN1 SNAPCAP 1\n");Tick();
+            CHECK_EQ(port->output,"BTPATTERN1 GET 1 1\n");port->output.clear();
+            RealtimePattern pattern;pattern.active_rows=16;pattern.active_channels=2;
+            PatternSnapshotSender sender(pattern,12500);CHECK(sender.Begin(1,now));
+            while(sender.HasData()) {
+                std::size_t size;const auto* data=sender.Data(size);
+                const std::string line(data,size);sender.Consume(size);Receive(line);
+            }
+            LocalPatternEditor editor;serial.SyncEditor(editor,now);CHECK(!serial.UserActionsBlocked());
+        }
     };
     constexpr char position[] = "BTPATTERN1 POS 1 1 1 1536 0 1 16 2\n";
 }
@@ -118,7 +132,7 @@ TEST_CASE(PatternTelemetryPausedVersion2ReconnectAndCommandBarriers) {
         "BTPATTERN1 POS 2 0 1 95 0 0 16 2", "BTPATTERN1 POS 2 2 1 95 1 0 16 2"}) {
         CHECK(!ParsePatternTelemetry(bad, std::strlen(bad), value)); Same(value, saved);
     }
-    Session session; session.Connect("PAUSED");
+    Session session; session.Connect("PAUSED");session.Synchronize();
     session.Receive(std::string("BTPATTERN1 TRANSPORTCAP 1\n") + paused + "\n");
     CHECK(session.serial.Paused()); CHECK(session.serial.SupportsPatternTransport());
     CHECK(session.View().fresh && session.View().position.paused);
@@ -210,7 +224,7 @@ TEST_CASE(PatternTelemetry_FragmentationMalformedLinesLegacyAndFreshness)
 
 TEST_CASE(PatternTelemetry_PendingRestartStopDisconnectAndAlreadyRunningReconnect)
 {
-    Session s; s.Connect(); s.Receive(position);
+    Session s; s.Connect(); s.Synchronize();s.Receive(position);
     CHECK(s.serial.Start()); CHECK(!s.View().position.valid);
     s.Receive(position); CHECK(!s.View().fresh); // Queued then transmitted barrier.
     s.Tick(); CHECK_EQ(s.port->output, "BTTEST1 START\n"); s.port->output.clear();
@@ -280,7 +294,7 @@ TEST_CASE(PatternDisplay_ReportedRowUnknownContentsAndPreviewRemainDistinct)
 
 TEST_CASE(PausePreemptsStatusWaitAndUsesFreshAppliedPositionOnly) {
     for (const unsigned limit : {256u,3u}) {
-        Session s; s.Connect(); s.Receive("BTPATTERN1 TRANSPORTCAP 1\nBTPATTERN1 POS 2 1 1 95 0 0 16 2\n");
+        Session s; s.Connect();s.Synchronize(); s.Receive("BTPATTERN1 TRANSPORTCAP 1\nBTPATTERN1 POS 2 1 1 95 0 0 16 2\n");
         s.port->write_limit=limit; s.now=1001;
         s.Receive("BTPATTERN1 POS 2 1 1 95 0 0 16 2\n"); // Fresh position, STATUS queued.
         CHECK(s.serial.Pause());

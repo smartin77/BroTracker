@@ -30,6 +30,11 @@ public:
         }
         blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
+    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false) noexcept {
+        if(blocked!=action_barrier_) {Cancel();start_pending_=false;chord_used_=false;}
+        action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
+        publication_readback_available_=publication_readback_available;
+    }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
         SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
@@ -99,6 +104,22 @@ private:
     ArkOSInputResult Button(unsigned b,bool down,std::uint32_t now,bool connected,LocalPatternEditor& editor) noexcept {
         if(b>=SDL_CONTROLLER_BUTTON_MAX || pressed_[b]==down) return {};
         pressed_[b]=down;
+        if(action_barrier_) {
+            Cancel();
+            // Keep existing connected STOP and explicit recovery chords, never normal actions.
+            if(down && focused_ && b==SDL_CONTROLLER_BUTTON_B && stop_available_)return {BringUpAction::ResetStop,false};
+            if(down && focused_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) {
+                if(b==SDL_CONTROLLER_BUTTON_X && recovery_available_)return {BringUpAction::None,false,true};
+                if(b==SDL_CONTROLLER_BUTTON_A && (recovery_available_ || publication_readback_available_))return {BringUpAction::None,true};
+            }
+            if(b==SDL_CONTROLLER_BUTTON_START) {
+                if(down)start_pending_=focused_;
+                else {const bool exit=start_pending_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];start_pending_=false;
+                    if(exit)return {BringUpAction::Exit,false};}
+            }
+            if(!down)blocked_ &= ~(1u<<b);
+            return {};
+        }
         if(b==SDL_CONTROLLER_BUTTON_START || b==SDL_CONTROLLER_BUTTON_BACK) {
             Cancel();
             if(!focused_)return {};
@@ -184,6 +205,8 @@ private:
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
     }
+    bool action_barrier_=false,stop_available_=false,recovery_available_=false;
+    bool publication_readback_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;

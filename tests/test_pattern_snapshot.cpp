@@ -72,9 +72,10 @@ namespace
         std::uint32_t now = 0;
         void Tick() { serial.Tick(now++); }
         void Receive(const std::string& line) { transport->input += line; Tick(); }
-        void Ready(bool capable)
+        void Ready(bool capable,unsigned request_write_limit=32)
         {
             Tick(); CHECK_EQ(transport->output, "BTTEST1 HELLO\n"); transport->output.clear();
+            transport->write_limit=request_write_limit;
             Receive(std::string("BTTEST1 STATE PLAYING\n") +
                 "BTPATTERN1 POS 1 1 1 0 0 0 3 2\n" + (capable ? "BTPATTERN1 SNAPCAP 1\n" : ""));
             CHECK(serial.Connected());
@@ -252,24 +253,28 @@ TEST_CASE(PatternSnapshot_HostLegacyDiscoveryFragmentationTimeoutAndReconnect)
 
 TEST_CASE(PatternSnapshot_SharedHostPartialRequestWithStartStopAndMalformedStaging)
 {
-    Session s; s.Ready(true); s.transport->write_limit = 2;
-    s.Tick(); CHECK(s.serial.Start());
+    Session s; s.Ready(true,2);
+    CHECK_EQ(s.transport->output,"BT");
+    CHECK(s.serial.UserActionsBlocked());CHECK(!s.serial.Start());
+    CHECK_EQ(s.transport->output,"BT"); // Rejected START does not touch the owned GET.
     const auto pattern = Fixture(); const auto lines = Lines(pattern);
     s.Receive(lines[0] + "\n");
-    for (unsigned i = 0; i < 40; ++i) s.Tick();
-    CHECK_EQ(s.transport->output, "BTPATTERN1 GET 1 1\nBTTEST1 START\n");
-    s.Receive("BTTEST1 STARTED\nBTPATTERN1 POS 1 1 1 96 1 0 3 2\n");
-    CHECK(!s.serial.StartPending());
-    s.Receive(lines[1] + "\n"); s.Receive(lines[2] + "\n");
     CHECK(!s.serial.PlaybackView(s.now)->device_pattern);
+    // Connected STOP is available before initial readiness, but cannot split GET.
     CHECK(s.serial.Stop());
-    for (unsigned i = 0; i < 12; ++i) s.Tick();
+    for (unsigned i = 0; i < 40; ++i) s.Tick();
+    CHECK_EQ(s.transport->output,"BTPATTERN1 GET 1 1\nBTTEST1 STOP\n");
     s.Receive("BTTEST1 STOPPED\nBTPATTERN1 POS 1 0 0 0 0 0 3 2\n");
-    for (std::size_t i = 3; i < lines.size(); ++i) s.Receive(lines[i] + "\n");
+    for (std::size_t i = 1; i < lines.size(); ++i) s.Receive(lines[i] + "\n");
     CHECK(s.serial.Stopped()); CHECK(!s.serial.PlaybackView(s.now)->position.valid);
     CHECK(s.serial.PlaybackView(s.now)->device_pattern);
     Same(*s.serial.PlaybackView(s.now)->device_pattern, pattern);
-    CHECK_EQ(s.transport->output, "BTPATTERN1 GET 1 1\nBTTEST1 START\nBTTEST1 STOP\n");
+    CHECK_EQ(s.transport->output, "BTPATTERN1 GET 1 1\nBTTEST1 STOP\n");
+    CHECK(s.serial.UserActionsBlocked());CHECK(!s.serial.Start());
+    LocalPatternEditor editor;s.serial.SyncEditor(editor,s.now);
+    CHECK(!s.serial.UserActionsBlocked());CHECK(s.serial.Start());
+    for(unsigned i=0;i<12;++i)s.Tick();
+    CHECK_EQ(s.transport->output,"BTPATTERN1 GET 1 1\nBTTEST1 STOP\nBTTEST1 START\n");
 
     Session bad; bad.Ready(true); bad.Tick(); bad.Receive(lines[0] + "\n");
     const auto saved = bad.serial.PlaybackView(bad.now)->position;

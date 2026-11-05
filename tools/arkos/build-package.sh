@@ -29,9 +29,15 @@ cmake -S "$repo_root" -B "$build_dir" -G "Unix Makefiles" \
     -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
     -DBROTRACKER_BUILD_ARKOS_UI=ON \
     -DBROTRACKER_BUILD_ALSA_BRIDGE=ON
-# Verify every existing CMake target with Eoan's compiler and CMake.
-cmake --build "$build_dir" --parallel "$jobs"
-(cd "$build_dir" && ctest --output-on-failure)
+# Delivery-only refresh builds just the shipped binaries; normal workflow keeps tests.
+if [[ ${BROTRACKER_ARKOS_DELIVERY_ONLY:-0} == 1 ]]; then
+    for target in BroTrackerTerminal BroTrackerAlsaBridge; do
+        cmake --build "$build_dir" --target "$target" --parallel "$jobs"
+    done
+else
+    cmake --build "$build_dir" --parallel "$jobs"
+    (cd "$build_dir" && ctest --output-on-failure)
+fi
 
 binary="$build_dir/BroTrackerTerminal"
 readelf -h "$binary" | grep -q 'Machine:.*AArch64'
@@ -117,6 +123,11 @@ mkdir -p "$package_dir/assets/fonts" "$package_dir/config"
 cp "$build_dir/BroTrackerTerminal" "$package_dir/BroTrackerTerminal"
 cp "$binary" "$package_dir/BroTrackerAlsaBridge"
 cp "$repo_root/assets/fonts/brotracker.btf" "$repo_root/assets/fonts/brotracker.bfm" "$package_dir/assets/fonts/"
+mkdir -p "$package_dir/assets/fonts/terminus" "$package_dir/assets/translations" "$package_dir/assets/icons" "$package_dir/licenses"
+cp "$repo_root/assets/icons/font-preview-warning.svg" "$package_dir/assets/icons/"
+cp "$repo_root/third_party/nanosvg/LICENSE.txt" "$package_dir/licenses/NanoSVG.txt"
+cp "$repo_root"/assets/fonts/terminus/* "$package_dir/assets/fonts/terminus/"
+cp "$repo_root/assets/translations/en_US.ini" "$package_dir/assets/translations/"
 cp "$repo_root/assets/dummy_my_tune.json" "$package_dir/assets/"
 cp "$repo_root/config/config.ini.example" "$package_dir/config/config.ini.example"
 cp "$repo_root/tools/arkos/launch.sh" "$package_dir/launch.sh"

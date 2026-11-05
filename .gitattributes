@@ -18,3 +18,14 @@ tools/arkos/port/*.sh text eol=lf
 
 # The source JSON must match the byte-stable ARM64 delivery on Windows too.
 /assets/dummy_my_tune.json text eol=lf
+/deploy/font-preview-static/*.sh text eol=lf
+
+# Warning runtime resources must match the checksummed ARM64 delivery on checkout.
+/assets/fonts/terminus/** text eol=lf
+/assets/icons/*.svg text eol=lf
+/assets/translations/*.ini text eol=lf
+/third_party/nanosvg/LICENSE.txt text eol=lf
+/deploy/arkos/assets/fonts/terminus/** text eol=lf
+/deploy/arkos/assets/icons/*.svg text eol=lf
+/deploy/arkos/assets/translations/*.ini text eol=lf
+/deploy/arkos/licenses/*.txt text eol=lf

@@ -29,6 +29,7 @@
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
+#include "ui/host_warning.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
 #include "ui/arkos/diagnostic_status.h"
@@ -73,6 +74,7 @@ void WriteSdlFailure(
 
 int main(int argc, char* argv[])
 {
+    HostWarningPresentation warning_presentation(SDL_GetTicks());
     if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-info")) {
         std::puts("{\"id\":\"btx-offline-clicks-v2\"}"); return 0;
     }
@@ -165,6 +167,9 @@ int main(int argc, char* argv[])
         bring_up_log,
         "framebuffer creation: start");
 
+    const auto warning_assets=RuntimeAssetsPath();
+    WarningRenderer warning_renderer(warning_assets);
+    WarningText warning_text;warning_text.Select(warning_assets,host_config.config.language);
     Framebuffer framebuffer(
         SCREEN_WIDTH,
         SCREEN_HEIGHT);
@@ -333,7 +338,9 @@ int main(int argc, char* argv[])
     while (!controls.Quit() && !diagnostic.Exit())
     {
         controls.Tick(SDL_GetTicks());
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
+        editor_input.SetActionBarrier(serial.UserActionsBlocked(),serial.StopAvailable(),serial.ReconnectRecoveryActionsAvailable(),serial.PublicationReadbackRetryAvailable());
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
             next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
             if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
@@ -359,7 +366,19 @@ int main(int argc, char* argv[])
                 break;
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
-            const auto result=editor_input.Handle(event,SDL_GetTicks(),serial.Connected(),editor);
+            LocalPatternEditor blocked_editor;
+            const bool blocked=serial.UserActionsBlocked();
+            if(blocked)editor_input.Cancel();
+            auto result=editor_input.Handle(event,SDL_GetTicks(),!blocked,blocked?blocked_editor:editor);
+            if(blocked) {
+                const auto transport=result.transport;
+                const bool recovery=serial.ReconnectRecoveryActionsAvailable();
+                const bool publish=(recovery || serial.PublicationReadbackRetryAvailable()) && result.publish && !editor.Cursor().header;
+                const bool restore=recovery && result.restore;
+                result={};result.publish=publish;result.restore=restore;
+                if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()))result.transport=transport;
+                editor_input.Cancel();
+            }
             if(result.file!=BringUpSerial::FileAction::None && !controls.Exiting()) {
                 serial.SyncEditor(editor,SDL_GetTicks());(void)serial.RequestFile(result.file,SDL_GetTicks());serial.SyncEditor(editor,SDL_GetTicks());
             }
@@ -384,10 +403,11 @@ int main(int argc, char* argv[])
         if(diagnostic.Enabled()) diagnostic_cancel.ObserveReleased(DiagnosticButtonsReleased(),SDL_GetTicks());
         if(const auto step=volume_input.Poll(SDL_GetTicks(),!diagnostic.Enabled() && serial.VolumeAvailable() && !controls.Exiting()))
             (void)serial.StepVolume(step);
-        editor_input.Tick(SDL_GetTicks(),serial.Connected() && !controls.Exiting(),editor);
+        editor_input.Tick(SDL_GetTicks(),!serial.UserActionsBlocked() && !controls.Exiting(),editor);
         if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
+        warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
         HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
@@ -400,6 +420,7 @@ int main(int argc, char* argv[])
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);
+        DrawHostWarning(framebuffer,serial,warning_renderer,warning_text,warning_presentation,SDL_GetTicks());
 
         if(diagnostic_status) DrawDiagnosticStatus(framebuffer,diagnostic_status);
         if (!controls.Quit() && !display.Present(framebuffer))

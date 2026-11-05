@@ -23,6 +23,14 @@ files=(
     assets/dummy_my_tune.json
     assets/fonts/brotracker.btf
     assets/fonts/brotracker.bfm
+    assets/fonts/terminus/ter-u12n.bdf
+    assets/fonts/terminus/ter-u14n.bdf
+    assets/fonts/terminus/ter-u14b.bdf
+    assets/fonts/terminus/OFL-bitmap.txt
+    assets/fonts/terminus/SOURCES.md
+    assets/translations/en_US.ini
+    assets/icons/font-preview-warning.svg
+    licenses/NanoSVG.txt
 )
 
 fail() { echo "Error: $*" >&2; exit 1; }
@@ -53,7 +61,7 @@ for file in "${files[@]}"; do
     [[ -f "$package/$file" ]] || fail "Package file is missing: $file"
 done
 (cd "$package" && sha256sum --check --status SHA256SUMS) || fail "Package checksum verification failed; update the complete checkout/package"
-for dir in "$app" "$app/assets" "$app/assets/fonts" "$app/config"; do
+for dir in "$app" "$app/assets" "$app/assets/fonts" "$app/assets/fonts/terminus" "$app/assets/translations" "$app/assets/icons" "$app/licenses" "$app/config"; do
     [[ ! -L "$dir" ]] || fail "Refusing a symlink directory: $dir"
     [[ ! -e "$dir" || -d "$dir" ]] || fail "Not a directory: $dir"
 done
@@ -75,7 +83,7 @@ for existing in "$midi_entry" "$diagnostic_launcher" "$port_launcher" "$legacy_l
     fi
 done
 
-mkdir -p -- "$app/assets/fonts" "$app/config"
+mkdir -p -- "$app/assets/fonts" "$app/assets/fonts/terminus" "$app/assets/translations" "$app/assets/icons" "$app/licenses" "$app/config"
 for file in "${files[@]}"; do
     case "$file" in
         BroTrackerTerminal|BroTrackerAlsaBridge|launch.sh) mode=0755 ;;

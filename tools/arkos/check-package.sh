@@ -4,7 +4,15 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 package="$repo/deploy/arkos"
 files=(BroTrackerTerminal BroTrackerAlsaBridge launch.sh config/config.ini.example
-       assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm)
+       assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm
+       assets/fonts/terminus/ter-u12n.bdf
+       assets/fonts/terminus/ter-u14n.bdf
+       assets/fonts/terminus/ter-u14b.bdf
+       assets/fonts/terminus/OFL-bitmap.txt
+       assets/fonts/terminus/SOURCES.md
+       assets/translations/en_US.ini
+       assets/icons/font-preview-warning.svg
+       licenses/NanoSVG.txt)
 for file in "${files[@]}" SHA256SUMS bridge-clicks-artifacts.json; do
     [[ -f "$package/$file" && ! -L "$package/$file" ]] || { echo "Missing/unsafe delivery file: $file" >&2; exit 1; }
     # Untracked new files are allowed before review, ignored delivery files are not.
@@ -21,9 +29,10 @@ diff -u <(printf '%s\n' "${files[@]}" | sort) <(sed 's/^[0-9a-f]\{64\}  //' "$pa
 for name in BroTrackerTerminal BroTrackerAlsaBridge; do
     readelf -h "$package/$name" | grep -q 'Machine:.*AArch64'
 done
-for file in assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm config/config.ini.example; do
+for file in assets/dummy_my_tune.json assets/fonts/brotracker.btf assets/fonts/brotracker.bfm config/config.ini.example assets/fonts/terminus/ter-u12n.bdf assets/fonts/terminus/ter-u14n.bdf assets/fonts/terminus/ter-u14b.bdf assets/fonts/terminus/OFL-bitmap.txt assets/fonts/terminus/SOURCES.md assets/translations/en_US.ini assets/icons/font-preview-warning.svg; do
     cmp "$repo/$file" "$package/$file"
 done
+cmp "$repo/third_party/nanosvg/LICENSE.txt" "$package/licenses/NanoSVG.txt"
 cmp "$repo/tools/arkos/launch.sh" "$package/launch.sh"
 # Test the shipped executable's embedded protocol, in addition to ARM64 functional tests.
 strings "$package/BroTrackerTerminal" | grep -F 'BTMIDI1 SET 1 %u' >/dev/null

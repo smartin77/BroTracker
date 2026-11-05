@@ -524,3 +524,26 @@ TEST_CASE(ArkOSLoadThenTestChordAndStandaloneStartRemainAvailable) {
         CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
     }
 }
+
+TEST_CASE(WarningBarrierCancelsStartAcrossUnlockAndPreservesExit) {
+    ArkOSEditorInput input;LocalPatternEditor editor;editor.Sync(PatternView());input.Select(42);
+    auto edge=[&](unsigned b,bool down) {SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=42;e.cbutton.button=b;return input.Handle(e,100,true,editor);};
+    input.SetActionBarrier(true);edge(SDL_CONTROLLER_BUTTON_START,true);
+    input.SetActionBarrier(false);
+    CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::None);
+    input.SetActionBarrier(true);edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);edge(SDL_CONTROLLER_BUTTON_START,true);
+    CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::Exit);
+    CHECK(edge(SDL_CONTROLLER_BUTTON_A,true).file==BringUpSerial::FileAction::None);
+}
+
+TEST_CASE(SynchronizationBarrierAllowsConnectedStopAndCancelsHeldStartOnUnlock) {
+    ArkOSEditorInput input;LocalPatternEditor editor;editor.Sync(PatternView());input.Select(42);
+    auto edge=[&](unsigned b,bool down) {SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=42;e.cbutton.button=b;return input.Handle(e,100,true,editor);};
+    input.SetActionBarrier(true,true);CHECK(edge(SDL_CONTROLLER_BUTTON_B,true).transport==BringUpAction::ResetStop);
+    edge(SDL_CONTROLLER_BUTTON_B,false);edge(SDL_CONTROLLER_BUTTON_START,true);
+    input.SetActionBarrier(false,true);CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::None);
+    input.SetActionBarrier(true,false);CHECK(edge(SDL_CONTROLLER_BUTTON_B,true).transport==BringUpAction::None);
+    edge(SDL_CONTROLLER_BUTTON_B,false);input.SetActionBarrier(true,true,true);
+    edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);CHECK(edge(SDL_CONTROLLER_BUTTON_X,true).restore);
+    CHECK(edge(SDL_CONTROLLER_BUTTON_A,true).publish);
+}

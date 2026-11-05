@@ -316,3 +316,20 @@ cable is separate from MIDI channel, and protocol/UMP capabilities are separate
 from transport. No new config keys, persisted routing fields or session/file-format
 changes are implemented by this plan. Existing session instrument references do
 not establish endpoint availability or restore external synth state.
+
+## Explicit boot SD availability (host warning)
+
+SD-capable development firmware advertises `BTSTORE1 SDCAP 1` and sends one
+`BTSTORE1 SD 1 available` or `BTSTORE1 SD 1 unavailable` line in HELLO discovery.
+The source is exclusively the retained result of the single boot-time
+`SD.begin(BUILTIN_SDCARD)` call (`g_storage_backend.ready`), before session
+loading. This reports initialization success, not physical card-presence sensing.
+The discovery FIFO reserves two additional lines.
+
+Hosts accept this status only following the capability on the current connection,
+clear it to unknown on disconnect, and latch unavailable until reconnection.
+There is no hot mounting, repair or automatic card recovery. Legacy/unsupported,
+pending or absent status remains unknown. Session recovery errors, missing or
+invalid sessions, missing samples/patterns, READY timeouts and file-operation
+errors never establish unavailable SD. Session formats are unchanged. Updated
+firmware must be uploaded separately to provide this authoritative status.
