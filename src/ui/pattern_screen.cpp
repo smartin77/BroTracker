@@ -817,7 +817,12 @@ static void RenderPatternScreen(
         tune,
         pattern, display, live);
 
-    DrawPattern(
+    if(host.load_save_screen) {
+        DrawWrappedFixedText(framebuffer,layout.pattern_x+8,layout.pattern_y+16,
+            layout.pattern_width-16,80,"Pattern Load/Save",header_value);
+        DrawWrappedFixedText(framebuffer,layout.pattern_x+8,layout.pattern_y+48,
+            layout.pattern_width-16,80,"Session saved. Pattern is to the right. File operations are not available yet.",header_name);
+    } else DrawPattern(
         framebuffer,
         pattern, display, editor, live && live->mute_mask?*live->mute_mask:0,host.row_numbering);
 

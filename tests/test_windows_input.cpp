@@ -328,6 +328,21 @@ int main() {
     for (auto type : {SDL_KEYUP, SDL_CONTROLLERBUTTONDOWN, SDL_JOYBUTTONDOWN, SDL_CONTROLLERAXISMOTION}) {
         e = {}; e.type = type; CHECK(MapWindowsAction(e) == BringUpAction::None);
     }
+    for(auto mod:{KMOD_LCTRL,KMOD_RCTRL}) for(auto direction:{SDLK_LEFT,SDLK_RIGHT}) {
+        WindowsEditorInput screen_input;const auto cursor=editor.Cursor();const auto before=*editor.Draft();
+        SDL_Event screen{};screen.type=SDL_KEYDOWN;screen.key.keysym.sym=direction;screen.key.keysym.mod=mod;
+        CHECK(MapWindowsAction(screen)==(direction==SDLK_LEFT?BringUpAction::ScreenLeft:BringUpAction::ScreenRight));
+        CHECK(MapWindowsEditorAction(screen)==EditorAction::None);
+        CHECK(!screen_input.Handle(screen,0,editor));screen_input.Tick(1000,mod,editor);
+        screen.key.repeat=1;CHECK(MapWindowsAction(screen)==BringUpAction::None);
+        CHECK(!screen_input.Handle(screen,1001,editor));screen_input.Tick(2000,KMOD_NONE,editor);
+        CHECK(editor.Cursor().row==cursor.row && editor.Cursor().channel==cursor.channel && editor.Cursor().field==cursor.field);
+        CHECK(BroTracker::SamePattern(before,*editor.Draft()));
+        screen.type=SDL_KEYUP;screen.key.repeat=0;CHECK(MapWindowsAction(screen)==BringUpAction::None);
+        screen_input.Handle(screen,2001,editor);
+        screen.type=SDL_KEYDOWN;screen.key.keysym.mod=KMOD_CTRL|KMOD_SHIFT;
+        CHECK(MapWindowsAction(screen)==BringUpAction::None);
+    }
     CHECK(IsTeensyIdentity(L"USB\\VID_16C0&PID_048A&MI_00\\instance"));
     CHECK(IsTeensyIdentity(L"usb\\vid_16c0&pid_048a&mi_00\\other"));
     CHECK(!IsTeensyIdentity(L"USB\\VID_16C0&PID_048AB&MI_00"));

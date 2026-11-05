@@ -137,6 +137,13 @@ capability and memory investigations remain planning items without assigned orde
   and user power-cycle restoration with distinct unpublished edits (stopped).
 * [ ] Physical interrupted-write/card-failure and rollback injection; separately
   powered physical USB removal, acoustic/peripheral continuity and handheld checks.
+* [ ] Step 1 foundation (2026-11-05): shared left/right screen actions and minimal
+  Pattern Load/Save view; entry waits for confirmed STOP when active and successful
+  Teensy session SAVE, independently of Publish/Restore. DONE automatically STOPs
+  to IDLE. Return retains the cursor within the same BTX run without resuming;
+  the next Play starts at pattern row zero. Future MIX will allow playback. Windows Ctrl+Left/Right
+  and handheld Select+D-pad Left/Right consume one action per direction press.
+  Pattern file browsing/operations and physical display/control validation remain open.
 * [ ] **Pattern Load/Save foundation (future):** Add a separate Pattern screen,
   navigable with directional controls on desktop and handheld, without dedicated
   function keys or new handheld combinations for individual Load/Save operations.

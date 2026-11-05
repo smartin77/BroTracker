@@ -113,6 +113,10 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
     const auto key = event.key.keysym.sym;
     const auto modifiers = event.key.keysym.mod;
     if (key == SDLK_x && (modifiers & KMOD_CTRL)) return BringUpAction::Exit;
+    if((modifiers & KMOD_CTRL) && !(modifiers & (KMOD_SHIFT|KMOD_ALT|KMOD_GUI))) {
+        if(key==SDLK_LEFT)return BringUpAction::ScreenLeft;
+        if(key==SDLK_RIGHT)return BringUpAction::ScreenRight;
+    }
     if (modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) return BringUpAction::None;
     if (key == SDLK_SPACE) return BringUpAction::PatternToggle;
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return BringUpAction::ResetStop;

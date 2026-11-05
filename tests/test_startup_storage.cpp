@@ -36,7 +36,7 @@ struct StoragePeer:SerialTransport {
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
     std::string boot_sd;
-    bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false,hold_save=false;std::string save_reply;
+    bool preview_cap=false,hold_load=false,hold_baseline=false,hold_working=false,hold_stop=false,hold_save=false;std::string save_reply;
     std::string load_reply,baseline_reply,working_reply;
     bool Open(FILE*,const char*) override {healthy=true;return true;}
     void Close() override {}
@@ -98,7 +98,7 @@ struct StoragePeer:SerialTransport {
             if(hold_working)working_reply+=reply;else rx+=reply;
         }else if(line=="BTTEST1 STOP") {
             if(real_control)CHECK_EQ(control.Submit(PatternRequest::Stop),PatternRequestStatus::Accepted);
-            else rx+="BTTEST1 STOPPED\n";
+            else if(!hold_stop)rx+="BTTEST1 STOPPED\n";
         }
         return n;
     }
@@ -571,4 +571,56 @@ TEST_CASE(WarningBarrierAllowsExitWhileInitialWorkingReadbackIsDelayed) {
     Pump(serial,0,70,&editor);CHECK(serial.Connected());CHECK(serial.UserActionsBlocked());
     BringUpControls controls(serial,nullptr);controls.Request(BringUpAction::Exit,"delayed sync",1401);CHECK(controls.Quit());
     CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 SAVE 1")==wire->commands.end());
+}
+
+TEST_CASE(PatternScreenEntryWaitsForStopAndSessionSaveAndCoalescesRequests) {
+    for(const char* state:{"IDLE","PLAYING","PAUSED","DONE"}) {
+        const bool playing=std::strcmp(state,"IDLE")!=0;
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->hold_stop=true;wire->hold_save=true;
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");
+        LocalPatternEditor editor;Pump(serial,0,90,&editor);
+        CHECK(editor.Ready());if(!editor.Ready())return;
+        wire->state=state;wire->rx+="BTTEST1 STATE "+wire->state+"\n";serial.Tick(1800);
+        editor.RestoreCursor({12,5,EditField::Instrument,false});
+        const auto draft=*editor.Draft();BringUpControls controls(serial,nullptr);
+        const auto drive=[&](unsigned first,unsigned last) {for(unsigned i=first;i<last;++i){serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        const auto count=[&](const char* command){return std::count(wire->commands.begin(),wire->commands.end(),command);};
+        for(unsigned n=0;n<4;++n)controls.Request(BringUpAction::ScreenLeft,"test",1801+n);
+        drive(91,110);CHECK(controls.ScreenPending());CHECK(!controls.LoadSaveScreen());
+        CHECK_EQ(count("BTTEST1 STOP"),playing?1:0);
+        if(playing) {
+            CHECK_EQ(count("BTSTORE1 SAVE 1"),0);wire->state="IDLE";wire->rx+="BTTEST1 STOPPED\n";drive(110,125);
+        }
+        CHECK_EQ(count("BTSTORE1 SAVE 1"),1);CHECK(!wire->save_reply.empty());CHECK(!controls.LoadSaveScreen());
+        controls.Request(BringUpAction::ScreenLeft,"repeat",2501);CHECK_EQ(count("BTSTORE1 SAVE 1"),1);
+        wire->rx+=wire->save_reply;wire->save_reply.clear();drive(126,145);
+        CHECK(controls.LoadSaveScreen());CHECK(!controls.ScreenPending());
+        controls.Request(BringUpAction::ScreenRight,"test",2901);CHECK(!controls.LoadSaveScreen());
+        CHECK(SamePattern(draft,*editor.Draft()));CHECK_EQ(editor.Cursor().row,12u);CHECK_EQ(editor.Cursor().channel,5u);
+        CHECK_EQ(editor.Cursor().field,EditField::Instrument);
+        CHECK(!serial.Playing());CHECK(!serial.Paused());
+        controls.Request(BringUpAction::PatternToggle,"next Play",2902);drive(146,160);
+        CHECK_EQ(count("BTTEST1 START"),1);CHECK_EQ(count("BTTEST1 CONTINUE"),0);
+        CHECK_EQ(editor.Cursor().row,12u); // Editor cursor does not seed playback START.
+        for(const auto& c:wire->commands)CHECK(c.rfind("BTPUBLISH1 BEGIN",0)!=0);
+    }
+}
+TEST_CASE(PatternScreenEntryFailureNeverEntersOrRetriesAutomatically) {
+    for(unsigned failure=0;failure<7;++failure) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->state=failure==0?"PLAYING":"IDLE";wire->hold_stop=failure==0;
+        wire->hold_save=failure>=2 && failure!=5;wire->result=failure==5?"deferred-playing":"invalid";
+        BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;
+        Pump(serial,0,90,&editor);BringUpControls controls(serial,nullptr);
+        controls.Request(BringUpAction::ScreenLeft,"test",1801);
+        for(unsigned i=91;i<110;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+        if(failure==6) {wire->state="ERROR";wire->rx+="BTTEST1 STATE ERROR\nBTSTORE1 RESULT 1 save ok 0\n";}
+        if(failure==3)wire->healthy=false;
+        if(failure==4)wire->rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 unavailable\n";
+        for(unsigned i=110;i<1000;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+        CHECK(!controls.LoadSaveScreen());CHECK(!controls.ScreenPending());
+        CHECK_EQ(std::count(wire->commands.begin(),wire->commands.end(),"BTSTORE1 SAVE 1"),failure==0?0:1);
+        CHECK(*controls.ScreenStatus());
+    }
 }

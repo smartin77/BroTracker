@@ -94,6 +94,9 @@ public:
     bool StartupPatternReady() const {return startup_selection_enabled_ ? (startup_editor_ready_ || load_rejected_) : (!startup_configured_ || initial_sync_ready_);}
     enum class FileAction { None, Save, Load, Test, Session };
     bool RequestFile(FileAction action, std::uint32_t now);
+    bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
+    bool FilePending() const {return file_action_!=FileAction::None;}
+    bool SessionSaveSucceeded() const {return session_save_succeeded_;}
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
     BroTracker::HostMidiHealth MidiHealth(std::uint32_t now) const {
@@ -170,6 +173,7 @@ private:
     BroTracker::DevelopmentPattern startup_pattern_;
     bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
     FileAction file_action_=FileAction::None;
+    bool session_save_succeeded_=false;
     char file_status_[160]{};
     bool exit_requested_=false,exit_done_=false;
     std::uint32_t exit_started_=0,file_requested_at_=0;

@@ -8,10 +8,43 @@ editable pattern position; field means Note or Instrument (OFF timing when the
 note is OFF); header means the channel-number box. Playback does not move the
 edit cursor. Unmodified keys are intended unless a modifier is shown.
 
+## Pattern Load/Save navigation foundation (2026-11-05)
+
+Shared ScreenLeft enters a dedicated Pattern Load/Save screen to the left of PAT;
+ScreenRight returns to the same working pattern and edit cursor within the same
+BTX run. Returning does not resume playback; the next Play starts at pattern row
+zero, independently of the edit cursor. Cursor position remains host view state;
+it is not persisted by the existing working-session format.
+
+Leaving Pattern for another screen stops active playback and saves the working
+session before switching. The future MIX screen is the exception and will allow
+playback to continue; MIX is not implemented here.
+
+Entry automatically requests STOP for Playing/Paused and naturally completed
+DONE, waits for acknowledged STOPPED/IDLE, then uses the existing working-session
+SAVE path. Already IDLE skips STOP. Only a successful save permits entry. Repeated
+entry requests coalesce; failures remain on PAT with right-panel status. File
+browsing and pattern file operations remain deferred.
+
+The agreed BroTracker bindings are Ctrl+Left/Right on Windows and
+Select+D-pad Left/Right on handheld (Select is SDL BACK). Hold Select before
+pressing the direction. Each direction triggers once per physical press and is
+consumed without moving the edit cursor. L1/R1 directional bindings take
+precedence when a shoulder is held; Select+Start retains its development-load
+chord. STOP, Exit and temporary Load/Save/Publish/Restore controls are retained.
+
+ElkTracker Manual, pages 5 and 7 (Controls / Navigation), supplies the directional
+screen-navigation reference: its Select+Left/Right has context-dependent back/dive
+behavior and otherwise switches main screens. Its desktop screen keys are 1-8.
+BroTracker bindings above were explicitly supplied by the owner, not inferred
+from that manual. Physical display/control validation remains pending.
+
 ## Desktop controls
 
 | Function | Key / button combination | Context / behavior |
 | --- | --- | --- |
+| Pattern Load/Save screen (left) | Ctrl + Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. One request per press; consumes Left. |
+| Return to Pattern (right) | Ctrl + Right | From Pattern Load/Save: return with the same pattern and editor cursor. One request per press; consumes Right. |
 | Start / Pause / Continue | Space | Stopped: start at pattern row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | Enter or numeric keypad Enter | Stop/reset to pattern start; remain in BTX. A fresh press can request STOP again. |
 | Exit | Ctrl + X or close the window | Synchronize available edits and request session persistence, then exit without STOP. Playing writes are explicitly deferred; failures/timeouts are logged. |
@@ -41,6 +74,8 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 
 | Function | Key / button combination | Context / behavior |
 | --- | --- | --- |
+| Pattern Load/Save screen (left) | Select + D-pad Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. Hold Select first; one request per press; consumes Left. |
+| Return to Pattern (right) | Select + D-pad Right | Return with the same pattern and editor cursor. Hold Select first; one request per press; consumes Right. L1/R1 directional bindings retain precedence. |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | B | Stop/reset and stay in BTX, including with L1 held. A fresh press can request STOP again. |
 | Exit | L1 + Start | Session persistence exit workflow; playback remains running. Also exits with Teensy disconnected. Start action occurs on release. |

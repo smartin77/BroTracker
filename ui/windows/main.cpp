@@ -110,10 +110,10 @@ int main(int argc, char* argv[]) try {
             WindowsDiagnostic(log_file,"Diagnostic channel gains",accepted ? "One complete request accepted; no automatic retry/reconnect replay" : "Request not accepted; no retry");
         }
         if (audio) audio->PollDiagnostics();
-        if(serial.UserActionsBlocked()) {editor_input.Cancel();tempo_input.Cancel();}
+        if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {editor_input.Cancel();tempo_input.Cancel();}
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
-            if(serial.UserActionsBlocked()) {
+            if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {
                 editor_input.Cancel();tempo_input.Cancel();
                 // Track physical releases/presses against an unready sink; never mutate the retained editor.
                 LocalPatternEditor blocked_editor;
@@ -121,9 +121,10 @@ int main(int argc, char* argv[]) try {
                 (void)tempo_input.Handle(event,SDL_GetTicks(),false);
                 (void)header_input.Handle(event,0,0,false);
                 const auto action=MapWindowsAction(event);
-                if(action==BringUpAction::Exit || action==BringUpAction::ResetStop)
+                if(action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
+                    (!serial.UserActionsBlocked() && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight)))
                     controls.Request(action,"warning input",SDL_GetTicks());
-                if(!controls.Exiting()) {
+                if(!controls.Exiting() && !controls.PatternInputBlocked()) {
                     if((serial.ReconnectRecoveryActionsAvailable() || serial.PublicationReadbackRetryAvailable()) && MapWindowsPublish(event))
                         (void)serial.Publish(editor,SDL_GetTicks());
                     if(serial.ReconnectRecoveryActionsAvailable() && event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT))
@@ -154,6 +155,12 @@ int main(int argc, char* argv[]) try {
                 if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());
                 continue;
             }
+            const auto screen_action=MapWindowsAction(event);
+            if(screen_action==BringUpAction::ScreenLeft || screen_action==BringUpAction::ScreenRight) {
+                (void)editor_input.Handle(event,SDL_GetTicks(),editor);editor_input.Cancel();tempo_input.Cancel();
+                serial.SyncEditor(editor,SDL_GetTicks());
+                controls.Request(screen_action,"Ctrl+Left/Right",SDL_GetTicks());continue;
+            }
             if (editor_input.Handle(event, SDL_GetTicks(), editor)) continue;
             const auto action = MapWindowsAction(event);
             if (action != BringUpAction::None) {
@@ -168,13 +175,17 @@ int main(int argc, char* argv[]) try {
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
-        if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable())) (void)serial.StepTempo(step);
-        if(!serial.UserActionsBlocked())editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
+        if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable() && !controls.PatternInputBlocked())) (void)serial.StepTempo(step);
+        if(!serial.UserActionsBlocked() && !controls.PatternInputBlocked())editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         else editor_input.Cancel();
         HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+        panel.load_save_screen=controls.LoadSaveScreen();
+        panel.transport_hints=controls.LoadSaveScreen()?"Ctrl+Right: Pattern | Enter: STOP | Ctrl+X: EXIT":
+            "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
+        if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;
         RenderMainScreen(framebuffer, tune, tune.patterns.front(), serial.PlaybackView(SDL_GetTicks()), &editor, panel);

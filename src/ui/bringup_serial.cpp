@@ -55,6 +55,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
         else std::snprintf(load_label_,sizeof(load_label_),"load-%s",BroTracker::DevelopmentPatternName(startup_pattern_));
         preview_.Suspend(true);
     }
+    if(action==FileAction::Session)session_save_succeeded_=false;
     file_action_=action;file_requested_at_=now;
     std::strcpy(file_status_,action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
     Log("File action:",file_status_);return true;
@@ -74,7 +75,7 @@ void BringUpSerial::Disconnect(const char* reason)
         if(!continuity_pending_) continuity_frozen_=false;
         continuity_pending_=true; continuity_ready_=false;continuity_auto_=false;file_status_[0]=0;
     }
-    initial_sync_ready_=false;
+    initial_sync_ready_=false;session_save_succeeded_=false;
     if(file_action_!=FileAction::None) {
         std::strcpy(file_status_,"File outcome uncertain after disconnect; no automatic retry");
         file_action_=FileAction::None;
@@ -533,6 +534,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(draft_result && draft_deferred_)std::strcpy(file_status_,"Tune Save pending in device RAM; will write after Pause/Stop (not yet saved)");
         Log("File result:",file_status_);
         if(command_reply) {
+            if(session_result)session_save_succeeded_=!std::strncmp(result,"ok ",3);
             pending_=Command::None;file_action_=FileAction::None;
             if(exit_requested_)exit_done_=true;
         }

@@ -340,7 +340,10 @@ int main(int argc, char* argv[])
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
-        editor_input.SetActionBarrier(serial.UserActionsBlocked(),serial.StopAvailable(),serial.ReconnectRecoveryActionsAvailable(),serial.PublicationReadbackRetryAvailable());
+        editor_input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
+            !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
+            !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),
+            !serial.UserActionsBlocked() && controls.PatternInputBlocked());
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
             next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
             if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
@@ -367,16 +370,17 @@ int main(int argc, char* argv[])
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
             LocalPatternEditor blocked_editor;
-            const bool blocked=serial.UserActionsBlocked();
+            const bool blocked=serial.UserActionsBlocked() || controls.PatternInputBlocked();
             if(blocked)editor_input.Cancel();
             auto result=editor_input.Handle(event,SDL_GetTicks(),!blocked,blocked?blocked_editor:editor);
             if(blocked) {
                 const auto transport=result.transport;
-                const bool recovery=serial.ReconnectRecoveryActionsAvailable();
-                const bool publish=(recovery || serial.PublicationReadbackRetryAvailable()) && result.publish && !editor.Cursor().header;
+                const bool recovery=!controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable();
+                const bool publish=(recovery || (!controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable())) && result.publish && !editor.Cursor().header;
                 const bool restore=recovery && result.restore;
                 result={};result.publish=publish;result.restore=restore;
-                if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()))result.transport=transport;
+                if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
+                   (!serial.UserActionsBlocked() && (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight)))result.transport=transport;
                 editor_input.Cancel();
             }
             if(result.file!=BringUpSerial::FileAction::None && !controls.Exiting()) {
@@ -403,7 +407,7 @@ int main(int argc, char* argv[])
         if(diagnostic.Enabled()) diagnostic_cancel.ObserveReleased(DiagnosticButtonsReleased(),SDL_GetTicks());
         if(const auto step=volume_input.Poll(SDL_GetTicks(),!diagnostic.Enabled() && serial.VolumeAvailable() && !controls.Exiting()))
             (void)serial.StepVolume(step);
-        editor_input.Tick(SDL_GetTicks(),!serial.UserActionsBlocked() && !controls.Exiting(),editor);
+        editor_input.Tick(SDL_GetTicks(),!serial.UserActionsBlocked() && !controls.PatternInputBlocked() && !controls.Exiting(),editor);
         if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
         serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
@@ -416,6 +420,10 @@ int main(int argc, char* argv[])
             serial.PublicationStatus(), {}, serial.MidiStatus()};
         midi_exchange.Tick(serial.MidiHealth(SDL_GetTicks()),serial.Playing()?"playing":serial.Paused()?"paused":serial.MidiRecoveryStopped()?"stopped":"unknown",BroTracker::MidiStatusExchange::Now());
         panel.midi_route_status=midi_exchange.route;panel.midi_usb_status=midi_exchange.usb;
+        panel.load_save_screen=controls.LoadSaveScreen();
+        panel.transport_hints=controls.LoadSaveScreen()?"Select+Right: Pattern | B: STOP | L1+Start: EXIT":
+            "Select+Left: Pattern Load/Save | "+panel.transport_hints;
+        if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
         panel.row_numbering=host_config.config.row_numbering;
