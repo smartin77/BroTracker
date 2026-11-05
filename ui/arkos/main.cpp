@@ -340,7 +340,7 @@ int main(int argc, char* argv[])
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
         serial.SyncEditor(editor,SDL_GetTicks());
-        editor_input.SetActionBarrier(serial.UserActionsBlocked(),serial.StopAvailable(),serial.ReconnectRecoveryActionsAvailable());
+        editor_input.SetActionBarrier(serial.UserActionsBlocked(),serial.StopAvailable(),serial.ReconnectRecoveryActionsAvailable(),serial.PublicationReadbackRetryAvailable());
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
             next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
             if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
@@ -373,7 +373,7 @@ int main(int argc, char* argv[])
             if(blocked) {
                 const auto transport=result.transport;
                 const bool recovery=serial.ReconnectRecoveryActionsAvailable();
-                const bool publish=recovery && result.publish && !editor.Cursor().header;
+                const bool publish=(recovery || serial.PublicationReadbackRetryAvailable()) && result.publish && !editor.Cursor().header;
                 const bool restore=recovery && result.restore;
                 result={};result.publish=publish;result.restore=restore;
                 if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()))result.transport=transport;

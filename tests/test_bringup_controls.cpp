@@ -24,12 +24,34 @@ struct Test {
     FakeTransport* port = new FakeTransport;
     BringUpSerial serial{nullptr, std::unique_ptr<SerialTransport>(port)};
     BringUpControls controls{serial, nullptr};
+    LocalPatternEditor editor;
     unsigned now = 0;
+    unsigned snapshot_id = 1;
     void Tick() { controls.Tick(now++); }
     void Reply(const char* reply) { port->incoming = reply; Tick(); }
     void Action(BringUpAction action) { controls.Request(action, "test", now); }
-    void Ready(const char* state = "BTTEST1 STATE DONE\n") {
-        Tick(); port->Expect("BTTEST1 HELLO\n"); Reply(state); CHECK(serial.Connected());
+    void Ready(const char* state = "BTTEST1 STATE DONE\n",bool synchronize=true) {
+        // An explicit route starts AUDIO immediately after STATE. Its tests own
+        // the exact SET/ACK/error exchange before allowing snapshot readiness.
+        if(!synchronize) {
+            Tick();port->Expect("BTTEST1 HELLO\n");Reply(state);CHECK(serial.Connected());return;
+        }
+        Tick(); port->Expect("BTTEST1 HELLO\n"); Reply("BTTEST1 STATE IDLE\n");
+        Synchronize(); Reply(state); CHECK(serial.Connected());
+    }
+    void Synchronize() {
+        serial.SyncEditor(editor,now); // Retain the same editor across reconnect recovery.
+        Reply("BTPATTERN1 POS 1 0 0 0 0 0 1 1\n");
+        Reply("BTPATTERN1 SNAPCAP 1\n"); Tick();
+        const auto request="BTPATTERN1 GET 1 "+std::to_string(snapshot_id)+"\n";
+        port->Expect(request.c_str());
+        BroTracker::RealtimePattern pattern; pattern.active_rows=pattern.active_channels=1;
+        BroTracker::PatternSnapshotSender sender(pattern,12500); CHECK(sender.Begin(snapshot_id++,now));
+        while(sender.HasData()) {
+            std::size_t size;const auto* data=sender.Data(size);
+            const std::string line(data,size);sender.Consume(size);Reply(line.c_str());
+        }
+        serial.SyncEditor(editor,now);CHECK(!serial.UserActionsBlocked());
     }
     void Send(const char* value) { Tick(); Tick(); port->Expect(value); }
 };
@@ -96,7 +118,8 @@ int main() {
             t.Tick(); t.port->Expect("BTTEST1 HELLO\n");
             t.Reply("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
             t.Tick(); t.port->Expect(command.c_str()); t.Reply(ack.c_str());
-            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing()); CHECK(t.serial.Start());
+            t.Tick(); t.port->Expect(""); CHECK(!t.serial.Playing());
+            t.Synchronize(); CHECK(t.serial.Start());
         }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\nBTMIDI1 CAP 1\n");
           t.Tick(); t.port->Expect("BTMIDI1 SET 1 12\n"); t.Reply("BTMIDI1 SELECTED 1 12\n");
@@ -125,13 +148,15 @@ int main() {
           CHECK(std::strstr(t.serial.MidiStatus(),"unsupported")); }
         for(auto choice : {BroTracker::AudioOutputChoice::Bridge,BroTracker::AudioOutputChoice::Pt8211,BroTracker::AudioOutputChoice::AudioShield}) {
             Test t; t.serial.SetAudioOutputPreference(choice);
-            t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n");
-            CHECK(!t.serial.Start());
+            t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n",false);
+            CHECK(!t.serial.AudioOutputConfirmed());CHECK(std::strstr(t.serial.Status(),"Waiting for Teensy audio selection"));
+            CHECK(!t.serial.Start()); // AUDIO is pending; initial readback cannot run yet.
             const std::string command=std::string("BTAUDIO1 SET 1 ")+BroTracker::AudioOutputName(choice)+"\n";
             t.Tick(); t.port->Expect(command.c_str());
             const std::string ack=std::string("BTAUDIO1 SELECTED 1 ")+BroTracker::AudioOutputName(choice)+"\n";
             t.Reply(ack.c_str()); CHECK(std::strcmp(t.serial.ActiveAudioOutput(),BroTracker::AudioOutputName(choice))==0); CHECK(t.serial.AudioOutputConfirmed());
             CHECK(!t.serial.Playing()); t.port->Expect("");
+            t.Synchronize(); // The acknowledged route now permits snapshot readback.
             t.port->online=false;t.Tick(); CHECK(!t.serial.AudioOutputConfirmed());
             t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
             t.Reply("BTTEST1 STATE PLAYING\nBTAUDIO1 CAP 1\n");t.Tick();t.port->Expect(command.c_str());
@@ -150,22 +175,27 @@ int main() {
           CHECK(t.serial.AudioOutputConfirmed());CHECK(std::strcmp(t.serial.ActiveAudioOutput(),"audio_shield")==0); }
         for(const char* reason : {"shield-enable-failed","shield-readback-failed","shield-config-mismatch"}) {
           Test t;t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::AudioShield);
-          t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n");t.Tick();t.port->Expect("BTAUDIO1 SET 1 audio_shield\n");
+          t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n",false);t.Tick();t.port->Expect("BTAUDIO1 SET 1 audio_shield\n");
           const std::string error=std::string("BTAUDIO1 ERROR 1 ")+reason+" active=audio_shield\n";
-          t.Reply(error.c_str());CHECK(!t.serial.AudioOutputConfirmed());CHECK(!t.serial.Start());
+          t.Reply(error.c_str());CHECK(!t.serial.AudioOutputConfirmed());
+          t.Synchronize();CHECK(!t.serial.Start()); // Ready snapshot, but failed audio still blocks START.
           t.Tick();t.port->Expect("");CHECK(std::strstr(t.serial.Status(),"Audio selection failed"));
         }
         { Test t; t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
-          t.Ready();t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
-          t.Reply("BTAUDIO1 SELECTED 1 bridge\n");CHECK(!t.serial.AudioOutputConfirmed());CHECK(!t.serial.Start()); }
+          t.Ready("BTTEST1 STATE IDLE\n",false);t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+          t.Reply("BTAUDIO1 SELECTED 1 bridge\n");CHECK(!t.serial.AudioOutputConfirmed());
+          t.Synchronize();CHECK(!t.serial.Start());CHECK(std::strstr(t.serial.Status(),"Audio selection failed")); }
         { Test t; t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
-          t.Ready();t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
-          t.Reply("BTAUDIO1 ERROR 1 restart-required active=bridge\n");CHECK(!t.serial.Start());
+          t.Ready("BTTEST1 STATE IDLE\n",false);t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+          t.Reply("BTAUDIO1 ERROR 1 restart-required active=bridge\n");CHECK(!t.serial.AudioOutputConfirmed());
+          t.Synchronize();CHECK(!t.serial.Start());CHECK(std::strstr(t.serial.Status(),"Audio selection failed"));
           t.Tick();t.port->Expect(""); }
         { Test t; t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
-          t.Ready();t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+          t.Ready("BTTEST1 STATE IDLE\n",false);t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
           t.now+=6001;t.Tick();CHECK(!t.serial.AudioOutputConfirmed());CHECK(!t.serial.Start());
-          CHECK(std::strstr(t.serial.Status(),"Audio selection failed")); }
+          CHECK(std::strstr(t.serial.Status(),"Audio selection failed"));
+          t.port->Expect("BTTEST1 STATUS\n");t.Reply("BTTEST1 STATE IDLE\n");
+          t.Synchronize();CHECK(!t.serial.Start());CHECK(!t.serial.AudioOutputConfirmed()); }
 
         { Test t; t.Ready("BTTEST1 STATE IDLE\n");
           CHECK(!t.serial.PlaybackView(t.now)->callback_performance);

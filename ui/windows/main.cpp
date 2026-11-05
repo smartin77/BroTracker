@@ -123,9 +123,10 @@ int main(int argc, char* argv[]) try {
                 const auto action=MapWindowsAction(event);
                 if(action==BringUpAction::Exit || action==BringUpAction::ResetStop)
                     controls.Request(action,"warning input",SDL_GetTicks());
-                if(serial.ReconnectRecoveryActionsAvailable() && !controls.Exiting()) {
-                    if(MapWindowsPublish(event))(void)serial.Publish(editor,SDL_GetTicks());
-                    if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT))
+                if(!controls.Exiting()) {
+                    if((serial.ReconnectRecoveryActionsAvailable() || serial.PublicationReadbackRetryAvailable()) && MapWindowsPublish(event))
+                        (void)serial.Publish(editor,SDL_GetTicks());
+                    if(serial.ReconnectRecoveryActionsAvailable() && event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT))
                         (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());
                 }
                 continue;

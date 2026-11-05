@@ -30,9 +30,10 @@ public:
         }
         blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
-    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false) noexcept {
+    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false) noexcept {
         if(blocked!=action_barrier_) {Cancel();start_pending_=false;chord_used_=false;}
         action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
+        publication_readback_available_=publication_readback_available;
     }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
@@ -107,9 +108,9 @@ private:
             Cancel();
             // Keep existing connected STOP and explicit recovery chords, never normal actions.
             if(down && focused_ && b==SDL_CONTROLLER_BUTTON_B && stop_available_)return {BringUpAction::ResetStop,false};
-            if(down && focused_ && recovery_available_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) {
-                if(b==SDL_CONTROLLER_BUTTON_X)return {BringUpAction::None,false,true};
-                if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::None,true};
+            if(down && focused_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) {
+                if(b==SDL_CONTROLLER_BUTTON_X && recovery_available_)return {BringUpAction::None,false,true};
+                if(b==SDL_CONTROLLER_BUTTON_A && (recovery_available_ || publication_readback_available_))return {BringUpAction::None,true};
             }
             if(b==SDL_CONTROLLER_BUTTON_START) {
                 if(down)start_pending_=focused_;
@@ -205,6 +206,7 @@ private:
         return {};
     }
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
+    bool publication_readback_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;

@@ -305,12 +305,13 @@ bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint3
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
-    if(UserActionsBlocked() && !ReconnectRecoveryActionsAvailable())return false;
+    if(SdStatus()==SdAvailability::Unavailable)return false;
     // Shift+F5 may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
-        if(!connected_ || snapshot_version_!=2 || pattern_assembler_.Active()) return false;
+        if(!PublicationReadbackRetryAvailable()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
+    if(UserActionsBlocked() && !ReconnectRecoveryActionsAvailable())return false;
     if(continuity_pending_) {
         // Shift+F5 is explicit RAM publication, not an automatic recovery or SD save.
         // Freeze the retained candidate directly: preview dimensions may differ

@@ -46,6 +46,27 @@ struct Peer
     }
 };
 
+// Establish readiness through the real PTY and parser, without changing transport state.
+static void Synchronize(BringUpSerial& serial,LocalPatternEditor& editor,Peer& peer,std::uint32_t now,std::uint32_t id=1,bool completed=true)
+{
+    CHECK(serial.UserActionsBlocked());CHECK(!serial.Start());
+    serial.SyncEditor(editor,now); // Freeze retained work before reconnect readback.
+    // DONE suppresses new position telemetry. Supply stopped dimensions under
+    // IDLE, then restore DONE after synchronization for the acknowledgement tests.
+    peer.Reply("BTTEST1 STATE IDLE\nBTPATTERN1 POS 1 0 0 0 0 0 1 1\nBTPATTERN1 SNAPCAP 1\n");
+    serial.Tick(now);serial.Tick(now);
+    const auto request="BTPATTERN1 GET 1 "+std::to_string(id)+"\n";peer.Expect(request.c_str());
+    BroTracker::RealtimePattern pattern;pattern.active_rows=pattern.active_channels=1;
+    BroTracker::PatternSnapshotSender sender(pattern,12500);CHECK(sender.Begin(id,now));
+    while(sender.HasData()) {
+        std::size_t size;const auto* data=sender.Data(size);
+        const std::string line(data,size);sender.Consume(size);peer.Reply(line);serial.Tick(now);
+    }
+    serial.SyncEditor(editor,now);CHECK(!serial.UserActionsBlocked());
+    if(completed) {peer.Reply("BTTEST1 STATE DONE\n");serial.Tick(now);}
+    peer.ExpectNoData();
+}
+
 // Real Linux PTY transport with deterministic write ownership/backpressure.
 // Zero return owns the complete attempted payload until a positive completion.
 class ControlledPtyTransport : public SerialTransport {
@@ -135,6 +156,7 @@ int main()
             char device[128];
             std::strcpy(device, peer.path);
             BringUpSerial serial(log, device);
+            LocalPatternEditor editor;
             CHECK(!serial.Start());
             serial.Tick(0);
             peer.Expect("BTTEST1 HELLO\n");
@@ -145,6 +167,7 @@ int main()
             peer.Reply("NE\r\n");
             serial.Tick(2);
             CHECK(serial.Connected() && serial.Finished());
+            Synchronize(serial,editor,peer,2);
             CHECK(serial.Start());
             CHECK(!serial.Finished());
             serial.Tick(3); serial.Tick(4);
@@ -203,8 +226,10 @@ int main()
         {
             Peer peer;
             BringUpSerial serial(log, peer.path);
+            LocalPatternEditor editor;
             serial.Tick(0); peer.Expect("BTTEST1 HELLO\n");
             peer.Reply("BTTEST1 STATE DONE\n"); serial.Tick(1);
+            Synchronize(serial,editor,peer,1);
             serial.Tick(1000); serial.Tick(1001);
             peer.Expect("BTTEST1 STATUS\n");
             CHECK(serial.Start());
@@ -229,8 +254,10 @@ int main()
             char device[128]; std::strcpy(device,peer.path);
             auto* port=new ControlledPtyTransport(device);
             BringUpSerial serial(log,std::unique_ptr<SerialTransport>(port));
+            LocalPatternEditor editor;
             serial.Tick(0); peer.Expect("BTTEST1 HELLO\n");
             peer.Reply("BTTEST1 STATE DONE\n"); serial.Tick(1);
+            Synchronize(serial,editor,peer,1);
             serial.Tick(1000); peer.Expect("BTTEST1 STATUS\n");
             CHECK(serial.Start());
             if(phase>0) {
@@ -251,6 +278,7 @@ int main()
             serial.Tick(2000); replacement.Expect("BTTEST1 HELLO\n");
             replacement.Reply("BTTEST1 STATE DONE\n"); serial.Tick(2001); serial.Tick(2002);
             replacement.ExpectNoData(); // Never replay an attempted or cancelled START.
+            Synchronize(serial,editor,replacement,2002,2);
             CHECK(serial.Start()); CHECK(!serial.StartCancelled());
             serial.Tick(2003); replacement.Expect("BTTEST1 START\n");
         }
@@ -259,8 +287,10 @@ int main()
             Peer peer;
             auto* port=new ControlledPtyTransport(peer.path);
             BringUpSerial serial(log,std::unique_ptr<SerialTransport>(port));
+            LocalPatternEditor editor;
             serial.Tick(0); peer.Expect("BTTEST1 HELLO\n");
             peer.Reply("BTTEST1 STATE IDLE\n"); serial.Tick(1);
+            Synchronize(serial,editor,peer,1,1,false);
             port->gated=true; port->credit=prefix;
             CHECK(serial.Start()); serial.Tick(2);
             if(prefix) peer.Expect("BTTES"); else peer.ExpectNoData();

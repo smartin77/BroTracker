@@ -140,6 +140,11 @@ public:
             (!startup_selection_enabled_ && !initial_sync_ready_) || !pattern_assembler_.Snapshot() || continuity_pending_;
     }
     bool StopAvailable() const {return connected_ && SdStatus()!=SdAvailability::Unavailable;}
+    // Only re-arm GET for an uncertain publication; never authorize host writes.
+    bool PublicationReadbackRetryAvailable() const {
+        return StopAvailable() && publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain &&
+            snapshot_version_==2 && !pattern_assembler_.Active();
+    }
     // Explicit existing recovery operations only, never ordinary editing/transport.
     bool ReconnectRecoveryActionsAvailable() const {
         return StopAvailable() && continuity_pending_ && continuity_frozen_ &&
