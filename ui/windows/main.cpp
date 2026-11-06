@@ -97,6 +97,7 @@ int main(int argc, char* argv[]) try {
     LocalPatternEditor editor;
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
+    controls.SetConfirmLoadReplace(host_config.config.confirm_load_replace);
     BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F3 Test; F4 Load; F5 Save; Shift F4 Restore; Shift F5 Publish; capability-gated automatic preview\n");
     WindowsHeaderInput header_input;
     bool display_failed = false;
@@ -120,6 +121,10 @@ int main(int argc, char* argv[]) try {
                 (void)editor_input.Handle(event,SDL_GetTicks(),blocked_editor);
                 (void)tempo_input.Handle(event,SDL_GetTicks(),false);
                 (void)header_input.Handle(event,0,0,false);
+                if(!serial.UserActionsBlocked() && controls.BrowserInputAvailable()) {
+                    const auto browser=MapWindowsBrowserAction(event);
+                    if(browser!=BringUpAction::None){controls.Request(browser,"Pattern browser",SDL_GetTicks());continue;}
+                }
                 const auto action=MapWindowsAction(event);
                 if(action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
                     (!serial.UserActionsBlocked() && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight)))
@@ -183,7 +188,9 @@ int main(int argc, char* argv[]) try {
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         panel.load_save_screen=controls.LoadSaveScreen();
-        panel.transport_hints=controls.LoadSaveScreen()?"Ctrl+Right: Pattern | Enter: STOP | Ctrl+X: EXIT":
+        panel.pattern_browser_text=controls.BrowserText();
+        panel.pattern_browser_list=controls.BrowserList();
+        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | Left: first page | Right: next page | Enter: Load/Confirm | Esc: Cancel | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

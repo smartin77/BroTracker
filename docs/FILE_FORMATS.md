@@ -278,6 +278,36 @@ freezes one bounded tune snapshot and reports pending until Pause/Stop completes
 the write. Session exit while Playing reports deferred persistence and preserves
 playback. Sudden power loss can lose changes not yet safely saved.
 
+### Pattern Load screen listing
+
+BTX lists the existing `/BroTracker/development/` directory, not a new storage
+layout. A listed filename has a 1..24 ASCII alphanumeric/underscore/hyphen stem
+and exact `.btdev` extension. Each regular file must pass the existing BTDP
+version-1 length/dimensions/tempo/note/OFF-timing/CRC validator. This includes the
+four existing fixtures and arbitrary compatible filenames. Directories, malformed
+records, other extensions and temporary replacement files are omitted. Instrument
+binding compatibility is still checked by the existing application validator.
+
+Firmware advertises `BTSTORE1 LISTCAP 1`. While stopped and storage/control queues
+are ready, `BTSTORE1 LIST 1 request offset` returns up to eight
+`BTSTORE1 FILE 1 request filename` lines followed by
+`BTSTORE1 LISTEND 1 request next_offset done` (done is 0/1), or
+`BTSTORE1 LISTERROR 1 request reason`. Request IDs are nonzero uint32; offsets are
+opaque aligned directory byte positions, initially zero. A page scans at most 64
+entries under the existing read lease and can be empty with more entries remaining.
+The host accepts only the matching request, commits a page only on its complete
+end marker, and times out without replaying commands. Left refreshes the first
+page; directory edits during browsing require a refresh. Listing never creates or
+writes files and is rejected during playback.
+
+Selected files use the existing `BTSTORE1 READY 1` / `BTSTORE1 LOAD 1 filename`
+path, independent of the configured F3 filename. Validation precedes application;
+the host waits for the application acknowledgement and authoritative baseline /
+working readback before returning with a reset editor cursor. Known rejected
+loads preserve the current work. Uncertain application/readback keeps the existing
+recovery barrier instead of claiming that the device did not change. No pattern
+Save, session format change, cursor persistence or startup migration is added.
+
 ### Development selection and protocol
 
 `[development] startup_pattern` is used **only** by F3 / Select+Start. Names accept

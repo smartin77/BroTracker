@@ -29,6 +29,21 @@ public:
         if(!read || !closed) return PatternFileResult::Io;
         size=static_cast<std::size_t>(length); return PatternFileResult::Ok;
     }
+    bool NextPatternName(std::uint32_t& offset,char* name,std::size_t capacity,bool& end) {
+        auto dir=SD.sdfs.open("/BroTracker/development",O_RDONLY);
+        if(!dir || !dir.isDirectory() || !dir.seekSet(offset)) {if(dir)dir.close();return false;}
+        FsFile file;end=!file.openNext(&dir,O_RDONLY);
+        if(end) {const bool ok=!dir.getError();return dir.close() && ok;}
+        const auto position=dir.curPosition();
+        name[0]=0;
+        if(!file.isDirectory()) {
+            const auto n=file.getName(name,capacity);
+            if(!n || n>=capacity-1)name[0]=0;
+        }
+        const bool closed=file.close();const bool dir_closed=dir.close();
+        if(position>UINT32_MAX || position<=offset)return false;
+        offset=static_cast<std::uint32_t>(position);return closed && dir_closed;
+    }
     bool WriteNew(const char* path,const std::uint8_t* bytes,std::size_t size) {
         auto f=SD.sdfs.open(path,O_WRONLY|O_CREAT|O_EXCL);
         if(!f) return false;

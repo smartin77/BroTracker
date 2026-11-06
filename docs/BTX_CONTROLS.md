@@ -24,7 +24,28 @@ Entry automatically requests STOP for Playing/Paused and naturally completed
 DONE, waits for acknowledged STOPPED/IDLE, then uses the existing working-session
 SAVE path. Already IDLE skips STOP. Only a successful save permits entry. Repeated
 entry requests coalesce; failures remain on PAT with right-panel status. File
-browsing and pattern file operations remain deferred.
+browsing and Load are available below; pattern-file Save/Save As remain deferred.
+
+The plain list reads compatible `.btdev` files from the Teensy SD directory
+`/BroTracker/development/`, including patern1.btdev through patern4.btdev and
+other valid files. Up/Down selects within a page. Left opens/refreshes the first
+page; Right requests the next page when more entries remain. Empty pages can
+occur among unsupported files; continue Right when offered. Enter (Windows) or
+A (handheld) opens confirmation, then a second press confirms replacement.
+Escape/B cancels confirmation back to the list; outside confirmation it returns
+to Pattern with the original work and cursor. Ctrl+Right/Select+Right also returns.
+An in-flight Load cannot be undone; wait for its result/synchronization.
+
+`[pattern] confirm_load_replace=true` is the default, including when absent.
+Setting it to `false` skips only the replacement confirmation. STOP, validation,
+application acknowledgement and host synchronization remain required. Restart
+BTX after editing config/config.ini beside the executable; the example is not
+loaded automatically. Load succeeds only after the new baseline and working
+pattern synchronize, then returns to Pattern at channel 1, first row, Note field.
+Validation/application rejection retains the original work and cursor; uncertain
+transport/readback outcomes retain the existing recovery/input warning barriers.
+No Load starts or resumes playback. This list requires LISTCAP 1 firmware;
+legacy firmware keeps the screen's return path and shows listing unavailable.
 
 The agreed BroTracker bindings are Ctrl+Left/Right on Windows and
 Select+D-pad Left/Right on handheld (Select is SDL BACK). Hold Select before
@@ -45,6 +66,10 @@ from that manual. Physical display/control validation remains pending.
 | --- | --- | --- |
 | Pattern Load/Save screen (left) | Ctrl + Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. One request per press; consumes Left. |
 | Return to Pattern (right) | Ctrl + Right | From Pattern Load/Save: return with the same pattern and editor cursor. One request per press; consumes Right. |
+| Select pattern file | Up / Down in Load/Save | One step per press; does not move the pattern cursor. |
+| First / next file page | Left / Right in Load/Save | Left refreshes the first page; Right advances when more files remain. |
+| Load / confirm replacement | Enter or keypad Enter in Load/Save | Confirmation defaults on. After success and synchronization, return with reset cursor; playback stays stopped. |
+| Cancel | Escape in Load/Save | Confirmation: back to list. List: return to Pattern, retaining current work/cursor. |
 | Start / Pause / Continue | Space | Stopped: start at pattern row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | Enter or numeric keypad Enter | Stop/reset to pattern start; remain in BTX. A fresh press can request STOP again. |
 | Exit | Ctrl + X or close the window | Synchronize available edits and request session persistence, then exit without STOP. Playing writes are explicitly deferred; failures/timeouts are logged. |
@@ -76,6 +101,10 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | --- | --- | --- |
 | Pattern Load/Save screen (left) | Select + D-pad Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. Hold Select first; one request per press; consumes Left. |
 | Return to Pattern (right) | Select + D-pad Right | Return with the same pattern and editor cursor. Hold Select first; one request per press; consumes Right. L1/R1 directional bindings retain precedence. |
+| Select pattern file | D-pad Up / Down in Load/Save | Without modifiers; one step per press, no pattern editing. |
+| First / next file page | D-pad Left / Right in Load/Save | Without Select/L1/R1. Left refreshes first page; Right advances. |
+| Load / confirm replacement | A in Load/Save | Without modifiers. Confirmation defaults on; successful synchronized Load returns with reset cursor, stopped. |
+| Cancel | B in Load/Save | Without modifiers: confirmation back to list; list back to Pattern. L1+B remains STOP. |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | B | Stop/reset and stay in BTX, including with L1 held. A fresh press can request STOP again. |
 | Exit | L1 + Start | Session persistence exit workflow; playback remains running. Also exits with Teensy disconnected. Start action occurs on release. |
@@ -352,3 +381,12 @@ blending affects just the icon's pixels. No generated bitmap/header replaces SVG
 and no full-frame filtering is applied. Missing/unusable icon files leave the
 warning text, panel and blocking behavior available. Native Terminus text and
 both size choices remain unchanged.
+
+Pattern Load uses a bordered vertical list: Terminus 8x14 heading and 6x12
+filenames, one file per row, with the entire selected row highlighted. Up/Down
+moves one file and scrolls at the visible edge. Crossing a LIST page boundary
+fetches the next/previous page automatically; confirmation waits for that page.
+Left still refreshes the first page and Right advances a page. Confirmation,
+cancellation, screen return and the stopped/session-save entry flow are unchanged.
+The browser requires the existing `BTSTORE1 LISTCAP 1` firmware; this UI refinement
+requires no firmware or protocol change.

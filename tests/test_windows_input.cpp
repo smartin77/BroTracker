@@ -343,6 +343,12 @@ int main() {
         screen.type=SDL_KEYDOWN;screen.key.keysym.mod=KMOD_CTRL|KMOD_SHIFT;
         CHECK(MapWindowsAction(screen)==BringUpAction::None);
     }
+    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::BrowserUp},{SDLK_DOWN,BringUpAction::BrowserDown},
+        {SDLK_LEFT,BringUpAction::BrowserFirst},{SDLK_RIGHT,BringUpAction::BrowserNext},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
+        SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsBrowserAction(e)==pair.second);
+        e.key.repeat=1;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);e.key.repeat=0;e.key.keysym.mod=KMOD_CTRL;
+        CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);
+    }
     CHECK(IsTeensyIdentity(L"USB\\VID_16C0&PID_048A&MI_00\\instance"));
     CHECK(IsTeensyIdentity(L"usb\\vid_16c0&pid_048a&mi_00\\other"));
     CHECK(!IsTeensyIdentity(L"USB\\VID_16C0&PID_048AB&MI_00"));

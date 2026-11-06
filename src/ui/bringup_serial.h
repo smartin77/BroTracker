@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include "serial_transport.h"
+#include "bringup/pattern_directory.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
@@ -92,7 +93,15 @@ public:
     void SetStartupPattern(std::string_view value) { startup_configured_=true;startup_pattern_valid_=startup_pattern_.Assign(value); }
     void SetStartupPattern(const BroTracker::DevelopmentPattern& value) { SetStartupPattern(std::string_view(value.stem)); }
     bool StartupPatternReady() const {return startup_selection_enabled_ ? (startup_editor_ready_ || load_rejected_) : (!startup_configured_ || initial_sync_ready_);}
-    enum class FileAction { None, Save, Load, Test, Session };
+    enum class FileAction { None, Save, Load, Test, Session, Pattern };
+    enum class PatternLoadState { Idle, Pending, Succeeded, Failed };
+    bool RequestPatternLoad(std::string_view name,std::uint32_t now);
+    PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
+    bool RequestPatternList(std::uint32_t offset,std::uint32_t now);
+    bool PatternListBusy()const{return list_queued_ || list_pending_;}
+    bool PatternListReady()const{return list_ready_;}
+    const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
+    const char* PatternListStatus()const{return list_status_;}
     bool RequestFile(FileAction action, std::uint32_t now);
     bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
     bool FilePending() const {return file_action_!=FileAction::None;}
@@ -169,9 +178,15 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
+    enum class Command { None, List, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
     BroTracker::DevelopmentPattern startup_pattern_;
     bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
+    BroTracker::DevelopmentPattern file_pattern_;
+    PatternLoadState pattern_load_state_=PatternLoadState::Idle;
+    BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
+    std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
+    char list_status_[96]{};
     FileAction file_action_=FileAction::None;
     bool session_save_succeeded_=false;
     char file_status_[160]{};

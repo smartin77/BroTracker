@@ -5,6 +5,15 @@
 #include "ui/editor_step_input.h"
 #include "ui/navigation_repeat.h"
 #include "ui/tempo_repeat.h"
+inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
+    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
+    switch(event.key.keysym.sym) {
+    case SDLK_UP:return BringUpAction::BrowserUp;case SDLK_DOWN:return BringUpAction::BrowserDown;
+    case SDLK_LEFT:return BringUpAction::BrowserFirst;case SDLK_RIGHT:return BringUpAction::BrowserNext;
+    case SDLK_RETURN:case SDLK_KP_ENTER:return BringUpAction::BrowserConfirm;
+    case SDLK_ESCAPE:return BringUpAction::BrowserCancel;default:return BringUpAction::None;
+    }
+}
 inline bool MapWindowsPublish(const SDL_Event& event) {
     return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
         (event.key.keysym.mod & KMOD_SHIFT) && !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI));

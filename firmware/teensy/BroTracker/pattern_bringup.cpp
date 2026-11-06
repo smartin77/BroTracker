@@ -37,6 +37,7 @@ extern volatile uint8_t usb_configuration;
 #include "sd_wav_inspection.h"
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
+#include "bringup/pattern_directory.h"
 #include "bringup/pattern_storage_protocol.h"
 #endif
 #include <array>
@@ -220,9 +221,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 29 lines including explicit SD capability and boot status.
-    constexpr std::size_t kDiscoveryReserve = 29;
-    constexpr std::size_t kTxCapacity = 30;
+    // Full production HELLO is 30 lines including explicit SD capability and boot status.
+    constexpr std::size_t kDiscoveryReserve = 30;
+    constexpr std::size_t kTxCapacity = 31;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -336,7 +337,7 @@ namespace
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
+        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 LISTCAP 1\n"); (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
             (void)QueueLine("BTSTORE1 SDCAP 1\n");
             (void)QueueLine(g_storage_backend.ready ? "BTSTORE1 SD 1 available\n" : "BTSTORE1 SD 1 unavailable\n");
                     StorageReply("session-boot",PatternFileResultName(g_session_result)); }
@@ -461,6 +462,22 @@ namespace
         (void)QueueLine(reply);
     }
     void StorageCommand(const char* line,std::uint32_t now) {
+        std::uint32_t list[3]{};
+        if(SnapshotFields(line,std::strlen(line),"BTSTORE1 LIST ",list,3) && list[0]==1 && list[1]) {
+            char reply[96];PatternDirectoryPage page;
+            auto result=PatternFileResult::Busy;
+            if(g_protocol_connected && !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped)
+                result=ReadPatternDirectoryPage(g_storage_backend,list[2],page);
+            if(result!=PatternFileResult::Ok) {
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 LISTERROR 1 %" PRIu32 " %s\n",list[1],PatternFileResultName(result));
+                (void)QueueLine(reply);return;
+            }
+            for(unsigned i=0;i<page.count;++i) {
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 FILE 1 %" PRIu32 " %s\n",list[1],page.names[i]);(void)QueueLine(reply);
+            }
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 LISTEND 1 %" PRIu32 " %" PRIu32 " %u\n",list[1],page.next,unsigned(page.done));
+            (void)QueueLine(reply);return;
+        }
         if(!std::strcmp(line,"BTSTORE1 READY 1")) {
             if(!g_protocol_connected || !g_storage_ready_wait.Begin(now))
                 (void)QueueLine("BTSTORE1 NOTREADY 1 busy-or-disconnected\n");

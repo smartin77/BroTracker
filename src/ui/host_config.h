@@ -16,6 +16,7 @@ struct HostConfig {
     char language[32]="en_US"; // Optional [btx] language; English fallback.
     DevelopmentPattern startup_pattern;
     bool startup_pattern_invalid=false;
+    bool confirm_load_replace=true; // [pattern], strict true/false, default enabled.
     bool bridge_audible_test = false;
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
@@ -37,6 +38,7 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Invalid/empty language falls back to en_US. Optional [logging]: mode=basic/debug, preserve_last=0..20.
 // Optional [editing]: value_step_direction=normal/reversed; deprecated alias
 // note_step_direction is accepted, but supplying both names rejects.
+// Optional [pattern]: confirm_load_replace=true/false; absent defaults true.
 // Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.

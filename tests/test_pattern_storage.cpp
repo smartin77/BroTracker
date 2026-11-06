@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "bringup/working_session.h"
+#include "bringup/pattern_directory.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
@@ -342,4 +343,28 @@ TEST_CASE(PowerRestartReconstructsWorkingContentAndPublishedTempoButNeverStarts)
     std::int16_t audio[128]{};rebooted.AudioBlock(audio,128,true);
     CHECK(!rebooted.Snapshot().running);for(auto sample:audio)CHECK_EQ(sample,0);
     Same(restored.working,saved.working);Same(restored.published,saved.published);
+}
+
+TEST_CASE(PatternDirectoryListsValidatedFixturesAndOtherFilesReadOnlyAcrossPages) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;RealtimePattern scratch;
+    for(unsigned i=1;i<=4;++i)CHECK_EQ(store.CreateDevelopment(backend,i,scratch),PatternFileResult::Ok);
+    const auto good=FakePatternSd::files[DevelopmentPatternPath(1)].bytes;
+    for(unsigned i=0;i<12;++i)FakePatternSd::files["/BroTracker/development/extra"+std::to_string(i)+".btdev"].bytes=good;
+    auto corrupt=good;corrupt.back()^=1;FakePatternSd::files["/BroTracker/development/bad.btdev"].bytes=corrupt;
+    FakePatternSd::files["/BroTracker/development/skip.txt"].bytes=good;
+    FakePatternSd::files["/BroTracker/development/folder.btdev"].directory=true;
+    FakePatternSd::files["/BroTracker/development/abcdefghijklmnopqrstuvwxyz.btdev"].bytes=good;
+    const auto size=FakePatternSd::files.size();std::vector<std::string> names;PatternDirectoryPage page;std::uint32_t offset=0;
+    for(unsigned step=0;step<8;++step) {
+        CHECK_EQ(ReadPatternDirectoryPage(backend,offset,page),PatternFileResult::Ok);
+        for(unsigned i=0;i<page.count;++i)names.emplace_back(page.names[i]);
+        if(page.done)break;CHECK(page.next>offset);offset=page.next;
+    }
+    CHECK(page.done);CHECK_EQ(names.size(),16u);CHECK_EQ(FakePatternSd::files.size(),size);
+    for(unsigned i=1;i<=4;++i)CHECK(std::find(names.begin(),names.end(),"patern"+std::to_string(i)+".btdev")!=names.end());
+    for(const auto& name:names) {
+        RealtimePattern loaded;std::uint32_t tempo=0;CHECK_EQ(store.LoadDevelopment(backend,name,loaded,tempo),PatternFileResult::Ok);
+    }
+    FakePatternSd::fail_open=true;const auto previous=page;
+    CHECK_EQ(ReadPatternDirectoryPage(backend,0,page),PatternFileResult::Io);CHECK_EQ(page.count,previous.count);
 }

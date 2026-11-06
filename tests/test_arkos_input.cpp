@@ -590,3 +590,17 @@ TEST_CASE(ArkOSSelectRawHatScreenChordReturnsActionAndConsumesHold) {
     e.jhat.value=SDL_HAT_RIGHT;CHECK(f.input.Handle(e,3,true,f.editor).transport==BringUpAction::ScreenRight);
     CHECK_EQ(f.editor.Cursor().channel,0u);CHECK(f.editor.Cursor().field==EditField::Note);
 }
+
+TEST_CASE(ArkOSPatternBrowserConsumesActionsWithoutEditingAndKeepsSelectNavigation) {
+    InputFixture f;const auto original=*f.editor.Draft();const auto cursor=f.editor.Cursor();
+    f.input.SetActionBarrier(true,true,false,false,true,true);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::BrowserDown);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::None);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::BrowserConfirm);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::BrowserCancel);
+    f.Edge(SDL_CONTROLLER_BUTTON_BACK);CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::ScreenRight);
+    CHECK(SamePattern(original,*f.editor.Draft()));CHECK_EQ(f.editor.Cursor().row,cursor.row);
+    f.input.SetActionBarrier(true,true);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::None);
+}

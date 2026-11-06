@@ -30,10 +30,10 @@ public:
         }
         blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
-    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false,bool screen_navigation_available=false) noexcept {
+    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false,bool screen_navigation_available=false,bool browser_available=false) noexcept {
         if(blocked!=action_barrier_) {Cancel();start_pending_=false;chord_used_=false;}
         action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
-        publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;
+        publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;browser_available_=browser_available;
     }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
@@ -122,6 +122,18 @@ private:
                (screen_navigation_available_ || (!action_barrier_ && connected && editor.Ready())))
                 return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:BringUpAction::ScreenRight,false};
             return {};
+        }
+        if(action_barrier_ && browser_available_ && down && focused_ &&
+           !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
+            const bool was_blocked=(blocked_ & (1u<<b))!=0;Cancel();
+            if(!was_blocked) {
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::BrowserUp,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::BrowserDown,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_LEFT)return {BringUpAction::BrowserFirst,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)return {BringUpAction::BrowserNext,false};
+                if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::BrowserConfirm,false};
+                if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserCancel,false};
+            }
         }
         if(action_barrier_) {
             Cancel();
@@ -225,7 +237,7 @@ private:
         return {};
     }
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
-    bool publication_readback_available_=false,screen_navigation_available_=false;
+    bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;

@@ -1,11 +1,9 @@
-; BroTracker host INI reference: TEMPLATE ONLY, never loaded automatically.
-; Merge settings into config.ini; BTX never creates/overwrites user config.
-; Windows: <executable-directory>/config/config.ini (portable).
-; ArkOS/dArkOS: /roms/ports/brotracker/config/config.ini, executable-relative.
-; No old-location/CWD fallback. Restart BTX to reload; missing file uses defaults.
-; Case-sensitive names/values; decimal integers; whole-line ; or # comments.
-; No quotes/inline comments/unknown or duplicate keys/sections. Limit 4096 bytes.
-; Invalid structure rejects the entire file. Field-local fallbacks noted below.
+; BroTracker INI template; never auto-loaded. Merge into config.ini; BTX never writes it.
+; Windows: <exe>/config/config.ini; ArkOS/dArkOS: /roms/ports/brotracker/config/config.ini.
+; Executable-relative only (no CWD/legacy fallback). Restart to reload; missing uses defaults.
+; Case-sensitive; decimal integers; whole-line #/; comments only, no quotes.
+; Unknown/duplicate keys/sections or inline comments reject the file. Max 4096 bytes.
+; Structural errors reject the file; field-local fallbacks noted below.
 
 [btx]
 ; Optional warning language, default en_US.
@@ -73,3 +71,7 @@ bridge_audible_test=no
 ; Restart BTX after edits. Explicit test load requires STOP; final ACK/readback gates
 ; editing/START. No automatic fixture load, seed, retry or autoSTART.
 startup_pattern=none
+
+; false skips only the Load replacement prompt. Restart BTX after editing.
+[pattern]
+confirm_load_replace=true

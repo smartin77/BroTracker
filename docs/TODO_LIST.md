@@ -143,7 +143,12 @@ capability and memory investigations remain planning items without assigned orde
   to IDLE. Return retains the cursor within the same BTX run without resuming;
   the next Play starts at pattern row zero. Future MIX will allow playback. Windows Ctrl+Left/Right
   and handheld Select+D-pad Left/Right consume one action per direction press.
-  Pattern file browsing/operations and physical display/control validation remain open.
+  Pattern Load browsing/confirmation now reuses the Teensy SD decoder and LOAD
+  path; patern1..4 and other compatible .btdev files are supported. Default-on
+  [pattern] confirm_load_replace may opt out of confirmation only. Successful
+  synchronized Load returns with the first Note cursor; cancel/rejection retains
+  work. Pattern-file Save/Save As, shortcut retirement and physical validation
+  remain separate.
 * [ ] **Pattern Load/Save foundation (future):** Add a separate Pattern screen,
   navigable with directional controls on desktop and handheld, without dedicated
   function keys or new handheld combinations for individual Load/Save operations.

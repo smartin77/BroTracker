@@ -29,6 +29,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     HostConfig candidate;
     unsigned section=0;
     bool display=false,numbering=false,diagnostics=false,audible=false;
+    bool pattern=false,confirm_load=false;
     bool development=false,startup_pattern=false,language=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
@@ -44,11 +45,15 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         if(line=="[display]") {if(display) return HostConfigStatus::Invalid; display=true; section=6; continue;}
         if(line=="[diagnostics]") {if(diagnostics) return HostConfigStatus::Invalid; diagnostics=true; section=7; continue;}
         if(line=="[development]") {if(development) return HostConfigStatus::Invalid; development=true; section=8; continue;}
+        if(line=="[pattern]") {if(pattern)return HostConfigStatus::Invalid;pattern=true;section=9;continue;}
         if(!section) return HostConfigStatus::Invalid;
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==1 && key=="language" && !language) {
+        if(section==9 && key=="confirm_load_replace" && !confirm_load) {
+            if(raw!="true" && raw!="false")return HostConfigStatus::Invalid;
+            confirm_load=true;candidate.confirm_load_replace=raw=="true";
+        } else if(section==1 && key=="language" && !language) {
             language=true;
             (void)NormalizeWarningLocale(raw,candidate.language,sizeof(candidate.language));
         } else if(section==8 && key=="startup_pattern" && !startup_pattern) {

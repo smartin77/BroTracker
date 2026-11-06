@@ -44,21 +44,35 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     if(action!=FileAction::Test && !working_storage_supported_) {
         std::strcpy(file_status_,"Working-session/tune storage unsupported: update Teensy firmware");return false;
     }
-    if(action==FileAction::Load || action==FileAction::Test) {
+    if(action==FileAction::Load || action==FileAction::Test || action==FileAction::Pattern) {
         if((!early_test && !FileIdle()) || Playing() || Paused() || (action==FileAction::Test && !startup_pattern_valid_)) {
             std::strcpy(file_status_,"Load unavailable: STOP and wait for synchronization; check filename");Log("File action rejected:",file_status_);return false;
         }
         load_rejected_=false;startup_selection_enabled_=true;startup_attempted_=startup_applied_=startup_done_=startup_failed_=false;
         startup_stop_sent_=startup_ready_sent_=startup_storage_ready_=false;
         startup_context_cleared_=startup_editor_ready_=false;startup_revision_=0;
+        if(action==FileAction::Pattern)startup_stop_sent_=true;
         if(action==FileAction::Load) std::strcpy(load_label_,"draft-load");
-        else std::snprintf(load_label_,sizeof(load_label_),"load-%s",BroTracker::DevelopmentPatternName(startup_pattern_));
+        else std::snprintf(load_label_,sizeof(load_label_),"load-%s",BroTracker::DevelopmentPatternName(action==FileAction::Pattern?file_pattern_:startup_pattern_));
         preview_.Suspend(true);
     }
     if(action==FileAction::Session)session_save_succeeded_=false;
     file_action_=action;file_requested_at_=now;
     std::strcpy(file_status_,action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
     Log("File action:",file_status_);return true;
+}
+bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now) {
+    if(UserActionsBlocked() || !MidiRecoveryStopped() || !list_supported_ || PatternListBusy() || FilePending()) {
+        std::strcpy(list_status_,"Pattern list unavailable: stopped, synchronized LISTCAP firmware required");return false;
+    }
+    if(list_id_==UINT32_MAX){std::strcpy(list_status_,"Reconnect to refresh pattern listing");return false;}
+    ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_staging_={};
+    std::strcpy(list_status_,"Reading pattern files...");return true;
+}
+bool BringUpSerial::RequestPatternLoad(std::string_view name,std::uint32_t now) {
+    if(FilePending() || PatternLoadResult()==PatternLoadState::Pending || !BroTracker::CompatiblePatternName(name) || !MidiRecoveryStopped() || PatternListBusy() || !file_pattern_.Assign(name))return false;
+    if(!RequestFile(FileAction::Pattern,now))return false;
+    pattern_load_state_=PatternLoadState::Pending;return true;
 }
 void BringUpSerial::BeginExit(std::uint32_t now) {
     exit_requested_=true;exit_started_=now;
@@ -75,6 +89,8 @@ void BringUpSerial::Disconnect(const char* reason)
         if(!continuity_pending_) continuity_frozen_=false;
         continuity_pending_=true; continuity_ready_=false;continuity_auto_=false;file_status_[0]=0;
     }
+    if(pattern_load_state_==PatternLoadState::Pending)pattern_load_state_=PatternLoadState::Failed;
+    list_supported_=list_queued_=list_pending_=list_ready_=false;std::strcpy(list_status_,"Disconnected; refresh pattern list after recovery");
     initial_sync_ready_=false;session_save_succeeded_=false;
     if(file_action_!=FileAction::None) {
         std::strcpy(file_status_,"File outcome uncertain after disconnect; no automatic retry");
@@ -225,6 +241,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     }
     if(startup_barrier && startup_done_ && !startup_failed_ && editor.Ready() &&
         (!preview_.Supported() || (preview_.Phase()==BroTracker::HostPreviewPhase::Synchronized && !preview_.RecoveredDraft()))) {
+        if(file_action_==FileAction::Pattern)pattern_load_state_=PatternLoadState::Succeeded;
         startup_editor_ready_=true;file_action_=FileAction::None;std::strcpy(file_status_,"Load applied and verified; playback stopped");
         Log("SD startup editor/working-state recovery synchronized");
     }
@@ -449,8 +466,12 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     if(command==Command::StorageReady) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");startup_ready_sent_=true;
     }
+    if(command==Command::List) {
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 LIST 1 %" PRIu32 " %" PRIu32 "\n",list_id_,list_offset_);
+        list_queued_=false;list_pending_=true;
+    }
     if(command==Command::Storage) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Load?"BTSTORE1 DRAFTLOAD 1\n":"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(startup_pattern_));
+        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Load?"BTSTORE1 DRAFTLOAD 1\n":"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(file_action_==FileAction::Pattern?file_pattern_:startup_pattern_));
         startup_attempted_=true;
     }
     if(command==Command::File) {
@@ -514,6 +535,29 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTSTORE1 LISTCAP 1")){if(connected_)list_supported_=true;return;}
+    if(list_pending_) {
+        char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 FILE 1 %" PRIu32 " ",list_id_);
+        if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
+            const auto* name=line_+std::strlen(prefix);
+            if(list_staging_.count>=BroTracker::kPatternListPageSize || !BroTracker::CompatiblePatternName(name)) {
+                list_pending_=false;pending_=Command::None;std::strcpy(list_status_,"Invalid pattern list response");return;
+            }
+            std::strcpy(list_staging_.names[list_staging_.count++],name);return;
+        }
+        std::uint32_t fields[4]{};
+        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 LISTEND ",fields,4) && fields[0]==1 && fields[1]==list_id_) {
+            list_pending_=false;pending_=Command::None;
+            if(fields[3]>1 || fields[2]%32 || (!fields[3] && fields[2]<=list_offset_)) {std::strcpy(list_status_,"Invalid pattern page cursor");return;}
+            list_staging_.next=fields[2];list_staging_.done=fields[3];list_page_=list_staging_;list_ready_=true;
+            std::strcpy(list_status_,list_page_.count?"Select a pattern file":"No compatible files on this page");return;
+        }
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 LISTERROR 1 %" PRIu32 " ",list_id_);
+        if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
+            list_pending_=false;pending_=Command::None;std::snprintf(list_status_,sizeof(list_status_),"Pattern list: %.70s",line_+std::strlen(prefix));return;
+        }
+    }
+    if(!std::strncmp(line_,"BTSTORE1 FILE ",14) || !std::strncmp(line_,"BTSTORE1 LISTEND ",17) || !std::strncmp(line_,"BTSTORE1 LISTERROR ",19))return;
     if(!std::strcmp(line_,"BTSTORE1 SDCAP 1")) {if(connected_)sd_status_supported_=true;return;}
     if(connected_ && sd_status_supported_) {
         if(!std::strcmp(line_,"BTSTORE1 SD 1 available")) {if(sd_status_==SdAvailability::Unknown)sd_status_=SdAvailability::Available;return;}
@@ -564,12 +608,15 @@ void BringUpSerial::OnLine(std::uint32_t now)
         char prefix[80];std::uint32_t id=0;
         std::snprintf(prefix,sizeof(prefix),"BTSTORE1 SUBMITTED 1 %s ",LoadLabel());
         if(BroTracker::SnapshotFields(line_,used_,prefix,&id,1)) {startup_revision_=id;return;}
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 RESULT 1 %s ",LoadLabel());
+        if(std::strncmp(line_,prefix,std::strlen(prefix)))return; // Never accept another operation's result.
         std::snprintf(prefix,sizeof(prefix),"BTSTORE1 RESULT 1 %s ok ",LoadLabel());
         const bool ok=BroTracker::SnapshotFields(line_,used_,prefix,&id,1) && startup_revision_ && id==startup_revision_;
         pending_=Command::None;
         if(!ok) {startup_failed_=true;file_action_=FileAction::None;
-            load_rejected_=!startup_revision_ && (std::strstr(line_," missing ") || std::strstr(line_," invalid ") ||
-                std::strstr(line_," unsupported ") || std::strstr(line_," busy-or-not-ready ") || std::strstr(line_," sd-unavailable "));
+            load_rejected_=(std::strstr(line_," missing ") || std::strstr(line_," invalid ") ||
+                std::strstr(line_," unsupported ") || std::strstr(line_," io ") || std::strstr(line_," application-rejected ") ||
+                std::strstr(line_," queue-full ") || std::strstr(line_," busy-or-identity-exhausted ") || std::strstr(line_," busy-or-not-ready ") || std::strstr(line_," sd-unavailable "));
 
             std::snprintf(file_status_,sizeof(file_status_),"Load failed/uncertain: %.110s",line_);Log("File load ERROR:",line_);return;}
         preview_.FileLoaded();
@@ -681,7 +728,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         // Only the original startup transaction's awaited baseline completes startup.
         // Later snapshots (including reconnect recovery) do not establish a file load.
         if(result==BroTracker::SnapshotAssemblyStatus::Complete && startup_applied_ && !startup_done_ && !startup_failed_) {
-            startup_done_=true;Log("SD startup pattern loaded and baseline readback verified:",BroTracker::DevelopmentPatternName(startup_pattern_));
+            startup_done_=true;Log("SD startup pattern loaded and baseline readback verified:",BroTracker::DevelopmentPatternName(file_action_==FileAction::Pattern?file_pattern_:startup_pattern_));
         }
     }
     else if (std::strncmp(line_, "BTPATTERN1 POS", 14) == 0)
@@ -900,6 +947,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
     }
     if((pending_==Command::Storage || pending_==Command::StorageReady) && now-sent_at_>=15000) {
+        if(pending_==Command::StorageReady)load_rejected_=editor_seen_;
         startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
         if(tx_offset_!=tx_size_) {Disconnect("partial storage command; outcome unknown");return;}
     }
@@ -916,7 +964,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     if(exit_requested_ && !exit_done_ && now-exit_started_>=16000) {
         Log("EXIT: session save unconfirmed; host-only edits may be lost; playback left running");exit_done_=true;
     }
-    if (pending_ != Command::None && pending_!=Command::File && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
+    if(PatternListBusy() && now-list_started_>=10000) {
+        list_queued_=list_pending_=false;list_ready_=false;std::strcpy(list_status_,"Pattern list timed out; refresh to retry");
+        if(pending_==Command::List) {pending_=Command::None;if(tx_offset_!=tx_size_){Disconnect("partial list command");return;}}
+    }
+    if (pending_ != Command::None && pending_!=Command::List && pending_!=Command::File && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
@@ -944,6 +996,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             (!tempo_.Supported() || tempo_.Synchronized())) {
             Send(Command::File,now);
         }
+        else if(list_queued_ && FileIdle()) {Send(Command::List,now);}
         else if (start_queued_)
         {
             Send(Command::Start, now);
