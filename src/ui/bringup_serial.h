@@ -105,7 +105,7 @@ public:
     bool PatternListReady()const{return list_ready_;}
     const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
     const char* PatternListStatus()const{return list_status_;}
-    bool RequestFile(FileAction action, std::uint32_t now);
+    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false);
     bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
     bool FilePending() const {return file_action_!=FileAction::None;}
     const char* PatternSource()const{return pattern_source_.c_str();}
@@ -196,7 +196,7 @@ private:
     FileAction file_action_=FileAction::None;
     std::string pattern_source_;
     bool pattern_save_supported_=false,pattern_save_succeeded_=false;
-    bool session_save_succeeded_=false;
+    bool session_save_succeeded_=false,session_storage_ready_=false,session_ready_required_=false;
     char file_status_[160]{};
     bool exit_requested_=false,exit_done_=false;
     std::uint32_t exit_started_=0,file_requested_at_=0;

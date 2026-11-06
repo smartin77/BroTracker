@@ -102,6 +102,7 @@ struct StoragePeer:SerialTransport {
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
         }
         else if(line=="BTSTORE1 SAVE 1" || line=="BTSTORE1 DRAFTSAVE 1") {
+            if(line=="BTSTORE1 SAVE 1" && cleanup_busy) {rx+="BTSTORE1 RESULT 1 save busy-or-not-ready 0\n";return n;}
             const auto reply=std::string("BTSTORE1 RESULT 1 ")+(line=="BTSTORE1 SAVE 1"?"save":"draft-save")+" "+result+" 0\n";
             if(hold_save)save_reply+=reply;else rx+=reply;
         }
@@ -890,4 +891,29 @@ TEST_CASE(PatternBrowserBackKeepsSelectionAndEscapeStillReturnsToPattern) {
     controls.Request(BringUpAction::ScreenLeft,"Ctrl+Left",tick*20);CHECK(controls.LoadSaveScreen());CHECK_EQ(controls.BrowserList().names.front(),"Load");
     controls.Request(BringUpAction::BrowserConfirm,"reopen Load",tick*20);CHECK_EQ(controls.BrowserList().selected,selected);
     controls.Request(BringUpAction::BrowserCancel,"Escape",tick*20);CHECK(!controls.LoadSaveScreen());CHECK_EQ(wire->Loads(),0u);
+}
+
+TEST_CASE(SingleScreenRequestWaitsForPostStopReadinessAndAutosaveThenCurrentSessionSave) {
+    for(bool failure:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_stop=wire->hold_save=true;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,90,&editor);
+        wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";serial.Tick(1800);
+        BringUpControls controls(serial,nullptr);
+        const auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){wire->now=i*20;wire->AudioService();serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        const auto count=[&](const char* line){return std::count(wire->commands.begin(),wire->commands.end(),line);};
+        controls.Request(BringUpAction::ScreenLeft,"single navigation request",1801);
+        drive(91,95);CHECK_EQ(count("BTTEST1 STOP"),1);CHECK_EQ(count("BTSTORE1 SAVE 1"),0);
+        wire->cleanup_busy=true;wire->state="IDLE";wire->rx+="BTTEST1 STOPPED\n";drive(95,105);
+        CHECK(controls.ScreenPending());CHECK(!controls.LoadSaveScreen());
+        CHECK_EQ(count("BTSTORE1 READY 1"),1);CHECK_EQ(count("BTSTORE1 SAVE 1"),0);
+        wire->rx+="BTSTORE1 RESULT 1 session-auto ok 0\n";drive(105,108);
+        CHECK(controls.ScreenPending());CHECK(!controls.LoadSaveScreen()); // Autosave is not an ACK for this request.
+        wire->cleanup_busy=false;drive(108,120);
+        CHECK(controls.ScreenPending());CHECK_EQ(count("BTSTORE1 SAVE 1"),1);CHECK(!controls.LoadSaveScreen());
+        if(failure)wire->rx+="BTSTORE1 RESULT 1 save io 0\n";
+        else wire->rx+=wire->save_reply;
+        wire->save_reply.clear();drive(120,130);
+        CHECK_EQ(controls.LoadSaveScreen(),!failure);CHECK(!controls.ScreenPending());CHECK_EQ(count("BTTEST1 STOP"),1);
+        if(failure)CHECK(std::string(controls.ScreenStatus()).find("failed")!=std::string::npos);
+    }
 }

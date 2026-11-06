@@ -30,7 +30,7 @@ bool BringUpSerial::FileIdle() const {
     return connected_ && !PublicationBusy() && !TransportPending() &&
         !pattern_assembler_.Active() && (!preview_.Supported() || !preview_.TransferBusy());
 }
-bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
+bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now,bool wait_for_storage) {
     diagnostic_now_=now;
     if(SdStatus()==SdAvailability::Unavailable)return false;
     const bool early_test=action==FileAction::Test && !attempted_;
@@ -60,7 +60,10 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
         else std::snprintf(load_label_,sizeof(load_label_),"load-%s",BroTracker::DevelopmentPatternName(action==FileAction::Pattern?file_pattern_:startup_pattern_));
         preview_.Suspend(true);
     }
-    if(action==FileAction::Session)session_save_succeeded_=false;
+    if(action==FileAction::Session) {
+        if(wait_for_storage && !storage_ready_supported_) {std::strcpy(file_status_,"Session save readiness unsupported");return false;}
+        session_save_succeeded_=session_storage_ready_=false;session_ready_required_=wait_for_storage;
+    }
     file_action_=action;file_requested_at_=now;
     std::strcpy(file_status_,action==FileAction::PatternSave?"Pattern Save queued; synchronizing working edits":action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
     Log("File action:",file_status_);return true;
@@ -486,7 +489,7 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         audio_sent_=true;
     }
     if(command==Command::StorageReady) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");startup_ready_sent_=true;
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");if(file_action_!=FileAction::Session)startup_ready_sent_=true;
     }
     if(command==Command::List) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 LIST 1 %" PRIu32 " %" PRIu32 "\n",list_id_,list_offset_);
@@ -627,9 +630,13 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTSTORE1 SESSIONCAP 2")) {if(connected_)working_storage_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 READYCAP 1")) {if(connected_)storage_ready_supported_=true;return;}
     if(pending_==Command::StorageReady && !std::strcmp(line_,"BTSTORE1 READY 1")) {
-        startup_storage_ready_=true;pending_=Command::None;return;
+        if(file_action_==FileAction::Session)session_storage_ready_=true;else startup_storage_ready_=true;pending_=Command::None;return;
     }
     if(pending_==Command::StorageReady && !std::strncmp(line_,"BTSTORE1 NOTREADY 1 ",19)) {
+        if(file_action_==FileAction::Session) {
+            std::snprintf(file_status_,sizeof(file_status_),"Session save readiness failed: %.105s",line_+19);
+            pending_=Command::None;file_action_=FileAction::None;return;
+        }
         // READY rejection confirms that no file load was submitted. Retain the
         // existing editor/session and release the Load barrier; this is not an
         // uncertain applied-file outcome and must not require reconnect/Publish.
@@ -987,6 +994,10 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     }
     if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && pending_!=Command::File && now-file_requested_at_>=15000) {
         std::strcpy(file_status_,"Save not sent: working edits/tempo could not be verified; current work retained");
+        if(pending_==Command::StorageReady) {
+            if(tx_offset_!=tx_size_) {Disconnect("partial session readiness command; save not confirmed");return;}
+            pending_=Command::None;
+        }
         Log("File ERROR:",file_status_);file_action_=FileAction::None;
         if(exit_requested_)exit_done_=true;
     }
@@ -1028,7 +1039,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
                 BroTracker::SamePattern(observed_editor_,*preview_.VerifiedWorking()))) &&
             (!tempo_.Supported() || tempo_.Synchronized())) {
-            Send(Command::File,now);
+            // STOPPED does not imply MIDI/SD readiness. Keep this Session request
+            // pending through the existing bounded READY negotiation, then save
+            // the synchronized current work; unsolicited autosave is not its ACK.
+            if(file_action_==FileAction::Session && session_ready_required_ && !session_storage_ready_)Send(Command::StorageReady,now);
+            else Send(Command::File,now);
         }
         else if(list_queued_ && FileIdle()) {Send(Command::List,now);}
         else if (start_queued_)

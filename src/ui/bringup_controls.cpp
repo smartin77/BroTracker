@@ -96,7 +96,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(!serial_.Stop()) {screen_status_="Pattern Load/Save: STOP unavailable";return;}
             screen_phase_=ScreenPhase::Stop;screen_status_="Pattern Load/Save: waiting for STOP acknowledgement";
         } else if(serial_.MidiRecoveryStopped()) {
-            if(serial_.RequestFile(BringUpSerial::FileAction::Session,now)) {
+            if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true)) {
                 screen_phase_=ScreenPhase::Save;screen_status_="Pattern Load/Save: saving session";
             } else screen_status_="Pattern Load/Save: session save unavailable";
         } else screen_status_="Pattern Load/Save: stopped state unconfirmed";
@@ -145,7 +145,7 @@ void BringUpControls::Tick(std::uint32_t now) {
             screen_phase_=ScreenPhase::Idle;screen_status_="Pattern Load/Save cancelled: device unavailable or synchronizing";
         } else if(screen_phase_==ScreenPhase::Stop) {
             if(serial_.Stopped() && serial_.MidiRecoveryStopped()) {
-                if(serial_.RequestFile(BringUpSerial::FileAction::Session,now)) {
+                if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true)) {
                     screen_phase_=ScreenPhase::Save;screen_status_="Pattern Load/Save: saving session";
                 } else {screen_phase_=ScreenPhase::Idle;screen_status_="Pattern Load/Save: session save unavailable";}
             } else if(now-screen_started_>=12500) {
