@@ -817,7 +817,14 @@ static void RenderPatternScreen(
         tune,
         pattern, display, live);
 
-    DrawPattern(
+    if(host.load_save_screen) {
+        static const auto heading=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+        static const auto filename=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
+        DrawFileList(framebuffer,host.pattern_browser_list,layout.pattern_x+8,layout.pattern_y+8,
+            layout.pattern_width-16,heading,filename,"Pattern Load/Save");
+        DrawWrappedFixedText(framebuffer,layout.pattern_x+8,layout.pattern_y+164,
+            layout.pattern_width-16,static_cast<int>(::SCREEN_HEIGHT)-layout.pattern_y-172,host.pattern_browser_text,header_name);
+    } else DrawPattern(
         framebuffer,
         pattern, display, editor, live && live->mute_mask?*live->mute_mask:0,host.row_numbering);
 

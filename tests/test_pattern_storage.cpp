@@ -1,5 +1,7 @@
 #include "test_framework.h"
 #include "bringup/working_session.h"
+#include "bringup/session_save_schedule.h"
+#include "bringup/pattern_directory.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
@@ -342,4 +344,60 @@ TEST_CASE(PowerRestartReconstructsWorkingContentAndPublishedTempoButNeverStarts)
     std::int16_t audio[128]{};rebooted.AudioBlock(audio,128,true);
     CHECK(!rebooted.Snapshot().running);for(auto sample:audio)CHECK_EQ(sample,0);
     Same(restored.working,saved.working);Same(restored.published,saved.published);
+}
+
+TEST_CASE(PatternDirectoryListsValidatedFixturesAndOtherFilesReadOnlyAcrossPages) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;RealtimePattern scratch;
+    for(unsigned i=1;i<=4;++i)CHECK_EQ(store.CreateDevelopment(backend,i,scratch),PatternFileResult::Ok);
+    const auto good=FakePatternSd::files[DevelopmentPatternPath(1)].bytes;
+    for(unsigned i=0;i<12;++i)FakePatternSd::files["/BroTracker/development/extra"+std::to_string(i)+".btdev"].bytes=good;
+    auto corrupt=good;corrupt.back()^=1;FakePatternSd::files["/BroTracker/development/bad.btdev"].bytes=corrupt;
+    FakePatternSd::files["/BroTracker/development/skip.txt"].bytes=good;
+    FakePatternSd::files["/BroTracker/development/folder.btdev"].directory=true;
+    FakePatternSd::files["/BroTracker/development/abcdefghijklmnopqrstuvwxyz.btdev"].bytes=good;
+    const auto size=FakePatternSd::files.size();std::vector<std::string> names;PatternDirectoryPage page;std::uint32_t offset=0;
+    for(unsigned step=0;step<8;++step) {
+        CHECK_EQ(ReadPatternDirectoryPage(backend,offset,page),PatternFileResult::Ok);
+        for(unsigned i=0;i<page.count;++i)names.emplace_back(page.names[i]);
+        if(page.done)break;CHECK(page.next>offset);offset=page.next;
+    }
+    CHECK(page.done);CHECK_EQ(names.size(),16u);CHECK_EQ(FakePatternSd::files.size(),size);
+    for(unsigned i=1;i<=4;++i)CHECK(std::find(names.begin(),names.end(),"patern"+std::to_string(i)+".btdev")!=names.end());
+    for(const auto& name:names) {
+        RealtimePattern loaded;std::uint32_t tempo=0;CHECK_EQ(store.LoadDevelopment(backend,name,loaded,tempo),PatternFileResult::Ok);
+    }
+    FakePatternSd::fail_open=true;const auto previous=page;
+    CHECK_EQ(ReadPatternDirectoryPage(backend,0,page),PatternFileResult::Io);CHECK_EQ(page.count,previous.count);
+}
+
+TEST_CASE(PatternSaveDevelopmentRoundTripAndFailedReplacementPreservesOriginal) {
+    for(unsigned fault=0;fault<5;++fault) {
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;PatternFileStore<SdPatternFiles> store;
+        auto original=MakeDevelopmentPattern();CHECK_EQ(store.SaveDevelopment(backend,"original.btdev",original,12753),PatternFileResult::Ok);
+        const std::string path="/BroTracker/development/original.btdev";const auto bytes=FakePatternSd::files[path].bytes;FakePatternSd::rename_calls=0;
+        auto edited=original;edited.cells[5][2]={75,7};edited.note_off_timing[6][2]=NoteOffTiming::EndOfPosition;
+        if(fault==1)FakePatternSd::short_write=true;if(fault==2)FakePatternSd::fail_sync=true;
+        if(fault==3)FakePatternSd::fail_rename_mask=1u<<2;if(fault==4)FakePatternSd::files[path+".candidate"]={false,{1,2,3}};
+        const auto result=store.SaveDevelopment(backend,"original.btdev",edited,13337);
+        if(fault) {CHECK(result!=PatternFileResult::Ok);CHECK(FakePatternSd::files[path].bytes==bytes);}
+        else {CHECK_EQ(result,PatternFileResult::Ok);RealtimePattern loaded;std::uint32_t tempo=0;CHECK_EQ(store.LoadDevelopment(backend,"original.btdev",loaded,tempo),PatternFileResult::Ok);Same(edited,loaded);CHECK_EQ(tempo,13337u);}
+        Released();
+    }
+    DevelopmentPattern name;CHECK(ParseStoragePatternSave("BTSTORE1 PATTERNSAVE 1 original.btdev",name));
+    CHECK(!ParseStoragePatternSave("BTSTORE1 PATTERNSAVE 1 ../original.btdev",name));CHECK(!ParseStoragePatternSave("BTSTORE1 PATTERNSAVE 1 none",name));
+}
+
+TEST_CASE(AutomaticSessionIntentSurvivesDeferralAndFailedWriteAndInvalidFileIsPreserved) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession work;work.published=MakeDevelopmentPattern();work.working=work.published;work.working.cells[0][0]={75,7};
+    SessionSaveSchedule schedule;schedule.Changed();CHECK(!schedule.Ready(false));CHECK(schedule.Pending());
+    CHECK(schedule.Ready(true));FakePatternSd::short_write=true;const auto error=store.Save(backend,work);CHECK_EQ(error,PatternFileResult::Io);
+    schedule.Completed(error);CHECK(schedule.Pending());CHECK(!schedule.Ready(true));
+    FakePatternSd::short_write=false;schedule.Changed();CHECK(schedule.Ready(true));schedule.Completed(store.Save(backend,work));CHECK(!schedule.Pending());
+    WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(loaded.working.cells[0][0].note,75u);
+    FakePatternSd::files[kSessionPath].bytes={1,2,3};const auto invalid=FakePatternSd::files[kSessionPath].bytes;
+    CHECK(store.PreserveInvalid(backend));CHECK(FakePatternSd::files["/BroTracker/current.btsession.invalid"].bytes==invalid);
+    CHECK_EQ(store.Save(backend,work),PatternFileResult::Ok);CHECK(!store.PreserveInvalid(backend));
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 DRAFTLOAD 1"),StorageOperation::Invalid);
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 DRAFTSAVE 1"),StorageOperation::Invalid);
 }

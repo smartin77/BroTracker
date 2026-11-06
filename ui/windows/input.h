@@ -5,20 +5,18 @@
 #include "ui/editor_step_input.h"
 #include "ui/navigation_repeat.h"
 #include "ui/tempo_repeat.h"
-inline bool MapWindowsPublish(const SDL_Event& event) {
-    return event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_F5 && !event.key.repeat &&
-        (event.key.keysym.mod & KMOD_SHIFT) && !(event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI));
-}
-inline BringUpSerial::FileAction MapWindowsFile(const SDL_Event& event) {
-    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod & (KMOD_CTRL|KMOD_ALT|KMOD_GUI|KMOD_SHIFT)))
-        return BringUpSerial::FileAction::None;
+inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
+    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
     switch(event.key.keysym.sym) {
-    case SDLK_F3:return BringUpSerial::FileAction::Test;
-    case SDLK_F4:return BringUpSerial::FileAction::Load;
-    case SDLK_F5:return BringUpSerial::FileAction::Save;
-    default:return BringUpSerial::FileAction::None;
+    case SDLK_UP:return BringUpAction::BrowserUp;case SDLK_DOWN:return BringUpAction::BrowserDown;
+    case SDLK_RETURN:case SDLK_KP_ENTER:return BringUpAction::BrowserConfirm;
+    case SDLK_BACKSPACE:return BringUpAction::BrowserBack;
+    case SDLK_ESCAPE:return BringUpAction::BrowserCancel;default:return BringUpAction::None;
     }
 }
+// Retired legacy file/publication shortcuts deliberately map to no action.
+inline bool MapWindowsPublish(const SDL_Event&) {return false;}
+inline BringUpSerial::FileAction MapWindowsFile(const SDL_Event&) {return BringUpSerial::FileAction::None;}
 // Ignore OS repeat: at most one editor action per physical key press.
 inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
     if (event.type != SDL_KEYDOWN || event.key.repeat ||
@@ -26,7 +24,6 @@ inline EditorAction MapWindowsEditorAction(const SDL_Event& event) {
     if (event.key.keysym.sym == SDLK_TAB)
         return event.key.keysym.mod & KMOD_SHIFT ? EditorAction::PreviousChannel : EditorAction::NextChannel;
     if (event.key.keysym.mod & KMOD_SHIFT) {
-        if (event.key.keysym.sym == SDLK_F4) return EditorAction::Restore;
         if (event.key.keysym.sym == SDLK_UP) return EditorAction::PreviousBeat;
         if (event.key.keysym.sym == SDLK_DOWN) return EditorAction::NextBeat;
         return EditorAction::None;
@@ -113,6 +110,10 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
     const auto key = event.key.keysym.sym;
     const auto modifiers = event.key.keysym.mod;
     if (key == SDLK_x && (modifiers & KMOD_CTRL)) return BringUpAction::Exit;
+    if((modifiers & KMOD_CTRL) && !(modifiers & (KMOD_SHIFT|KMOD_ALT|KMOD_GUI))) {
+        if(key==SDLK_LEFT)return BringUpAction::ScreenLeft;
+        if(key==SDLK_RIGHT)return BringUpAction::ScreenRight;
+    }
     if (modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) return BringUpAction::None;
     if (key == SDLK_SPACE) return BringUpAction::PatternToggle;
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return BringUpAction::ResetStop;

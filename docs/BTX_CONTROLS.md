@@ -8,10 +8,79 @@ editable pattern position; field means Note or Instrument (OFF timing when the
 note is OFF); header means the channel-number box. Playback does not move the
 edit cursor. Unmodified keys are intended unless a modifier is shown.
 
+## Pattern Load/Save navigation foundation (2026-11-05)
+
+Shared ScreenLeft enters a dedicated Pattern Load/Save screen to the left of PAT;
+ScreenRight returns to the same working pattern and edit cursor within the same
+BTX run. Returning does not resume playback; the next Play starts at pattern row
+zero, independently of the edit cursor. Cursor position remains host view state;
+it is not persisted by the existing working-session format.
+
+Leaving Pattern for another screen stops active playback and saves the working
+session before switching. The future MIX screen is the exception and will allow
+playback to continue; MIX is not implemented here.
+
+Entry automatically requests STOP for Playing/Paused and naturally completed
+DONE, waits for acknowledged STOPPED/IDLE, then uses the existing working-session
+SAVE path. Already IDLE skips STOP. Only a successful save permits entry. Repeated
+entry requests coalesce; failures remain on PAT with right-panel status. File
+browsing, Load and Save to the original file are available below; Save As remains deferred.
+
+The screen first offers clearly labeled **Load** and **Save** actions. Up/Down
+selects an action and Enter (Windows) / A (handheld) activates it. Load opens
+the existing sorted browser. Save writes the original file associated with the
+last successfully applied and synchronized browser Load. Save is unavailable
+when the source is unknown, or when the firmware lacks PATTERNSAVECAP 1. The
+source association is host state for this run, cleared on disconnect or successful
+replacement by another loading path; it is not session metadata across restart.
+Cancelled or rejected browser Load leaves that association intact.
+
+The plain list reads compatible `.btdev` files from the Teensy SD directory
+`/BroTracker/development/`, including patern1.btdev through patern4.btdev and
+other valid files. The host reads every internal LIST page through its `done`
+marker, counts the matching files and sorts all filenames ascending before
+selection is enabled. No total-count field or new firmware command is needed.
+Up/Down selects one file in the continuous list; Left/Right has no list action.
+Enter (Windows) or
+A (handheld) opens confirmation, then a second press confirms replacement.
+Escape/B cancels confirmation back to the selected file. Outside confirmation,
+Escape returns directly to Pattern; B returns from list to menu, then Pattern,
+with the original work and cursor. Ctrl+Right/Select+Right also returns.
+An in-flight Load cannot be undone; wait for its result/synchronization.
+
+`[pattern] confirm_load_replace=true` is the default, including when absent.
+Setting it to `false` skips only the replacement confirmation. STOP, validation,
+application acknowledgement and host synchronization remain required. Restart
+BTX after editing config/config.ini beside the executable; the example is not
+loaded automatically. Load succeeds only after the new baseline and working
+pattern synchronize, then returns to Pattern at channel 1, first row, Note field.
+Validation/application rejection retains the original work and cursor; uncertain
+transport/readback outcomes retain the existing recovery/input warning barriers.
+No Load starts or resumes playback. This list requires LISTCAP 1 firmware;
+legacy firmware keeps the screen's return path and shows listing unavailable.
+
+The agreed BroTracker bindings are Ctrl+Left/Right on Windows and
+Select+D-pad Left/Right on handheld (Select is SDL BACK). Hold Select before
+pressing the direction. Each direction triggers once per physical press and is
+consumed without moving the edit cursor. L1/R1 directional bindings take
+precedence when a shoulder is held. Select+Start is consumed without a pattern
+action; the legacy file/Publish/Restore shortcuts are retired. STOP and Exit remain.
+
+ElkTracker Manual, pages 5 and 7 (Controls / Navigation), supplies the directional
+screen-navigation reference: its Select+Left/Right has context-dependent back/dive
+behavior and otherwise switches main screens. Its desktop screen keys are 1-8.
+BroTracker bindings above were explicitly supplied by the owner, not inferred
+from that manual. Physical display/control validation remains pending.
+
 ## Desktop controls
 
 | Function | Key / button combination | Context / behavior |
 | --- | --- | --- |
+| Pattern Load/Save screen (left) | Ctrl + Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. One request per press; consumes Left. |
+| Return to Pattern (right) | Ctrl + Right | From Pattern Load/Save: return with the same pattern and editor cursor. One request per press; consumes Right. |
+| Select pattern file | Up / Down in Load/Save | One step per press; does not move the pattern cursor. |
+| Load / confirm replacement | Enter or keypad Enter in Load/Save | Confirmation defaults on. After success and synchronization, return with reset cursor; playback stays stopped. |
+| Cancel | Escape in Load/Save | Confirmation: back to list. Action menu or list: return to Pattern, retaining current work/cursor. |
 | Start / Pause / Continue | Space | Stopped: start at pattern row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | Enter or numeric keypad Enter | Stop/reset to pattern start; remain in BTX. A fresh press can request STOP again. |
 | Exit | Ctrl + X or close the window | Synchronize available edits and request session persistence, then exit without STOP. Playing writes are explicitly deferred; failures/timeouts are logged. |
@@ -23,11 +92,6 @@ edit cursor. Unmodified keys are intended unless a modifier is shown.
 | Enter NOTE OFF | O | Note field only; sets Arrival timing. |
 | Select OFF timing | Page Up or Page Down in the second field of an OFF cell | Either toggles Arrival (row start) / EndOfPosition (following row boundary). Direction preference does not affect this toggle. |
 | Clear | Delete | Note field: clears the whole cell (note, instrument and OFF timing). Numeric Instrument field: clears only instrument. OFF timing field: resets Arrival. No effect in headers. |
-| Publish to RAM | Shift + F5 | publish draft plus applied tempo while stopped, or paused if firmware supports it; never stops or continues automatically. No-op/unavailable without changes or required synchronization/capabilities. |
-| Restore RAM baseline | Shift + F4 | Restore the entire draft pattern and published tempo baseline, subject to readiness/locks. Normally sends supported working preview; local-only during a reconnect hold (below). Does not Publish. Works from row or header context. |
-| Temporary Save | F5 | Save working tune to the single tune.btdraft file; no Publish. Playing: freeze one RAM snapshot, report pending, write after Pause/Stop. |
-| Temporary Load | F4 | Require STOP, validate tune.btdraft, then replace baseline/working state. Failure retains current work; no fallback. |
-| Load development pattern | F3 | Require STOP; explicitly load development.startup_pattern. Never runs on normal startup/reconnect. |
 | Select header and mute / unmute channel | Left-click inside a channel-number header | Selects that header and toggles its session mute. Border/outside clicks do not activate it. No desktop keyboard mute binding is implemented. |
 | Decrease / increase tempo | Numeric keypad - / + | Independent of Num Lock; main-keyboard +/- are unbound. Immediate 0.05 BPM step; hold accelerates (below). Independent of value-step direction; works while playing when tempo control is available. |
 
@@ -41,6 +105,11 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 
 | Function | Key / button combination | Context / behavior |
 | --- | --- | --- |
+| Pattern Load/Save screen (left) | Select + D-pad Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. Hold Select first; one request per press; consumes Left. |
+| Return to Pattern (right) | Select + D-pad Right | Return with the same pattern and editor cursor. Hold Select first; one request per press; consumes Right. L1/R1 directional bindings retain precedence. |
+| Select pattern file | D-pad Up / Down in Load/Save | Without modifiers; one step per press, no pattern editing. |
+| Load / confirm replacement | A in Load/Save | Without modifiers. Confirmation defaults on; successful synchronized Load returns with reset cursor, stopped. |
+| Cancel | B in Load/Save | Without modifiers: confirmation to list; file list to menu; menu to Pattern. L1+B remains STOP. |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
 | STOP/reset | B | Stop/reset and stay in BTX, including with L1 held. A fresh press can request STOP again. |
 | Exit | L1 + Start | Session persistence exit workflow; playback remains running. Also exits with Teensy disconnected. Start action occurs on release. |
@@ -52,15 +121,10 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | Enter NOTE OFF | X | Without L1, Note field only; sets Arrival timing. |
 | Select OFF timing | L1 + D-pad Up or Down in the second field of an OFF cell | Either toggles Arrival / EndOfPosition; not reversed by value-step preference. |
 | Clear | Y | Without L1: Note field clears the whole cell and OFF timing; numeric Instrument clears only instrument; OFF timing resets Arrival. No effect in headers. |
-| Restore RAM baseline | L1 + X | Restore entire draft pattern and published tempo baseline, including from headers; subject to readiness/locks. Local-only during a reconnect hold (below). Does not Publish. |
-| Publish to RAM | L1 + A in a row | publish draft plus applied tempo while stopped/eligible paused; does not auto-Stop/Continue. Required capability/synchronization checks apply. |
-| Temporary Save | A in a row | Without L1: save working tune to tune.btdraft, including unpublished edits available on the device. |
-| Temporary Load | L1 + Y | Load validated tune.btdraft after STOP; preserve current work on failed read/validation. |
-| Load development pattern | Select + Start | One request per chord; both controls must be released before rearming. Either press order; consumes Start. Two separate presses do not exit. |
-| Mute / unmute selected channel | A in a header | Consumes A instead of Save/Publish, including with L1 held. Session mute only; no pattern/tempo change. |
+| Mute / unmute selected channel | A in a header | Consumes A, including with L1 held. Session mute only; no pattern/tempo change. |
 | Decrease / increase tempo | R1 + D-pad Left / Right | Immediate 0.05 BPM step, accelerated hold. Independent of value-step direction; available during playback with supported synchronized tempo. |
 | Internal master volume | Physical volume + / - | Verified evdev profile only: 5-point steps over0..100%, default100%. Hold repeats after400 ms, every100 ms; kernel repeats ignored. Teensy smooths changes; external MIDI unchanged. Requires supported synchronized firmware and exclusive volume-only key acquisition. `OS keys` means BTX did not acquire them; they retain system behavior. |
-| Cancel opt-in diagnostic run | B or Select; Escape on an attached keyboard; window close | Diagnostic mode only: normal editing/controller actions are disabled. B/Select arm only after all controls are released for 250 ms. Normal Select+Start loads the development pattern. This is cancellation, not a normal playback shortcut. |
+| Cancel opt-in diagnostic run | B or Select; Escape on an attached keyboard; window close | Diagnostic mode only: normal editing/controller actions are disabled. B/Select arm only after all controls are released for 250 ms. Select+Start has no pattern action. This is cancellation, not a normal playback shortcut. |
 
 **Vertical R36S differences:** repository evidence does not verify an R36S-specific
 printed A/B/X/Y layout, shoulder arrangement or alternate binding profile. No
@@ -138,16 +202,14 @@ starts a fresh beat hold. R1 vertical chords take precedence over L1 editing.
 Releasing R1 blocks held directions until physical release, preventing navigation
 leakage. R1 tempo chords support both modifier orders and work in headers too.
 
-Publish establishes the device's **in-memory published pattern and tempo baseline**
-after authoritative acknowledgment/readback. Restore returns to that baseline;
-automatic working preview does not Publish. Neither control is explicit SD session
-SAVE/RESTORE, and no keyboard/controller shortcut for those tooling operations is
-implemented. Restore is one undoable pattern-data transaction, but no Undo/Redo
-shortcut is mapped; tempo remains separate from cell-edit history. Supported
+Internal recovery establishes the device's **in-memory published pattern and tempo baseline**
+after authoritative acknowledgment/readback. Automatic working preview does not
+change that baseline. No Publish/Restore shortcut is mapped; tempo remains
+separate from cell-edit history. Supported
 edits automatically preview, including at eligible row boundaries while Playing.
 Preview changes working playback, not the published baseline or dirty comparison;
-rejected edits remain visible with status. Legacy peers without preview support
-retain explicit publication. Neither working nor published device RAM survives
+rejected edits remain visible with status. Legacy peers without preview support cannot synchronize working edits through
+the production UI; use current firmware. Neither working nor published device RAM survives
 power loss merely because a readback succeeded. See [storage operations](FILE_FORMATS.md).
 
 Editing requires a validated device pattern. During initial device synchronization or explicit file-load recovery
@@ -184,17 +246,20 @@ Teensy is stopped. Complete readback and tempo confirmation unlock editing and
 transport; the edit remains unpublished. Cursor row/channel/field/header survive
 when valid, with safe clamping on context installation. No manual Publish or
 automatic START is required. This also applies to a normal session launch
-without F3/Select+Start. Enter/STOP remains usable during recovery, but a STOP
+without a manual pattern command. Enter/STOP remains usable during recovery, but a STOP
 acknowledgment alone does not complete the required working-state verification. A RAM-only playing edit was not necessarily on SD
 before the interruption, even when BTX can recover it from retained host RAM.
 
 A running device, newer working revision, changed baseline/dimensions, failed or
 incomplete readback or rejected recovery keeps available work protected with an
-explicit status. STOP remains available. Shift+F4 / L1+X restores the retained RAM
-baseline; a resulting verified match can unlock without Publish. Shift+F5 / row
-L1+A is an explicit publication option for an unresolved mismatch, never a file
-Save. Uncertain publication requires readback before retry. F3/F4/F5 file actions
-remain unavailable during the hold. No fixture LOAD or START is replayed.
+explicit status. STOP remains available. Open Pattern Load/Save with Ctrl+Left
+or Select+D-pad Left to review **Recover retained host work**. Enter/A first
+shows confirmation; a second press explicitly replaces device RAM with retained
+host work through the internal recovery coordinator. Cancel dismisses the prompt
+or leaves recovery without discarding either side. It does not load/overwrite a
+pattern file or start playback. Uncertain application offers readback first,
+never an automatic replay. Disconnected/SD warning barriers retain priority.
+No fixture LOAD or START is replayed on reconnect.
 
 ## Recorded confirmations and validation limits
 
@@ -228,24 +293,38 @@ Implementation/test sources for repeat and tempo details:
 
 ## Session and file behavior
 
-See [working-session storage](FILE_FORMATS.md#working-session-separate-from-tunesprojects)
-and [reconnect continuity](RECONNECT_CONTINUITY.md). Temporary Save does not change
-the published baseline or dirty comparison. RAM Restore never reads tune.btdraft;
-Publish never writes it. File Load intentionally establishes a new baseline and
-working copy only after validation/application. No Save As or file browser is
-implemented. Power loss restores the latest available disk session stopped, while
-a powered reconnect synchronizes with the actual device without STOP or LOAD.
+A valid Teensy working session takes precedence at startup, restoring published
+baseline, unpublished working edits and tempo, stopped. If absent or invalid,
+BTX uses existing `[development] startup_pattern`. A filename loads that file;
+`none`/empty uses `[btx] new_pattern_length` (16, 32 or 64 rows), eight channels
+and 125.00 BPM. Invalid config filenames warn and use the configured blank length.
+Config syntax and installed user settings are unchanged. Unknown I/O or interrupted
+storage outcomes are not treated as an absent session. Fallback runs once per
+BTX start, never as a reconnect replay. Playback never starts automatically.
 
-F4 Load and session resynchronization retain the known BTX edit cursor, including
-its field/header selection, clamped to the loaded pattern dimensions. Explicit
-F3 / Select+Start Test loads reset the cursor. A fresh
-editor with no previous cursor starts at the first row/channel. Cursor position
-is host state; it is not stored in tune or SD session files.
+Working edits and tempo automatically mark the Teensy session pending. It saves
+as soon as synchronization, transport, MIDI, SD ownership and storage conditions
+permit, without Publish, Restore, Exit or screen navigation. Playing/blocked
+storage retains pending intent; Pause/STOP permits it when safe. Failed writes
+retain pending intent and an explicit error without a tight retry loop; a new
+mutation or session-save request re-arms saving. Pattern-file Save is separate.
+An invalid canonical session is preserved as `current.btsession.invalid` before
+fallback may persist. Existing quarantine/candidate/previous files or failed
+preservation keep automatic writes blocked for owner recovery; no retained file
+is silently overwritten.
+
+Pattern Load/Save is the only manual pattern-file workflow. The temporary
+`tune.btdraft` commands are retired and existing draft files are untouched.
+F3/F4/F5, Shift+F4/F5, Select+Start, row A, L1+Y, L1+X and row L1+A have no legacy
+pattern action. Header A still mutes, browser A confirms, and B retains STOP or
+contextual Cancel. Source association and edit cursor are host state; cursor
+position is not restored across restart. Successful browser Load resets the
+cursor; Pattern Save and ordinary in-process return retain it.
 
 If Teensy rejects the pre-load READY check (for example, MIDI cleanup has not
 completed), no file Load is sent. BTX retains the current work/cursor and releases
 the Load barrier for an existing editor; STOP and normal controls remain
-available. The status shows why Load was not attempted. Retry Load/Test after
+available. The status shows why Load was not attempted. Retry Load after
 the device condition clears. Idle, cancelled MIDI quarantine no longer blocks
 file operations; MIDI fault/cleanup uncertainty remains visible. Active MIDI
 cleanup or DMA still blocks them. Uncertain outcomes after a submitted Load still
@@ -259,7 +338,7 @@ request recovery. BTX never sends those transport commands automatically. Missin
 or stale keeper/firmware status is shown as unavailable/unknown; internal audio and
 editing remain independent. No button bindings changed.
 
-F5/F4 do not save or load channel mutes. They retain the live Teensy mute mask
+Pattern Load/Save does not save or load channel mutes. It retains the live Teensy mute mask
 while the device remains powered; device initialization clears that mask.
 
 New bindings are automated-test coverage, not a new physical handheld confirmation.
@@ -317,3 +396,60 @@ blending affects just the icon's pixels. No generated bitmap/header replaces SVG
 and no full-frame filtering is applied. Missing/unusable icon files leave the
 warning text, panel and blocking behavior available. Native Terminus text and
 both size choices remain unchanged.
+
+Pattern Load uses a bordered vertical list with its Terminus 8x14 title above
+the frame and Terminus 6x12 filenames. The selected row is highlighted across
+its full width. Windows Up/Down and handheld unmodified D-pad Up/Down move one
+item. Down from the bottom visible row jumps to the next block with its first
+row selected at the top; Up from the first visible row selects the previous
+block's last row. Up at the first file and Down at the last file retain selection.
+The white vertical indicator shows the visible matching-file proportion and
+viewport position in the complete sorted list, including a partial final block.
+There are no manual page controls. Windows Enter / handheld A opens confirmation
+and confirms on the second press; Escape / B dismisses confirmation to the list. Outside confirmation, B returns
+to the action menu from the file list; Escape returns directly to Pattern. Ctrl+Right / Select+Right
+returns directly. While a Load is in flight, wait for its result; successful
+synchronized Load automatically returns to Pattern with the reset edit cursor.
+The existing `BTSTORE1 LISTCAP 1` firmware remains sufficient. MOD import, sample
+loading and Save As remain separate work.
+
+## Pattern Save to original file
+
+Windows Up/Down and Enter, or handheld D-pad Up/Down and A, select **Save** on
+Pattern Load/Save. It waits for working-edit and tempo synchronization, then
+writes the original `.btdev` file, including unpublished edits, tempo and
+instrument numbers. No Publish is required. It does not start or resume playback
+or move the edit cursor. Confirmed success automatically returns to Pattern with
+the cursor intact. Failure retains the working pattern and reports the storage
+error in the right-side status area. An uncertain timeout is not retried
+automatically; inspect the device files before retrying.
+
+Escape cancels a Load replacement prompt back to the file list; outside a prompt
+it returns to Pattern. B goes back one level (file list to action menu).
+Ctrl+Right / Select+Right also returns. In-flight Load/Save waits for its result.
+Session persistence remains separate from Pattern Save. Save requires the new
+`teensy41_dev` firmware advertising `BTSTORE1 PATTERNSAVECAP 1`; LISTCAP alone
+supports Load but not Pattern Save. Save As, filename entry, handheld character
+map, MOD import and sample loading remain separate tasks.
+
+| Action selection | Windows | Handheld |
+|---|---|---|
+| Select Load or Save | Up / Down, then Enter | D-pad Up / Down, then A |
+| Save original | Select Save; no Publish required | Select Save; no Publish required |
+
+## Browser Back and Save feedback
+
+Windows **Backspace** or **Ctrl+Left**, and handheld **B**, go back one level:
+from the file list to the Load/Save action menu; from Load confirmation to the
+same selected file. Reopening Load keeps that file selected. Hints say
+`Backspace / Ctrl+Left: Back` or `B: Back`; during confirmation the action is
+labeled **Cancel**. From the action menu, Back returns to Pattern. Escape keeps
+its existing Windows behavior: dismiss confirmation to the selected file, or
+return directly from the file list/action menu to Pattern. Ctrl+Right and
+Select+D-pad Right still return directly to Pattern. B on Pattern remains STOP.
+
+Only a matching acknowledged successful Save returns to Pattern and shows
+`Pattern saved: <original filename>` in the right-side status panel, including
+`.btdev`. The message remains after changing screens, and the edit cursor is
+unchanged. Pending, stale replies and failures never show this success message;
+existing failure/recovery behavior is preserved.

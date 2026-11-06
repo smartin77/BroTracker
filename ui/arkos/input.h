@@ -30,10 +30,10 @@ public:
         }
         blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
-    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false) noexcept {
+    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false,bool screen_navigation_available=false,bool browser_available=false) noexcept {
         if(blocked!=action_barrier_) {Cancel();start_pending_=false;chord_used_=false;}
         action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
-        publication_readback_available_=publication_readback_available;
+        publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;browser_available_=browser_available;
     }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
@@ -88,6 +88,7 @@ public:
                     return Button(b,event.type==SDL_JOYBUTTONDOWN,now,connected,editor);
         }
         if(event.type==SDL_JOYHATMOTION && event.jhat.which==id_) {
+            ArkOSInputResult result;
             // Release old hat directions before arming new ones (e.g. Down->Up).
             for(const bool down : {false,true})
                 for(unsigned b=SDL_CONTROLLER_BUTTON_DPAD_UP;b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;++b) {
@@ -95,8 +96,12 @@ public:
                     if(binding.bindType!=SDL_CONTROLLER_BINDTYPE_HAT) continue;
                     if(binding.value.hat.hat!=event.jhat.hat) continue;
                     const bool desired=(event.jhat.value & binding.value.hat.hat_mask)!=0;
-                    if(desired==down) (void)Button(b,down,now,connected,editor);
+                    if(desired==down) {
+                        const auto action=Button(b,down,now,connected,editor);
+                        if(action.transport!=BringUpAction::None)result=action;
+                    }
                 }
+            return result;
         }
         return {};
     }
@@ -104,14 +109,34 @@ private:
     ArkOSInputResult Button(unsigned b,bool down,std::uint32_t now,bool connected,LocalPatternEditor& editor) noexcept {
         if(b>=SDL_CONTROLLER_BUTTON_MAX || pressed_[b]==down) return {};
         pressed_[b]=down;
+        // Select must precede the direction. Shoulders retain their existing
+        // channel/tempo bindings, and BACK+START retains its independent chord.
+        const bool horizontal=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT || b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        if(horizontal && pressed_[SDL_CONTROLLER_BUTTON_BACK] &&
+           !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
+            const bool was_blocked=(blocked_ & (1u<<b))!=0;
+            const auto opposite=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?SDL_CONTROLLER_BUTTON_DPAD_RIGHT:SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+            Cancel();
+            if(!down)blocked_ &= ~(1u<<b);
+            if(down && !was_blocked && !pressed_[opposite] && focused_ &&
+               (screen_navigation_available_ || (!action_barrier_ && connected && editor.Ready())))
+                return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:BringUpAction::ScreenRight,false};
+            return {};
+        }
+        if(action_barrier_ && browser_available_ && down && focused_ &&
+           !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
+            const bool was_blocked=(blocked_ & (1u<<b))!=0;Cancel();
+            if(!was_blocked) {
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::BrowserUp,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::BrowserDown,false};
+                if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::BrowserConfirm,false};
+                if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserBack,false};
+            }
+        }
         if(action_barrier_) {
             Cancel();
             // Keep existing connected STOP and explicit recovery chords, never normal actions.
             if(down && focused_ && b==SDL_CONTROLLER_BUTTON_B && stop_available_)return {BringUpAction::ResetStop,false};
-            if(down && focused_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) {
-                if(b==SDL_CONTROLLER_BUTTON_X && recovery_available_)return {BringUpAction::None,false,true};
-                if(b==SDL_CONTROLLER_BUTTON_A && (recovery_available_ || publication_readback_available_))return {BringUpAction::None,true};
-            }
             if(b==SDL_CONTROLLER_BUTTON_START) {
                 if(down)start_pending_=focused_;
                 else {const bool exit=start_pending_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];start_pending_=false;
@@ -125,7 +150,7 @@ private:
             if(!focused_)return {};
             if(pressed_[SDL_CONTROLLER_BUTTON_START] && pressed_[SDL_CONTROLLER_BUTTON_BACK]) {
                 start_pending_=false;
-                if(!chord_used_) {chord_used_=true;return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Test};}
+                chord_used_=true;return {};
             }
             if(b==SDL_CONTROLLER_BUTTON_START) {
                 if(down && !chord_used_)start_pending_=true;
@@ -195,18 +220,14 @@ private:
         }
         if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
         if(b==SDL_CONTROLLER_BUTTON_A && editor.Ready() && editor.Cursor().header) {Cancel();return {BringUpAction::None,false,false,int(editor.Cursor().channel)};}
-        if(b==SDL_CONTROLLER_BUTTON_A) { Cancel();
-            if(modifier)return {BringUpAction::None,true};
-            return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Save};
-        }
-        if(b==SDL_CONTROLLER_BUTTON_X && modifier && connected) {Cancel();editor.Apply(EditorAction::Restore);return {BringUpAction::None,false,true};}
-        if(b==SDL_CONTROLLER_BUTTON_Y && modifier) {Cancel();return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Load};}
+        if(b==SDL_CONTROLLER_BUTTON_A) {Cancel();return {};}
+        if(modifier && (b==SDL_CONTROLLER_BUTTON_X || b==SDL_CONTROLLER_BUTTON_Y)) {Cancel();return {};}
         if(b==SDL_CONTROLLER_BUTTON_X && !modifier && connected) { Cancel(); editor.Apply(EditorAction::NoteOff); }
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
     }
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
-    bool publication_readback_available_=false;
+    bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;

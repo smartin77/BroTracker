@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include "serial_transport.h"
+#include "bringup/pattern_directory.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
@@ -31,7 +32,7 @@ public:
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
     bool ReconnectRecoveryPending() const { return continuity_pending_; }
-    // Shift+F4 restores the retained local published baseline, without device writes.
+    // Internal compatibility helper restores the retained local published baseline, without device writes.
     bool RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now);
     const char* PublicationStatus() const {
         if(continuity_pending_) {
@@ -41,7 +42,7 @@ public:
             if(continuity_auto_) return preview_.Phase()==BroTracker::HostPreviewPhase::Rejected ?
                 "Reconnect recovery rejected: host draft retained; STOP available; see preview/log" :
                 "Reconnect: recovering retained host edits; waiting for verified working readback; STOP available";
-            return continuity_ready_ ? "Reconnect differs: local retained. Shift+F4 Restore local; Shift+F5 Publish" :
+            return continuity_ready_ ? "Reconnect differs: host work retained. Open Load/Save for explicit recovery" :
                 "Reconnect unconfirmed: host work retained; waiting for safe stopped readback; STOP available";
         }
 
@@ -91,9 +92,26 @@ public:
     // Standalone protocol clients may omit startup initialization entirely.
     void SetStartupPattern(std::string_view value) { startup_configured_=true;startup_pattern_valid_=startup_pattern_.Assign(value); }
     void SetStartupPattern(const BroTracker::DevelopmentPattern& value) { SetStartupPattern(std::string_view(value.stem)); }
+    void ConfigureStartupFallback(unsigned rows) {startup_fallback_enabled_=true;startup_blank_rows_=rows;}
+    bool RecoverRetainedWork(std::uint32_t now) {LocalPatternEditor unused;return Publish(unused,now);}
+    bool RecoveryMenuAvailable()const{return ReconnectRecoveryActionsAvailable() || PublicationReadbackRetryAvailable();}
     bool StartupPatternReady() const {return startup_selection_enabled_ ? (startup_editor_ready_ || load_rejected_) : (!startup_configured_ || initial_sync_ready_);}
-    enum class FileAction { None, Save, Load, Test, Session };
-    bool RequestFile(FileAction action, std::uint32_t now);
+    enum class FileAction { None, Save, Load, Test, Session, Pattern, PatternSave };
+    enum class PatternLoadState { Idle, Pending, Succeeded, Failed };
+    bool RequestPatternLoad(std::string_view name,std::uint32_t now);
+    PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
+    bool RequestPatternList(std::uint32_t offset,std::uint32_t now);
+    bool PatternListBusy()const{return list_queued_ || list_pending_;}
+    bool PatternListReady()const{return list_ready_;}
+    const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
+    const char* PatternListStatus()const{return list_status_;}
+    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false);
+    bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
+    bool FilePending() const {return file_action_!=FileAction::None;}
+    const char* PatternSource()const{return pattern_source_.c_str();}
+    bool PatternSaveAvailable()const{return pattern_save_supported_ && !pattern_source_.empty();}
+    bool PatternSaveSucceeded()const{return pattern_save_succeeded_;}
+    bool SessionSaveSucceeded() const {return session_save_succeeded_;}
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
     BroTracker::HostMidiHealth MidiHealth(std::uint32_t now) const {
@@ -166,10 +184,19 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
+    enum class Command { None, List, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
     BroTracker::DevelopmentPattern startup_pattern_;
     bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
+    BroTracker::DevelopmentPattern file_pattern_;
+    PatternLoadState pattern_load_state_=PatternLoadState::Idle;
+    BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
+    std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
+    char list_status_[96]{};
     FileAction file_action_=FileAction::None;
+    std::string pattern_source_;
+    bool pattern_save_supported_=false,pattern_save_succeeded_=false;
+    bool session_save_succeeded_=false,session_storage_ready_=false,session_ready_required_=false;
     char file_status_[160]{};
     bool exit_requested_=false,exit_done_=false;
     std::uint32_t exit_started_=0,file_requested_at_=0;
@@ -181,6 +208,8 @@ private:
     bool storage_ready_supported_=false,startup_stop_sent_=false,startup_ready_sent_=false,startup_storage_ready_=false;
     bool startup_context_cleared_=false,startup_editor_ready_=false;
     bool startup_selection_enabled_=false;
+    bool startup_fallback_enabled_=false,startup_decided_=false,startup_fallback_=false,boot_status_known_=false,boot_session_valid_=false,boot_fallback_allowed_=false,new_pattern_supported_=false;
+    unsigned startup_blank_rows_=32;
     std::uint32_t startup_revision_=0;
     bool QueueTransport(Command command);
     const char* PublicationUnavailable(const LocalPatternEditor& editor) const;

@@ -14,6 +14,7 @@
 #include "renderer/framebuffer.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
+#include "file_list.h"
 
 // Caller-owned presentation strings only; no transport/input work in rendering.
 struct HostPanelInformation
@@ -26,6 +27,9 @@ struct HostPanelInformation
     BroTracker::RowNumbering row_numbering=BroTracker::RowNumbering::D1;
     std::string volume_status{};
     std::string midi_route_status{},midi_usb_status{};
+    bool load_save_screen=false;
+    std::string pattern_browser_text{};
+    FileListView pattern_browser_list{};
 };
 
 void RenderMainScreen(

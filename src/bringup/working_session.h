@@ -24,6 +24,14 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
 }
 template<class Backend> class WorkingSessionStore {
 public:
+    // Preserve invalid canonical bytes before automatic config-fallback persistence.
+    // Never overwrite an earlier quarantine or bypass interrupted-write markers.
+    bool PreserveInvalid(Backend& b) noexcept {
+        Lease lease(b,true);if(!lease.held)return false;
+        constexpr const char* invalid="/BroTracker/current.btsession.invalid";
+        if(b.Exists(invalid) || b.Exists(kSessionCandidatePath) || b.Exists(kSessionPreviousPath) || !b.RegularFile(kSessionPath))return false;
+        return b.Rename(kSessionPath,invalid);
+    }
     PatternFileResult Save(Backend& b,const WorkingSession& s) noexcept {
         if(s.published.active_rows!=s.working.active_rows || s.published.active_channels!=s.working.active_channels)return PatternFileResult::Invalid;
         std::size_t a=0,c=0;

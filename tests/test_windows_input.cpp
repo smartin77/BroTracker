@@ -150,7 +150,7 @@ int main() {
     CHECK(TempoRegression()==0);
     for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
         SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
-        CHECK(MapWindowsPublish(publish)==(mod==KMOD_SHIFT));
+        CHECK(!MapWindowsPublish(publish));
         CHECK(MapWindowsAction(publish)==BringUpAction::None);
         CHECK(MapWindowsEditorAction(publish)==EditorAction::None);
         publish.key.repeat=1; CHECK(!MapWindowsPublish(publish));
@@ -241,11 +241,11 @@ int main() {
     }
     for(auto key:{SDLK_F3,SDLK_F4,SDLK_F5}) {
         SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=key;
-        const auto expected=key==SDLK_F3?BringUpSerial::FileAction::Test:key==SDLK_F4?BringUpSerial::FileAction::Load:BringUpSerial::FileAction::Save;
+        const auto expected=BringUpSerial::FileAction::None;
         CHECK(MapWindowsFile(event)==expected);CHECK(MapWindowsEditorAction(event)==EditorAction::None);
         event.key.repeat=1;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.key.repeat=0;
         event.type=SDL_KEYUP;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.type=SDL_KEYDOWN;
-        for(auto modifier:{KMOD_SHIFT,KMOD_CTRL,KMOD_ALT,KMOD_GUI}) {event.key.keysym.mod=modifier;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);}
+        for(auto modifier:{KMOD_SHIFT,KMOD_CTRL,KMOD_ALT,KMOD_GUI}) {event.key.keysym.mod=modifier;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);CHECK(MapWindowsEditorAction(event)==EditorAction::None);}
     }
     SDL_Event e{}; e.type = SDL_KEYDOWN;
     e.key.keysym.sym = SDLK_SPACE; CHECK(MapWindowsAction(e) == BringUpAction::PatternToggle);
@@ -327,6 +327,27 @@ int main() {
     }
     for (auto type : {SDL_KEYUP, SDL_CONTROLLERBUTTONDOWN, SDL_JOYBUTTONDOWN, SDL_CONTROLLERAXISMOTION}) {
         e = {}; e.type = type; CHECK(MapWindowsAction(e) == BringUpAction::None);
+    }
+    for(auto mod:{KMOD_LCTRL,KMOD_RCTRL}) for(auto direction:{SDLK_LEFT,SDLK_RIGHT}) {
+        WindowsEditorInput screen_input;const auto cursor=editor.Cursor();const auto before=*editor.Draft();
+        SDL_Event screen{};screen.type=SDL_KEYDOWN;screen.key.keysym.sym=direction;screen.key.keysym.mod=mod;
+        CHECK(MapWindowsAction(screen)==(direction==SDLK_LEFT?BringUpAction::ScreenLeft:BringUpAction::ScreenRight));
+        CHECK(MapWindowsEditorAction(screen)==EditorAction::None);
+        CHECK(!screen_input.Handle(screen,0,editor));screen_input.Tick(1000,mod,editor);
+        screen.key.repeat=1;CHECK(MapWindowsAction(screen)==BringUpAction::None);
+        CHECK(!screen_input.Handle(screen,1001,editor));screen_input.Tick(2000,KMOD_NONE,editor);
+        CHECK(editor.Cursor().row==cursor.row && editor.Cursor().channel==cursor.channel && editor.Cursor().field==cursor.field);
+        CHECK(BroTracker::SamePattern(before,*editor.Draft()));
+        screen.type=SDL_KEYUP;screen.key.repeat=0;CHECK(MapWindowsAction(screen)==BringUpAction::None);
+        screen_input.Handle(screen,2001,editor);
+        screen.type=SDL_KEYDOWN;screen.key.keysym.mod=KMOD_CTRL|KMOD_SHIFT;
+        CHECK(MapWindowsAction(screen)==BringUpAction::None);
+    }
+    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::BrowserUp},{SDLK_DOWN,BringUpAction::BrowserDown},
+        {SDLK_LEFT,BringUpAction::None},{SDLK_RIGHT,BringUpAction::None},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_BACKSPACE,BringUpAction::BrowserBack},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
+        SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsBrowserAction(e)==pair.second);
+        e.key.repeat=1;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);e.key.repeat=0;e.key.keysym.mod=KMOD_CTRL;
+        CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);
     }
     CHECK(IsTeensyIdentity(L"USB\\VID_16C0&PID_048A&MI_00\\instance"));
     CHECK(IsTeensyIdentity(L"usb\\vid_16c0&pid_048a&mi_00\\other"));

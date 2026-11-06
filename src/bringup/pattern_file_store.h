@@ -1,5 +1,6 @@
 #pragma once
 #include "pattern_file.h"
+#include <cstdio>
 #include "development_pattern_selection.h"
 #include "pattern_fixture.h"
 #include "pattern_publication.h"
@@ -118,6 +119,13 @@ public:
         SetDevelopmentMidiBassPart(scratch);
         return Write(b,kDevelopmentPattern3Path,"/BroTracker/development/patern3.btdev.candidate",
             "/BroTracker/development/patern3.btdev.previous",PatternFileKind::Development,scratch,tempo);
+    }
+    PatternFileResult SaveDevelopment(Backend& b,std::string_view name,const RealtimePattern& p,std::uint32_t tempo) noexcept {
+        char path[kDevelopmentPathCapacity],candidate[kDevelopmentPathCapacity+10],previous[kDevelopmentPathCapacity+9];
+        if(!BuildDevelopmentPath(name,path,sizeof(path)))return PatternFileResult::Invalid;
+        std::snprintf(candidate,sizeof(candidate),"%s.candidate",path);
+        std::snprintf(previous,sizeof(previous),"%s.previous",path);
+        return Write(b,path,candidate,previous,PatternFileKind::Development,p,tempo);
     }
     PatternFileResult SaveDraft(Backend& b,const RealtimePattern& p,std::uint32_t tempo) noexcept {
         return Write(b,"/BroTracker/tune.btdraft","/BroTracker/tune.btdraft.candidate",

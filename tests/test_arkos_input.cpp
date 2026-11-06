@@ -50,7 +50,7 @@ TEST_CASE(ArkOSPlainNavigationAndChordConsumption) {
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT); CHECK_EQ(f.editor.Cursor().channel,1); CHECK(f.editor.Cursor().field==EditField::Note);
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT); CHECK_EQ(f.editor.Cursor().channel,0);
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP); CHECK_EQ(f.editor.Cursor().row,0); CHECK_EQ(f.editor.Draft()->cells[0][0].note,61);
-    f.Tap(SDL_CONTROLLER_BUTTON_X); CHECK(!f.editor.Dirty()); CHECK_EQ(f.editor.Draft()->cells[0][0].note,60);
+    f.Tap(SDL_CONTROLLER_BUTTON_X); CHECK(f.editor.Dirty()); CHECK_EQ(f.editor.Draft()->cells[0][0].note,61);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::Exit);
     f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
@@ -58,8 +58,8 @@ TEST_CASE(ArkOSPlainNavigationAndChordConsumption) {
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);
     f.Tap(SDL_CONTROLLER_BUTTON_X); CHECK_EQ(f.editor.Draft()->cells[0][0].note,NOTE_OFF);
     f.Tap(SDL_CONTROLLER_BUTTON_Y); CHECK_EQ(f.editor.Draft()->cells[0][0].note,NOTE_EMPTY); CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,255);
-    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);
-    CHECK(!f.Tap(SDL_CONTROLLER_BUTTON_BACK).publish); // Select unassigned.
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::None);
+    CHECK(!f.Tap(SDL_CONTROLLER_BUTTON_BACK).publish); // Select alone has no action.
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER).transport==BringUpAction::None);
 }
 TEST_CASE(ArkOSSharedValueDirectionRepeatAndOffTiming) {
@@ -160,8 +160,9 @@ TEST_CASE(ArkOSAUsesStoppedPausedCapabilityGatesWithoutChangingDraft) {
         const auto source=PatternView()->device_pattern->pattern;
         PatternSnapshotSender stable(source,12753); CHECK(stable.Begin(1,0,2));
         while(stable.HasData()) {std::size_t n; const auto* line=stable.Data(n); port->rx.append(line,n); tick(); stable.Consume(n);}
+        serial.SyncEditor(f.editor,now); // Complete the initial host/editor readback barrier before Publish.
         CHECK(f.editor.Apply(EditorAction::Increment)); const auto draft=*f.editor.Draft();
-        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);CHECK(!f.Tap(SDL_CONTROLLER_BUTTON_A).publish);f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
         const bool accepted=serial.Publish(f.editor,now);
         CHECK_EQ(accepted,!std::strcmp(state,"IDLE") || (!std::strcmp(state,"PAUSED") && paused_cap));
         CHECK(SamePattern(draft,*f.editor.Draft()));
@@ -424,7 +425,7 @@ TEST_CASE(ArkOSHeaderAConsumesPublishAndRetainsTempoIncludingVerifiedRaw) {
     f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
     f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);CHECK_EQ(f.input.TakeTempoStep(),5);f.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);CHECK_EQ(f.editor.Cursor().channel,0);
     f.Edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN);CHECK(!f.editor.Cursor().header);
-    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);CHECK(!f.editor.Dirty());CHECK(!f.editor.CanUndo());
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::None);CHECK(!f.editor.Dirty());CHECK(!f.editor.CanUndo());
     SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
     bindings[SDL_CONTROLLER_BUTTON_A].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[SDL_CONTROLLER_BUTTON_A].value.button=9;
     f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);CHECK(f.editor.SelectHeader(1));
@@ -467,18 +468,18 @@ TEST_CASE(ArkOSFileActionsConsumeSelectStartChordOnceInEitherOrder) {
         const auto first=select_first?SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START;
         const auto second=select_first?SDL_CONTROLLER_BUTTON_START:SDL_CONTROLLER_BUTTON_BACK;
         CHECK(f.Edge(first).transport==BringUpAction::None);
-        auto request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::Test);CHECK(request.transport==BringUpAction::None);
+        auto request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::None);CHECK(request.transport==BringUpAction::None);
         for(unsigned i=0;i<10;++i)CHECK(f.Edge(second).file==BringUpSerial::FileAction::None);
         CHECK(f.Edge(second,false).transport==BringUpAction::None);
         CHECK(f.Edge(second).file==BringUpSerial::FileAction::None); // One still-held chord.
         CHECK(f.Edge(first,false).transport==BringUpAction::None);CHECK(f.Edge(second,false).transport==BringUpAction::None);
-        f.Edge(first);request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::Test);CHECK(request.transport==BringUpAction::None);
+        f.Edge(first);request=f.Edge(second);CHECK(request.file==BringUpSerial::FileAction::None);CHECK(request.transport==BringUpAction::None);
         f.Edge(first,false);f.Edge(second,false);
         f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-        const auto load=f.Tap(SDL_CONTROLLER_BUTTON_Y);CHECK(load.file==BringUpSerial::FileAction::Load);CHECK(!load.restore);
-        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).publish);
+        const auto load=f.Tap(SDL_CONTROLLER_BUTTON_Y);CHECK(load.file==BringUpSerial::FileAction::None);CHECK(!load.restore);
+        CHECK(!f.Tap(SDL_CONTROLLER_BUTTON_A).publish);
         f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
-        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::Save);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).file==BringUpSerial::FileAction::None);
     }
     InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
     bindings[SDL_CONTROLLER_BUTTON_BACK].bindType=bindings[SDL_CONTROLLER_BUTTON_START].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
@@ -486,7 +487,7 @@ TEST_CASE(ArkOSFileActionsConsumeSelectStartChordOnceInEitherOrder) {
     f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);
     SDL_Event e{};e.type=SDL_JOYBUTTONDOWN;e.jbutton.which=7;e.jbutton.button=9;
     CHECK(f.input.Handle(e,0,true,f.editor).transport==BringUpAction::None);
-    e.jbutton.button=8;CHECK(f.input.Handle(e,1,true,f.editor).file==BringUpSerial::FileAction::Test);
+    e.jbutton.button=8;CHECK(f.input.Handle(e,1,true,f.editor).file==BringUpSerial::FileAction::None);
     e.type=SDL_JOYBUTTONUP;e.jbutton.button=9;CHECK(f.input.Handle(e,2,true,f.editor).transport==BringUpAction::None);
 }
 
@@ -510,16 +511,16 @@ TEST_CASE(ArkOSOfflineExitSurvivesTicksAndUnavailableEditor) {
 TEST_CASE(ArkOSLoadThenTestChordAndStandaloneStartRemainAvailable) {
     for(bool select_first:{false,true}) {
         InputFixture f;f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::Load);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::None);
         f.editor.ResetContext(true);f.input.Tick(++f.now,true,f.editor);
         f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);f.editor.Sync(PatternView());
         const auto first=select_first?SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START;
         const auto second=select_first?SDL_CONTROLLER_BUTTON_START:SDL_CONTROLLER_BUTTON_BACK;
-        f.Edge(first);CHECK(f.Edge(second).file==BringUpSerial::FileAction::Test);
+        f.Edge(first);CHECK(f.Edge(second).file==BringUpSerial::FileAction::None);
         f.Edge(first,false);f.input.Tick(++f.now,true,f.editor);f.Edge(second,false);
         CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
         f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::Load);
+        CHECK(f.Tap(SDL_CONTROLLER_BUTTON_Y).file==BringUpSerial::FileAction::None);
         f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
         CHECK(f.Tap(SDL_CONTROLLER_BUTTON_START).transport==BringUpAction::PatternToggle);
     }
@@ -544,6 +545,64 @@ TEST_CASE(SynchronizationBarrierAllowsConnectedStopAndCancelsHeldStartOnUnlock) 
     input.SetActionBarrier(false,true);CHECK(edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::None);
     input.SetActionBarrier(true,false);CHECK(edge(SDL_CONTROLLER_BUTTON_B,true).transport==BringUpAction::None);
     edge(SDL_CONTROLLER_BUTTON_B,false);input.SetActionBarrier(true,true,true);
-    edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);CHECK(edge(SDL_CONTROLLER_BUTTON_X,true).restore);
-    CHECK(edge(SDL_CONTROLLER_BUTTON_A,true).publish);
+    edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);CHECK(!edge(SDL_CONTROLLER_BUTTON_X,true).restore);
+    CHECK(!edge(SDL_CONTROLLER_BUTTON_A,true).publish);
+}
+
+TEST_CASE(ArkOSSelectScreenChordsConsumeDirectionsAndRespectBarriers) {
+    InputFixture f;f.editor.RestoreCursor({12,1,EditField::Instrument,false});const auto cursor=f.editor.Cursor();
+    f.Edge(SDL_CONTROLLER_BUTTON_BACK);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT).transport==BringUpAction::ScreenLeft);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT).transport==BringUpAction::None);
+    f.input.Tick(2000,true,f.editor);CHECK_EQ(f.editor.Cursor().row,cursor.row);CHECK_EQ(f.editor.Cursor().channel,cursor.channel);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_LEFT,false);
+    f.input.SetActionBarrier(true,true,false,false,true); // Screen pending/view: permit screen actions, no editor actions.
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::ScreenRight);
+    f.input.SetActionBarrier(true,true); // Disconnect/SD/recovery warning: no screen navigation.
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT).transport==BringUpAction::None);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);
+    f.input.SetActionBarrier(false);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_START).file==BringUpSerial::FileAction::None); // Select+Start unchanged.
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_START,false).transport==BringUpAction::None);
+    f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);
+    CHECK_EQ(f.editor.Cursor().row,cursor.row);CHECK_EQ(f.editor.Cursor().channel,cursor.channel);CHECK(f.editor.Cursor().field==cursor.field);
+    for(auto shoulder:{SDL_CONTROLLER_BUTTON_LEFTSHOULDER,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}) {
+        InputFixture other;other.Edge(SDL_CONTROLLER_BUTTON_BACK);other.Edge(shoulder);
+        CHECK(other.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::None);
+        if(shoulder==SDL_CONTROLLER_BUTTON_LEFTSHOULDER)CHECK_EQ(other.editor.Cursor().channel,1u);
+        else CHECK_EQ(other.input.TakeTempoStep(),5);
+        other.Edge(SDL_CONTROLLER_BUTTON_DPAD_RIGHT,false);
+    }
+}
+TEST_CASE(ArkOSSelectRawHatScreenChordReturnsActionAndConsumesHold) {
+    InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+    bindings[SDL_CONTROLLER_BUTTON_BACK].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
+    bindings[SDL_CONTROLLER_BUTTON_BACK].value.button=2;
+    for(auto direction:{SDL_CONTROLLER_BUTTON_DPAD_LEFT,SDL_CONTROLLER_BUTTON_DPAD_RIGHT}) {
+        bindings[direction].bindType=SDL_CONTROLLER_BINDTYPE_HAT;bindings[direction].value.hat.hat=0;
+        bindings[direction].value.hat.hat_mask=direction==SDL_CONTROLLER_BUTTON_DPAD_LEFT?SDL_HAT_LEFT:SDL_HAT_RIGHT;
+    }
+    f.input.Select(7,ArkOSInputStream::VerifiedRaw,bindings);
+    SDL_Event e{};e.type=SDL_JOYBUTTONDOWN;e.jbutton.which=7;e.jbutton.button=2;f.input.Handle(e,0,true,f.editor);
+    e={};e.type=SDL_JOYHATMOTION;e.jhat.which=7;e.jhat.hat=0;e.jhat.value=SDL_HAT_LEFT;
+    CHECK(f.input.Handle(e,1,true,f.editor).transport==BringUpAction::ScreenLeft);
+    CHECK(f.input.Handle(e,2,true,f.editor).transport==BringUpAction::None);
+    e.jhat.value=SDL_HAT_RIGHT;CHECK(f.input.Handle(e,3,true,f.editor).transport==BringUpAction::ScreenRight);
+    CHECK_EQ(f.editor.Cursor().channel,0u);CHECK(f.editor.Cursor().field==EditField::Note);
+}
+
+TEST_CASE(ArkOSPatternBrowserConsumesActionsWithoutEditingAndKeepsSelectNavigation) {
+    InputFixture f;const auto original=*f.editor.Draft();const auto cursor=f.editor.Cursor();
+    f.input.SetActionBarrier(true,true,false,false,true,true);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::BrowserDown);
+    CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::None);
+    f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT).transport==BringUpAction::None);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::None);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::BrowserConfirm);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::BrowserBack);
+    f.Edge(SDL_CONTROLLER_BUTTON_BACK);CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::ScreenRight);
+    CHECK(SamePattern(original,*f.editor.Draft()));CHECK_EQ(f.editor.Cursor().row,cursor.row);
+    f.input.SetActionBarrier(true,true);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::None);
 }

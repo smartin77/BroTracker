@@ -229,11 +229,10 @@ published/working state; they contain no separate unpublished edits to recover.
 
 ### Temporary pattern records and files
 
-`/BroTracker/tune.btdraft` is the single explicitly saved tune. F5 / row A replaces
-it safely; F4 / L1+Y loads it. Save captures working intent/applied tempo without
-Publish; successful Load intentionally establishes both a new published baseline
-and working copy. Automatic session updates and development-file loads never
-write this file. Full Load/Save/Save As dialogs remain future work.
+`/BroTracker/tune.btdraft` is a retired temporary tune workflow. Existing files
+are left untouched; BTX has no Load/Save/Publish/Restore shortcuts for it, and
+firmware rejects DRAFTSAVE/DRAFTLOAD. BTSS remains documented for legacy readers.
+Pattern Load/Save now targets `.btdev` files; Save As remains future work.
 
 Both draft BTSS and development BTDP records have this version-1 layout:
 
@@ -278,25 +277,54 @@ freezes one bounded tune snapshot and reports pending until Pause/Stop completes
 the write. Session exit while Playing reports deferred persistence and preserves
 playback. Sudden power loss can lose changes not yet safely saved.
 
+### Pattern Load screen listing
+
+BTX lists the existing `/BroTracker/development/` directory, not a new storage
+layout. A listed filename has a 1..24 ASCII alphanumeric/underscore/hyphen stem
+and exact `.btdev` extension. Each regular file must pass the existing BTDP
+version-1 length/dimensions/tempo/note/OFF-timing/CRC validator. This includes the
+four existing fixtures and arbitrary compatible filenames. Directories, malformed
+records, other extensions and temporary replacement files are omitted. Instrument
+binding compatibility is still checked by the existing application validator.
+
+Firmware advertises `BTSTORE1 LISTCAP 1`. While stopped and storage/control queues
+are ready, `BTSTORE1 LIST 1 request offset` returns up to eight
+`BTSTORE1 FILE 1 request filename` lines followed by
+`BTSTORE1 LISTEND 1 request next_offset done` (done is 0/1), or
+`BTSTORE1 LISTERROR 1 request reason`. Request IDs are nonzero uint32; offsets are
+opaque aligned directory byte positions, initially zero. A page scans at most 64
+entries under the existing read lease and can be empty with more entries remaining.
+The host accepts only the matching request, commits a page only on its complete
+end marker, and times out without replaying commands. Left refreshes the first
+page; directory edits during browsing require a refresh. Listing never creates or
+writes files and is rejected during playback.
+
+Selected files use the existing `BTSTORE1 READY 1` / `BTSTORE1 LOAD 1 filename`
+path, independent of startup fallback settings. Validation precedes application;
+the host waits for the application acknowledgement and authoritative baseline /
+working readback before returning with a reset editor cursor. Known rejected
+loads preserve the current work. Uncertain application/readback keeps the existing
+recovery barrier instead of claiming that the device did not change. No pattern
+Save, session format change, cursor persistence or startup migration is added.
+
 ### Development selection and protocol
 
-`[development] startup_pattern` is used **only** by F3 / Select+Start. Names accept
-1..24 ASCII alphanumeric/underscore/hyphen characters, optionally exact `.btdev`.
-No paths, quotes, whitespace, traversal, truncation or other extensions. Only exact
-unquoted `none` requests an empty 32?8 pattern at 12500 without SD access;
-`none.btdev` names a real file. Invalid config disables explicit test load rather
-than loading a fallback. Missing/empty config defaults to `none`. Restart BTX to
-read changed configuration. Named file contents determine dimensions and tempo.
+`[development] startup_pattern` is the startup fallback only when the session is
+confirmed missing/invalid, and never a reconnect replay. Names accept 1..24 ASCII
+alphanumeric/underscore/hyphen characters, optionally exact `.btdev`. No paths,
+quotes, whitespace, traversal, truncation or other extensions. Exact unquoted
+`none` or empty uses the configured blank-pattern length at 12500; `none.btdev`
+names a real file. Invalid config names warn and use the configured blank length.
+A valid session always wins. Named file contents determine dimensions and tempo.
+Restart BTX to read changed config; syntax and installed settings are preserved.
 
 Firmware advertises `BTSTORE1 CAP 1`, `READYCAP 1` and `SESSIONCAP 2`. Hosts require
-the last capability for working-session and draft actions; older SAVE behavior
+the last capability for working-session actions; older SAVE behavior
 must not be mistaken for saving unpublished edits.
 
 | Command | Effect |
 | --- | --- |
 | `BTSTORE1 SAVE 1` | Save working session, or explicitly defer while Playing |
-| `BTSTORE1 DRAFTSAVE 1` | Save working tune to tune.btdraft; bounded RAM defer while Playing |
-| `BTSTORE1 DRAFTLOAD 1` | Validate draft file, apply through stopped publication, final audio-owner ACK |
 | `BTSTORE1 LOAD 1 filename` | Explicit development-file load through the same validation/barrier |
 | `BTSTORE1 READY 1` | Bounded stopped-storage readiness negotiation |
 | `BTSTORE1 RESTORE 1` | Legacy single-BTSS session tooling only; not normal startup or a UI shortcut |
@@ -333,3 +361,37 @@ pending or absent status remains unknown. Session recovery errors, missing or
 invalid sessions, missing samples/patterns, READY timeouts and file-operation
 errors never establish unavailable SD. Session formats are unchanged. Updated
 firmware must be uploaded separately to provide this authoritative status.
+
+### Pattern Save to its source file
+
+`BTSTORE1 PATTERNSAVECAP 1` advertises the stopped-only command
+`BTSTORE1 PATTERNSAVE 1 filename.btdev`. Filename validation and directory rules
+match Pattern Load. The result label is `pattern-save-filename.btdev` in the
+existing `BTSTORE1 RESULT 1 label result revision` envelope (revision 0).
+The host associates a source only after browser Load application and baseline /
+working readback synchronization, and sends Save only after working edits and
+tempo synchronize. Firmware saves its working pattern, not the published baseline,
+using the unchanged BTDP development encoder. It never submits a pattern or
+changes transport. Save uses exclusive `.candidate`, checked write/sync/close and
+reopen verification, then canonical-to-`.previous` / candidate-to-canonical rename,
+rollback on failed promotion, and previous cleanup. Existing candidate or previous
+files require explicit recovery. `backup-retained` is not reported as clean success.
+This does not change BTDP, BTWS or any session-persistence behavior.
+
+### Startup precedence and automatic working-session scheduling
+
+A valid restored session wins over host startup configuration. On confirmed missing /
+invalid / unsupported session, BTX applies `[development] startup_pattern` once;
+`none` uses `[btx] new_pattern_length`. `BTSTORE1 NEWCAP 1` advertises
+`BTSTORE1 NEW 1 rows` (16, 32, 64), a blank eight-channel 125.00-BPM pattern applied
+through the same acknowledged application/readback flow as Load, result label `new`.
+No automatic START or reconnect replay. Valid sessions saved since boot are advertised
+as valid to later host instances, so config does not replace them.
+Invalid canonical session bytes are preserved at `current.btsession.invalid` before
+fallback persistence. Existing quarantine/interrupted-write markers block further
+automatic overwrites. No session or pattern format changes.
+Working/tempo changes schedule a session write independent of UI. Storage/transport
+barriers leave it pending. Failed writes retain pending intent with a failure latch;
+another mutation/request rearms it. No busy-loop I/O retry. The firmware no longer
+accepts DRAFTSAVE/DRAFTLOAD; old tune.btdraft files are left untouched. Internal
+publication/readback recovery remains available via explicit retained-work review.

@@ -16,6 +16,7 @@ struct HostConfig {
     char language[32]="en_US"; // Optional [btx] language; English fallback.
     DevelopmentPattern startup_pattern;
     bool startup_pattern_invalid=false;
+    bool confirm_load_replace=true; // [pattern], strict true/false, default enabled.
     bool bridge_audible_test = false;
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
@@ -37,6 +38,7 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Invalid/empty language falls back to en_US. Optional [logging]: mode=basic/debug, preserve_last=0..20.
 // Optional [editing]: value_step_direction=normal/reversed; deprecated alias
 // note_step_direction is accepted, but supplying both names rejects.
+// Optional [pattern]: confirm_load_replace=true/false; absent defaults true.
 // Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
@@ -46,10 +48,10 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Linux bridge only; Windows recognizes configuration but does not record.
 // Optional [display]: row_numbering=d1/d0/h1/h0; absent/empty uses d1.
 // Invalid nonempty display mode warns once and uses d1.
-// Optional [development]: explicit F3/Select+Start only; startup_pattern is a 1..24-byte ASCII alnum/_/-
-// filename stem, optional .btdev, or exact reserved none. Missing/empty selects none
-// for explicit test loading; invalid warns and disables that action in BTX.
-// Content determines dimensions/tempo; no automatic startup/reconnect LOAD or START.
+// Optional [development]: startup_pattern is the fallback only if the Teensy boot
+// session is absent/invalid. Existing name syntax stays unchanged; none selects
+// blank new_pattern_length rows at 125.00 BPM. Valid sessions take precedence.
+// No fallback replay on reconnect and no automatic START.
 // Whole-line #/; comments and ASCII whitespace are allowed.
 // Unknown settings/sections, unsupported versions and nondecimal values reject.
 // Every failure preserves output. No allocation; work bounded by 4096 bytes.
