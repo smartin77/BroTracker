@@ -37,6 +37,7 @@ extern volatile uint8_t usb_configuration;
 #include "sd_wav_inspection.h"
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
+#include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
 #include "bringup/pattern_storage_protocol.h"
 #endif
@@ -222,8 +223,8 @@ namespace
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
     // Full production HELLO is 30 lines including explicit SD capability and boot status.
-    constexpr std::size_t kDiscoveryReserve = 30;
-    constexpr std::size_t kTxCapacity = 31;
+    constexpr std::size_t kDiscoveryReserve = 32;
+    constexpr std::size_t kTxCapacity = 33;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -241,12 +242,9 @@ namespace
     PatternFileStore<SdPatternFiles> g_pattern_files;
     WorkingSessionStore<SdPatternFiles> g_session_files;
     WorkingSession g_session;
-    bool g_session_dirty=false,g_session_recovery_blocked=false;
-    bool g_draft_pending=false;
-    RealtimePattern g_draft_pattern;
-    std::uint32_t g_draft_tempo=0;
+    SessionSaveSchedule g_session_save;bool g_session_recovery_blocked=false,g_session_saved_valid=false;
     std::uint32_t g_session_tempo=0;
-    PatternFileResult g_session_result=PatternFileResult::Missing;
+    PatternFileResult g_session_result=PatternFileResult::Missing,g_boot_session_result=PatternFileResult::Missing;
     RealtimePattern g_storage_pattern; // Frozen main-context file/snapshot scratch, never live PCM.
     std::uint32_t g_storage_restore_id=0;
     StorageReadyWait g_storage_ready_wait;
@@ -337,10 +335,10 @@ namespace
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 LISTCAP 1\n"); (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
+        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 NEWCAP 1\n"); (void)QueueLine("BTSTORE1 PATTERNSAVECAP 1\n"); (void)QueueLine("BTSTORE1 LISTCAP 1\n"); (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
             (void)QueueLine("BTSTORE1 SDCAP 1\n");
             (void)QueueLine(g_storage_backend.ready ? "BTSTORE1 SD 1 available\n" : "BTSTORE1 SD 1 unavailable\n");
-                    StorageReply("session-boot",PatternFileResultName(g_session_result)); }
+                    StorageReply("session-boot",g_session_saved_valid?"ok":PatternFileResultName(g_boot_session_result)); }
 #endif
         if(advertise_snapshot)(void)QueueLine("BTVOL1 CAP 1\n");
         QueueVolume();
@@ -456,7 +454,7 @@ namespace
         return StorageControlBlock(allow_paused);
     }
     void StorageReply(const char* operation,const char* result,std::uint32_t revision) {
-        char reply[96];
+        char reply[160];
         std::snprintf(reply,sizeof(reply),"BTSTORE1 RESULT 1 %s %s %" PRIu32 "\n",
             operation,result,revision);
         (void)QueueLine(reply);
@@ -483,37 +481,40 @@ namespace
                 (void)QueueLine("BTSTORE1 NOTREADY 1 busy-or-disconnected\n");
             return;
         }
-        const auto op=ParseStorageOperation(line);
+        std::uint32_t new_rows=0;
+        const bool new_pattern=SnapshotFields(line,std::strlen(line),"BTSTORE1 NEW 1 ",&new_rows,1) && (new_rows==16 || new_rows==32 || new_rows==64);
+        const auto op=new_pattern?StorageOperation::Load:ParseStorageOperation(line);
         DevelopmentPattern selection;
-        char operation[40];
+        char operation[80];
         if(op==StorageOperation::Load) {
-            (void)ParseStorageLoad(line,selection);
-            std::snprintf(operation,sizeof(operation),"load-%s",selection.stem);
+            if(new_pattern)std::strcpy(operation,"new");
+            else {(void)ParseStorageLoad(line,selection);std::snprintf(operation,sizeof(operation),"load-%s",selection.stem);}
+        } else if(op==StorageOperation::SavePattern) {
+            (void)ParseStoragePatternSave(line,selection);
+            std::snprintf(operation,sizeof(operation),"pattern-save-%s",selection.stem);
         } else std::snprintf(operation,sizeof(operation),"%s",StorageOperationName(op));
         if(op==StorageOperation::Invalid) {StorageReply(operation,"malformed");return;}
         if(!g_protocol_connected) {StorageReply(operation,"not-connected");return;}
         if(!(op==StorageOperation::Load && selection.IsNone()) && !g_storage_backend.ready) {StorageReply(operation,"sd-unavailable");return;}
-        if(op==StorageOperation::SaveDraft && Snapshot().transport==PatternTransportState::Playing) {
-            if(g_draft_pending || g_preview.Busy() || g_publication.Busy()) {StorageReply(operation,"busy-or-not-ready");return;}
-            g_draft_pattern=g_working.pending_id?g_working.pending:g_working.working;g_draft_tempo=Snapshot().tempo;
-            g_draft_pending=true;StorageReply(operation,"deferred-playing");return;
-        }
         if(op==StorageOperation::Save && g_session_recovery_blocked) {StorageReply(operation,"recovery-required");return;}
         if(op==StorageOperation::Save && Snapshot().transport==PatternTransportState::Playing) {
-            g_session_dirty=true;StorageReply(operation,"deferred-playing");return;
+            g_session_save.Changed();StorageReply(operation,"deferred-playing");return;
         }
-        const bool saving=op==StorageOperation::Save || op==StorageOperation::SaveDraft;
+        if(op==StorageOperation::SavePattern && Snapshot().transport!=PatternTransportState::Stopped) {
+            StorageReply(operation,"busy-or-not-ready");return;
+        }
+        const bool saving=op==StorageOperation::Save || op==StorageOperation::SavePattern;
         if(g_storage_ready_wait.Active() || StorageBlock(saving)) {StorageReply(operation,"busy-or-not-ready");return;}
         PatternFileResult result;
         if(saving) {
             const auto status=Snapshot();
             const auto& work=g_working.pending_id?g_working.pending:g_working.working;
-            if(op==StorageOperation::SaveDraft) result=g_pattern_files.SaveDraft(g_storage_backend,work,status.tempo);
+            if(op==StorageOperation::SavePattern) result=g_pattern_files.SaveDevelopment(g_storage_backend,selection.stem,work,status.tempo);
             else {
                 g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
                 g_session.working=work;g_session.working_tempo=status.tempo;
                 result=g_session_files.Save(g_storage_backend,g_session);g_session_result=result;
-                g_session_dirty=false;
+                g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true;
             }
         } else if(op>=StorageOperation::Seed1 && op<=StorageOperation::Seed4) {
             result=g_pattern_files.CreateDevelopment(g_storage_backend,StoragePatternNumber(op),g_storage_pattern);
@@ -524,9 +525,8 @@ namespace
         } else {
             std::uint32_t tempo=0;
             if(op==StorageOperation::Load && selection.IsNone()) {
-                MakeStoredDevelopmentPattern(g_storage_pattern,0);tempo=kDefaultTempo;result=PatternFileResult::Ok;
-            } else if(op==StorageOperation::LoadDraft) result=g_pattern_files.Load(g_storage_backend,"/BroTracker/tune.btdraft",PatternFileKind::Session,g_storage_pattern,tempo);
-            else if(op==StorageOperation::Restore) result=g_pattern_files.Load(g_storage_backend,kSessionPath,PatternFileKind::Session,g_storage_pattern,tempo);
+                MakeStoredDevelopmentPattern(g_storage_pattern,0);if(new_pattern)g_storage_pattern.active_rows=new_rows;tempo=kDefaultTempo;result=PatternFileResult::Ok;
+            } else if(op==StorageOperation::Restore) result=g_pattern_files.Load(g_storage_backend,kSessionPath,PatternFileKind::Session,g_storage_pattern,tempo);
             else result=g_pattern_files.LoadDevelopment(g_storage_backend,selection.stem,g_storage_pattern,tempo);
             if(result==PatternFileResult::Ok) {
                 if(StorageControlBlock() || !StageStoredPattern(g_publication,g_storage_pattern,tempo,now)) {
@@ -644,7 +644,7 @@ namespace
                     applied.request == PatternRequest::Continue ? "BTTEST1 CONTINUED\n" : "BTTEST1 STOPPED\n");
             }
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-            if(applied.result==PatternPlayerStatus::Success) g_session_dirty=true;
+            if(applied.result==PatternPlayerStatus::Success) g_session_save.Changed();
 #endif
             // Replace unsent pre-command telemetry; partial older lines finish
             // BEFORE the ACK, so the host's pending-command barrier rejects them.
@@ -700,18 +700,13 @@ namespace
             if (QueueLine(error)) reported_failures = status.failures;
         }
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        if(status.tempo && status.tempo!=g_session_tempo) {g_session_tempo=status.tempo;g_session_dirty=true;}
-        if(g_draft_pending && g_storage_backend.ready && !StorageBlock(true)) {
-            const auto result=g_pattern_files.SaveDraft(g_storage_backend,g_draft_pattern,g_draft_tempo);
-            g_draft_pending=false;
-            if(g_protocol_connected)StorageReply("draft-save",PatternFileResultName(result));
-        }
-        if(g_session_dirty && !g_session_recovery_blocked && g_storage_backend.ready && !StorageBlock(true)) {
+        if(status.tempo && status.tempo!=g_session_tempo) {g_session_tempo=status.tempo;g_session_save.Changed();}
+        if(g_session_save.Ready(!g_session_recovery_blocked && g_storage_backend.ready && !StorageBlock(true))) {
             g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
             g_session.working=g_working.pending_id?g_working.pending:g_working.working;
             g_session.working_tempo=status.tempo;
             g_session_result=g_session_files.Save(g_storage_backend,g_session);
-            g_session_dirty=false; // Failures are explicit; no unbounded retry loop.
+            g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true; // Failures are explicit; no unbounded retry loop.
             if(g_protocol_connected) StorageReply("session-auto",PatternFileResultName(g_session_result));
         }
 #endif
@@ -1055,7 +1050,10 @@ namespace
         }
 #endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+        g_boot_session_result=g_session_result;
         g_session_recovery_blocked=g_session_result!=PatternFileResult::Ok && g_session_result!=PatternFileResult::Missing;
+        if(g_session_recovery_blocked && (g_session_result==PatternFileResult::Invalid || g_session_result==PatternFileResult::Unsupported))
+            g_session_recovery_blocked=!g_session_files.PreserveInvalid(g_storage_backend);
         g_session_tempo=g_boot_tempo;
 #endif
         // Hardware, connections and AudioMemory activate on selection or first transport command.

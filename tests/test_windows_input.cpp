@@ -150,7 +150,7 @@ int main() {
     CHECK(TempoRegression()==0);
     for(auto mod : {KMOD_NONE,KMOD_CTRL,KMOD_ALT,KMOD_GUI,KMOD_SHIFT}) {
         SDL_Event publish{}; publish.type=SDL_KEYDOWN; publish.key.keysym.sym=SDLK_F5; publish.key.keysym.mod=mod;
-        CHECK(MapWindowsPublish(publish)==(mod==KMOD_SHIFT));
+        CHECK(!MapWindowsPublish(publish));
         CHECK(MapWindowsAction(publish)==BringUpAction::None);
         CHECK(MapWindowsEditorAction(publish)==EditorAction::None);
         publish.key.repeat=1; CHECK(!MapWindowsPublish(publish));
@@ -241,11 +241,11 @@ int main() {
     }
     for(auto key:{SDLK_F3,SDLK_F4,SDLK_F5}) {
         SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=key;
-        const auto expected=key==SDLK_F3?BringUpSerial::FileAction::Test:key==SDLK_F4?BringUpSerial::FileAction::Load:BringUpSerial::FileAction::Save;
+        const auto expected=BringUpSerial::FileAction::None;
         CHECK(MapWindowsFile(event)==expected);CHECK(MapWindowsEditorAction(event)==EditorAction::None);
         event.key.repeat=1;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.key.repeat=0;
         event.type=SDL_KEYUP;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);event.type=SDL_KEYDOWN;
-        for(auto modifier:{KMOD_SHIFT,KMOD_CTRL,KMOD_ALT,KMOD_GUI}) {event.key.keysym.mod=modifier;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);}
+        for(auto modifier:{KMOD_SHIFT,KMOD_CTRL,KMOD_ALT,KMOD_GUI}) {event.key.keysym.mod=modifier;CHECK(MapWindowsFile(event)==BringUpSerial::FileAction::None);CHECK(MapWindowsEditorAction(event)==EditorAction::None);}
     }
     SDL_Event e{}; e.type = SDL_KEYDOWN;
     e.key.keysym.sym = SDLK_SPACE; CHECK(MapWindowsAction(e) == BringUpAction::PatternToggle);
@@ -344,7 +344,7 @@ int main() {
         CHECK(MapWindowsAction(screen)==BringUpAction::None);
     }
     for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::BrowserUp},{SDLK_DOWN,BringUpAction::BrowserDown},
-        {SDLK_LEFT,BringUpAction::None},{SDLK_RIGHT,BringUpAction::None},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
+        {SDLK_LEFT,BringUpAction::None},{SDLK_RIGHT,BringUpAction::None},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_BACKSPACE,BringUpAction::BrowserBack},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
         SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsBrowserAction(e)==pair.second);
         e.key.repeat=1;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);e.key.repeat=0;e.key.keysym.mod=KMOD_CTRL;
         CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);

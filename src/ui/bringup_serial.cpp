@@ -38,6 +38,10 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     if((!early_test && (!connected_ || !storage_supported_)) || file_action_!=FileAction::None || (!early_test && !StartupPatternReady()) || continuity_pending_) {
         std::strcpy(file_status_,"File action unavailable: connect/synchronize first");Log("File action rejected:",file_status_);return false;
     }
+    if(action==FileAction::PatternSave && (!PatternSaveAvailable() || !MidiRecoveryStopped() || PatternListBusy())) {
+        std::strcpy(file_status_,"Pattern Save unavailable: known source and PATTERNSAVECAP firmware required");return false;
+    }
+    if(action==FileAction::PatternSave)pattern_save_succeeded_=false;
     if(action==FileAction::Save && draft_deferred_) {
         std::strcpy(file_status_,"Tune Save already pending in device RAM; Pause/Stop to finish");return false;
     }
@@ -58,7 +62,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now) {
     }
     if(action==FileAction::Session)session_save_succeeded_=false;
     file_action_=action;file_requested_at_=now;
-    std::strcpy(file_status_,action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
+    std::strcpy(file_status_,action==FileAction::PatternSave?"Pattern Save queued; synchronizing working edits":action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
     Log("File action:",file_status_);return true;
 }
 bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now) {
@@ -90,6 +94,8 @@ void BringUpSerial::Disconnect(const char* reason)
         continuity_pending_=true; continuity_ready_=false;continuity_auto_=false;file_status_[0]=0;
     }
     if(pattern_load_state_==PatternLoadState::Pending)pattern_load_state_=PatternLoadState::Failed;
+    new_pattern_supported_=false;if(!startup_decided_)boot_status_known_=false;
+    pattern_save_supported_=false;pattern_source_.clear();
     list_supported_=list_queued_=list_pending_=list_ready_=false;std::strcpy(list_status_,"Disconnected; refresh pattern list after recovery");
     initial_sync_ready_=false;session_save_succeeded_=false;
     if(file_action_!=FileAction::None) {
@@ -241,7 +247,11 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     }
     if(startup_barrier && startup_done_ && !startup_failed_ && editor.Ready() &&
         (!preview_.Supported() || (preview_.Phase()==BroTracker::HostPreviewPhase::Synchronized && !preview_.RecoveredDraft()))) {
-        if(file_action_==FileAction::Pattern)pattern_load_state_=PatternLoadState::Succeeded;
+        if(file_action_==FileAction::Pattern) {
+            pattern_load_state_=PatternLoadState::Succeeded;pattern_source_=file_pattern_.stem;
+        } else if(startup_fallback_ && file_action_==FileAction::Test && !startup_pattern_.IsNone()) {
+            pattern_source_=startup_pattern_.stem;if(!BroTracker::DevelopmentHasExtension(pattern_source_))pattern_source_+=".btdev";
+        } else pattern_source_.clear();
         startup_editor_ready_=true;file_action_=FileAction::None;std::strcpy(file_status_,"Load applied and verified; playback stopped");
         Log("SD startup editor/working-state recovery synchronized");
     }
@@ -258,10 +268,23 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
             next_refresh_=true; publication_readback_requested_=false;
         }
     }
+    if(startup_fallback_enabled_ && !startup_decided_ && boot_status_known_ && connected_ && editor.Ready() &&
+        pattern_assembler_.Snapshot() && (!preview_.Supported() || preview_.VerifiedWorking()) && !continuity_pending_) {
+        startup_decided_=true;
+        if(!boot_session_valid_ && boot_fallback_allowed_) {
+            if(!startup_pattern_valid_) {startup_pattern_.Assign("none");startup_pattern_valid_=true;Log("Invalid startup filename; using configured blank-pattern defaults");}
+            startup_fallback_=true;
+            initial_sync_ready_=true;
+            if(RequestFile(FileAction::Test,now)) {
+                if(startup_pattern_.IsNone())std::strcpy(load_label_,"new");
+                Log("No valid boot session: applying configured startup fallback once; no START");
+            } else {startup_failed_=true;Log("Startup fallback unavailable; current device data retained");}
+        }
+    }
     if(!startup_selection_enabled_ && connected_ && editor.Ready() && pattern_assembler_.Snapshot() &&
         (!preview_.Supported() || preview_.VerifiedWorking())) initial_sync_ready_=true;
     if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
-    editor.SetLocked(UserActionsBlocked() || exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || !StartupPatternReady() || PublicationBusy());
+    editor.SetLocked(UserActionsBlocked() || exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave || !StartupPatternReady() || PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
     if(std::strcmp(logged_preview_status_,preview_.Status())) {
         std::snprintf(logged_preview_status_,sizeof(logged_preview_status_),"%s",preview_.Status());
@@ -307,8 +330,7 @@ const char* BringUpSerial::PublicationUnavailable(const LocalPatternEditor& edit
 
 bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint32_t now)
 {
-    // Preserve Shift+F4's local Restore meaning. Never adopt the boot fixture or write
-    // to the device here. Publication remains a separate explicit Shift+F5 action.
+    // Internal local-baseline helper; no user-facing shortcut calls this.
     if(!ReconnectRecoveryActionsAvailable() || !editor.Ready() || PublicationBusy()) return false;
     editor.SetLocked(false);
     const bool restored=editor.Apply(EditorAction::Restore);
@@ -317,21 +339,21 @@ bool BringUpSerial::RestoreReconnectDraft(LocalPatternEditor& editor, std::uint3
     continuity_draft_=*editor.Draft();
     continuity_tempo_=continuity_baseline_.tempo_hundredths;
     publication_=BroTracker::HostPatternPublication{};
-    Log("Reconnect Shift+F4 Restore: retained local published baseline restored; device unchanged; Shift+F5 Publish remains explicit");
+    Log("Retained local baseline restored internally; device unchanged; explicit recovery remains separate");
     diagnostic_now_=now; return true;
 }
 
 bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 {
     if(SdStatus()==SdAvailability::Unavailable)return false;
-    // Shift+F5 may resolve an uncertain outcome with GET, never resend publication.
+    // Explicit recovery may resolve an uncertain outcome with GET, never resend publication.
     if(publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain) {
         if(!PublicationReadbackRetryAvailable()) return false;
         publication_readback_requested_=false; snapshot_requested_=false; return true;
     }
     if(UserActionsBlocked() && !ReconnectRecoveryActionsAvailable())return false;
     if(continuity_pending_) {
-        // Shift+F5 is explicit RAM publication, not an automatic recovery or SD save.
+        // Explicit recovery is RAM publication, not an automatic recovery or SD save.
         // Freeze the retained candidate directly: preview dimensions may differ
         // from the reboot fixture, so preview-before-publication is inappropriate.
         const auto* baseline=pattern_assembler_.Snapshot();
@@ -471,11 +493,14 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         list_queued_=false;list_pending_=true;
     }
     if(command==Command::Storage) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Load?"BTSTORE1 DRAFTLOAD 1\n":"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(file_action_==FileAction::Pattern?file_pattern_:startup_pattern_));
+        if(startup_fallback_ && file_action_==FileAction::Test && startup_pattern_.IsNone())
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 NEW 1 %u\n",startup_blank_rows_);
+        else tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Load?"BTSTORE1 DRAFTLOAD 1\n":"BTSTORE1 LOAD 1 %s\n",BroTracker::DevelopmentPatternName(file_action_==FileAction::Pattern?file_pattern_:startup_pattern_));
         startup_attempted_=true;
     }
     if(command==Command::File) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Save?"BTSTORE1 DRAFTSAVE 1\n":"BTSTORE1 SAVE 1\n");
+        if(file_action_==FileAction::PatternSave)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 PATTERNSAVE 1 %s\n",pattern_source_.c_str());
+        else tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Save?"BTSTORE1 DRAFTSAVE 1\n":"BTSTORE1 SAVE 1\n");
     }
     tx_offset_ = 0; tx_publication_=false;
     if(command==Command::Hello || command==Command::Status) {
@@ -535,6 +560,8 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 void BringUpSerial::OnLine(std::uint32_t now)
 {
     Log("RX:", line_);
+    if(!std::strcmp(line_,"BTSTORE1 NEWCAP 1")){if(connected_)new_pattern_supported_=true;return;}
+    if(!std::strcmp(line_,"BTSTORE1 PATTERNSAVECAP 1")){if(connected_)pattern_save_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 LISTCAP 1")){if(connected_)list_supported_=true;return;}
     if(list_pending_) {
         char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 FILE 1 %" PRIu32 " ",list_id_);
@@ -567,17 +594,20 @@ void BringUpSerial::OnLine(std::uint32_t now)
             preview_.Suspend(true);return;
         }
     }
+    char pattern_save_prefix[100];std::snprintf(pattern_save_prefix,sizeof(pattern_save_prefix),"BTSTORE1 RESULT 1 pattern-save-%s ",pattern_source_.c_str());
+    const bool pattern_save_result=!pattern_source_.empty() && !std::strncmp(line_,pattern_save_prefix,std::strlen(pattern_save_prefix));
     const bool draft_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 draft-save ",sizeof("BTSTORE1 RESULT 1 draft-save ")-1);
     const bool session_result=!std::strncmp(line_,"BTSTORE1 RESULT 1 save ",sizeof("BTSTORE1 RESULT 1 save ")-1);
     const bool command_reply=pending_==Command::File &&
-        ((draft_result && file_action_==FileAction::Save) || (session_result && file_action_==FileAction::Session));
+        ((pattern_save_result && file_action_==FileAction::PatternSave) || (draft_result && file_action_==FileAction::Save) || (session_result && file_action_==FileAction::Session));
     if(command_reply || (draft_result && draft_deferred_)) {
-        const auto* result=line_+(draft_result?sizeof("BTSTORE1 RESULT 1 draft-save ")-1:sizeof("BTSTORE1 RESULT 1 save ")-1);
-        std::snprintf(file_status_,sizeof(file_status_),"%s: %.120s",draft_result?"Tune Save":"Session save",result);
+        const auto* result=line_+(pattern_save_result?std::strlen(pattern_save_prefix):draft_result?sizeof("BTSTORE1 RESULT 1 draft-save ")-1:sizeof("BTSTORE1 RESULT 1 save ")-1);
+        std::snprintf(file_status_,sizeof(file_status_),"%s: %.120s",pattern_save_result?"Pattern Save":draft_result?"Tune Save":"Session save",result);
         if(draft_result)draft_deferred_=!std::strncmp(result,"deferred-playing ",17);
         if(draft_result && draft_deferred_)std::strcpy(file_status_,"Tune Save pending in device RAM; will write after Pause/Stop (not yet saved)");
         Log("File result:",file_status_);
         if(command_reply) {
+            if(pattern_save_result)pattern_save_succeeded_=!std::strncmp(result,"ok ",3);
             if(session_result)session_save_succeeded_=!std::strncmp(result,"ok ",3);
             pending_=Command::None;file_action_=FileAction::None;
             if(exit_requested_)exit_done_=true;
@@ -585,6 +615,10 @@ void BringUpSerial::OnLine(std::uint32_t now)
         return;
     }
     if(!std::strncmp(line_,"BTSTORE1 RESULT 1 session-",25)) {
+        if(!boot_status_known_ && !std::strncmp(line_,"BTSTORE1 RESULT 1 session-boot ",30)) {
+            boot_status_known_=true;boot_session_valid_=std::strstr(line_," ok ") || std::strstr(line_," backup-retained ");
+            boot_fallback_allowed_=std::strstr(line_," missing ") || std::strstr(line_," invalid ") || std::strstr(line_," unsupported ");
+        }
         Log("Session persistence:",line_);
         if(!std::strstr(line_," ok ") && !std::strstr(line_," missing "))
             std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
@@ -951,7 +985,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
         if(tx_offset_!=tx_size_) {Disconnect("partial storage command; outcome unknown");return;}
     }
-    if((file_action_==FileAction::Save || file_action_==FileAction::Session) && pending_!=Command::File && now-file_requested_at_>=15000) {
+    if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && pending_!=Command::File && now-file_requested_at_>=15000) {
         std::strcpy(file_status_,"Save not sent: working edits/tempo could not be verified; current work retained");
         Log("File ERROR:",file_status_);file_action_=FileAction::None;
         if(exit_requested_)exit_done_=true;
@@ -983,14 +1017,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
         else if(connected_ && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
-            if(!storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || snapshot_version_!=2) {
+            if((startup_fallback_ && startup_pattern_.IsNone() && !new_pattern_supported_) || !storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || snapshot_version_!=2) {
                 startup_failed_=true;Log("SD startup pattern ERROR: readiness-capable storage, setup and stopped v2 firmware required");
             } else if(!startup_stop_sent_) {
                 startup_stop_sent_=true;stopped_=false;Send(Command::Stop,now);
             } else if(!startup_ready_sent_) Send(Command::StorageReady,now);
             else if(startup_storage_ready_) Send(Command::Storage,now);
         }
-        else if((file_action_==FileAction::Save || file_action_==FileAction::Session) && FileIdle() &&
+        else if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && FileIdle() &&
             editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
                 BroTracker::SamePattern(observed_editor_,*preview_.VerifiedWorking()))) &&
             (!tempo_.Supported() || tempo_.Synchronized())) {

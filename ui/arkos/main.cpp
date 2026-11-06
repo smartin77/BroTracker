@@ -325,6 +325,7 @@ int main(int argc, char* argv[])
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     BroTracker::MidiStatusExchange midi_exchange(BroTracker::MidiRuntimeDirectory(),bring_up_log);
     serial.SetStartupPattern(host_config.config.startup_pattern);
+    serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
     if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     LocalPatternEditor editor;
     BringUpControls controls(serial, bring_up_log);
@@ -344,8 +345,8 @@ int main(int argc, char* argv[])
         editor_input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
             !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
             !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),
-            !serial.UserActionsBlocked() && controls.PatternInputBlocked(),
-            !serial.UserActionsBlocked() && controls.BrowserInputAvailable());
+            (!serial.UserActionsBlocked() && controls.PatternInputBlocked()) || serial.RecoveryMenuAvailable() || controls.RecoveryScreen(),
+            (!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable());
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
             next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
             if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
@@ -377,22 +378,15 @@ int main(int argc, char* argv[])
             auto result=editor_input.Handle(event,SDL_GetTicks(),!blocked,blocked?blocked_editor:editor);
             if(blocked) {
                 const auto transport=result.transport;
-                const bool recovery=!controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable();
+                const bool recovery=false;
                 const bool publish=(recovery || (!controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable())) && result.publish && !editor.Cursor().header;
                 const bool restore=recovery && result.restore;
                 result={};result.publish=publish;result.restore=restore;
                 if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
-                   (!serial.UserActionsBlocked() && (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp))))result.transport=transport;
+                   ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) && (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp))))result.transport=transport;
                 editor_input.Cancel();
             }
-            if(result.file!=BringUpSerial::FileAction::None && !controls.Exiting()) {
-                serial.SyncEditor(editor,SDL_GetTicks());(void)serial.RequestFile(result.file,SDL_GetTicks());serial.SyncEditor(editor,SDL_GetTicks());
-            }
             if(result.mute_channel>=0) (void)serial.ToggleChannelMute(unsigned(result.mute_channel));
-            if(result.restore) {
-                if(serial.ReconnectRecoveryPending()) (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());
-                else (void)serial.RestoreTempo();
-            }
             if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
             if (game_controller && editor_input.Device()<0) {
                 SDL_GameControllerClose(game_controller); game_controller=nullptr;
@@ -401,8 +395,6 @@ int main(int argc, char* argv[])
             if (!game_controller && event.type==SDL_CONTROLLERDEVICEADDED && SDL_IsGameController(event.cdevice.which)) {
                 game_controller=SDL_GameControllerOpen(event.cdevice.which); select_controller();
             }
-            if(result.publish && !controls.Exiting() && !controls.StopPending())
-                (void)serial.Publish(editor,SDL_GetTicks());
             if(result.transport!=BringUpAction::None)
                 controls.Request(result.transport,"ArkOS mapped input",SDL_GetTicks());
         }
@@ -425,7 +417,8 @@ int main(int argc, char* argv[])
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
-        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | A: Load/Confirm | B: Cancel | Select+Right: Pattern | L1+Start: EXIT":
+        panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
+            (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

@@ -130,17 +130,13 @@ private:
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::BrowserUp,false};
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::BrowserDown,false};
                 if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::BrowserConfirm,false};
-                if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserCancel,false};
+                if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserBack,false};
             }
         }
         if(action_barrier_) {
             Cancel();
             // Keep existing connected STOP and explicit recovery chords, never normal actions.
             if(down && focused_ && b==SDL_CONTROLLER_BUTTON_B && stop_available_)return {BringUpAction::ResetStop,false};
-            if(down && focused_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) {
-                if(b==SDL_CONTROLLER_BUTTON_X && recovery_available_)return {BringUpAction::None,false,true};
-                if(b==SDL_CONTROLLER_BUTTON_A && (recovery_available_ || publication_readback_available_))return {BringUpAction::None,true};
-            }
             if(b==SDL_CONTROLLER_BUTTON_START) {
                 if(down)start_pending_=focused_;
                 else {const bool exit=start_pending_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];start_pending_=false;
@@ -154,7 +150,7 @@ private:
             if(!focused_)return {};
             if(pressed_[SDL_CONTROLLER_BUTTON_START] && pressed_[SDL_CONTROLLER_BUTTON_BACK]) {
                 start_pending_=false;
-                if(!chord_used_) {chord_used_=true;return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Test};}
+                chord_used_=true;return {};
             }
             if(b==SDL_CONTROLLER_BUTTON_START) {
                 if(down && !chord_used_)start_pending_=true;
@@ -224,12 +220,8 @@ private:
         }
         if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
         if(b==SDL_CONTROLLER_BUTTON_A && editor.Ready() && editor.Cursor().header) {Cancel();return {BringUpAction::None,false,false,int(editor.Cursor().channel)};}
-        if(b==SDL_CONTROLLER_BUTTON_A) { Cancel();
-            if(modifier)return {BringUpAction::None,true};
-            return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Save};
-        }
-        if(b==SDL_CONTROLLER_BUTTON_X && modifier && connected) {Cancel();editor.Apply(EditorAction::Restore);return {BringUpAction::None,false,true};}
-        if(b==SDL_CONTROLLER_BUTTON_Y && modifier) {Cancel();return {BringUpAction::None,false,false,-1,BringUpSerial::FileAction::Load};}
+        if(b==SDL_CONTROLLER_BUTTON_A) {Cancel();return {};}
+        if(modifier && (b==SDL_CONTROLLER_BUTTON_X || b==SDL_CONTROLLER_BUTTON_Y)) {Cancel();return {};}
         if(b==SDL_CONTROLLER_BUTTON_X && !modifier && connected) { Cancel(); editor.Apply(EditorAction::NoteOff); }
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};

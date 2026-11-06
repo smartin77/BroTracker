@@ -167,7 +167,7 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
     HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
     if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
-        "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); explicit test-pattern load disabled; current session is unchanged");
+        "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); valid session takes precedence; absent/invalid session uses configured blank-pattern length");
     HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
     if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");

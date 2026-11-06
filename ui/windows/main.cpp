@@ -89,6 +89,7 @@ int main(int argc, char* argv[]) try {
     serial.SetAudioOutputPreference(host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     serial.SetStartupPattern(host_config.config.startup_pattern);
+    serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
     if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
     BroTracker::DiagnosticChannelGainRequest diagnostic_gains(std::getenv("BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS"));
     if(diagnostic_gains.Configuration()==BroTracker::DiagnosticGainConfiguration::Invalid)
@@ -98,7 +99,7 @@ int main(int argc, char* argv[]) try {
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
     controls.SetConfirmLoadReplace(host_config.config.confirm_load_replace);
-    BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; F3 Test; F4 Load; F5 Save; Shift F4 Restore; Shift F5 Publish; capability-gated automatic preview\n");
+    BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; Ctrl+Left/Right Pattern Load/Save; capability-gated automatic preview\n");
     WindowsHeaderInput header_input;
     bool display_failed = false;
     while (!controls.Quit()) {
@@ -121,20 +122,14 @@ int main(int argc, char* argv[]) try {
                 (void)editor_input.Handle(event,SDL_GetTicks(),blocked_editor);
                 (void)tempo_input.Handle(event,SDL_GetTicks(),false);
                 (void)header_input.Handle(event,0,0,false);
-                if(!serial.UserActionsBlocked() && controls.BrowserInputAvailable()) {
+                if((!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable()) {
                     const auto browser=MapWindowsBrowserAction(event);
                     if(browser!=BringUpAction::None){controls.Request(browser,"Pattern browser",SDL_GetTicks());continue;}
                 }
                 const auto action=MapWindowsAction(event);
                 if(action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
-                    (!serial.UserActionsBlocked() && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight)))
+                    ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight)))
                     controls.Request(action,"warning input",SDL_GetTicks());
-                if(!controls.Exiting() && !controls.PatternInputBlocked()) {
-                    if((serial.ReconnectRecoveryActionsAvailable() || serial.PublicationReadbackRetryAvailable()) && MapWindowsPublish(event))
-                        (void)serial.Publish(editor,SDL_GetTicks());
-                    if(serial.ReconnectRecoveryActionsAvailable() && event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT))
-                        (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks());
-                }
                 continue;
             }
             int mouse_x=0,mouse_y=0;
@@ -144,20 +139,6 @@ int main(int argc, char* argv[]) try {
             if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
-                continue;
-            }
-            if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_F4 && (event.key.keysym.mod & KMOD_SHIFT)) {
-                if(serial.ReconnectRecoveryPending()) { (void)serial.RestoreReconnectDraft(editor,SDL_GetTicks()); continue; }
-                (void)serial.RestoreTempo();
-            }
-            if(const auto file=MapWindowsFile(event);file!=BringUpSerial::FileAction::None) {
-                editor_input.Cancel();serial.SyncEditor(editor,SDL_GetTicks());
-                if(!controls.Exiting()) {(void)serial.RequestFile(file,SDL_GetTicks());serial.SyncEditor(editor,SDL_GetTicks());}
-                continue;
-            }
-            if (MapWindowsPublish(event)) {
-                (void)editor_input.Handle(event,SDL_GetTicks(),editor); // Cancel a held edit before freezing.
-                if(!controls.Exiting() && !controls.StopPending()) (void)serial.Publish(editor,SDL_GetTicks());
                 continue;
             }
             const auto screen_action=MapWindowsAction(event);
@@ -185,12 +166,13 @@ int main(int argc, char* argv[]) try {
         else editor_input.Cancel();
         HostPanelInformation panel{serial.Status(), controls.StopPending() ?
             (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
-            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish" :
-            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | F3: Test | F4: Load | F5: Save | Shift F4/F5: Restore/Publish", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+            serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save" :
+            "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
-        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | Enter: Load/Confirm | Esc: Cancel | Ctrl+Right: Pattern | Ctrl+X: EXIT":
+        panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
+            (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

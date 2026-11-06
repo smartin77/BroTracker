@@ -147,7 +147,9 @@ capability and memory investigations remain planning items without assigned orde
   path; patern1..4 and other compatible .btdev files are supported. Default-on
   [pattern] confirm_load_replace may opt out of confirmation only. Successful
   synchronized Load returns with the first Note cursor; cancel/rejection retains
-  work. Pattern-file Save/Save As, shortcut retirement and physical validation
+  work. Pattern Save now targets the synchronized Load source, using unpublished
+  working edits and safe replacement; unknown-source Save is disabled. Save As,
+  filename entry/character map, shortcut retirement and physical validation
   remain separate.
 * [ ] **Pattern Load/Save foundation (future):** Add a separate Pattern screen,
   navigable with directional controls on desktop and handheld, without dedicated
@@ -1861,3 +1863,14 @@ to 32 active rows. Single-pattern looping remains unchanged.
 * [ ] Validate the new level balance on Windows and ArkOS, including overlapping
   beepers/PCM and unity-mixer saturation. No clipping-free or realtime claim from
   sample bounds; no upload/hardware tests in this change.
+
+### Legacy pattern shortcut retirement (2026-11-06)
+
+F3/F4/F5 and Shift+F4/F5, Select+Start, row A and L1+Y/X/A no longer perform
+legacy pattern actions. Pattern Load/Save is the manual file workflow. Header A,
+confirmation A and STOP/contextual Cancel B remain. DRAFTLOAD/DRAFTSAVE retired;
+existing temporary files preserved. Valid working sessions take startup precedence;
+missing/invalid sessions use existing config filename or blank length. Automatic
+working-session scheduling retains deferred/failed pending work. Reconnect mismatch
+recovery remains explicit through the existing screen with review/confirmation.
+Owner validation of new firmware and refreshed host delivery remains pending.

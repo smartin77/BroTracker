@@ -63,13 +63,11 @@ bridge_audible_test=no
 [development]
 ; SD filename: 1..24 ASCII letters/digits/_/-, optionally followed by .btdev (30 total).
 ; patern4 and patern4.btdev -> /BroTracker/development/patern4.btdev; no truncation.
-; Only exact unquoted none means clean empty32x8/125.00; none.btdev loads that file.
-; No quoted INI values, paths, traversal, other dots/extensions or whitespace in names.
-; F3 / Select+Start only. Normal startup/reconnect resumes the current device session.
-; Missing/empty selects none for that explicit action; invalid disables test loading.
-; File contents determine dimensions/notes/OFFs/tempo. Never infer these from a name.
-; Restart BTX after edits. Explicit test load requires STOP; final ACK/readback gates
-; editing/START. No automatic fixture load, seed, retry or autoSTART.
+; Valid working session wins. Only if absent/invalid, use this startup fallback.
+; Exact none (or empty) -> blank new_pattern_length rows at 125.00 BPM.
+; none.btdev loads that file. No paths, quotes, traversal or other extensions.
+; File contents determine dimensions, notes, instruments and tempo.
+; Restart BTX after edits. No fallback replay on reconnect or automatic START.
 startup_pattern=none
 
 ; false skips only the Load replacement prompt. Restart BTX after editing.

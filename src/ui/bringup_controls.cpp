@@ -5,9 +5,18 @@ void BringUpControls::Log(const char* message) {
     BroTracker::HostLog(log_,BroTracker::ClassifyHostDiagnostic("Controls",message),"Controls",message);
 }
 FileListView BringUpControls::BrowserList()const {
+    if(recovery_screen_) {FileListView view;view.names={"Recover retained host work"};return view;}
+    if(browser_menu_) {FileListView menu;menu.names={"Load",serial_.PatternSaveAvailable()?"Save":"Save (unavailable)"};menu.selected=browser_action_;return menu;}
     return browser_ready_?browser_list_:FileListView{};
 }
 std::string BringUpControls::BrowserText()const {
+    if(recovery_screen_)return recovery_confirm_?"Confirm recovery: replace device RAM with retained host work? Confirm again, or Cancel to keep both unchanged.":"Host work retained. Select recovery to review before replacing device RAM. No pattern file is overwritten.";
+    if(browser_saving_)return "Saving pattern to its original file; waiting for confirmed result...";
+    if(browser_menu_) {
+        if(!*serial_.PatternSource())return "Save unavailable: load a pattern file first (no known source).";
+        if(!serial_.PatternSaveAvailable())return "Save requires PATTERNSAVECAP firmware.";
+        return std::string("Save original: ")+serial_.PatternSource();
+    }
     if(browser_loading_)return "Loading pattern; waiting for device and working-pattern synchronization...";
     if(browser_confirm_)return std::string("Replace the current working session with ")+browser_list_.names[browser_list_.selected].c_str()+"?\n\nConfirm: Load\nCancel: keep current work";
     if(browser_collecting_)return "Reading all pattern filenames...";
@@ -28,12 +37,38 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         quit_=serial_.ExitReady();return;
     }
     if(exit_after_stop_)return;
+    if(load_save_screen_ && action==BringUpAction::ScreenLeft)action=BringUpAction::BrowserBack;
+    const bool recovery_available=serial_.RecoveryMenuAvailable();
+    if(action==BringUpAction::ScreenLeft && recovery_available && !load_save_screen_) {
+        recovery_screen_=load_save_screen_=true;recovery_confirm_=false;return;
+    }
+    if(recovery_screen_) {
+        if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack || action==BringUpAction::ScreenRight) {
+            if(recovery_confirm_ && (action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack))recovery_confirm_=false;
+            else recovery_screen_=load_save_screen_=false;
+        } else if(action==BringUpAction::BrowserConfirm && recovery_available) {
+            if(!recovery_confirm_)recovery_confirm_=true;
+            else if(serial_.RecoverRetainedWork(now))recovery_screen_=load_save_screen_=false;
+        }
+        if(action!=BringUpAction::ResetStop)return;
+    }
     if(serial_.UserActionsBlocked() && !(action==BringUpAction::ResetStop && serial_.StopAvailable()))return;
-    if(load_save_screen_ && browser_loading_ && action!=BringUpAction::ResetStop)return;
+    if(load_save_screen_ && (browser_loading_ || browser_saving_) && action!=BringUpAction::ResetStop)return;
     if(load_save_screen_ && action>=BringUpAction::BrowserUp) {
-        if(action==BringUpAction::BrowserCancel) {
+        if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack) {
             if(browser_confirm_){browser_confirm_=false;screen_status_="Load cancelled; current work retained";}
+            else if(action==BringUpAction::BrowserBack && !browser_menu_) {browser_menu_=true;browser_action_=0;}
             else {load_save_screen_=false;screen_status_="";}
+            return;
+        }
+        if(browser_menu_) {
+            if(action==BringUpAction::BrowserUp)browser_action_=0;
+            if(action==BringUpAction::BrowserDown)browser_action_=1;
+            if(action==BringUpAction::BrowserConfirm) {
+                if(browser_action_==0)browser_menu_=false;
+                else if(serial_.RequestFile(BringUpSerial::FileAction::PatternSave,now))browser_saving_=true;
+                else screen_status_="Pattern Save unavailable; see status";
+            }
             return;
         }
         if(browser_confirm_) {if(action==BringUpAction::BrowserConfirm)LoadSelected(now);return;}
@@ -55,7 +90,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending()) {
             screen_status_="Pattern Load/Save unavailable: wait for current operation";return;
         }
-        browser_initialized_=browser_confirm_=browser_ready_=browser_collecting_=false;browser_list_={};
+        browser_initialized_=browser_confirm_=browser_ready_=browser_collecting_=false;browser_list_={};browser_menu_=true;browser_saving_=false;browser_action_=0;
         screen_started_=now;
         if(serial_.Playing() || serial_.Paused() || serial_.Done()) {
             if(!serial_.Stop()) {screen_status_="Pattern Load/Save: STOP unavailable";return;}
@@ -122,7 +157,7 @@ void BringUpControls::Tick(std::uint32_t now) {
             screen_status_=load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Pattern Load/Save: session save failed; current work retained";
         }
     }
-    if(load_save_screen_) {
+    if(load_save_screen_ && !recovery_screen_) {
         if(browser_collecting_ && !serial_.PatternListBusy()) {
             if(!serial_.PatternListReady()) {browser_collecting_=false;browser_list_={};}
             else {
@@ -136,14 +171,20 @@ void BringUpControls::Tick(std::uint32_t now) {
                 }
             }
         }
-        if(browser_loading_) {
+        if(browser_saving_) {
+            if(!serial_.FilePending()) {
+                browser_saving_=false;
+                if(serial_.PatternSaveSucceeded()) {load_save_screen_=false;screen_status_=std::string("Pattern saved: ")+serial_.PatternSource();}
+                else screen_status_="Pattern Save failed/uncertain; working pattern retained; see device status";
+            }
+        } else if(browser_loading_) {
             const auto result=serial_.PatternLoadResult();
             if(result==BringUpSerial::PatternLoadState::Succeeded) {
                 browser_loading_=false;load_save_screen_=false;screen_status_="Pattern loaded; playback stopped";
             } else if(result==BringUpSerial::PatternLoadState::Failed) {
                 browser_loading_=false;screen_status_="Pattern Load failed/uncertain; current editor retained; see device status";
             }
-        } else if(!browser_initialized_) {
+        } else if(!browser_menu_ && !browser_initialized_) {
             browser_initialized_=true;browser_collecting_=serial_.RequestPatternList(0,now);
         }
     }
