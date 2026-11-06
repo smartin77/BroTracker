@@ -425,7 +425,7 @@ int main(int argc, char* argv[])
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
-        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | Left: first page | Right: next page | A: Load/Confirm | B: Cancel | Select+Right: Pattern | L1+Start: EXIT":
+        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | A: Load/Confirm | B: Cancel | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

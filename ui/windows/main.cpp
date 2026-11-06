@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) try {
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
-        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | Left: first page | Right: next page | Enter: Load/Confirm | Esc: Cancel | Ctrl+Right: Pattern | Ctrl+X: EXIT":
+        panel.transport_hints=controls.LoadSaveScreen()?"Up/Down: select | Enter: Load/Confirm | Esc: Cancel | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

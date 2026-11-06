@@ -74,7 +74,7 @@ struct StoragePeer:SerialTransport {
             std::uint32_t fields[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTSTORE1 LIST ",fields,3));
             const auto first=fields[2]/32;const auto end=std::min<std::size_t>(files.size(),first+kPatternListPageSize);
             std::string reply;for(std::size_t i=first;i<end;++i)reply+="BTSTORE1 FILE 1 "+std::to_string(fields[1])+" "+files[i]+"\n";
-            reply+="BTSTORE1 LISTEND 1 "+std::to_string(fields[1])+" "+std::to_string(end*32)+" "+(end==files.size()?"1":"0")+"\n";
+            reply+="BTSTORE1 LISTEND 1 "+std::to_string(fields[1])+" "+std::to_string(end*32)+" "+(end==files.size() && end-first<kPatternListPageSize?"1":"0")+"\n";
             if(hold_list)list_reply=reply;else rx+=reply;
         }
         else if(line=="BTSTORE1 SAVE 1" || line=="BTSTORE1 DRAFTSAVE 1") {
@@ -653,7 +653,7 @@ TEST_CASE(PatternBrowserLoadsAllFixturesOnlyAfterConfirmationAndReadback) {
         CHECK_EQ(wire->Loads(),0u);CHECK(controls.BrowserText().find("Replace")!=std::string::npos);
         wire->hold_load=true;controls.Request(BringUpAction::BrowserConfirm,"confirm",2501);drive(126,150);
         CHECK_EQ(wire->Loads(),1u);CHECK(controls.LoadSaveScreen());CHECK(SamePattern(original,*editor.Draft()));
-        const auto command="BTSTORE1 LOAD 1 "+wire->files[selected];
+        const auto command="BTSTORE1 LOAD 1 "+controls.BrowserList().names[selected];
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),command)!=wire->commands.end());
         wire->rx+="BTSTORE1 RESULT 1 load-stale.btdev missing 0\nBTSTORE1 LISTEND 1 999 0 1\n";drive(150,151);
         CHECK(controls.BrowserLoading());CHECK(controls.LoadSaveScreen());
@@ -664,7 +664,7 @@ TEST_CASE(PatternBrowserLoadsAllFixturesOnlyAfterConfirmationAndReadback) {
         wire->hold_working=false;wire->rx+=wire->working_reply;wire->working_reply.clear();drive(201,260);
         CHECK(!controls.LoadSaveScreen());CHECK(!controls.BrowserLoading());CHECK(editor.Ready());CHECK(!editor.Locked());
         CHECK_EQ(editor.Cursor().row,0u);CHECK_EQ(editor.Cursor().channel,0u);CHECK(editor.Cursor().field==EditField::Note);CHECK(!editor.Cursor().header);
-        CHECK(serial.MidiRecoveryStopped());CHECK_EQ(wire->pattern,selected+1);
+        CHECK(serial.MidiRecoveryStopped());CHECK_EQ(wire->pattern,selected==0?5u:selected);
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
         // Browser selection never retargets the retained F3 configuration.
         CHECK(serial.RequestFile(BringUpSerial::FileAction::Test,5001));
@@ -714,24 +714,32 @@ TEST_CASE(PatternLoadConfigOptOutAndStoppedGateAndListTimeout) {
     wire->hold_list=false;CHECK(serial.RequestPatternList(0,13001));Pump(serial,651,680,&editor);CHECK(serial.PatternListReady());
 }
 
-TEST_CASE(PatternBrowserScrollsAcrossPagesAndLoadsHighlightedFile) {
-    for(bool backwards:{false,true}) {
-        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->list_cap=true;
-        wire->files.clear();for(unsigned i=1;i<=18;++i)wire->files.push_back("file"+std::to_string(i)+".btdev");
+TEST_CASE(PatternBrowserSortsAllPagesAndMovesContinuousViewport) {
+    for(unsigned total:{16u,18u})for(bool backwards:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->list_cap=true;wire->hold_list=true;
+        wire->files.clear();for(unsigned i=total;i>0;--i)wire->files.push_back("file"+std::string(i<10?"0":"")+std::to_string(i)+".btdev");
         BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern("none");LocalPatternEditor editor;Pump(serial,0,90,&editor);
         BringUpControls controls(serial,nullptr);unsigned tick=91;
-        auto drive=[&](){for(unsigned end=tick+35;tick<end;++tick){serial.SyncEditor(editor,tick*20);controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto drive=[&](){for(unsigned end=tick+60;tick<end;++tick){serial.SyncEditor(editor,tick*20);controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
         controls.Request(BringUpAction::ScreenLeft,"entry",1801);drive();
-        for(unsigned i=0;i<7;++i)controls.Request(BringUpAction::BrowserDown,"down",tick*20);
-        auto view=controls.BrowserList();CHECK_EQ(view.selected,7u);CHECK_EQ(view.first,2u);CHECK_EQ(view.names[view.selected],"file8.btdev");
-        wire->hold_list=true;
-        controls.Request(BringUpAction::BrowserDown,"cross",tick*20);drive();
         CHECK(serial.PatternListBusy());controls.Request(BringUpAction::BrowserConfirm,"pending",tick*20);CHECK_EQ(wire->Loads(),0u);
-        wire->hold_list=false;wire->rx+=wire->list_reply;wire->list_reply.clear();drive();
-        view=controls.BrowserList();CHECK_EQ(view.selected,0u);CHECK_EQ(view.first,0u);CHECK_EQ(view.names[view.selected],"file9.btdev");
+        CHECK(controls.BrowserList().names.empty());
+        wire->hold_list=false;wire->rx+=wire->list_reply;wire->list_reply.clear();drive();drive();
+        auto view=controls.BrowserList();CHECK_EQ(view.names.size(),total);CHECK(std::is_sorted(view.names.begin(),view.names.end()));
+        CHECK_EQ(view.names.front(),"file01.btdev");CHECK_EQ(view.selected,0u);
+        controls.Request(BringUpAction::BrowserUp,"first boundary",tick*20);CHECK_EQ(controls.BrowserList().selected,0u);
+        for(unsigned i=0;i<5;++i)controls.Request(BringUpAction::BrowserDown,"down",tick*20);
+        view=controls.BrowserList();CHECK_EQ(view.selected,5u);CHECK_EQ(view.first,0u);
+        controls.Request(BringUpAction::BrowserDown,"next block",tick*20);
+        view=controls.BrowserList();CHECK_EQ(view.selected,6u);CHECK_EQ(view.first,6u);CHECK_EQ(view.names[view.selected],"file07.btdev");
+        const auto bar=view.Indicator(108);CHECK_EQ(bar.offset,108u*6/total);CHECK_EQ(bar.length,108u*12/total-bar.offset);
         if(backwards) {
-            controls.Request(BringUpAction::BrowserUp,"cross back",tick*20);drive();
-            view=controls.BrowserList();CHECK_EQ(view.selected,7u);CHECK_EQ(view.first,2u);CHECK_EQ(view.names[view.selected],"file8.btdev");
+            controls.Request(BringUpAction::BrowserUp,"previous block",tick*20);
+            view=controls.BrowserList();CHECK_EQ(view.selected,5u);CHECK_EQ(view.first,0u);
+        } else {
+            for(unsigned i=0;i<total+2;++i)controls.Request(BringUpAction::BrowserDown,"last boundary",tick*20);
+            view=controls.BrowserList();CHECK_EQ(view.selected,total-1);CHECK_EQ(view.first,12u);
+            const auto last=view.Indicator(108);CHECK_EQ(last.offset+last.length,108u);
         }
         const auto selected=view.names[view.selected];
         controls.Request(BringUpAction::BrowserConfirm,"prompt",tick*20);CHECK(controls.BrowserText().find(selected)!=std::string::npos);

@@ -2,7 +2,7 @@
 #include "bringup_serial.h"
 #include "file_list.h"
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, BrowserUp, BrowserDown, BrowserFirst, BrowserNext, BrowserConfirm, BrowserCancel };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
@@ -25,10 +25,8 @@ private:
     void Log(const char* message);
     void LoadSelected(std::uint32_t now);
     bool confirm_load_replace_=true,browser_confirm_=false,browser_loading_=false,browser_initialized_=false;
-    unsigned browser_selected_=0,browser_first_=0;
-    std::vector<std::uint32_t> browser_offsets_{0};
-    int browser_page_direction_=0;
-    bool BrowsePage(int direction,std::uint32_t now);
+    FileListView browser_list_;
+    bool browser_collecting_=false,browser_ready_=false;
     enum class ScreenPhase { Idle, Stop, Save };
     ScreenPhase screen_phase_=ScreenPhase::Idle;
     bool load_save_screen_=false;

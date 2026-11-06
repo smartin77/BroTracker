@@ -344,7 +344,7 @@ int main() {
         CHECK(MapWindowsAction(screen)==BringUpAction::None);
     }
     for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::BrowserUp},{SDLK_DOWN,BringUpAction::BrowserDown},
-        {SDLK_LEFT,BringUpAction::BrowserFirst},{SDLK_RIGHT,BringUpAction::BrowserNext},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
+        {SDLK_LEFT,BringUpAction::None},{SDLK_RIGHT,BringUpAction::None},{SDLK_RETURN,BringUpAction::BrowserConfirm},{SDLK_ESCAPE,BringUpAction::BrowserCancel}}) {
         SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsBrowserAction(e)==pair.second);
         e.key.repeat=1;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);e.key.repeat=0;e.key.keysym.mod=KMOD_CTRL;
         CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);

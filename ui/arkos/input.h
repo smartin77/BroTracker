@@ -129,8 +129,6 @@ private:
             if(!was_blocked) {
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::BrowserUp,false};
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::BrowserDown,false};
-                if(b==SDL_CONTROLLER_BUTTON_DPAD_LEFT)return {BringUpAction::BrowserFirst,false};
-                if(b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)return {BringUpAction::BrowserNext,false};
                 if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::BrowserConfirm,false};
                 if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserCancel,false};
             }

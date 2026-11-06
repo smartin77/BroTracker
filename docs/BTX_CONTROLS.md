@@ -28,9 +28,11 @@ browsing and Load are available below; pattern-file Save/Save As remain deferred
 
 The plain list reads compatible `.btdev` files from the Teensy SD directory
 `/BroTracker/development/`, including patern1.btdev through patern4.btdev and
-other valid files. Up/Down selects within a page. Left opens/refreshes the first
-page; Right requests the next page when more entries remain. Empty pages can
-occur among unsupported files; continue Right when offered. Enter (Windows) or
+other valid files. The host reads every internal LIST page through its `done`
+marker, counts the matching files and sorts all filenames ascending before
+selection is enabled. No total-count field or new firmware command is needed.
+Up/Down selects one file in the continuous list; Left/Right has no list action.
+Enter (Windows) or
 A (handheld) opens confirmation, then a second press confirms replacement.
 Escape/B cancels confirmation back to the list; outside confirmation it returns
 to Pattern with the original work and cursor. Ctrl+Right/Select+Right also returns.
@@ -67,7 +69,6 @@ from that manual. Physical display/control validation remains pending.
 | Pattern Load/Save screen (left) | Ctrl + Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. One request per press; consumes Left. |
 | Return to Pattern (right) | Ctrl + Right | From Pattern Load/Save: return with the same pattern and editor cursor. One request per press; consumes Right. |
 | Select pattern file | Up / Down in Load/Save | One step per press; does not move the pattern cursor. |
-| First / next file page | Left / Right in Load/Save | Left refreshes the first page; Right advances when more files remain. |
 | Load / confirm replacement | Enter or keypad Enter in Load/Save | Confirmation defaults on. After success and synchronization, return with reset cursor; playback stays stopped. |
 | Cancel | Escape in Load/Save | Confirmation: back to list. List: return to Pattern, retaining current work/cursor. |
 | Start / Pause / Continue | Space | Stopped: start at pattern row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
@@ -102,7 +103,6 @@ button/hat fallback. Unmapped joysticks and raw-axis fallback are not supported.
 | Pattern Load/Save screen (left) | Select + D-pad Left | From Pattern: automatically STOP Playing/Paused/DONE and wait for confirmation (skip STOP if IDLE), save the working session, then switch only on success. Hold Select first; one request per press; consumes Left. |
 | Return to Pattern (right) | Select + D-pad Right | Return with the same pattern and editor cursor. Hold Select first; one request per press; consumes Right. L1/R1 directional bindings retain precedence. |
 | Select pattern file | D-pad Up / Down in Load/Save | Without modifiers; one step per press, no pattern editing. |
-| First / next file page | D-pad Left / Right in Load/Save | Without Select/L1/R1. Left refreshes first page; Right advances. |
 | Load / confirm replacement | A in Load/Save | Without modifiers. Confirmation defaults on; successful synchronized Load returns with reset cursor, stopped. |
 | Cancel | B in Load/Save | Without modifiers: confirmation back to list; list back to Pattern. L1+B remains STOP. |
 | Start / Pause / Continue | Start | Stopped: start at row zero. Playing: pause. Paused: replay the reported paused row from its beginning, then continue. |
@@ -382,11 +382,18 @@ and no full-frame filtering is applied. Missing/unusable icon files leave the
 warning text, panel and blocking behavior available. Native Terminus text and
 both size choices remain unchanged.
 
-Pattern Load uses a bordered vertical list: Terminus 8x14 heading and 6x12
-filenames, one file per row, with the entire selected row highlighted. Up/Down
-moves one file and scrolls at the visible edge. Crossing a LIST page boundary
-fetches the next/previous page automatically; confirmation waits for that page.
-Left still refreshes the first page and Right advances a page. Confirmation,
-cancellation, screen return and the stopped/session-save entry flow are unchanged.
-The browser requires the existing `BTSTORE1 LISTCAP 1` firmware; this UI refinement
-requires no firmware or protocol change.
+Pattern Load uses a bordered vertical list with its Terminus 8x14 title above
+the frame and Terminus 6x12 filenames. The selected row is highlighted across
+its full width. Windows Up/Down and handheld unmodified D-pad Up/Down move one
+item. Down from the bottom visible row jumps to the next block with its first
+row selected at the top; Up from the first visible row selects the previous
+block's last row. Up at the first file and Down at the last file retain selection.
+The white vertical indicator shows the visible matching-file proportion and
+viewport position in the complete sorted list, including a partial final block.
+There are no manual page controls. Windows Enter / handheld A opens confirmation
+and confirms on the second press; Escape / B dismisses confirmation to the list,
+or returns to Pattern when no confirmation is open. Ctrl+Right / Select+Right
+returns directly. While a Load is in flight, wait for its result; successful
+synchronized Load automatically returns to Pattern with the reset edit cursor.
+The existing `BTSTORE1 LISTCAP 1` firmware remains sufficient. MOD import, sample
+loading, pattern-file Save and Save As remain separate work.

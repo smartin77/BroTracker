@@ -1,33 +1,22 @@
 #include "bringup_controls.h"
 #include "host_logging.h"
+#include <algorithm>
 void BringUpControls::Log(const char* message) {
     BroTracker::HostLog(log_,BroTracker::ClassifyHostDiagnostic("Controls",message),"Controls",message);
 }
 FileListView BringUpControls::BrowserList()const {
-    FileListView view;view.selected=browser_selected_;view.first=browser_first_;
-    if(serial_.PatternListReady())for(unsigned i=0;i<serial_.PatternFiles().count;++i)
-        view.names.emplace_back(serial_.PatternFiles().names[i]);
-    return view;
-}
-bool BringUpControls::BrowsePage(int direction,std::uint32_t now) {
-    const auto& page=serial_.PatternFiles();
-    if(direction>0) {
-        if(page.done || !serial_.RequestPatternList(page.next,now))return false;
-        browser_offsets_.push_back(page.next);
-    } else {
-        if(browser_offsets_.size()<2 || !serial_.RequestPatternList(browser_offsets_[browser_offsets_.size()-2],now))return false;
-        browser_offsets_.pop_back();
-    }
-    browser_page_direction_=direction;return true;
+    return browser_ready_?browser_list_:FileListView{};
 }
 std::string BringUpControls::BrowserText()const {
     if(browser_loading_)return "Loading pattern; waiting for device and working-pattern synchronization...";
-    if(browser_confirm_)return std::string("Replace the current working session with ")+serial_.PatternFiles().names[browser_selected_]+"?\n\nConfirm: Load\nCancel: keep current work";
+    if(browser_confirm_)return std::string("Replace the current working session with ")+browser_list_.names[browser_list_.selected].c_str()+"?\n\nConfirm: Load\nCancel: keep current work";
+    if(browser_collecting_)return "Reading all pattern filenames...";
+    if(browser_ready_)return browser_list_.names.empty()?"No compatible pattern files":"Select a pattern file";
     return serial_.PatternListStatus();
 }
 void BringUpControls::LoadSelected(std::uint32_t now) {
     browser_confirm_=false;
-    if(serial_.RequestPatternLoad(serial_.PatternFiles().names[browser_selected_],now)) {
+    if(serial_.RequestPatternLoad(browser_list_.names[browser_list_.selected].c_str(),now)) {
         browser_loading_=true;screen_status_="Loading pattern; please wait";
     } else screen_status_="Pattern Load unavailable: STOP and synchronize first";
 }
@@ -48,28 +37,11 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             return;
         }
         if(browser_confirm_) {if(action==BringUpAction::BrowserConfirm)LoadSelected(now);return;}
-        if(serial_.PatternListBusy())return;
-        const auto& page=serial_.PatternFiles();
-        if(action==BringUpAction::BrowserFirst || action==BringUpAction::BrowserNext) {
-            if(action==BringUpAction::BrowserFirst || (serial_.PatternListReady() && !page.done)) {
-                if(action==BringUpAction::BrowserFirst) {
-                    if(serial_.RequestPatternList(0,now)) {browser_offsets_={0};browser_page_direction_=1;}
-                } else (void)BrowsePage(1,now);
-            }
-        } else if(serial_.PatternListReady() && !page.count) {
-            if(action==BringUpAction::BrowserUp)(void)BrowsePage(-1,now);
-            if(action==BringUpAction::BrowserDown)(void)BrowsePage(1,now);
-        } else if(serial_.PatternListReady() && page.count) {
-            if(action==BringUpAction::BrowserUp) {
-                if(browser_selected_)--browser_selected_;else (void)BrowsePage(-1,now);
-            }
-            if(action==BringUpAction::BrowserDown) {
-                if(browser_selected_+1<page.count)++browser_selected_;else (void)BrowsePage(1,now);
-            }
-            if(browser_selected_<browser_first_)browser_first_=browser_selected_;
-            if(browser_selected_>=browser_first_+FileListView::visible_rows)
-                browser_first_=browser_selected_-FileListView::visible_rows+1;
-            if(action==BringUpAction::BrowserConfirm) {if(confirm_load_replace_)browser_confirm_=true;else LoadSelected(now);}
+        if(!browser_ready_ || browser_collecting_)return;
+        if(action==BringUpAction::BrowserUp)browser_list_.Move(-1);
+        if(action==BringUpAction::BrowserDown)browser_list_.Move(1);
+        if(action==BringUpAction::BrowserConfirm && !browser_list_.names.empty()) {
+            if(confirm_load_replace_)browser_confirm_=true;else LoadSelected(now);
         }
         return;
     }
@@ -83,7 +55,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending()) {
             screen_status_="Pattern Load/Save unavailable: wait for current operation";return;
         }
-        browser_initialized_=browser_confirm_=false;browser_selected_=browser_first_=0;browser_offsets_={0};browser_page_direction_=0;
+        browser_initialized_=browser_confirm_=browser_ready_=browser_collecting_=false;browser_list_={};
         screen_started_=now;
         if(serial_.Playing() || serial_.Paused() || serial_.Done()) {
             if(!serial_.Stop()) {screen_status_="Pattern Load/Save: STOP unavailable";return;}
@@ -151,13 +123,17 @@ void BringUpControls::Tick(std::uint32_t now) {
         }
     }
     if(load_save_screen_) {
-        if(browser_page_direction_ && !serial_.PatternListBusy()) {
-            const int direction=browser_page_direction_;browser_page_direction_=0;
-            if(serial_.PatternListReady()) {
+        if(browser_collecting_ && !serial_.PatternListBusy()) {
+            if(!serial_.PatternListReady()) {browser_collecting_=false;browser_list_={};}
+            else {
                 const auto& page=serial_.PatternFiles();
-                browser_selected_=direction<0 && page.count?page.count-1:0;
-                browser_first_=browser_selected_>=FileListView::visible_rows?browser_selected_-FileListView::visible_rows+1:0;
-                if(!page.count)(void)BrowsePage(direction,now);
+                for(unsigned i=0;i<page.count;++i)browser_list_.names.emplace_back(page.names[i]);
+                if(!page.done) {
+                    if(!serial_.RequestPatternList(page.next,now)) {browser_collecting_=false;browser_list_={};}
+                } else {
+                    std::sort(browser_list_.names.begin(),browser_list_.names.end());
+                    browser_collecting_=false;browser_ready_=true;
+                }
             }
         }
         if(browser_loading_) {
@@ -168,7 +144,7 @@ void BringUpControls::Tick(std::uint32_t now) {
                 browser_loading_=false;screen_status_="Pattern Load failed/uncertain; current editor retained; see device status";
             }
         } else if(!browser_initialized_) {
-            browser_initialized_=true;if(serial_.RequestPatternList(0,now))browser_page_direction_=1;
+            browser_initialized_=true;browser_collecting_=serial_.RequestPatternList(0,now);
         }
     }
     if (!stop_pending_) return;

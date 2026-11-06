@@ -597,6 +597,8 @@ TEST_CASE(ArkOSPatternBrowserConsumesActionsWithoutEditingAndKeepsSelectNavigati
     CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::BrowserDown);
     CHECK(f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN).transport==BringUpAction::None);
     f.Edge(SDL_CONTROLLER_BUTTON_DPAD_DOWN,false);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT).transport==BringUpAction::None);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::None);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::BrowserConfirm);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::BrowserCancel);
     f.Edge(SDL_CONTROLLER_BUTTON_BACK);CHECK(f.Tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT).transport==BringUpAction::ScreenRight);
