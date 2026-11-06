@@ -70,7 +70,14 @@ ElkTracker Manual, pages 5 and 7 (Controls / Navigation), supplies the direction
 screen-navigation reference: its Select+Left/Right has context-dependent back/dive
 behavior and otherwise switches main screens. Its desktop screen keys are 1-8.
 BroTracker bindings above were explicitly supplied by the owner, not inferred
-from that manual. Physical display/control validation remains pending.
+from that manual.
+
+The owner physically confirmed Pattern Load/Save on Windows BTX and the tested
+dArkOS handheld. On that dArkOS setup, the first transition from Pattern during
+playback after BTX startup took about one second or slightly longer. Later
+transitions were faster, and the owner accepted this behavior. This confirmation
+is scoped to those tested setups; it does not establish validation for other
+handhelds, mappings or configurations.
 
 ## Desktop controls
 
@@ -134,9 +141,8 @@ produces A, B, X or Y. Verify the device mapping before relying on printed label
 Do not assume EmulationStation/RetroArch hotkeys apply to standalone BTX. Existing
 handheld confirmations do not establish a separate R36S physical mapping test.
 
-Hold L1 before a normal L1 chord. Header A still mutes/unmutes with L1 held;
-row A saves, L1+A publishes, L1+X restores the RAM baseline and L1+Y loads the
-saved tune. B requests STOP with L1 held. Select maps to SDL `BACK`, Start to SDL
+Hold L1 before a normal L1 chord. Header A still mutes/unmutes with L1 held.
+B requests STOP on Pattern, including with L1 held. Select maps to SDL `BACK`, Start to SDL
 `START`, including verified raw fallback from that controller's SDL bindings.
 Start transport/exit fires on release so either Select+Start press order consumes
 it safely. A held chord does not repeat and must fully release before rearming.
@@ -341,8 +347,9 @@ editing remain independent. No button bindings changed.
 Pattern Load/Save does not save or load channel mutes. It retains the live Teensy mute mask
 while the device remains powered; device initialization clears that mask.
 
-New bindings are automated-test coverage, not a new physical handheld confirmation.
-Existing dated observations used the previous startup/F4/F5 behavior.
+Pattern Load/Save physical confirmation is scoped to Windows BTX and the tested
+dArkOS handheld described above. Existing dated observations retain their original
+scope, including the previous startup/F4/F5 behavior where recorded.
 
 ## Blocking device/storage warnings
 
