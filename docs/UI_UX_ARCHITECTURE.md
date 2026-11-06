@@ -194,7 +194,10 @@ The main pattern area contains:
 
 The right side of the main screen is reserved for contextual information and controls. This area may show information related to the currently selected channel/event, including note, instrument, volume, panning and up to three effects.
 
-The exact right-side layout will continue to evolve during UI prototyping.
+The contextual right-side panel remains in the planned Pattern layout. Only the
+INS/MIX/OPT quick-access menu is removed from that plan. Reuse the space freed
+within the panel for future content; both the content and its layout remain
+undecided.
 
 ## Row Numbering
 
@@ -537,19 +540,25 @@ During playback, it may follow the current playback row while allowing the user 
 
 The exact controls and presentation remain subject to UI prototyping.
 
-## Quick Access
+## Planned Pattern navigation
 
-The main screen should provide direct access to frequently used areas without unnecessary navigation depth.
+Pattern is the primary workspace. This is the agreed planning direction, not a
+claim that these screens or routes are implemented:
 
-The primary quick-access menu is ordered as:
+| Direction from Pattern | Planned destination |
+| --- | --- |
+| Left | A single Load screen for opening a module, project or tune. |
+| Up | Instrument Inventory, with the selected instrument editor below it. |
+| Right | Project Settings. |
+| Down | Master Mix is the current proposal; this assignment remains open. |
 
-1. **OPT** — Options
-2. **INS** — Instrument Editor
-3. **MIX** — Mixer
+The planned INS/MIX/OPT quick-access menu is removed. Pattern's contextual
+right-side panel stays; its freed menu space will serve future content, with
+content and layout undecided. Other screens may be contextual sub-screens or
+reached through menus. Their exact placement, input bindings and user guide
+remain for later work. This plan does not change current runtime navigation.
 
-This order reflects the intended workflow of the tracker.
-
-### OPT — Options
+### Program and Project Settings
 
 Options are divided into two logical areas:
 
@@ -567,13 +576,14 @@ Project Options contain project-specific operations and settings, including:
 
 - Create;
 - Save;
-- Load;
+- Load through the single shared Load screen;
 - project main settings;
 - project description.
 
-### INS — Instrument Editor
+### Instrument Inventory and Editor
 
-Instrument editing is intentionally a first-class function.
+The planned Up destination from Pattern is Instrument Inventory, with the selected
+instrument editor below it. Instrument editing is intentionally a first-class function.
 
 The user should be able to create or select an instrument before composing a pattern rather than being forced through a chain/phrase hierarchy first.
 
@@ -585,8 +595,9 @@ The Instrument Editor will eventually support different instrument types, includ
 
 Further instrument-specific editing may be nested below the Instrument Editor.
 
-### MIX — Mixer
+### Master Mix
 
+Master Mix is currently proposed below Pattern; the Down assignment remains open.
 The Mixer area is intended to provide master/channel mixing controls, including at minimum channel levels and related master mix information.
 
 Export to Windows PCM WAV primarily, later maybe to other other audio (compression formats).

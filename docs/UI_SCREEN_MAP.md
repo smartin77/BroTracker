@@ -38,10 +38,16 @@ configuration, logging and sparse-preview semantics (D0057–D0059).
 
 ## Shared interaction and navigation
 
-- Preserve direct quick access in **OPT / INS / MIX** order. Proposed INS entry
-  opens the instrument list, then the selected instrument editor. PAT remains the
-  primary workspace. Project, Song, Export and Help access placement is pending;
-  they do not displace the established quick-access order.
+- PAT remains the primary workspace. The agreed planned directions are Left to
+  one Load screen for opening a module, project or tune; Up to Instrument Inventory,
+  with the selected instrument editor below it; and Right to Project Settings.
+  Down to Master Mix is the current proposal, but that assignment remains open.
+  These destinations describe planned navigation, not implemented routing.
+- Retain Pattern's contextual right-side panel. Remove only its planned INS/MIX/OPT
+  quick-access menu; reuse the space freed within the panel for future content,
+  with both that content and its layout undecided.
+- Other screens may be contextual sub-screens or reached through menus. Their exact
+  placement, input bindings and user guide remain for later design.
 - Drill down from the selected object: PAT event to Event Detail; instrument
   field to INS/Instrument Editor; sample resource to Browser/Editor. Back restores
   the caller's cursor, selection, page and scroll context. Editors support abstract
@@ -72,6 +78,9 @@ Primary workspace: eight visible channels with note/instrument columns, beat
 highlighting, distinct edit cursor and playback position. Preserve editing during
 playback, existing Start/Stop/Pause/Continue semantics and automatic volatile
 preview versus explicit publication. Navigation must not retarget queued edits.
+The contextual right-side panel remains part of the planned Pattern layout;
+removing the INS/MIX/OPT menu does not remove that panel. Its freed menu space is
+reserved for future content without deciding what it contains or how it is laid out.
 
 Paging must distinguish stored length, visible page and playback position.
 The existing proposal is two 32-row pages for 64 rows, controlled by the edit
@@ -101,12 +110,14 @@ event context rather than silently editing the advancing playhead's event. Any
 optional playback-follow inspection needs a clearly identified target and a
 resolved focus policy; see the contradictions below.
 
-### 3. INS — Instrument List
+### 3. Instrument Inventory
 
 Create/select instruments independently of composing a pattern. Show instrument
 number, name, type, resource availability and project usage (references/counts
 where known). Missing resources remain visible rather than deleting definitions.
-Enter directly through INS or contextually from a pattern instrument field.
+The planned Up destination from Pattern is Instrument Inventory; the selected
+instrument editor sits below it. Contextual entry from a pattern instrument field
+may also be provided; exact bindings remain undecided.
 Opening an item inspects/edits it; assigning it to a pattern field is an explicit
 operation. Creation and usage reporting depend on a real instrument registry and
 reference model, not just existing development fixture bindings.
@@ -165,9 +176,11 @@ Destructive processing and slicing are later proposals requiring undo, shared
 sample/data ownership, copy behavior and durable-save design. Slices belong to
 the instrument layer, per Sample Format.
 
-### 7. MIX — Mixer
+### 7. Master Mix
 
-Eight channel levels and master information. First expose existing gain semantics
+Down from Pattern to Master Mix is proposed, not a settled assignment or
+implemented route. Eight channel levels and master information remain its scope.
+First expose existing gain semantics
 through validated capability-aware controls/readback; add pan, meters or master
 gain only as supported. Report applied versus pending gain state accurately.
 
@@ -196,10 +209,13 @@ order-entry targets. Conflicts, invalid targets, sequence end, note continuation
 deferred OFF and paused replay interactions must be resolved before sequencing UI
 can promise those actions. Arrangement does not redefine stored pattern length.
 
-### 9. Project
+### 9. Project Settings
 
-Propose New / Load / Save / Save As, project name, BPM, description, pattern
-management and missing-resource recovery. Follow the established responsibilities:
+The planned Right destination from Pattern is Project Settings. Propose New /
+Load / Save / Save As, project name, BPM, description, pattern management and
+missing-resource recovery. Load opens the single shared Load screen for modules,
+projects or tunes, rather than a separate project loader. Follow the established
+responsibilities:
 
 - BTT: lightweight tune/instrument definitions with external sample references;
   retain missing instrument definitions/parameters and mark samples **not located**.
@@ -223,8 +239,10 @@ guarantees supplied by these screen names.
 
 ### 10. OPT — Settings
 
-Keep Program/Interface settings separate from Project settings/operations, even
-if Project is reached through OPT. Program settings include display notation, row
+Keep Program/Interface settings separate from Project settings/operations.
+Project Settings is the planned Right destination from Pattern; access to program
+settings through a menu or contextual sub-screen remains undecided. Program
+settings include display notation, row
 numbering, controls, audio selection, MIDI/sync, logging and connection/capability
 status. Project-specific BPM, metadata and patterns belong to Project. A default
 for newly created patterns must not resize existing patterns.
@@ -287,9 +305,9 @@ controls become actionable; this is not authorization to implement the features.
   quarter note. Treat that older example as fixed-grid illustration, not a setting.
   Older centered-scroll descriptions also conflict with the current fixed view
   and pending paging comparison. Final paging/follow behavior remains undecided.
-- UI/UX calls INS an Instrument Editor; this proposal makes its first level a list
-  while preserving direct access and type-specific drill-down. Confirm final
-  selection/assignment behavior and editor collection ordering during design.
+- Instrument Inventory is the planned Up destination from Pattern, with the
+  selected instrument editor below it. Confirm final selection/assignment behavior
+  and editor collection ordering during design; no input bindings are assigned.
 - D0042 allows compiled modules without dynamic loading, while D0043 proposes
   binary loading and D0051 leaves execution/memory mechanisms undecided. What
   capability/interface contract can be supported first? No loader UI is assumed.
@@ -304,7 +322,8 @@ controls become actionable; this is not authorization to implement the features.
   before persistence/destructive editors. Mute-time instrument changes
   now preserve actual selection by suppressing pattern updates; see D0036 and
   [session channel mute](CHANNEL_MUTE.md).
-- Decide screen access placement beyond OPT/INS/MIX, final parameter ranges and
+- Decide whether Down from Pattern opens Master Mix, placement of other contextual
+  sub-screens and menu destinations, final parameter ranges and
   display units, resource budgets, audio metering sources, export render scope and
   settings write/apply behavior as their backends mature. These questions do not
   reserve new input bindings or alter existing runtime behavior.
