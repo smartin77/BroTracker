@@ -20,16 +20,16 @@ const char* ProductionAudioOutput::Select(AudioOutputChoice request, AudioStream
         if(next==AudioOutputChoice::Pt8211) {
             auto* output=new (&hardware_) AudioOutputPT8211;
             new (&patches_[0]) AudioConnection(source,0,*output,0);
-            new (&patches_[1]) AudioConnection(source,0,*output,1);
+            new (&patches_[1]) AudioConnection(source,kProductionRightSourceChannel,*output,1);
         } else if(next==AudioOutputChoice::AudioShield) {
             auto* output=new (&hardware_) AudioOutputI2S;
             new (&patches_[0]) AudioConnection(source,0,*output,0);
-            new (&patches_[1]) AudioConnection(source,0,*output,1);
+            new (&patches_[1]) AudioConnection(source,kProductionRightSourceChannel,*output,1);
         } else {
             auto* output=new (&hardware_) AudioOutputMQS;
             new (&patches_[0]) AudioConnection(source,0,*output,0);
             new (&patches_[1]) AudioConnection(source,0,usb,0);
-            new (&patches_[2]) AudioConnection(source,0,usb,1);
+            new (&patches_[2]) AudioConnection(source,kProductionRightSourceChannel,usb,1);
         }
         // The hardware constructor has already claimed update_setup(); this
         // avoids AudioMemory's dynamically allocated fallback IntervalTimer.

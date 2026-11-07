@@ -48,6 +48,9 @@ namespace BroTracker
     class VariableRatePatternPlayer
     {
     public:
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        const std::int16_t* DiagnosticRight() const noexcept { return diagnostic_right_; }
+#endif
         const VariableRateSampleVoice* SampleVoice(unsigned channel) const noexcept { return renderer_.GetVoice(channel); }
         // Successful render export, consumed once by the platform output adapter.
         VariableRateVoiceCommandBatch TakeMidiCommands() noexcept { auto b=midi_commands_; midi_commands_.count=0; return b; }
@@ -335,6 +338,9 @@ namespace BroTracker
             if (transport_ != VariableRatePatternTransportState::Playing)
             {
                 for (std::size_t i = 0; i < count; ++i) destination[i] = 0;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                std::fill_n(diagnostic_right_,count,0);
+#endif
                 return VariableRatePatternPlayerStatus::Success;
             }
             auto cursor = cursor_;
@@ -447,11 +453,21 @@ namespace BroTracker
             {
                 outputs.channels[channel] = channel_scratch_[channel];
                 inputs.channels[channel] = channel_scratch_[channel];
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                outputs.diagnostic_without_synth[channel]=diagnostic_channels_[channel];
+#endif
             }
             if (renderer.Render(outputs, frame_count, commands) != VariableRateBlockStatus::Success)
                 return VariableRatePatternPlayerStatus::ComponentError;
             if (MixPcm16MonoWithGains(inputs, gains_, mono_scratch_, frame_count) != Pcm16GainMixStatus::Success)
                 return VariableRatePatternPlayerStatus::ComponentError;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            Pcm16MixInputs diagnostic_inputs;
+            for(unsigned channel=0;channel<kRealtimePatternChannelCapacity;++channel)
+                diagnostic_inputs.channels[channel]=diagnostic_channels_[channel];
+            if(MixPcm16MonoWithGains(diagnostic_inputs,gains_,diagnostic_right_,frame_count)!=Pcm16GainMixStatus::Success)
+                return VariableRatePatternPlayerStatus::ComponentError;
+#endif
             pattern_ = working_pattern;
             preview_pending_ = preview_pending;
             pending_ = pending;
@@ -543,5 +559,9 @@ namespace BroTracker
         VariableRateConsumedPatternPosition position_;
         std::int16_t channel_scratch_[kRealtimePatternChannelCapacity][kVariableRatePatternFrameCapacity]{};
         std::int16_t mono_scratch_[kVariableRatePatternFrameCapacity]{};
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        std::int16_t diagnostic_channels_[kRealtimePatternChannelCapacity][kVariableRatePatternFrameCapacity]{};
+        std::int16_t diagnostic_right_[kVariableRatePatternFrameCapacity]{};
+#endif
     };
 }

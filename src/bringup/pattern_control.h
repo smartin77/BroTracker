@@ -183,7 +183,11 @@ namespace BroTracker
         // Allocation failure stops/resets time (no rendering or advancement),
         // increments a saturating diagnostic counter, and transmits no block.
         // This is an explicit bring-up fail-stop policy, not a final underrun policy.
-        void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available) noexcept
+        void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            , std::int16_t* diagnostic_right=nullptr
+#endif
+        ) noexcept
         {
             // Separate latest slot applies before the transport/publication FIFO.
             if constexpr(SupportsChannelMute<Player>::value) if(pending_mute_id_) {
@@ -272,7 +276,20 @@ namespace BroTracker
                 }
             }
             else Zero(output, count);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            if(diagnostic_right) {
+                Zero(diagnostic_right,count);
+                if(storage_available && output && status_.fault==PatternFault::None)
+                    std::copy_n(player_.DiagnosticRight(),count,diagnostic_right);
+            }
+            // Both outputs use the same ramp positions; advance the live master
+            // once, preserving the original left-channel PCM and gain exactly.
+            auto diagnostic_volume=volume_;
+#endif
             if(storage_available && output) volume_.Process(output,count); // Combined PCM, exactly once before every route.
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            if(storage_available && output && diagnostic_right)diagnostic_volume.Process(diagnostic_right,count);
+#endif
             CompletePreview();
             CompleteTempo();
             Publish();

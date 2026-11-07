@@ -1158,3 +1158,62 @@ host, UART/DIN and Ethernet backends are future work. Protocol/UMP capabilities
 are separate from transport choice. Internal PCM master gain does not control
 external MIDI volume. Backend faults must remain isolated from audio/timeline;
 each route needs physical timing validation without assumed compensation.
+
+
+## Temporary Synth-left recording diagnostic
+
+The default production firmware remains dual mono: the existing Sample/Synth mix
+feeds both left and right at the existing level. For a temporary comparison of
+internal sine audio with external WASP audio, build/upload the explicit opt-in:
+
+```sh
+pio run -e teensy41_dev_synth_left -t upload
+```
+
+Its image is `.pio/build/teensy41_dev_synth_left/firmware.hex`. The environment
+extends `teensy41_dev` and defines `BROTRACKER_DIAGNOSTIC_SYNTH_LEFT`; there is no
+INI key, live toggle, general panning feature or host deployment change. The
+owner must perform the firmware upload with playback stopped/BTX closed.
+Disable by building/uploading the ordinary default image again:
+
+```sh
+pio run -e teensy41_dev -t upload
+```
+
+That restores `.pio/build/teensy41_dev/firmware.hex`. A BTX restart or INI edit
+alone cannot enable or disable this firmware mode. Reconnect BTX normally after
+upload; retain the existing output/backend selection and MIDI route.
+
+In the opt-in image the shared production renderer/mixer emits the original full
+mix on output0 (left), and the Sample-only contribution on output1 (right).
+Sine generation is advanced once; note offsets, envelopes and MIDI command
+preparation are retained. Per-channel gain/mix saturation and the master ramp
+remain at their existing left levels: no stereo summing or gain increase. Both
+outputs use the same master-ramp positions without advancing the live ramp twice.
+Sample contributions remain on both sides, including Sample transition tails;
+Synth tails are excluded from the right even after Synth-to-Sample replacement.
+The default image has no additional right-side scratch buffers or render work.
+
+PT8211, Audio Shield and USB use that same shared pair. The USB endpoint already
+carries stereo; existing Windows and Linux ALSA bridges preserve its channel order
+without a new host feature or MIDI change. The diagnostic source uses two fixed
+AudioMemory blocks and retains the existing allocation-failure fail-stop policy;
+both blocks must be available before a block is rendered/transmitted.
+
+For the owner's recording, mute Sample channels (and any unwanted Synth voices),
+use matching Synth/MIDI note sequences, then allow release/crossfade tails to
+settle. Connect the host output's left channel to recorder left and WASP analog
+output to recorder right on the same recorder/clock. Do not sum stereo outputs,
+boost gain or enable mono downmix; verify the physical host/recorder mapping.
+Host right contains no Synth in this mode but can still contain unmuted Samples.
+No MIDI routing, capture/analysis tooling or automatic pattern changes are added.
+Keep the Linux capture-holdback selection fixed and record its value: it is part
+of the complete internal-audio output path; Windows does not apply that reserve.
+
+This is a preliminary comparison of **relative onset offset and variability
+across the complete two output paths** (internal synthesis/USB/host analog versus
+MIDI/WASP analog). It is **not isolated MIDI latency or jitter**. Focused host
+checks compare default/diagnostic left PCM and command signatures, check silent
+Synth-right output, preserve streamed Sample PCM/master gain and test crossfade
+transitions plus production graph wiring. Firmware builds are separate from
+physical output/recording validation; no new listening or capture claim is made.

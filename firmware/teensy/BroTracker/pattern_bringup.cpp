@@ -183,8 +183,17 @@ namespace
                 initialized_ = true;
             }
             audio_block_t* block = allocate();
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            audio_block_t* right=block ? allocate() : nullptr;
+            if(!block || !right)
+#else
             if (!block)
+#endif
             {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                if(block)release(block);
+                if(right)release(right);
+#endif
                 g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                 CollectMidi(render_us);
@@ -194,12 +203,20 @@ namespace
 #endif
                 return; // Fail-stop: no timeline advance and no stale block transmitted.
             }
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true,right->data);
+#else
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             CollectMidi(render_us);
 #endif
             transmit(block);
             release(block);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            transmit(right,1);
+            release(right);
+#endif
 #ifdef BROTRACKER_PATTERN_PERF
             RecordCost(begin,first);
 #endif

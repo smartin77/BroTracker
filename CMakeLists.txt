@@ -340,3 +340,18 @@ add_executable(BroTrackerProductionAudioTests tests/test_main.cpp tests/test_pro
 target_include_directories(BroTrackerProductionAudioTests PRIVATE tests/stubs/production_audio tests ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerProductionAudioTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerProductionAudioTests COMMAND BroTrackerProductionAudioTests)
+
+# Focused default/opt-in production mix and output-graph checks; no hardware.
+foreach(mode Default SynthLeft)
+    add_executable(BroTrackerDiagnosticStereo${mode}Tests tests/test_main.cpp
+        tests/test_diagnostic_synth_routing.cpp firmware/teensy/BroTracker/production_audio_output.cpp
+        libraries/scheduler/src/musical_timing.cpp libraries/scheduler/src/musical_tick_cursor.cpp
+        libraries/scheduler/src/pattern_position.cpp)
+    target_include_directories(BroTrackerDiagnosticStereo${mode}Tests PRIVATE
+        tests/stubs/production_audio tests src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(BroTrackerDiagnosticStereo${mode}Tests PRIVATE AUDIO_INTERFACE BROTRACKER_PATTERN_VARIABLE_RATE)
+    if(mode STREQUAL "SynthLeft")
+        target_compile_definitions(BroTrackerDiagnosticStereo${mode}Tests PRIVATE BROTRACKER_DIAGNOSTIC_SYNTH_LEFT)
+    endif()
+    add_test(NAME BroTrackerDiagnosticStereo${mode}Tests COMMAND BroTrackerDiagnosticStereo${mode}Tests)
+endforeach()

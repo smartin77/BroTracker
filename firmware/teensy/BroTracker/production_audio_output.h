@@ -6,6 +6,11 @@
 #include "../../../src/bringup/audio_output_selection.h"
 
 namespace BroTracker {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+constexpr unsigned kProductionRightSourceChannel=1;
+#else
+constexpr unsigned kProductionRightSourceChannel=0;
+#endif
 // Foreground, boot-only activation. Placement new uses fixed static storage;
 // live outputs are never destroyed, replaced or reinitialized.
 class ProductionAudioOutput {
