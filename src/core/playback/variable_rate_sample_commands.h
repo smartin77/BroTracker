@@ -164,6 +164,9 @@ namespace BroTracker
                     command.action = VariableRateVoiceAction::Trigger;
                     command.sample = selected->sample;
                     command.sample_level_percent = selected->sample_level_percent;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    command.instrument = selected->instrument;
+#endif
                 }
                 result.commands[result.count++] = command;
             }

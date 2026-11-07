@@ -181,3 +181,97 @@ TEST_CASE(DiagnosticSampleTailIsRetainedWhenSwitchingToSynth) {
     Block left;std::copy_n(output[0],128,left.begin());std::uint32_t hash=2166136261u;Hash(hash,left);
     std::cout<<"LEFT_SIGNATURE sample-tail "<<hash<<'\n';
 }
+TEST_CASE(DiagnosticSample04UsesInstrumentIdentityOnEveryChannel) {
+    std::array<std::int16_t,4096> pcm;
+    for(unsigned i=0;i<pcm.size();++i)pcm[i]=std::int16_t(int(i%301)-150);
+    std::uint32_t hash=2166136261u;
+    for(unsigned channel=0;channel<8;++channel) {
+        // Both IDs deliberately share the same PCM address: identity alone routes.
+        SelectedPatternBindings bindings;bindings.count=2;
+        bindings.bindings[0]={0,60,{pcm.data(),pcm.size(),44100},InstrumentType::Sample,80};
+        bindings.bindings[1]={3,60,{pcm.data(),pcm.size(),44100},InstrumentType::Sample,80};
+        SelectedPatternBringUpControl excluded,ordinary;
+        for(auto* control:{&excluded,&ordinary}) {
+            RealtimePattern pattern;pattern.active_rows=16;pattern.active_channels=8;
+            pattern.cells[0][channel]={60,std::uint8_t(control==&excluded?3:0)};
+            pattern.cells[1][channel]={60,kNoInstrumentUpdate}; // Retained binding identity.
+            pattern.cells[2][channel]={NOTE_OFF,kNoInstrumentUpdate};
+            CHECK_EQ(control->InitializeAudio(12500,44100,pattern,bindings),PatternPlayerStatus::Success);
+            CHECK_EQ(control->Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
+        }
+        bool nonzero=false;
+        for(unsigned block=0;block<20;++block) {
+            Block left,right,other_left,other_right;
+            Ramp(excluded,block);Ramp(ordinary,block);
+            Audio(excluded,left,right);Audio(ordinary,other_left,other_right);
+            CHECK(left==other_left);CHECK(other_right==other_left);
+            CheckSynthRight(left,right);Hash(hash,left);
+            nonzero=nonzero || std::any_of(left.begin(),left.end(),[](auto x){return x!=0;});
+            CHECK_EQ(excluded.Snapshot().fault,PatternFault::None);
+        }
+        CHECK(nonzero);
+    }
+    std::cout<<"LEFT_SIGNATURE sample04 "<<hash<<'\n';
+}
+TEST_CASE(DiagnosticSample04TransitionTailsStayExcludedAndOtherSampleTailsRemain) {
+    VariableRateVoiceBlockRenderer renderer;CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
+    std::int16_t output[8][128]{},right[8][128]{};VariableRateVoiceOutputs out;
+    for(unsigned i=0;i<8;++i) {
+        out.channels[i]=output[i];
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        out.diagnostic_without_synth[i]=right[i];
+#endif
+    }
+    std::array<std::int16_t,4096> sample;sample.fill(3000);
+    std::array<std::int16_t,4096> silence{};
+    std::uint32_t hash=2166136261u;
+    const auto render=[&](VariableRateVoiceAction action,unsigned instrument,bool silent,unsigned count=128) {
+        VariableRateVoiceCommandBatch commands;commands.count=1;
+        commands.commands[0]={5,0,action,{silent?silence.data():sample.data(),sample.size(),44100}};
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        commands.commands[0].instrument=instrument;
+#else
+        (void)instrument;
+#endif
+        CHECK_EQ(renderer.Render(out,count,commands),VariableRateBlockStatus::Success);
+        for(unsigned i=0;i<count;++i) {
+            const std::uint16_t word=static_cast<std::uint16_t>(output[5][i]);
+            hash=(hash^(word&255u))*16777619u;hash=(hash^(word>>8))*16777619u;
+        }
+    };
+    // #04 -> Synth -> silent ordinary Sample, interrupting the Synth transition:
+    // neither the #04 tail nor Synth may enter the right side.
+    render(VariableRateVoiceAction::Trigger,3,false);
+    for(auto x:output[5])CHECK_EQ(x,3000);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(auto x:right[5])CHECK_EQ(x,0);
+#endif
+    render(VariableRateVoiceAction::TriggerSynth,2,false,23);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(unsigned i=0;i<23;++i)CHECK_EQ(right[5][i],0);
+#endif
+    render(VariableRateVoiceAction::Trigger,0,true);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(auto x:right[5])CHECK_EQ(x,0);
+#endif
+    renderer.Reset();
+    // Ordinary Sample -> Synth -> #04: retain only the ordinary Sample tail,
+    // including when a transition is interrupted and #04 is then released.
+    render(VariableRateVoiceAction::Trigger,0,false);
+    render(VariableRateVoiceAction::TriggerSynth,2,false,23);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(unsigned i=0;i<23;++i)
+        CHECK_EQ(right[5][i],std::int16_t(std::lround(3000*(1-SmoothEndpoint(float(i)/87)))));
+    const auto retained=right[5][22];
+#endif
+    render(VariableRateVoiceAction::Trigger,3,false);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(unsigned i=0;i<128;++i)
+        CHECK_EQ(right[5][i],i<88?std::int16_t(std::lround(retained*(1-SmoothEndpoint(float(i)/87)))):0);
+#endif
+    render(VariableRateVoiceAction::Release,3,false);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+    for(auto x:right[5])CHECK_EQ(x,0);
+#endif
+    std::cout<<"LEFT_SIGNATURE sample04-tails "<<hash<<'\n';
+}

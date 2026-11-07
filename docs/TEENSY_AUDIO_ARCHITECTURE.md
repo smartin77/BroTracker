@@ -1185,13 +1185,16 @@ alone cannot enable or disable this firmware mode. Reconnect BTX normally after
 upload; retain the existing output/backend selection and MIDI route.
 
 In the opt-in image the shared production renderer/mixer emits the original full
-mix on output0 (left), and the Sample-only contribution on output1 (right).
+mix on output0 (left), and the Sample contribution excluding instrument #04
+(display ID 04, raw ID 3, currently `test3.wav`) on output1 (right).
 Sine generation is advanced once; note offsets, envelopes and MIDI command
 preparation are retained. Per-channel gain/mix saturation and the master ramp
 remain at their existing left levels: no stereo summing or gain increase. Both
 outputs use the same master-ramp positions without advancing the live ramp twice.
-Sample contributions remain on both sides, including Sample transition tails;
-Synth tails are excluded from the right even after Synth-to-Sample replacement.
+Other Sample instruments remain on both sides, including their transition tails.
+Synth and #04 tails are excluded from the right even after instrument replacement.
+The #04 exclusion follows raw instrument identity on every tracker channel, not
+the WAV filename or PCM address, under the same existing compile-time switch.
 The default image has no additional right-side scratch buffers or render work.
 
 PT8211, Audio Shield and USB use that same shared pair. The USB endpoint already
@@ -1205,7 +1208,9 @@ use matching Synth/MIDI note sequences, then allow release/crossfade tails to
 settle. Connect the host output's left channel to recorder left and WASP analog
 output to recorder right on the same recorder/clock. Do not sum stereo outputs,
 boost gain or enable mono downmix; verify the physical host/recorder mapping.
-Host right contains no Synth in this mode but can still contain unmuted Samples.
+Host right contains no Synth or #04 contribution in this mode but can still
+contain other unmuted Sample instruments. No additional activation step is needed
+for #04; uploading `teensy41_dev` restores stereo for both Synth and #04.
 No MIDI routing, capture/analysis tooling or automatic pattern changes are added.
 Keep the Linux capture-holdback selection fixed and record its value: it is part
 of the complete internal-audio output path; Windows does not apply that reserve.
