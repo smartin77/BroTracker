@@ -260,3 +260,30 @@ TEST_CASE(HostDevelopmentStartupPatternConfiguration) {
     }
     CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=patern4\nstartup_pattern=patern1",c)==HostConfigStatus::Invalid);
 }
+
+TEST_CASE(HostConfigCaptureHoldbackFramesDefaultsBoundsAndWarnings) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
+    HostConfig c; CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);
+    CHECK_EQ(c.capture_holdback_frames,0u);CHECK(!c.capture_holdback_frames_invalid);
+    for(auto value:{0u,45u,64u,128u}) {
+        CHECK(ParseHostConfig(base+"[audio]\noutput=bridge\ncapture_holdback_frames="+std::to_string(value),c)==HostConfigStatus::Loaded);
+        CHECK_EQ(c.capture_holdback_frames,value);CHECK(!c.capture_holdback_frames_invalid);
+        CHECK(c.audio_output==AudioOutputChoice::Bridge);
+    }
+    for(auto value:{"","-1","129","4294967296","99999999999999999999999999","45x","1.5","true","+45","45 ; comment"}) {
+        CHECK(ParseHostConfig(base+"[audio]\ncapture_holdback_frames="+value,c)==HostConfigStatus::Loaded);
+        CHECK_EQ(c.capture_holdback_frames,0u);CHECK(c.capture_holdback_frames_invalid);CHECK_EQ(c.new_pattern_length,64u);
+    }
+    CHECK(ParseHostConfig(base+"[audio]\ncapture_holdback_frames=45\ncapture_holdback_frames=0",c)==HostConfigStatus::Invalid);
+    CHECK_EQ(LoadHostConfig({},true).config.capture_holdback_frames,0u);
+    FILE* log=std::tmpfile();CHECK(log!=nullptr);
+    if(log) {
+        HostConfigResolution result;result.config=c;
+        LogHostStartup(log,"Windows",result,{},{});std::rewind(log);
+        std::string text;char block[512];std::size_t n;
+        while((n=std::fread(block,1,sizeof(block),log)))text.append(block,n);
+        std::fclose(log);
+        CHECK(text.find("Invalid [audio] capture_holdback_frames")!=std::string::npos);
+        CHECK(text.find("ignored by Windows")!=std::string::npos);
+    }
+}

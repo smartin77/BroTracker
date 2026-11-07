@@ -96,6 +96,13 @@ int main(int argc, char* argv[])
         }
         SDL_free(evidence_directory);
     }
+    // Launcher probes the same executable-relative config independently of recording.
+    if(argc==2 && !std::strcmp(argv[1],"--capture-holdback-config")) {
+        if(host_config.config.capture_holdback_frames_invalid)
+            std::fprintf(stderr,"Invalid [audio] capture_holdback_frames: expected integer 0..128; using 0\n");
+        std::printf("%u\n",host_config.config.capture_holdback_frames);
+        return 0;
+    }
     if(argc==2 && !std::strcmp(argv[1],"--bridge-audible-config")) {
         if(!host_config.config.bridge_audible_test) return 2;
         const auto& base=audible_base;

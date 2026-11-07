@@ -442,7 +442,7 @@ class Experiment:
                 self.usb_state=dict(clean_stop=False,reason=str(e))
                 self.event('usb_capture_unavailable',result=self.usb_state)
         env=os.environ.copy()
-        for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE','BROTRACKER_READ_INTEGRITY','BROTRACKER_CAPTURE_HOLDBACK']:
+        for key in ['BROTRACKER_DIAGNOSTICS_DIR','BROTRACKER_BRIDGE_CLICKS_DIR','BROTRACKER_DIAGNOSTIC_STATUS_FILE','BROTRACKER_READ_INTEGRITY','BROTRACKER_CAPTURE_HOLDBACK','BROTRACKER_CAPTURE_HOLDBACK_FRAMES']:
             env.pop(key,None)
         env['BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS']=str(RECORD_SECONDS)
         if mode=='on': env['BROTRACKER_BRIDGE_CLICKS_DIR']=str(directory)

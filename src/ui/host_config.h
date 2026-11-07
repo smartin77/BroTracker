@@ -17,6 +17,8 @@ struct HostConfig {
     DevelopmentPattern startup_pattern;
     bool startup_pattern_invalid=false;
     bool confirm_load_replace=true; // [pattern], strict true/false, default enabled.
+    unsigned capture_holdback_frames=0;
+    bool capture_holdback_frames_invalid=false;
     bool bridge_audible_test = false;
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
@@ -41,6 +43,8 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Optional [pattern]: confirm_load_replace=true/false; absent defaults true.
 // Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
+// Optional [audio] capture_holdback_frames=0..128; absent/invalid uses 0.
+// Linux ALSA capture reserve only; Windows parses but ignores it.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
 // Invalid nonempty MIDI channel warns once at startup and uses 12.
 // Optional [diagnostics]: bridge_audible_test=yes/on/true/1 or no/off/false/0.

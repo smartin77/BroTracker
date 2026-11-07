@@ -222,7 +222,7 @@ struct Bridge
     std::unique_ptr<read_integrity::Trace> read_trace;
     uint64_t next_status = 0;
     bool normal_end = false;
-    bool holdback=false;
+    unsigned holdback_frames=0;
     capture_holdback::Metrics holdback_metrics;
     snd_pcm_uframes_t capture_buffer=0;
 
@@ -278,6 +278,7 @@ struct Bridge
         const int attached=snd_output_stdio_attach(&output,f,0);
         if(attached<0) { std::fclose(f); Check(attached,"attach diagnostic dump"); }
         int failed=0;
+        std::fprintf(f,"capture_holdback_frames=%u\n",holdback_frames);
         for(auto* pcm : {capture.handle,playback.handle}) {
             std::fprintf(f,"\n%s name=%s\n",pcm==capture.handle?"CAPTURE":"PLAYBACK",snd_pcm_name(pcm));
             failed |= snd_pcm_dump(pcm,output)<0;
@@ -303,7 +304,7 @@ struct Bridge
             "\"diagnostic_slots\":4096,\"limit_seconds\":%u,\"status_interval_ms\":20,"
             "\"capture_holdback_frames\":%u,\"clock\":\"CLOCK_MONOTONIC\",\"anchor_ns\":%llu,\"wall_seconds\":%lld,"
             "\"wall_nanoseconds\":%ld,\"alsa_version\":\"%s\"}\n",
-            (long)getpid(),limit,holdback?unsigned(capture_holdback::kFrames):0,(unsigned long long)clicks::Now(),(long long)stamp.wall.tv_sec,
+            (long)getpid(),limit,holdback_frames,(unsigned long long)clicks::Now(),(long long)stamp.wall.tv_sec,
             stamp.wall.tv_nsec,snd_asoundlib_version());
         const bool bad=n<0 || std::ferror(f);
         const int closed=std::fclose(f);
@@ -317,12 +318,12 @@ struct Bridge
     ~Bridge()
     {
         audible.Poll(captured,played,discarded,queued);
-        if(holdback) {
+        if(holdback_frames) {
             // Outside the service loop. Do not drain/re-read the reserved tail;
             // report the final unread snapshot rather than hiding shutdown loss.
             const auto final_avail=snd_pcm_avail(capture.handle);
             std::fprintf(stderr,"Experimental capture holdback: reserve=%llu frames, buffer=%lu, availability_samples=%llu, gated=%llu, max_available=%llu, shutdown_unread_snapshot=%lld (negative=unknown/error); no tail drain\n",
-                (unsigned long long)capture_holdback::kFrames,(unsigned long)capture_buffer,
+                (unsigned long long)holdback_frames,(unsigned long)capture_buffer,
                 (unsigned long long)holdback_metrics.samples,(unsigned long long)holdback_metrics.gated,
                 (unsigned long long)holdback_metrics.max_available,(long long)final_avail);
         }
@@ -381,9 +382,11 @@ struct Bridge
 
     void Run()
     {
-        const char* guard=std::getenv("BROTRACKER_CAPTURE_HOLDBACK");
-        holdback=guard && std::strcmp(guard,"1")==0;
-        if(holdback) {
+        const auto selected=capture_holdback::Select(std::getenv("BROTRACKER_CAPTURE_HOLDBACK_FRAMES"),std::getenv("BROTRACKER_CAPTURE_HOLDBACK"));
+        holdback_frames=selected.frames;
+        if(selected.invalid)std::fprintf(stderr,"Invalid BROTRACKER_CAPTURE_HOLDBACK_FRAMES: expected integer 0..128; using 0 (legacy flag ignored)\n");
+        std::fprintf(stderr,"Capture holdback: reserve=%u frames (0=disabled; capture reserve, not total latency)\n",holdback_frames);
+        if(holdback_frames) {
             snd_pcm_uframes_t period=0;
             Check(snd_pcm_get_params(capture.handle,&capture_buffer,&period),"capture holdback params");
             if(snd_pcm_type(capture.handle)!=SND_PCM_TYPE_HW || capture_buffer!=2048)
@@ -419,7 +422,7 @@ struct Bridge
                 "avail_min=1 capture_start_threshold=1 playback_start_threshold=%lu stop_threshold=buffer\n"
                 "queue_frames=8192 chunk_frames=256 capture_holdback_frames=%u alsa=%s\n",
                 snd_pcm_name(capture.handle),snd_pcm_name(playback.handle),(unsigned long)cb,(unsigned long)cp,
-                (unsigned long)pb,(unsigned long)pp,(unsigned long)(pb/2),holdback?unsigned(capture_holdback::kFrames):0,snd_asoundlib_version());
+                (unsigned long)pb,(unsigned long)pp,(unsigned long)(pb/2),holdback_frames,snd_asoundlib_version());
             audible.Parameters(parameters);
         }
         const int start_result=snd_pcm_start(capture.handle);
@@ -440,14 +443,14 @@ struct Bridge
                 const auto tail = (head + queued) % kQueueFrames;
                 auto frames = std::min({kChunkFrames, kQueueFrames - queued, kQueueFrames - tail});
                 snd_pcm_sframes_t available=0;
-                if(holdback) {
+                if(holdback_frames) {
                     available=snd_pcm_avail(capture.handle); // Fresh driver position, not cached avail_update.
-                    holdback_metrics.Observe(available);
+                    holdback_metrics.Observe(available,holdback_frames);
                     if(available<0) {
                         Note(clicks::StatusCapture,0,available);
                         if(Retry(available,true)) continue;
                     }
-                    frames=capture_holdback::Request(available,frames);
+                    frames=capture_holdback::Request(available,frames,holdback_frames);
                 }
                 if(frames) {
                     const auto result = snd_pcm_readi(capture.handle, samples.data() + tail * kFrameBytes, frames);
@@ -492,7 +495,7 @@ int main(int argc, char** argv)
 {
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     if(argc==2 && std::strcmp(argv[1],"--diagnostic-info")==0) {
-        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300,\"read_integrity\":1,\"capture_holdback\":45}");
+        std::puts("{\"id\":\"bridge-clicks-offline-v2\",\"schema\":1,\"max_limit_seconds\":300,\"read_integrity\":1,\"capture_holdback\":45,\"capture_holdback_max_frames\":128}");
         return 0;
     }
     const bool preflight=argc==2 && std::strcmp(argv[1],"--preflight")==0;

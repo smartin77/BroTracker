@@ -65,6 +65,7 @@ pm_finish() {
 STUB
 cat > "$work/ports/brotracker/BroTrackerTerminal" <<'STUB'
 #!/bin/bash
+if [[ "${1:-}" == --capture-holdback-config ]]; then printf '%s\n' "${TEST_HOLDBACK:-0}"; exit 0; fi
 if [[ "${1:-}" == --bridge-audible-config ]]; then
     [[ ${LISTEN_CONFIG:-0} == 1 ]] || exit 2
     printf '%s\n' "$XDG_DATA_HOME/BroTracker/BroTracker Terminal/diagnostics/bridge-audible"
@@ -105,6 +106,7 @@ exit 7
 STUB
 cat > "$work/ports/brotracker/BroTrackerAlsaBridge" <<'STUB'
 #!/bin/bash
+[[ "${BROTRACKER_CAPTURE_HOLDBACK_FRAMES:-missing}" == "${TEST_HOLDBACK:-0}" ]] || exit 91
 [[ "$1" == --auto ]] || exit 81
 count=0
 [[ ! -f "$TEST_DIR/count" ]] || read -r count < "$TEST_DIR/count"
@@ -237,6 +239,18 @@ unset LISTEN_CONFIG
 export BROTRACKER_LISTEN_CONTROL=/stale/control BROTRACKER_LISTEN_BASE=/stale/base
 run_case ready 0.2 normal
 unset BROTRACKER_LISTEN_CONTROL BROTRACKER_LISTEN_BASE
+# Numeric config remains authoritative with recording both off and on, even
+# when an old manual legacy export or numeric value was inherited.
+export BROTRACKER_CAPTURE_HOLDBACK=1 BROTRACKER_CAPTURE_HOLDBACK_FRAMES=128
+for TEST_HOLDBACK in 0 45 64 128; do
+    export TEST_HOLDBACK
+    for LISTEN_CONFIG in 0 1; do
+        export LISTEN_CONFIG
+        run_case ready 0.2 normal
+        grep -q "capture holdback reserve=$TEST_HOLDBACK frames" "$log"
+    done
+done
+unset TEST_HOLDBACK LISTEN_CONFIG BROTRACKER_CAPTURE_HOLDBACK BROTRACKER_CAPTURE_HOLDBACK_FRAMES
 echo 'Listening opt-in/private IPC cleanup and disabled stale-environment checks passed'
 # Real supervisor with synthetic sysfs: no actual USB/ALSA access. Keep a
 # sixteen-second retry sleep so prompt arrival cannot be a timed retry.

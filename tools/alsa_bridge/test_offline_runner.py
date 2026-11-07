@@ -343,6 +343,7 @@ class RunnerTests(unittest.TestCase):
                 log.write_text('Queue capacity: synthetic\n')
                 self.assertEqual(kwargs['env']['BROTRACKER_BRIDGE_CLICKS_LIMIT_SECONDS'],'240')
                 self.assertEqual(kwargs['env'].get('BROTRACKER_CAPTURE_HOLDBACK'), '1' if e.capture_holdback else None)
+                self.assertNotIn('BROTRACKER_CAPTURE_HOLDBACK_FRAMES',kwargs['env'])
                 if log.parent.name=='on':
                     trace=log.parent/'bridge-synthetic';trace.mkdir()
                     (trace/'run.json').write_text(json.dumps({'limit_seconds':240}))

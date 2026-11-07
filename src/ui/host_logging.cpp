@@ -171,6 +171,9 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","display.row_numbering=%s",RowNumberingName(config.config.row_numbering));
     if(config.config.row_numbering_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [display] row_numbering: expected lowercase d1/d0/h1/h0; using d1");
+    HostLogf(file,HostLogLevel::Basic,"Configuration","audio.capture_holdback_frames=%u (Linux ALSA bridge only; ignored by Windows)",config.config.capture_holdback_frames);
+    if(config.config.capture_holdback_frames_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [audio] capture_holdback_frames: expected integer 0..128; using 0 (disabled)");
     if(config.config.bridge_audible_test_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [diagnostics] bridge_audible_test: expected yes/on/true/1 or no/off/false/0; disabled");
     if(config.config.bridge_audible_test) HostLog(file,HostLogLevel::Basic,"Configuration",

@@ -29,7 +29,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     HostConfig candidate;
     unsigned section=0;
     bool display=false,numbering=false,diagnostics=false,audible=false;
-    bool pattern=false,confirm_load=false;
+    bool pattern=false,confirm_load=false,holdback=false;
     bool development=false,startup_pattern=false,language=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
@@ -75,6 +75,10 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
                 if(Decimal(raw,value) && value>=1 && value<=16) candidate.midi_output_channel=value;
                 else candidate.midi_output_invalid=true;
             }
+        } else if(section==4 && key=="capture_holdback_frames" && !holdback) {
+            holdback=true;
+            if(Decimal(raw,value) && value<=128)candidate.capture_holdback_frames=value;
+            else candidate.capture_holdback_frames_invalid=true;
         } else if(section==4 && key=="output" && !audio_output) {
             audio_output=true;
             if(raw=="bridge") candidate.audio_output=AudioOutputChoice::Bridge;

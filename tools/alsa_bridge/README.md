@@ -955,3 +955,58 @@ Automated tests cover config values/defaults, confirmed transport notifications,
 segmentation/repeated attempts, exact WAV bytes/coordinates, evidence caps, disk/
 setup failure, stalled-worker/queue bounds and actual file/null ALSA integration.
 These are synthetic tests, not handheld, headphone or external-recording validation.
+
+
+### Configurable capture reserve (2026-11-07)
+
+Normal ArkOS/dArkOS Ports launches read `[audio] capture_holdback_frames` from
+`/roms/ports/brotracker/config/config.ini`. Default/example 0 disables it; allowed
+integer range 0-128, with missing or invalid values using 0 (invalid values warn).
+Windows parses the shared field and ignores it for audio. Restart BTX to reload.
+
+Recommended opt-in starting point is 45 frames, physically tested by the owner on
+dArkOS: sound improved and was accepted for the fallback USB bridge, although
+quiet crackles remained. External MIDI via H4MIDI to WASP also worked. Only 45 has
+physical validation; all other nonzero values remain experimental. This reserve
+keeps reads behind the newest available capture frames, without filtering,
+interpolation, discard or PCM synthesis, and does not guarantee clean audio.
+At 44.1 kHz, 45/64/128 frames represent about 1.02/1.45/2.90 ms of capture reserve,
+not total end-to-end latency. Larger values may delay audio relative to external
+MIDI and alter read/wait behavior; larger is not necessarily better.
+
+This works independently of `bridge_audible_test`; diagnostic recording is not
+required. Existing raw-hardware/2048-frame capture-buffer validation, PCM formats,
+256-frame chunk limit, queue, recovery and threading are retained. All selected
+values fit below that buffer; lower reserves do not necessarily cover a complete
+45-frame USB packet. No automatic tuning or broader physical qualification.
+
+The launcher queries `BroTrackerTerminal --capture-holdback-config` and always
+exports `BROTRACKER_CAPTURE_HOLDBACK_FRAMES`, including 0, before bridge startup.
+That numeric variable takes precedence over `BROTRACKER_CAPTURE_HOLDBACK` even
+when empty/invalid (warning, 0), so an inherited/manual legacy enable cannot
+silently override normal BTX configuration. Direct diagnostic tools without the
+numeric variable retain `BROTRACKER_CAPTURE_HOLDBACK=1` -> 45 frames; any other
+legacy value retains disabled behavior. The offline experiment runner removes
+inherited numeric settings so its existing explicit 45-frame mode is unchanged.
+
+Startup logs always report the selected reserve, including when recording is off.
+When existing evidence is enabled, `alsa-parameters.txt`, click `run.json` and
+listening parameter evidence contain the actual selected count. Diagnostic-info
+retains `capture_holdback:45` for legacy diagnostic capability checks and adds
+`capture_holdback_max_frames:128`; it is not a current-setting or qualification
+claim. The click analyzer accepts integer reserves 0-128 and validates read
+requests against that declared snapshot; shutdown still reports unread tail
+without draining it.
+
+Owner update after the reviewed changes are committed/pushed by the owner:
+
+```sh
+git pull --ff-only origin feature/sd-streaming
+(cd deploy/arkos && sha256sum -c SHA256SUMS)
+bash tools/arkos/install-port.sh
+```
+
+The installer preserves existing runtime config. Edit its existing `[audio]`
+section (do not add a duplicate section/key): `capture_holdback_frames=45`.
+Do not replace config.ini with the example. Fully exit/restart BTX from Ports:
+`bash "/roms/ports/BroTracker Terminal.sh"`. No firmware update is involved.

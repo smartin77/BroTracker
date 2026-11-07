@@ -37,13 +37,20 @@ value_step_direction=normal
 row_numbering=d1
 
 [audio]
-; Teensy route: bridge/pt8211/audio_shield (lowercase).
-; Empty/missing/invalid retains route, else USB_BRIDGE; invalid warns.
-; Route changes/Shield failure need Teensy restart. No fallback/autoSTART.
-; Shield: Rev D2, mono headphones, volume 0.80, line-out muted.
-; Never ground HP_VGND or connect it directly to a grounded amplifier.
-; Restart BTX after editing. Example uses bridge.
+; Teensy bridge/pt8211/audio_shield; absent/invalid=firmware default.
+; Changes/Shield failure need Teensy restart; no fallback/autoSTART.
+; Shield Rev D2: mono HP 0.80, line-out muted. Never ground HP_VGND or
+; connect it to a grounded amplifier.
 output=bridge
+; Linux ALSA USB bridge only; Windows ignores. 0-128; 0 disables.
+; Missing/invalid: 0; invalid warns. Opt-in starting value: 45, owner-tested
+; on dArkOS. Others need tests. Keeps reads behind newest frames;
+; may reduce crackles; no clean-audio guarantee.
+; 44.1 kHz: 45/64/128 frames ~1.02/1.45/2.90 ms capture reserve,
+; NOT end-to-end latency. Larger may delay audio vs external MIDI;
+; changes read/waits; bigger may not be better. Independent of recording.
+; Restart BTX.
+capture_holdback_frames=0
 
 [midi]
 ; USB device output channel: decimal 1..16; built-in/empty/missing: 12.
