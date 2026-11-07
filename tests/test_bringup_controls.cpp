@@ -1,4 +1,5 @@
 #include "ui/bringup_controls.h"
+#include "ui/host_logging.h"
 #include <stdexcept>
 #include <string>
 #include <cstring>
@@ -22,8 +23,9 @@ struct FakeTransport : SerialTransport {
 std::unique_ptr<SerialTransport> MakeSerialTransport() { return std::make_unique<FakeTransport>(); }
 struct Test {
     FakeTransport* port = new FakeTransport;
-    BringUpSerial serial{nullptr, std::unique_ptr<SerialTransport>(port)};
-    BringUpControls controls{serial, nullptr};
+    BringUpSerial serial;
+    BringUpControls controls;
+    explicit Test(FILE* log=nullptr):serial(log,std::unique_ptr<SerialTransport>(port)),controls(serial,log) {}
     LocalPatternEditor editor;
     unsigned now = 0;
     unsigned snapshot_id = 1;
@@ -55,8 +57,104 @@ struct Test {
     }
     void Send(const char* value) { Tick(); Tick(); port->Expect(value); }
 };
+void AudioReadinessRegressions() {
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Debug);
+    FILE* log=std::tmpfile();CHECK(log);
+    const auto log_text=[&]() {
+        std::fflush(log);std::rewind(log);std::string text;char line[1024];
+        while(std::fgets(line,sizeof(line),log))text+=line;
+        std::fseek(log,0,SEEK_END);return text;
+    };
+    // Use real shared controls and serial state with deterministic fake I/O.
+    for(const char* state:{"BTTEST1 STATE PAUSED\n","BTTEST1 STATE PLAYING\n"}) {
+        Test t(log);t.Ready(state); // Existing playback is established before the conflict.
+        t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
+        t.Reply("BTAUDIO1 CAP 1\n");
+        t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+        t.Reply("BTAUDIO1 ERROR 1 restart-required active=bridge\n");
+        CHECK(!t.serial.AudioOutputConfirmed());CHECK(!t.serial.AudioTransportReady());
+        CHECK(std::strcmp(t.serial.ActiveAudioOutput(),"bridge")==0);
+        t.Reply("BTPATTERN1 TRANSPORTCAP 1\n");
+        t.port->Expect(""); // Rejected setup must not stop or restart existing playback.
+        CHECK(std::strstr(t.serial.Status(),"requested=pt8211 active=bridge"));
+        CHECK(std::strstr(t.serial.Status(),"restart Teensy"));
+        if(t.serial.Playing()) {
+            t.Action(BringUpAction::PatternToggle);t.Send("BTTEST1 PAUSE\n");t.Reply("BTTEST1 PAUSED\n");
+        }
+        t.Action(BringUpAction::PatternToggle);t.Tick();t.port->Expect("");CHECK(t.serial.Paused());
+        CHECK(log_text().find("Controls: Audio selection failed: requested=pt8211 active=bridge; restart-required; restart Teensy")!=std::string::npos);
+        t.Action(BringUpAction::ResetStop);t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");
+        t.Action(BringUpAction::PatternToggle);t.Tick();t.port->Expect("");
+        CHECK(!t.serial.Start());CHECK(!t.serial.AudioTransportReady());
+        CHECK(std::strstr(t.serial.Status(),"restart Teensy"));
+        CHECK(log_text().find("STOP acknowledged; transport stopped")!=std::string::npos);
+        CHECK(log_text().find("STOP acknowledged; ready")==std::string::npos);
+        // New connection can clear the rejection only with a matching ACK.
+        t.port->online=false;t.Tick();CHECK(!t.serial.AudioTransportReady());
+        t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+        t.Reply("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n");t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+        CHECK(!t.serial.AudioTransportReady());CHECK(std::strcmp(t.serial.ActiveAudioOutput(),"unknown")==0);
+        t.Action(BringUpAction::PatternToggle);t.Tick();t.port->Expect("");
+        t.Reply("BTAUDIO1 SELECTED 1 pt8211\n");CHECK(t.serial.AudioTransportReady());
+        t.Tick();t.port->Expect("");CHECK(!t.serial.Playing());
+    }
+    for(const char* response:{"pending","timeout","BTAUDIO1 SELECTED 1 bridge\n","BTTEST1 ERROR command\n"}) {
+        Test t(log);t.Ready("BTTEST1 STATE IDLE\n");
+        t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
+        t.Reply("BTAUDIO1 CAP 1\n");
+        t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+        t.Action(BringUpAction::PatternToggle);t.Tick();t.port->Expect("");
+        CHECK(std::strstr(t.serial.Status(),"Audio selection waiting"));
+        if(!std::strcmp(response,"pending")) {
+            t.Reply("BTTEST1 STATE PAUSED\nBTPATTERN1 TRANSPORTCAP 1\n");
+            CHECK(!t.serial.UserActionsBlocked());CHECK(!t.serial.AudioTransportReady());
+            CHECK(!t.serial.Continue());CHECK(!t.serial.Start());continue;
+        }
+        if(!std::strcmp(response,"timeout")) {
+            t.now+=6001;t.Tick();t.port->Expect("BTTEST1 STATUS\n");t.Reply("BTTEST1 STATE IDLE\n");
+            CHECK(std::strstr(t.serial.Status(),"acknowledgment timeout"));
+        } else t.Reply(response);
+        t.Reply("BTTEST1 STATE PAUSED\nBTPATTERN1 TRANSPORTCAP 1\n");
+        CHECK(!t.serial.AudioTransportReady());CHECK(!t.serial.Continue());CHECK(!t.serial.Start());
+        t.Action(BringUpAction::PatternToggle);t.Tick();t.port->Expect("");
+        CHECK(std::strstr(t.serial.Status(),"Audio selection failed"));
+    }
+    for(auto route:{BroTracker::AudioOutputChoice::Default,BroTracker::AudioOutputChoice::Pt8211}) {
+        Test t;t.serial.SetAudioOutputPreference(route);
+        const char* request=route==BroTracker::AudioOutputChoice::Default?"BTAUDIO1 SET 1 default\n":"BTAUDIO1 SET 1 pt8211\n";
+        t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n",false);t.Tick();t.port->Expect(request);
+        t.Reply("BTAUDIO1 SELECTED 1 pt8211\n");CHECK(t.serial.AudioTransportReady());
+        t.Synchronize();t.Reply("BTPATTERN1 TRANSPORTCAP 1\n");
+        const auto action=[&](BringUpAction a,const char* command,const char* reply) {
+            t.Action(a);t.Action(a);t.Send(command);t.Reply(reply);t.Tick();t.port->Expect("");
+        };
+        action(BringUpAction::PatternToggle,"BTTEST1 START\n","BTTEST1 STARTED\n");
+        action(BringUpAction::PatternToggle,"BTTEST1 PAUSE\n","BTTEST1 PAUSED\n");
+        action(BringUpAction::PatternToggle,"BTTEST1 CONTINUE\n","BTTEST1 CONTINUED\n");
+        action(BringUpAction::ResetStop,"BTTEST1 STOP\n","BTTEST1 STOPPED\n");
+        action(BringUpAction::PatternToggle,"BTTEST1 START\n","BTTEST1 STARTED\n");
+        t.port->online=false;t.Tick();CHECK(!t.serial.AudioOutputConfirmed());
+        t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+        t.Reply("BTTEST1 STATE PLAYING\nBTAUDIO1 CAP 1\n");t.Tick();t.port->Expect(request);
+        CHECK(!t.serial.AudioTransportReady());t.Tick();t.port->Expect("");CHECK(t.serial.Playing());
+        t.Reply("BTAUDIO1 SELECTED 1 pt8211\n");CHECK(t.serial.AudioTransportReady());
+        t.Tick();t.port->Expect("");CHECK(t.serial.Playing());
+    }
+    CHECK(log_text().find("Audio selection waiting")!=std::string::npos);
+    { // Old firmware without CAP must reject an explicit unsupported preference.
+        Test t;t.Ready("BTTEST1 STATE PAUSED\n");
+        t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
+        t.Tick();t.port->Expect("BTAUDIO1 SET 1 pt8211\n");
+        t.Reply("BTTEST1 ERROR command\n");t.Reply("BTPATTERN1 TRANSPORTCAP 1\n");
+        CHECK(!t.serial.Continue());CHECK(!t.serial.Start());
+        CHECK(!t.serial.AudioOutputConfirmed());CHECK(std::strstr(t.serial.Status(),"rejected"));
+    }
+    std::fclose(log);
+    BroTracker::ConfigureHostLogging(BroTracker::HostLogMode::Basic);
+}
 int main() {
     try {
+        AudioReadinessRegressions();
         { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
           t.Tick();t.port->Expect("BTMIDI1 SET 1 12\n");t.Reply("BTMIDI1 SELECTED 1 12\n");
           t.Reply("BTMIDI1 OUTPUT 1 1 1 1 8\n");CHECK(t.serial.MidiHealth(t.now).fault);
@@ -149,7 +247,7 @@ int main() {
         for(auto choice : {BroTracker::AudioOutputChoice::Bridge,BroTracker::AudioOutputChoice::Pt8211,BroTracker::AudioOutputChoice::AudioShield}) {
             Test t; t.serial.SetAudioOutputPreference(choice);
             t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n",false);
-            CHECK(!t.serial.AudioOutputConfirmed());CHECK(std::strstr(t.serial.Status(),"Waiting for Teensy audio selection"));
+            CHECK(!t.serial.AudioOutputConfirmed());CHECK(std::strstr(t.serial.Status(),"Audio selection waiting"));
             CHECK(!t.serial.Start()); // AUDIO is pending; initial readback cannot run yet.
             const std::string command=std::string("BTAUDIO1 SET 1 ")+BroTracker::AudioOutputName(choice)+"\n";
             t.Tick(); t.port->Expect(command.c_str());

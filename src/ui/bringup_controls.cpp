@@ -37,6 +37,13 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         quit_=serial_.ExitReady();return;
     }
     if(exit_after_stop_)return;
+    // Report setup failures even before editor synchronization has completed.
+    // A playing engine must still be pausable after a conflicting reconnect.
+    if(serial_.Connected() && !serial_.AudioTransportReady() &&
+        (action==BringUpAction::Start || (action==BringUpAction::PatternToggle &&
+        (!serial_.SupportsPatternTransport() || !serial_.Playing())))) {
+        Log(serial_.AudioReadinessStatus());return;
+    }
     if(load_save_screen_ && action==BringUpAction::ScreenLeft)action=BringUpAction::BrowserBack;
     const bool recovery_available=serial_.RecoveryMenuAvailable();
     if(action==BringUpAction::ScreenLeft && recovery_available && !load_save_screen_) {
@@ -107,9 +114,9 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if (!serial_.SupportsPatternTransport()) action = BringUpAction::Start;
         else {
             if (stop_pending_ || exit_after_stop_ || serial_.TransportPending()) return;
-            if (serial_.Paused()) { if (serial_.Continue()) Log("CONTINUE queued"); }
+            if (serial_.Paused()) { if (serial_.Continue()) Log("CONTINUE queued"); else Log(serial_.Status()); }
             else if (serial_.Playing()) { if (serial_.Pause()) Log("PAUSE queued"); }
-            else { if (serial_.Start()) Log("START from pattern zero queued"); }
+            else { if (serial_.Start()) Log("START from pattern zero queued"); else Log(serial_.Status()); }
             return;
         }
     }
@@ -126,6 +133,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             restart_pending_ = active;
             Log(active ? "RESTART queued via START" : "START queued");
         }
+        else Log(serial_.Status());
         return;
     }
     if (!active && !(action == BringUpAction::ResetStop && serial_.Connected())) {
@@ -190,7 +198,7 @@ void BringUpControls::Tick(std::uint32_t now) {
     }
     if (!stop_pending_) return;
     if (serial_.Stopped()) {
-        Log(exit_after_stop_ ? "STOP acknowledged; EXIT" : "STOP acknowledged; ready");
+        Log(exit_after_stop_ ? "STOP acknowledged; EXIT" : "STOP acknowledged; transport stopped");
         stop_pending_ = false;
         quit_ = exit_after_stop_;
     } else if (!serial_.Connected() || (exit_after_stop_ && now - stop_started_ >= 12500)) {

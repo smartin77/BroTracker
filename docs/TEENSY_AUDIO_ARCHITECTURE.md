@@ -285,6 +285,23 @@ requires a matching acknowledgment before allowing START for a requested route;
 mismatch, unsupported old firmware, rejection or timeout is visible in status/logs.
 There is no silent acknowledgment of a different output.
 
+The same audio-readiness gate applies to CONTINUE. Space while stopped or paused
+reports whether selection is still waiting or has failed, including the requested
+and device-reported active routes on `restart-required` and the instruction to
+restart Teensy to change route. An ERROR's `active=` field is reported state only;
+it never confirms the requested route. Rejection persists for that connection,
+including after STOP; STOP acknowledgement means transport stopped, not that every
+playback prerequisite passed. PAUSE and STOP remain available. Conflicting
+reconnects never automatically stop, reset, start or replay transport. A new
+connection requires a fresh matching acknowledgement before START or CONTINUE.
+
+To change an already-active route with current firmware, first preserve/save work
+and verify success, close BTX, genuinely reboot Teensy, then reconnect BTX with
+the desired INI preference and verify `SELECTED` before playback. Host restart or
+USB reconnect without an MCU reset does not unlock the graph. The host retains
+the preference in INI and resends it; firmware does not persist a rejected request.
+No firmware rebuild is needed for the existing runtime PT8211 selection.
+
 Audio hardware and AudioMemory activation are deferred until selection, or the
 first pattern transport command (START/STOP/PAUSE/CONTINUE), or legacy WAV
 START, using the fallback.

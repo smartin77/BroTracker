@@ -133,11 +133,16 @@ public:
     bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    bool AudioTransportReady() const {
+        return !(audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) || audio_confirmed_;
+    }
+    const char* AudioReadinessStatus() const;
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
     bool DiagnosticReleaseReady() const {
         return tx_offset_==tx_size_ && pending_==Command::None && !TransportPending()
             && !PublicationBusy() && !pattern_assembler_.Active();
     }
+    // Last device-reported route, including ERROR active=. Confirmation is separate.
     const char* ActiveAudioOutput() const { return audio_active_; }
     // Optional host observer of confirmed transport replies; no serial ownership.
     void SetTransportObserver(void (*fn)(void*,const char*,std::uint32_t),void* context) {observer_=fn;observer_context_=context;}
@@ -249,6 +254,8 @@ private:
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
     char audio_active_[16]="unknown";
+    const char* audio_failure_reason_="rejected";
+    mutable char audio_status_[256]{};
     bool connected_ = false;
     bool stopped_ = false;
     Command pending_ = Command::None;
