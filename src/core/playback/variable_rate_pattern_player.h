@@ -48,6 +48,7 @@ namespace BroTracker
     class VariableRatePatternPlayer
     {
     public:
+        const VariableRateSampleVoice* SampleVoice(unsigned channel) const noexcept { return renderer_.GetVoice(channel); }
         // Successful render export, consumed once by the platform output adapter.
         VariableRateVoiceCommandBatch TakeMidiCommands() noexcept { auto b=midi_commands_; midi_commands_.count=0; return b; }
         bool TakeMidiReset() noexcept { const bool reset=midi_reset_; midi_reset_=false; return reset; }
@@ -72,7 +73,7 @@ namespace BroTracker
             VariableRateSampleCommandPreparer preparer;
             const auto status = preparer.Configure(sample_rate_hz, bindings);
             if (status != VariableSampleCommandStatus::Success) return SampleStatus(status);
-            VariableRateVoiceBlockRenderer renderer;
+            auto renderer=renderer_;
             (void)renderer.Configure(sample_rate_hz);
             tempo_hundredths_ = tempo_hundredths; pending_tempo_=0;
             sample_rate_hz_ = sample_rate_hz;

@@ -49,7 +49,7 @@ namespace BroTracker
         [[nodiscard]] VariableRateBlockStatus Configure(std::uint32_t sample_rate_hz) noexcept
         {
             if (sample_rate_hz == 0) return VariableRateBlockStatus::InvalidSampleRate;
-            for (auto& voice : voices_) (void)voice.Configure(sample_rate_hz);
+            for (unsigned i=0;i<kRealtimePatternChannelCapacity;++i) { voices_[i].SetStreamChannel(i); (void)voices_[i].Configure(sample_rate_hz); }
             for (auto& synth : synths_) (void)synth.Configure(sample_rate_hz);
             Reset();
             sample_rate_hz_ = sample_rate_hz;

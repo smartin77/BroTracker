@@ -1,18 +1,23 @@
 #pragma once
 
+#include "streamed_sample.h"
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 
 namespace BroTracker
 {
-    // Non-owning immutable PCM16 mono view. Caller retains the data unchanged
-    // and valid until Stop/Reset/Configure, replacement or natural completion.
+    // Non-owning immutable PCM16 mono source. With streaming==nullptr, data
+    // spans frame_count resident frames. Otherwise data is only the prepared
+    // start cache; the descriptor supplies the full extent and published rings.
+    // Caller retains both metadata and backing storage for the binding lifetime.
+    // RamSampleVoice rejects streamed views; VariableRateSampleVoice handles both.
     struct Pcm16MonoView
     {
         const std::int16_t* data = nullptr;
         std::size_t frame_count = 0;
         std::uint32_t sample_rate_hz = 0;
+        const StreamedSample* streaming = nullptr;
     };
 
     enum class RamVoiceStatus
@@ -50,7 +55,7 @@ namespace BroTracker
         [[nodiscard]] RamVoiceStatus Trigger(Pcm16MonoView sample) noexcept
         {
             if (output_sample_rate_hz_ == 0) return RamVoiceStatus::NotConfigured;
-            if (sample.data == nullptr || sample.frame_count == 0 || sample.sample_rate_hz == 0)
+            if (sample.streaming != nullptr || sample.data == nullptr || sample.frame_count == 0 || sample.sample_rate_hz == 0)
                 return RamVoiceStatus::InvalidSample;
             if (sample.frame_count > kMaximumFrameCount) return RamVoiceStatus::RangeOverflow;
             if (sample.sample_rate_hz != output_sample_rate_hz_)

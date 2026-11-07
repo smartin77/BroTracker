@@ -145,105 +145,42 @@ future "HD" Sample formats remain unspecified.
 
 ## Future SD-streamed Sample playback
 
-Design outline only: production tracker Sample streaming is **not implemented**.
-Priority and implementation order remain undecided. Current Sample voices retain
-immutable, fully prepared RAM PCM views; keep that path for short samples.
-Streaming could support samples beyond available contiguous RAM, including the
-existing test.wav with retained metadata of **613940 PCM bytes**. Its full loading
-remains [deferred](SYNTH_FOUNDATION.md#identity-and-default-pattern). Preserve
-01/raw0=test2.wav, 02/raw1=MIDI, 03/raw2=Synth, 04/raw3=test3.wav and the
-05/raw4=test.wav binding foundation, reference-note convention and temporary
-fixture-only 0.8 Sample gain. The user confirmed uploading the updated development
-firmware and hearing quieter Samples with the sine Synth easier to hear alongside
-them (2026-10-23); no automated device checks followed that user upload. The observed
-05-99 selections continuing Sample04 are accepted temporarily, not proof of valid
-bindings or test.wav loading. Full test.wav playback, other hardware/listening
-checks, external MIDI delivery/audio synchronization and bridge crackling remain
-open.
+The production variable-rate configurations now use unified SD-backed playback
+for Sample01/raw0 (`Samples/test2.wav`), Sample04/raw3 (`Samples/test3.wav`) and
+Sample05/raw4 (`Samples/test.wav`). All are PCM16 mono 44100 Hz with reference
+note 60 and the existing fixture-only 80% level. MIDI02/raw1 and Synth03/raw2,
+the default pattern and output/USB bridge implementation are unchanged.
+Historical native-rate environments and reusable RAM primitives remain available.
+See [production streaming](SD_SAMPLE_STREAMING.md) for the ownership contract,
+measured memory, tests and remaining validation.
 
-### Ownership and realtime boundary
+The fixed internal-RAM layout is eight 8 KiB rings, three shared 4 KiB immutable
+starts and one shared 4 KiB staging buffer (80 KiB total). Short samples whose
+entire PCM fits a start cache use the same voice path without subsequent reads.
+Foreground refills use 4 KiB reads and a 50% source-frame threshold, additionally
+refilling earlier when pitched depletion time falls below 2048 output frames.
+Refill priority compares source-frame availability divided by the Q32.32 step.
 
-Separate four responsibilities: a storage owner manages file handles and SD read
-ownership; preparation validates the container, format and PCM extent; a bounded
-buffer service fills fixed-size read-ahead buffers outside audio/timing ISRs; voices
-consume published ready spans and render PCM. No filesystem operations, allocation,
-waiting for storage or blocking locks belong in the audio callback. Storage
-completion must never advance, delay or become the authority for the Teensy-owned
-sample timeline. Publish buffer availability through a bounded ownership handoff;
-a buffer cannot be refilled while retained by a renderer.
+Audio consumes published spans with the existing fractional interpolation and
+scheduled command offsets. Validation and tentative render copies have no storage
+side effects. Only committed renderer state is exported to the foreground owner.
+Generation and source identity must match before a read completion is published.
+Starvation emits silence and advances the source timeline; normal EOF has its
+own counter. I/O errors latch per generation to avoid unlimited failing retries;
+a later note starts a new generation. Other voices and scheduling continue.
 
-Each simultaneous voice needs its own source-frame position, fractional phase,
-end/release state and request generation, even when several voices reference the
-same sample. Sharing immutable sample metadata is separate from sharing mutable
-file cursors or buffered spans. Independent handles versus serialized positional
-reads, and per-voice buffers versus a shared cache, are unresolved design choices.
+Preparation is boot-only. A source descriptor and its start cache remain immutable
+for the configured bindings' lifetime. Reconfiguration/Stop/retrigger/Note Off
+invalidate prior generations; there is no runtime file replacement/editor API.
+Future replacement must first release voices and prepare a new immutable source.
+No slicing, reverse, time stretching, new sample loops or tempo matching is added.
 
-Pitched playback changes source consumption per output frame. Read-ahead must
-cover the supported maximum rate, including skipped source frames, and retain the
-interpolation endpoints across buffer wrap/refill edges and at end-of-file. Do not
-assume native-rate sequential consumption or reset interpolation phase at buffer
-boundaries. Reference pitch, source rate and musical tempo remain independent;
-see [Sample Format](SAMPLE_FORMAT.md).
-
-Retrigger, seeking and future loop jumps need explicit prefetch/invalidation rules
-so late reads cannot publish data for a replaced voice. NOTE OFF, mute release and
-STOP must preserve the existing release/monophonic replacement semantics and
-retained-span lifetime until rendering releases ownership. Future forward,
-backward and ping-pong loops require endpoint/wrap interpolation and discontinuous
-read planning; format-level loop fields do not establish implemented playback.
-
-### Failure, SD coordination and capacity
-
-Underrun, short read, unexpected EOF and permanent I/O failure need explicit,
-bounded status. Preserve scheduler timing and unaffected voices. Whether the
-starved voice emits silence, releases/stops, or skips missing source frames, and
-whether/how it resumes, remain policy choices requiring review; do not invent
-recovery that replays a stale backlog or silently moves musical events. Distinguish
-normal end-of-sample from lost data and define retry limits outside the ISR.
-
-[D0046](ARCHITECTURE_DECISIONS.md#d0046--sd-readwrite-exclusivity) forbids concurrent
-SD reads/writes and SD writes during playback. Coordinate streamed readers with
-[planned session/module storage](FILE_FORMATS.md#planned-working-session-separate-from-tunesprojects):
-future saves must defer or use an explicitly reviewed stopped/released-read phase,
-not bypass exclusivity. Define cancellation, handle lifetime and read-owner release
-before granting a writer. This outline does not change those storage formats.
-
-Measure available internal RAM/stack margins, maximum simultaneous voices,
-aggregate pitched source-byte demand, seek/refill latency, service cadence and
-worst observed storage stalls before selecting buffer sizes or admitting voices.
-Baseline **eight tracker channels must operate on bare Teensy 4.1 without PSRAM**.
-Design baseline streaming buffers within internal RAM. Supported formats, pitch
-ranges and concurrent streaming workloads must be defined and measured; eight
-logical channels do not promise arbitrary eight-stream performance. Budget
-metadata, endpoint retention, in-flight buffers and safety margin as well as PCM;
-average throughput alone is insufficient. The existing
-[reference SD benchmarks](REFERENCE_SD_CARD.md#streaming-benchmark-results) are
-prior evidence, not proof of worst-case latency or safe production capacity.
-[Optional PSRAM partitions](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels)
-are a separate full-sample/cache possibility, not a baseline streaming dependency.
-That plan defines 0/8/16 MiB behavior and the proposed DSP/Sample reservations;
-no external-memory bandwidth isolation or unspecified "HD" support is implied.
-
-Existing diagnostic/legacy WAV streaming and simulated streaming benchmarks are
-separate from tracker Sample voices. They do not prove production integration,
-pitched multi-voice correctness, lifecycle behavior or audible continuity.
-
-### Possible milestones and validation
-
-Candidates below are neither prioritized nor an agreed implementation sequence:
-
-- Specify ownership, memory/throughput budgets, failure and lifecycle policies.
-- Prototype bounded storage-to-buffer handoff with deterministic fake delays,
-  short reads, errors, cancellation and wrap; keep filesystem work outside ISRs.
-- Exercise per-voice/shared-sample cursors, pitched interpolation, retrigger,
-  NOTE OFF/mute release, seeks and future loop edges against RAM/reference outcomes.
-  Compare different audio-block partitions for identical sample-positioned actions;
-  verify an affected voice cannot disturb timing or other voices.
-- Later stress real SD cards with fragmented files, concurrent readers, high pitch,
-  repeated seeks/retriggers and long runs. Measure latency distributions and
-  underruns under realistic CPU load; test read/write exclusion and recovery before
-  selecting supported capacities. Keep physical/listening approval separate from
-  deterministic test success.
+Existing pitch acceptance is preserved (notes 24..127). This is not a guarantee
+that eight voices at every accepted pitch can stream without underruns: at high
+rates the 4 KiB start and 8 KiB ring cover progressively less output time. Report
+measured workloads and failures rather than restricting or transposing notes.
+Fragmentation, other cards, extreme aggregate pitch demand and future loops need
+separate throughput/endpoint validation; optional PSRAM is not required here.
 
 ## Reference Platform
 

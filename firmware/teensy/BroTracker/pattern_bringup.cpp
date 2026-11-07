@@ -35,6 +35,9 @@ extern volatile uint8_t usb_configuration;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #include "sd_wav_inspection.h"
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+#include "sd_sample_streaming.h"
+#endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
 #include "bringup/session_save_schedule.h"
@@ -80,15 +83,16 @@ namespace
     SelectedPatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-    constexpr std::size_t kPreparedFrameCapacity=kDevelopmentManualWavFrameCapacity;
-    DMAMEM alignas(32) static std::int16_t g_prepared_pcm3[kPreparedFrameCapacity];
-    SdWavPreparation g_preparation3;
+    DMAMEM alignas(32) static SdSampleStreaming::Storage g_stream_memory;
+    SdSampleStreaming g_streaming;
+    SdWavPreparation& g_preparation=g_streaming.reports[1];
+    SdWavPreparation& g_preparation3=g_streaming.reports[2];
     SdPreparationReport g_preparation_report3;
 #else
     constexpr std::size_t kPreparedFrameCapacity=131072;
-#endif
     DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
-    SdWavPreparation g_preparation; // Main-owned immutable after setup; optionally retained by voices.
+    SdWavPreparation g_preparation;
+#endif
     SdPreparationReport g_preparation_report;
     DevelopmentWavInspection g_wav_inspection;
     WavInspectionReport g_wav_inspection_report;
@@ -153,6 +157,7 @@ namespace
         });
     }
     void CollectMidi(std::uint32_t render_us) {
+        g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
         CollectMidiBlock(g_control,g_midi,render_us,AUDIO_BLOCK_SAMPLES);
     }
 #endif
@@ -743,6 +748,22 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             else if (!std::strncmp(line,"BTSTORE1",8)) {StorageCommand(line,now);}
 #endif
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            else if (!std::strcmp(line,"BTSTREAM1 GET")) {
+                char reply[160];
+                std::snprintf(reply,sizeof(reply),"BTSTREAM1 IO %lu %lu %u %lu %lu\n",
+                    (unsigned long)g_streaming.reads,(unsigned long)g_streaming.io_errors,g_streaming.P99(),
+                    (unsigned long)g_streaming.max_read_us,(unsigned long)g_streaming.stale_reads);
+                (void)QueueLine(reply);
+                for(unsigned i=0;i<8;++i) {
+                    const auto state=g_streaming.Snapshot(i);
+                    std::snprintf(reply,sizeof(reply),"BTSTREAM1 VOICE %u %lu %lu %lu %lu %lu %lu\n",i,
+                        (unsigned long)state.position,(unsigned long)state.underruns,(unsigned long)state.eofs,
+                        (unsigned long)state.min_ready,(unsigned long)state.hash,(unsigned long)bool(state.sample));
+                    (void)QueueLine(reply);
+                }
+            }
+#endif
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
@@ -1015,13 +1036,12 @@ namespace
         g_storage_backend.ready=sd_ready;
         g_wav_inspection.InspectOnce(sd_ready);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        PrepareDevelopmentWavs(sd_ready,g_preparation,g_prepared_pcm,kPreparedFrameCapacity,
-            g_preparation3,g_prepared_pcm3,kPreparedFrameCapacity);
+        g_streaming.Prepare(sd_ready,g_stream_memory,g_wav_inspection);
 #else
         g_preparation.Prepare(sd_ready,"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
 #endif
 #endif
-#ifdef BROTRACKER_PATTERN_SD_PLAYBACK
+#if defined(BROTRACKER_PATTERN_SD_PLAYBACK) && !defined(BROTRACKER_PATTERN_VARIABLE_RATE)
         // Preparation failure leaves an invalid view and the working beeper fixture.
         const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view,true);
         g_active_pattern = selected.pattern;
@@ -1030,7 +1050,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         // Eight-channel development fixture; pitched sequences need variable-rate mapping.
         // Sample 01=test2.wav; USB MIDI 02; Synth 03; Sample 04=test3.wav.
-        const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view);
+        const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view,g_streaming.reports[0].view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif
         g_working.working=g_active_pattern;
@@ -1060,6 +1080,11 @@ namespace
         // Until then no DMA callbacks run; SD preparation and protocol remain available.
     }
     void PatternBringUpKernelInit() {}
-    void PatternBringUpKernelRun() { ServiceSerial(); }
+    void PatternBringUpKernelRun() {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        g_streaming.Service();
+#endif
+        ServiceSerial();
+    }
 }
 #endif

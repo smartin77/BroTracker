@@ -30,12 +30,18 @@ Items may be added during development to record agreed next steps or work that n
 
 ### Future SD-streamed Sample playback
 
-* [ ] Explore [production Sample streaming](TEENSY_AUDIO_ARCHITECTURE.md#future-sd-streamed-sample-playback).
-  Design outline only; third priority above, with internal milestone order undecided. Preserve
-  short-sample RAM playback, the current test.wav deferral/binding IDs, temporary
-  fixture gain, its user-confirmed listening balance and remaining hardware/listening
-  validation. No streaming code or
-  buffer-size decision is authorized by this planning item.
+* [x] Integrate unified production SD-backed Sample playback without PSRAM:
+  Sample01/test2.wav, Sample04/test3.wav and Sample05/test.wav retain their IDs,
+  reference note and gain. Fixed 8 KiB rings / 4 KiB starts / 4 KiB reads and staging;
+  foreground refill, pitched interpolation, generation invalidation and explicit
+  underrun/I/O/EOF reporting. See [implementation evidence](SD_SAMPLE_STREAMING.md).
+* [x] Validate actual three WAVs through EOF, three/eight concurrent channels,
+  retrigger/Note Off, Stop/Start, pitch and a 60 s eight-voice run through Windows
+  BTX/USB bridge: zero device underruns/I/O errors; stopped saves and original
+  session restoration verified. See the measured report above.
+* [ ] Complete physical listening/capture, extreme aggregate pitch, fragmentation,
+  other cards, permanent-I/O fault injection and long mixed Sample/Synth/MIDI/USB
+  qualification. Successful host flow is not physical audible validation.
 
 * [ ] Implement required [non-destructive sample slicing (D0060)](ARCHITECTURE_DECISIONS.md#d0060---non-destructive-sample-slicing):
   host analysis/editing, persistent boundaries, pattern slice selection and both
@@ -72,11 +78,10 @@ capability and memory investigations remain planning items without assigned orde
 * [x] Apply fixture-only 0.8 attenuation to Sample01/test2.wav and Sample04/test3.wav;
   prepare the same level/reference60 binding for Sample05/raw4/test.wav. Preserve
   existing IDs, default pattern, PCM, Synth/MIDI levels and user configuration.
-* [ ] User-approved deferral: full test.wav preparation/playback needs storage;
-  retained file is 306970 frames,
-  613940 contiguous PCM bytes, exceeding either internal RAM bank; last probe has
-  no PSRAM. Fresh file/storage inspection remains pending. Resolve storage separately;
-  do not claim instrument05 is loaded or audibly validated on the current board.
+* [x] Resolve test.wav storage using bounded SD streaming (2026-11-07).
+  Actual file remains 306970 frames / 613940 PCM bytes; no full contiguous allocation,
+  conversion, truncation or PSRAM dependency. See the production streaming report
+  for the actual hardware checks and separate listening limitations.
 * [x] Validate gain/defaults/Synth isolation, IDs, checked SD binding, unavailable
   views, replacement/retrigger, partitioning and existing tempo/mute behavior:
   Windows 8/8 and Eoan 21/21; development firmware builds (exit0), ABI/package/

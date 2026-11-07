@@ -189,6 +189,7 @@ add_executable(BroTrackerTests
     tests/test_midi_foundation.cpp
     tests/test_midi_usb_core.cpp
     tests/test_midi_status_exchange.cpp
+    tests/test_streamed_sample_voice.cpp
     tests/test_variable_rate_sample_voice.cpp
     tests/test_variable_rate_voice_block_renderer.cpp
     tests/test_note_playback_step.cpp
