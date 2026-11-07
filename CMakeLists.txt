@@ -317,6 +317,7 @@ endif()
 # without exposing the fake Arduino/SD API to other production/host targets.
 add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
     tests/test_pattern_storage.cpp
+    tests/test_sd_sample_streaming.cpp
     libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp
     libraries/scheduler/src/pattern_position.cpp

@@ -10,8 +10,14 @@ namespace BroTracker {
 // These scopes cover only bounded metadata work, never file I/O or PCM copies.
 class StreamInterruptGuard {
 public:
+#if defined(__arm__)
     StreamInterruptGuard() noexcept { asm volatile("mrs %0, primask\n\tcpsid i" : "=r"(mask_) :: "memory"); }
     ~StreamInterruptGuard() noexcept { asm volatile("msr primask, %0" :: "r"(mask_) : "memory"); }
+#else
+    // Host tests substitute only the interrupt-register boundary.
+    StreamInterruptGuard() noexcept;
+    ~StreamInterruptGuard() noexcept;
+#endif
 private:
     std::uint32_t mask_;
 };
