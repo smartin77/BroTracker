@@ -113,6 +113,7 @@ void BringUpSerial::Disconnect(const char* reason)
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
+    device_facts_supported_=device_facts_valid_=false;device_facts_={};
     audio_failure_reason_="rejected";
     std::strcpy(audio_active_,"unknown");
     volume_.Disconnect();tx_volume_=false;
@@ -704,6 +705,12 @@ void BringUpSerial::OnLine(std::uint32_t now)
     }
     if(pending_==Command::Midi && (!std::strncmp(line_,"BTMIDI1 ERROR ",14) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
         midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR:",line_); return;
+    }
+    if(!std::strcmp(line_,"BTDEVICE1 CAP 1")) {if(connected_)device_facts_supported_=true;return;}
+    if(!std::strncmp(line_,"BTDEVICE1 FACTS",15)) {
+        if(connected_ && device_facts_supported_)
+            device_facts_valid_=BroTracker::ParseDeviceFacts(std::string_view(line_,used_),device_facts_);
+        return;
     }
     if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
     if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {

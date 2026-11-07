@@ -154,6 +154,31 @@ void AudioReadinessRegressions() {
 }
 int main() {
     try {
+        { // Facts are capability-gated observations, never transport authorization.
+          const char* facts="BTDEVICE1 FACTS 1 12345670 0123456789abcdef0123456789abcdef uninitialized default\n";
+          Test t;t.Ready("BTTEST1 STATE PAUSED\n");
+          t.Reply(facts);CHECK(!t.serial.DeviceFacts());
+          t.Reply("BTDEVICE1 CAP 2\n");CHECK(!t.serial.DeviceFactsSupported());
+          t.Reply("BTDEVICE1 CAP 1\n");t.Reply(facts);CHECK(t.serial.DeviceFacts());
+          const auto before=*t.serial.DeviceFacts();
+          t.Reply(facts);CHECK(BroTracker::CompareDeviceBoot(before,*t.serial.DeviceFacts())==BroTracker::BootComparison::SameBoot);
+          t.Reply("BTDEVICE1 FACTS\n");CHECK(!t.serial.DeviceFacts());
+          t.Reply(facts);CHECK(t.serial.DeviceFacts());
+          t.Reply("BTDEVICE1 FACTS 2 incomplete\n");CHECK(!t.serial.DeviceFacts());
+          t.Reply(facts);CHECK(t.serial.DeviceFacts());t.port->Expect("");
+          t.port->online=false;t.Tick();CHECK(!t.serial.DeviceFacts());CHECK(!t.serial.DeviceFactsSupported());
+          t.port->online=true;t.now+=1001;t.Tick();t.port->Expect("BTTEST1 HELLO\n");
+          t.Reply("BTTEST1 STATE PAUSED\nBTDEVICE1 CAP 1\n");CHECK(!t.serial.DeviceFacts());
+          t.Reply(facts);CHECK(BroTracker::CompareDeviceBoot(before,*t.serial.DeviceFacts())==BroTracker::BootComparison::SameBoot);
+          t.port->Expect(""); // No automatic START/CONTINUE or identity GET request.
+          t.Reply("BTDEVICE1 FACTS 1 12345670 fedcba9876543210fedcba9876543210 initialized pt8211\n");
+          CHECK(BroTracker::CompareDeviceBoot(before,*t.serial.DeviceFacts())==BroTracker::BootComparison::NewBoot);
+          CHECK(!t.serial.AudioOutputConfirmed()); // Facts cannot replace selection ACK.
+          t.port->Expect("");
+          t.Reply("BTDEVICE1 FACTS 1 12345671 fedcba9876543210fedcba9876543210 failed audio_shield\n");
+          CHECK(BroTracker::CompareDeviceBoot(before,*t.serial.DeviceFacts())==BroTracker::BootComparison::WrongBoard);
+          CHECK(t.serial.DeviceFacts()->audio==BroTracker::AudioInitialization::Failed);t.port->Expect("");
+        }
         AudioReadinessRegressions();
         { Test t;t.Ready("BTTEST1 STATE IDLE\nBTMIDI1 CAP 1\n");
           t.Tick();t.port->Expect("BTMIDI1 SET 1 12\n");t.Reply("BTMIDI1 SELECTED 1 12\n");

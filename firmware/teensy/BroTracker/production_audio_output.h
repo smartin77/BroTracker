@@ -4,6 +4,7 @@
 #include <type_traits>
 #include "audio_output_config.h"
 #include "../../../src/bringup/audio_output_selection.h"
+#include "../../../src/bringup/device_facts.h"
 
 namespace BroTracker {
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
@@ -17,6 +18,13 @@ class ProductionAudioOutput {
 public:
     AudioOutputChoice Active() const noexcept { return selection_.Active(); }
     bool Ready() const noexcept { return Active()!=AudioOutputChoice::Default && !error_; }
+    AudioInitialization Initialization() const noexcept {
+        return Active()==AudioOutputChoice::Default ? AudioInitialization::Uninitialized :
+            error_ ? AudioInitialization::Failed : AudioInitialization::Initialized;
+    }
+    DeviceFacts Facts(DeviceFacts identity) const noexcept {
+        identity.route=Active();identity.audio=Initialization();return identity;
+    }
     const char* Select(AudioOutputChoice request, AudioStream& source, AudioOutputUSB& usb);
 
 private:

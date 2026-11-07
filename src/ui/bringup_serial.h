@@ -6,6 +6,7 @@
 #include "serial_transport.h"
 #include "bringup/pattern_directory.h"
 #include "bringup/audio_output_selection.h"
+#include "bringup/device_facts.h"
 #include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
@@ -133,6 +134,8 @@ public:
     bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    bool DeviceFactsSupported() const {return device_facts_supported_;}
+    const BroTracker::DeviceFacts* DeviceFacts() const {return device_facts_valid_?&device_facts_:nullptr;}
     bool AudioTransportReady() const {
         return !(audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) || audio_confirmed_;
     }
@@ -184,6 +187,8 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    bool device_facts_supported_=false,device_facts_valid_=false;
+    BroTracker::DeviceFacts device_facts_;
     bool sd_status_supported_=false;
     SdAvailability sd_status_=SdAvailability::Unknown;
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;

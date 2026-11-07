@@ -341,6 +341,12 @@ target_include_directories(BroTrackerProductionAudioTests PRIVATE tests/stubs/pr
 target_compile_definitions(BroTrackerProductionAudioTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerProductionAudioTests COMMAND BroTrackerProductionAudioTests)
 
+add_executable(BroTrackerDeviceFactsTests tests/test_main.cpp tests/test_device_facts.cpp
+    tests/test_production_audio_output.cpp firmware/teensy/BroTracker/production_audio_output.cpp)
+target_include_directories(BroTrackerDeviceFactsTests PRIVATE tests/stubs/production_audio tests src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerDeviceFactsTests PRIVATE AUDIO_INTERFACE)
+add_test(NAME BroTrackerDeviceFactsTests COMMAND BroTrackerDeviceFactsTests)
+
 # Focused default/opt-in production mix and output-graph checks; no hardware.
 foreach(mode Default SynthLeft)
     add_executable(BroTrackerDiagnosticStereo${mode}Tests tests/test_main.cpp

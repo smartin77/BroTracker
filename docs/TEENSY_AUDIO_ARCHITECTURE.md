@@ -313,6 +313,62 @@ never starts playback automatically. Older firmware without audio negotiation
 continues normal controls when no override is requested; an explicit unsupported
 request fails visibly instead of pretending it applied.
 
+### Read-only device and application-boot facts
+
+Production pattern firmware advertises `BTDEVICE1 CAP 1` on HELLO and reports
+facts on HELLO, STATUS, or the exact read-only request `BTDEVICE1 GET 1`:
+
+```text
+BTDEVICE1 FACTS 1 <board> <boot> <audio-state> <route>
+```
+
+`board` reuses the core's existing USB serial descriptor (1..10 decimal digits),
+not a new board-ID algorithm. Current Teensy core 1.162.0 derives its default from
+OTP MAC bits; it is stable over application reboot and USB reconnect, but is not
+a cryptographic identity or guaranteed globally unique. A custom firmware serial
+override must keep its existing stable numeric identity or this field reports
+`unavailable`. `boot` is a once-per-application-start 128-bit hardware-random nonce,
+32 lowercase hex digits, or `unavailable`. No SD/EEPROM writes are involved.
+
+The boot-only adapter uses the installed Entropy library's i.MX RT TRNG setup,
+which resets its configuration and discards stale hardware output. It checks for
+hardware error and four available cached words before reading, with a 50 ms and
+iteration bound before audio/MIDI timer startup. Timeout, error or all-zero data
+latches unavailable for this boot; protocol requests never retry generation.
+Ordinary Arduino `random()` has a fixed default seed and is not used. Application
+startup clears this ordinary BSS state on warm reset; USB/serial reconnect does
+not. Fresh entropy is expected on warm reset but remains physically unverified.
+For independent uniform nonces, one pair collides with probability 2^-128; after
+n boots the birthday approximation is n(n-1)/2^129. Hardware health, bias or defects
+can invalidate that statistical model. This is not authentication or a monotonic
+boot counter, and a same nonce must never be accepted as evidence of reboot.
+
+`audio-state` is `uninitialized`, `initialized` or `failed`. Uninitialized pairs
+with route `default` (no graph constructed). Initialized/failed pair with the
+actual selected/reserved `bridge`, `pt8211` or `audio_shield`. A sticky Shield
+initialization error is `failed`, even though its route is reserved; initialized
+means driver/codec setup returned successfully, not physical audio verification.
+Facts are last-observed main-loop state, not live telemetry or requested intent.
+
+Lines fit a fixed 96-byte LF/NUL-inclusive buffer. Parsing is strict version 1,
+exact fields, bounded identifiers and valid state/route pairs. GET only reads
+cached identity and actual output facts; it does not construct the graph, change
+transport, clean up MIDI or request storage. Malformed/unsupported GET responds
+`BTDEVICE1 ERROR 1 malformed`. The shared host accepts facts only after the known
+capability, clears them on disconnect and invalidates malformed/incomplete facts.
+Unknown capabilities/old firmware keep existing behavior. No new transport gate,
+automatic GET, reset/recovery action or UI is introduced. Normal STATUS polling
+refreshes facts; GET is available to a future observer.
+
+A future restart operation must retain an explicit pre-operation facts copy,
+require available matching board identities and available boot identities, then
+compare: same board/same boot = reconnect, same board/different boot = evidence
+of a new application boot, different board = wrong device, unavailable = unknown.
+It must additionally verify stopped transport, restored work and matching audio
+selection ACK. Facts never substitute for `BTAUDIO1 SELECTED`, and identity changes
+never send START/CONTINUE. Tests simulate fresh entropy/application objects; they
+do not physically prove reboot, entropy quality or USB re-enumeration.
+
 ### Driver ownership and routing
 
 A fixed aligned static buffer holds exactly one constructed hardware output and

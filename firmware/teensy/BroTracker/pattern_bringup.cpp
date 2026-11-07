@@ -23,6 +23,7 @@ extern volatile uint8_t usb_configuration;
 }
 #endif
 #include "production_audio_output.h"
+#include "device_identity.h"
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_player_selection.h"
 #include "bringup/pattern_fixture.h"
@@ -236,6 +237,7 @@ namespace
     PatternAudioSource g_source;
     AudioOutputUSB g_usb; // Enumeration retained; no PCM connections in PT8211 mode.
     ProductionAudioOutput g_output;
+    DeviceIdentity g_identity;
     const char* SelectAudio(AudioOutputChoice request) {
         const auto* error=g_output.Select(request,g_source,g_usb);
         if(!error) { InterruptGuard guard; g_audio_ready=true; }
@@ -244,9 +246,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 30 lines including explicit SD capability and boot status.
-    constexpr std::size_t kDiscoveryReserve = 32;
-    constexpr std::size_t kTxCapacity = 33;
+    // Reserve the existing discovery burst plus the device capability/facts pair.
+    constexpr std::size_t kDiscoveryReserve = 34;
+    constexpr std::size_t kTxCapacity = 35;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -331,6 +333,11 @@ namespace
     }
 #endif
     void StorageReply(const char* operation,const char* result,std::uint32_t revision=0);
+    void QueueDeviceFacts() {
+        char line[kDeviceFactsLineCapacity];
+        if(FormatDeviceFacts(g_output.Facts(g_identity.Facts()),line,sizeof(line)))
+            (void)QueueLine(line);
+    }
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
@@ -339,6 +346,8 @@ namespace
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
+        QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         QueueMidiOutput(true);
@@ -839,6 +848,10 @@ namespace
                 (void)QueueLine(reply);
             }
 #endif
+            else if (!std::strncmp(line,"BTDEVICE1",9)) {
+                if(!std::strcmp(line,"BTDEVICE1 GET 1"))QueueDeviceFacts();
+                else (void)QueueLine("BTDEVICE1 ERROR 1 malformed\n");
+            }
             else if (!std::strncmp(line,"BTAUDIO1",8)) {
                 AudioOutputChoice request=AudioOutputChoice::Default;
                 const bool valid=ParseAudioOutputRequest(line,request);
@@ -1034,6 +1047,7 @@ namespace
     void PatternBringUpPlatformInit()
     {
         Serial.begin(115200);
+        g_identity.Initialize();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         g_midi_timer.priority(208);
         g_midi_timer_ready=g_midi_timer.begin(ServiceMidi,100);
