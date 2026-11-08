@@ -37,6 +37,12 @@ with tempfile.TemporaryDirectory(prefix='synthetic-btx-',dir=base) as tmp:
         assert check.returncode==code,(value,check.stdout,check.stderr)
         assert ('path='+str(config)).encode() in check.stdout
         assert config.read_bytes()==data
+    for value,expected in [(None,0),('0',0),('45',45),('64',64),('128',128),('-1',0),('129',0),('4294967296',0),('wrong',0)]:
+        for audible in ['no','yes']:
+            config.write_text('[btx]\nschema_version=1\nnew_pattern_length=32\n[audio]\noutput=bridge\n'+('' if value is None else 'capture_holdback_frames='+value+'\n')+'[diagnostics]\nbridge_audible_test='+audible+'\n')
+            probe=subprocess.run([str(binary),'--capture-holdback-config'],env=dict(env,BROTRACKER_CAPTURE_HOLDBACK='1',BROTRACKER_CAPTURE_HOLDBACK_FRAMES='128'),cwd=elsewhere,capture_output=True,timeout=8)
+            assert probe.returncode==0 and probe.stdout.strip()==str(expected).encode(),(value,probe.stdout,probe.stderr)
+            if value in ['-1','129','4294967296','wrong']:assert b'Invalid [audio]' in probe.stderr
     config.unlink()
     assert subprocess.run([str(binary),'--offline-diagnostic-config'],env=env,cwd=elsewhere,capture_output=True,timeout=8).returncode==0
     assert not config.exists()

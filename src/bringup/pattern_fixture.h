@@ -78,12 +78,12 @@ inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentF
     auto& bindings=result.bindings;
     bindings.bindings[bindings.count++]={1,0,{},InstrumentType::MIDI};
     bindings.bindings[bindings.count++]={2,0,{},InstrumentType::Synth};
-    RamSampleVoice validator; (void)validator.Configure(44100);
-    if(validator.Trigger(test2)==RamVoiceStatus::Success)
+    VariableRateSampleVoice validator; (void)validator.Configure(44100);
+    if(validator.Trigger(test2,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
         bindings.bindings[bindings.count++]={0,60,test2,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
-    if(validator.Trigger(test3)==RamVoiceStatus::Success)
+    if(validator.Trigger(test3,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
         bindings.bindings[bindings.count++]={3,60,test3,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
-    if(validator.Trigger(test)==RamVoiceStatus::Success)
+    if(validator.Trigger(test,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
         bindings.bindings[bindings.count++]={4,60,test,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
     return result;
 }

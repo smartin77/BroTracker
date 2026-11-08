@@ -16,8 +16,9 @@ implementation and validation separately; this map does not upgrade either.
 
 Implemented [live tempo control](LIVE_TEMPO_CONTROL.md) uses the existing PAT
 header and transport: integer hundredths, one-decimal applied display, bounded
-keypad/R1 input and session-only pattern-plus-tempo Publish/Restore. STOP/START
-and reconnect retain applied tempo; Restore uses the published baseline. This
+keypad/R1 input and internal published/working pattern-plus-tempo synchronization.
+User-facing Publish/Restore shortcuts are retired; Pattern Load/Save is the current
+manual file workflow. STOP/START and reconnect retain applied tempo. This
 adds no settings/project screen or persistence UI; proposed screens below remain
 proposals.
 
@@ -42,7 +43,9 @@ configuration, logging and sparse-preview semantics (D0057–D0059).
   one Load screen for opening a module, project or tune; Up to Instrument Inventory,
   with the selected instrument editor below it; and Right to Project Settings.
   Down to Master Mix is the current proposal, but that assignment remains open.
-  These destinations describe planned navigation, not implemented routing.
+  Left currently implements Pattern Load/Save for compatible .btdev files, not
+  general module/project/tune loading. Up is the next feature foundation after
+  bridge closure: planned Ctrl+Up / Select+D-pad Up; Right/Down remain future routes.
 - Retain Pattern's contextual right-side panel. Remove only its planned INS/MIX/OPT
   quick-access menu; reuse the space freed within the panel for future content,
   with both that content and its layout undecided.
@@ -53,8 +56,11 @@ configuration, logging and sparse-preview semantics (D0057–D0059).
   the caller's cursor, selection, page and scroll context. Editors support abstract
   Previous Item / Next Item actions within the relevant collection.
 - Use abstract Navigate, Select, Edit, Confirm, Back, Preview and Import actions.
-  This map assigns no definitive keyboard or gamepad bindings and does not change
-  existing bindings or transport behavior.
+  Current Left/Right and planned Up bindings are distinguished in
+  [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry). Other bindings remain
+  undecided. Screen entry reuses automatic STOP/acknowledged IDLE and successful
+  session persistence; future MIX allows playback to continue. Return preserves
+  view context without automatic resume.
 - Keep view/navigation state separate from musical/project state. Merely opening
   a page, selecting a tab or browsing a directory must not change musical data.
   Explicit instrument selection and cell assignment must remain distinguishable.
@@ -117,7 +123,11 @@ number, name, type, resource availability and project usage (references/counts
 where known). Missing resources remain visible rather than deleting definitions.
 The planned Up destination from Pattern is Instrument Inventory; the selected
 instrument editor sits below it. Contextual entry from a pattern instrument field
-may also be provided; exact bindings remain undecided.
+may also be provided; that contextual binding remains undecided. The next
+foundation uses planned Pattern entry Ctrl+Up / Select+D-pad Up, not implemented
+controls. Back binding, selection versus assignment and minimum useful scope over
+available instrument identity/capability data remain follow-up decisions; the
+broader editor proposals below are not the foundation's promised scope.
 Opening an item inspects/edits it; assigning it to a pattern field is an explicit
 operation. Creation and usage reporting depend on a real instrument registry and
 reference model, not just existing development fixture bindings.
@@ -147,7 +157,8 @@ MIDI-CI/device-state mechanisms remain future work as documented in MIDI Support
 The [minimal sine Synth foundation](SYNTH_FOUNDATION.md) now replaces the development
 beeper: one sine, fixed one-shot envelope and eight monophonic channel voices.
 This is not completion of the planned three-oscillator Synth or its editor.
-MIDI is an unsupported silent placeholder; modular Synth2 is separate future work.
+Instrument 02 USB MIDI is implemented (see MIDI Foundation); its instrument editor
+remains planned. Modular Synth2 is separate future work.
 
 Optional instrument modules use this same navigation/capability model. Unsupported
 types/resources must be reported honestly. D0042's subsystem boundary does not
@@ -282,8 +293,10 @@ proposal neither changes the paused bridge-pop investigation nor its validation 
 
 ## Incremental implementation direction
 
-Planning sequence only. Each stage requires backend readiness before corresponding
-controls become actionable; this is not authorization to implement the features.
+The owner's next feature milestone after bridge-audio closure is the Instrument
+screen foundation. The table remains broader planning, not an expanded foundation
+scope or authorization to implement it. Each stage requires backend readiness
+before corresponding controls become actionable.
 
 | Stage | User benefit | Minimum useful scope | Backend prerequisites and dependencies |
 | --- | --- | --- | --- |
@@ -307,7 +320,8 @@ controls become actionable; this is not authorization to implement the features.
   and pending paging comparison. Final paging/follow behavior remains undecided.
 - Instrument Inventory is the planned Up destination from Pattern, with the
   selected instrument editor below it. Confirm final selection/assignment behavior
-  and editor collection ordering during design; no input bindings are assigned.
+  and editor collection ordering during design. Pattern entry is planned as
+  Ctrl+Up / Select+D-pad Up; Back/contextual entry bindings remain undecided.
 - D0042 allows compiled modules without dynamic loading, while D0043 proposes
   binary loading and D0051 leaves execution/memory mechanisms undecided. What
   capability/interface contract can be supported first? No loader UI is assumed.

@@ -17,6 +17,8 @@ struct HostConfig {
     DevelopmentPattern startup_pattern;
     bool startup_pattern_invalid=false;
     bool confirm_load_replace=true; // [pattern], strict true/false, default enabled.
+    unsigned capture_holdback_frames=0;
+    bool capture_holdback_frames_invalid=false;
     bool bridge_audible_test = false;
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
@@ -25,6 +27,8 @@ struct HostConfig {
     bool midi_output_invalid = false;
     AudioOutputChoice audio_output = AudioOutputChoice::Default;
     bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
+    unsigned midi_delay_ms=0;
+    bool midi_delay_ms_invalid=false; // Reject playback setup; retain unrelated config.
     std::uint32_t schema_version = 1;
     std::uint32_t new_pattern_length = 32;
     HostLogMode logging_mode = HostLogMode::Basic;
@@ -41,6 +45,10 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Optional [pattern]: confirm_load_replace=true/false; absent defaults true.
 // Optional [audio]: output=bridge/pt8211/audio_shield. Empty/absent uses firmware default.
 // Invalid nonempty audio output warns and uses firmware default. Case-sensitive.
+// Optional [audio.bridge]: midi_delay_ms=whole decimal 0..160; absent defaults 0.
+// Invalid/empty values reject playback setup visibly, retaining unrelated fields.
+// Optional [audio] capture_holdback_frames=0..128; absent/invalid uses 0.
+// Linux ALSA capture reserve only; Windows parses but ignores it.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
 // Invalid nonempty MIDI channel warns once at startup and uses 12.
 // Optional [diagnostics]: bridge_audible_test=yes/on/true/1 or no/off/false/0.

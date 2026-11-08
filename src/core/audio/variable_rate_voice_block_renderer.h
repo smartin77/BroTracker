@@ -19,6 +19,9 @@ namespace BroTracker
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
         Note synth_note = 69; // Raw Synth/MIDI pitch; never the display octave convention.
         std::uint8_t sample_level_percent = 100;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        std::uint8_t instrument = kNoInstrumentUpdate; // Raw binding identity, not channel or PCM address.
+#endif
     };
     struct VariableRateVoiceCommandBatch
     {
@@ -28,6 +31,11 @@ namespace BroTracker
     struct VariableRateVoiceOutputs
     {
         std::int16_t* channels[kRealtimePatternChannelCapacity]{};
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        // Optional diagnostic right contribution (excludes Synth and Sample #04),
+        // before the shared channel-gain mix.
+        std::int16_t* diagnostic_without_synth[kRealtimePatternChannelCapacity]{};
+#endif
     };
     enum class VariableRateBlockStatus
     {
@@ -49,7 +57,7 @@ namespace BroTracker
         [[nodiscard]] VariableRateBlockStatus Configure(std::uint32_t sample_rate_hz) noexcept
         {
             if (sample_rate_hz == 0) return VariableRateBlockStatus::InvalidSampleRate;
-            for (auto& voice : voices_) (void)voice.Configure(sample_rate_hz);
+            for (unsigned i=0;i<kRealtimePatternChannelCapacity;++i) { voices_[i].SetStreamChannel(i); (void)voices_[i].Configure(sample_rate_hz); }
             for (auto& synth : synths_) (void)synth.Configure(sample_rate_hz);
             Reset();
             sample_rate_hz_ = sample_rate_hz;
@@ -144,10 +152,16 @@ namespace BroTracker
                     // Sample-to-sample replacement keeps its established semantics.
                     if(channel.synth || channel.transition<channel.length || command.action == VariableRateVoiceAction::TriggerSynth) {
                         channel.from=channel.last; channel.transition=0;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                        channel.diagnostic_from=channel.diagnostic_last;
+#endif
                         channel.length=static_cast<std::uint32_t>((std::uint64_t(sample_rate_hz_)*2+500)/1000);
                         if(channel.length<2) channel.length=2;
                     }
                     channel.synth=command.action == VariableRateVoiceAction::TriggerSynth;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    channel.diagnostic_excluded=channel.synth || command.instrument==3;
+#endif
                     channel.sample_level_percent=command.sample_level_percent;
                     if(channel.synth) { voice.Reset(); (void)synth.Trigger(command.synth_note); }
                     else { synth.Reset(); (void)voice.Trigger(command.sample,command.step_q32_32); }
@@ -166,26 +180,61 @@ namespace BroTracker
             {
                 auto& state=channels_[channel];
                 auto* destination=output.channels[channel]+start;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                auto* diagnostic=output.diagnostic_without_synth[channel];
+                if(diagnostic)diagnostic+=start;
+#endif
                 if(!state.synth) {
                     (void)voices_[channel].Render(destination,count);
                     if(state.sample_level_percent!=100) for(std::size_t i=0;i<count;++i) {
                         const std::int32_t value=std::int32_t(destination[i])*state.sample_level_percent;
                         destination[i]=static_cast<std::int16_t>((value+(value>=0?50:-50))/100);
                     }
-                    if(state.transition>=state.length && !state.release) { state.last=destination[count-1]; continue; }
+                    if(state.transition>=state.length && !state.release) {
+                        state.last=destination[count-1];
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                        state.diagnostic_last=state.diagnostic_excluded ? 0 : state.last;
+                        if(diagnostic) {
+                            if(state.diagnostic_excluded)std::fill_n(diagnostic,count,0);
+                            else std::copy_n(destination,count,diagnostic);
+                        }
+#endif
+                        continue;
+                    }
                 }
                 for(std::size_t i=0;i<count;++i) {
                     float value=state.synth ? synths_[channel].Next() : float(destination[i]);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    float without_synth=state.diagnostic_excluded ? 0.0f : float(destination[i]);
+#endif
                     if(state.transition<state.length) {
                         const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
                         value=state.from*(1.0f-weight)+value*weight;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                        // Track only right-routed tails: excluded Synth/#04 tails
+                        // must not leak through a later instrument transition.
+                        without_synth=state.diagnostic_from*(1.0f-weight)+without_synth*weight;
+#endif
                     }
                     if(state.release) {
                         value*=float(state.release-1)/float(state.release_length-1);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                        without_synth*=float(state.release-1)/float(state.release_length-1);
+#endif
                         if(!--state.release) voices_[channel].Stop();
-                    } else if(!state.synth && state.release_length) value=0;
+                    } else if(!state.synth && state.release_length) {
+                        value=0;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                        without_synth=0;
+#endif
+                    }
                     destination[i]=static_cast<std::int16_t>(std::lround(value));
                     state.last=destination[i];
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    const auto sample=static_cast<std::int16_t>(std::lround(without_synth));
+                    if(diagnostic)diagnostic[i]=sample;
+                    state.diagnostic_last=sample;
+#endif
                 }
             }
         }
@@ -194,6 +243,10 @@ namespace BroTracker
             std::uint8_t sample_level_percent=100;
             std::uint32_t transition=0,length=0,release=0,release_length=0;
             float from=0,last=0;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            float diagnostic_from=0,diagnostic_last=0;
+            bool diagnostic_excluded=false;
+#endif
         } channels_[kRealtimePatternChannelCapacity]{};
         SineSynthVoice synths_[kRealtimePatternChannelCapacity]{};
         VariableRateSampleVoice voices_[kRealtimePatternChannelCapacity]{};

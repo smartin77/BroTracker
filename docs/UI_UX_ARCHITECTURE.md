@@ -542,13 +542,13 @@ The exact controls and presentation remain subject to UI prototyping.
 
 ## Planned Pattern navigation
 
-Pattern is the primary workspace. This is the agreed planning direction, not a
-claim that these screens or routes are implemented:
+Pattern is the primary workspace. Current limited Left routing is distinguished
+from planned destinations below:
 
-| Direction from Pattern | Planned destination |
+| Direction from Pattern | Current / planned destination |
 | --- | --- |
-| Left | A single Load screen for opening a module, project or tune. |
-| Up | Instrument Inventory, with the selected instrument editor below it. |
+| Left | Implemented Pattern Load/Save for compatible .btdev files; general module/project/tune loading remains planned. |
+| Up | Planned Instrument Inventory foundation: Ctrl+Up / Select+D-pad Up from Pattern; selected instrument editor below it remains the design direction. |
 | Right | Project Settings. |
 | Down | Master Mix is the current proposal; this assignment remains open. |
 
@@ -556,7 +556,15 @@ The planned INS/MIX/OPT quick-access menu is removed. Pattern's contextual
 right-side panel stays; its freed menu space will serve future content, with
 content and layout undecided. Other screens may be contextual sub-screens or
 reached through menus. Their exact placement, input bindings and user guide
-remain for later work. This plan does not change current runtime navigation.
+remain for later work except the explicit current/planned bindings in
+[BTX Controls](BTX_CONTROLS.md#planned-instrument-entry). Instrument foundation
+follows closure of current bridge-audio refinement and agreed validation. Entry
+reuses automatic STOP/acknowledged IDLE and successful session persistence, with
+context retained on return and no automatic resume; future MIX allows playback.
+Ctrl+Up is currently unused; Select+Up needs explicit consumption to avoid ordinary
+row navigation while retaining shoulder precedence. No Instrument binding or
+screen is implemented by this plan; Back/assignment and foundation scope remain
+follow-up decisions within the existing instrument architecture.
 
 ### Program and Project Settings
 

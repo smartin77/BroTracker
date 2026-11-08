@@ -6,6 +6,8 @@
 #include "serial_transport.h"
 #include "bringup/pattern_directory.h"
 #include "bringup/audio_output_selection.h"
+#include "bringup/device_facts.h"
+#include "bringup/host_midi_note_delay.h"
 #include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
@@ -133,11 +135,21 @@ public:
     bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    void SetMidiNoteDelay(unsigned ms,bool invalid=false){midi_delay_.Configure(ms,invalid);}
+    bool MidiDelayReady()const{return midi_delay_.Ready();}
+    const char* MidiDelayStatus()const{return midi_delay_.Status();}
+    bool DeviceFactsSupported() const {return device_facts_supported_;}
+    const BroTracker::DeviceFacts* DeviceFacts() const {return device_facts_valid_?&device_facts_:nullptr;}
+    bool AudioTransportReady() const {
+        return !(audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) || audio_confirmed_;
+    }
+    const char* AudioReadinessStatus() const;
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
     bool DiagnosticReleaseReady() const {
         return tx_offset_==tx_size_ && pending_==Command::None && !TransportPending()
             && !PublicationBusy() && !pattern_assembler_.Active();
     }
+    // Last device-reported route, including ERROR active=. Confirmation is separate.
     const char* ActiveAudioOutput() const { return audio_active_; }
     // Optional host observer of confirmed transport replies; no serial ownership.
     void SetTransportObserver(void (*fn)(void*,const char*,std::uint32_t),void* context) {observer_=fn;observer_context_=context;}
@@ -179,6 +191,10 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    BroTracker::HostMidiNoteDelay midi_delay_;
+    char logged_midi_delay_[256]{};
+    bool device_facts_supported_=false,device_facts_valid_=false;
+    BroTracker::DeviceFacts device_facts_;
     bool sd_status_supported_=false;
     SdAvailability sd_status_=SdAvailability::Unknown;
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
@@ -249,6 +265,8 @@ private:
     bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
     char audio_active_[16]="unknown";
+    const char* audio_failure_reason_="rejected";
+    mutable char audio_status_[256]{};
     bool connected_ = false;
     bool stopped_ = false;
     Command pending_ = Command::None;

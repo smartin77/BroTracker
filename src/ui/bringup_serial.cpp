@@ -113,6 +113,9 @@ void BringUpSerial::Disconnect(const char* reason)
     midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
+    device_facts_supported_=device_facts_valid_=false;device_facts_={};
+    midi_delay_.Disconnect();logged_midi_delay_[0]=0;
+    audio_failure_reason_="rejected";
     std::strcpy(audio_active_,"unknown");
     volume_.Disconnect();tx_volume_=false;
     mute_.Disconnect(); tx_mute_=false;
@@ -398,7 +401,8 @@ bool BringUpSerial::Start()
     if(UserActionsBlocked())return false;
     if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
-    if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return false;
+    if(!AudioTransportReady()) return false;
+    if(!MidiDelayReady())return false;
     if(midi_supported_ && !midi_confirmed_) return false;
     start_queued_ = true;
     ClearPosition();
@@ -436,6 +440,8 @@ bool BringUpSerial::QueueTransport(Command command) {
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
     if(command==Command::Continue && (continuity_pending_ || file_action_!=FileAction::None || !StartupPatternReady())) return false;
     if(command==Command::Continue && midi_supported_ && !midi_confirmed_) return false;
+    if(command==Command::Continue && !AudioTransportReady()) return false;
+    if(command==Command::Continue && !MidiDelayReady())return false;
     transport_queued_ = command; stopped_ = false; return true;
 }
 bool BringUpSerial::Pause() { return QueueTransport(Command::Pause); }
@@ -448,6 +454,18 @@ bool BringUpSerial::Finished() const
          std::strcmp(state_, "ERROR") == 0);
 }
 
+const char* BringUpSerial::AudioReadinessStatus() const
+{
+    if(AudioTransportReady()) return "Audio selection confirmed or not required";
+    if(audio_failed_)std::snprintf(audio_status_,sizeof(audio_status_),
+        "Audio selection failed: requested=%s active=%s; %s",
+        BroTracker::AudioOutputName(audio_preference_),audio_active_,audio_failure_reason_);
+    else std::snprintf(audio_status_,sizeof(audio_status_),
+        "Audio selection waiting: requested=%s; awaiting Teensy acknowledgment",
+        BroTracker::AudioOutputName(audio_preference_));
+    return audio_status_;
+}
+
 const char* BringUpSerial::Status() const
 {
     if (!connected_)
@@ -457,12 +475,12 @@ const char* BringUpSerial::Status() const
         if (start_unconfirmed_) return "Waiting - START result unknown";
         return "Waiting for Teensy USB";
     }
+    if(!AudioTransportReady()) return AudioReadinessStatus();
+    if(!MidiDelayReady())return MidiDelayStatus();
     if(midi_failed_) return "MIDI setup failed - see log; restart Teensy if required";
     if(startup_failed_) return "SD startup pattern failed/uncertain - see log; no automatic retry";
     if(!StartupPatternReady()) return "Loading SD development pattern (playback stopped)";
     if(midi_supported_ && !midi_confirmed_) return "Waiting for MIDI channel acknowledgment";
-    if(audio_failed_) return "Audio selection failed - see log; restart Teensy to change route";
-    if((audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) && !audio_confirmed_) return "Waiting for Teensy audio selection";
     if (stop_queued_ || pending_ == Command::Stop) return "Connected - stopping";
     if (start_queued_ || pending_ == Command::Start) return "Connected - starting";
     if (transport_queued_ == Command::Pause || pending_ == Command::Pause) return "Connected - pausing";
@@ -692,6 +710,14 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(pending_==Command::Midi && (!std::strncmp(line_,"BTMIDI1 ERROR ",14) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
         midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR:",line_); return;
     }
+    if(!std::strcmp(line_,"BTMIDIDELAY1 CAP 1")) {if(connected_)midi_delay_.Capability();return;}
+    if(!std::strncmp(line_,"BTMIDIDELAY1 ",13)) {if(connected_)(void)midi_delay_.Response(line_,used_,now);return;}
+    if(!std::strcmp(line_,"BTDEVICE1 CAP 1")) {if(connected_)device_facts_supported_=true;return;}
+    if(!std::strncmp(line_,"BTDEVICE1 FACTS",15)) {
+        if(connected_ && device_facts_supported_)
+            device_facts_valid_=BroTracker::ParseDeviceFacts(std::string_view(line_,used_),device_facts_);
+        return;
+    }
     if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
     if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {
         const char* route=line_+20;
@@ -699,6 +725,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         const bool matches=known && (audio_preference_==BroTracker::AudioOutputChoice::Default ||
             !std::strcmp(route,BroTracker::AudioOutputName(audio_preference_)));
         audio_confirmed_=matches; audio_failed_=!matches;
+        if(!matches)audio_failure_reason_="mismatched acknowledgment; requested route not confirmed";
         if(!matches) start_queued_=false;
         if(known) std::snprintf(audio_active_,sizeof(audio_active_),"%s",route);
         pending_=Command::None;
@@ -706,7 +733,20 @@ void BringUpSerial::OnLine(std::uint32_t now)
         return;
     }
     if(pending_==Command::Audio && (!std::strncmp(line_,"BTAUDIO1 ERROR ",15) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
-        audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR:",line_);return;
+        // An ERROR may report the current route, but can never confirm our request.
+        const auto* active=std::strstr(line_," active=");
+        if(active) {
+            active+=8;
+            for(const char* route:{"bridge","pt8211","audio_shield","default"})
+                if(!std::strcmp(active,route))std::snprintf(audio_active_,sizeof(audio_active_),"%s",route);
+        }
+        constexpr char restart[]="BTAUDIO1 ERROR 1 restart-required";
+        const bool restart_required=!std::strncmp(line_,restart,sizeof(restart)-1) &&
+            (line_[sizeof(restart)-1]==' ' || line_[sizeof(restart)-1]=='\0');
+        audio_failure_reason_=restart_required ?
+            "restart-required; restart Teensy to change route" : "rejected; requested route not confirmed (see log)";
+        audio_confirmed_=false;audio_failed_=true;start_queued_=false;pending_=Command::None;
+        Log("audio selection ERROR:",line_);Log(AudioReadinessStatus());return;
     }
     if (!std::strncmp(line_,"BTPATTERN1 PERF ",sizeof("BTPATTERN1 PERF ")-1)) {
         BroTracker::PatternPerformance report;
@@ -826,6 +866,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     }
     else if (std::strcmp(line_, "BTTEST1 STOPPED") == 0)
     {
+        midi_delay_.StopAcknowledged(now);
         ClearPosition();
         std::strcpy(state_, "IDLE");
         Observe("STOP",now);
@@ -985,7 +1026,8 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR: acknowledgment timeout; not retrying this session");
     }
     if(pending_==Command::Audio && now-sent_at_>=6000 && tx_offset_==tx_size_) {
-        audio_failed_=true;start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
+        audio_confirmed_=false;audio_failed_=true;audio_failure_reason_="acknowledgment timeout; not retrying this connection";
+        start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
     }
     if((pending_==Command::Storage || pending_==Command::StorageReady) && now-sent_at_>=15000) {
         if(pending_==Command::StorageReady)load_rejected_=editor_seen_;
@@ -1013,10 +1055,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         list_queued_=list_pending_=false;list_ready_=false;std::strcpy(list_status_,"Pattern list timed out; refresh to retry");
         if(pending_==Command::List) {pending_=Command::None;if(tx_offset_!=tx_size_){Disconnect("partial list command");return;}}
     }
+    midi_delay_.Tick(now);
     if (pending_ != Command::None && pending_!=Command::List && pending_!=Command::File && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
+        if(std::strcmp(logged_midi_delay_,MidiDelayStatus())) {
+            std::snprintf(logged_midi_delay_,sizeof(logged_midi_delay_),"%s",MidiDelayStatus());Log(logged_midi_delay_);
+        }
         // Confirmed boot SD failure permits communication only. In particular an
         // early queued test load or retained preview must never pass this barrier.
         if(SdStatus()==SdAvailability::Unavailable) {
@@ -1027,7 +1073,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             Send(Command::Audio,now);
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
-        else if(connected_ && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
+        else if(connected_ && !stop_queued_ && transport_queued_==Command::None &&
+            midi_delay_.Begin(now,audio_confirmed_ || (!midi_delay_.Supported() && AudioTransportReady()),!std::strcmp(audio_active_,"bridge")?BroTracker::AudioOutputChoice::Bridge:BroTracker::AudioOutputChoice::Default,MidiRecoveryStopped())) {
+            std::size_t size=0;if(midi_delay_.FormatLine(tx_,sizeof(tx_),size)){tx_size_=size;tx_offset_=0;}
+        }
+        else if(connected_ && MidiDelayReady() && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
             if((startup_fallback_ && startup_pattern_.IsNone() && !new_pattern_supported_) || !storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || snapshot_version_!=2) {
                 startup_failed_=true;Log("SD startup pattern ERROR: readiness-capable storage, setup and stopped v2 firmware required");
             } else if(!startup_stop_sent_) {

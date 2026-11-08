@@ -138,112 +138,54 @@ bridge crackling and other pending physical checks remain unresolved; this plan
 does not reopen bridge diagnostics.
 
 For the bare-board eight-channel baseline, optional memory capacity and shared
-bandwidth constraints, use the [streaming outline](#future-sd-streamed-sample-playback)
+bandwidth constraints, use the [streaming outline](#production-sd-streamed-sample-playback)
 and [PSRAM partition plan](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels).
 More memory alone does not supply more DSP throughput or higher audio resolution;
 future "HD" Sample formats remain unspecified.
 
-## Future SD-streamed Sample playback
+<a id="future-sd-streamed-sample-playback"></a>
 
-Design outline only: production tracker Sample streaming is **not implemented**.
-Priority and implementation order remain undecided. Current Sample voices retain
-immutable, fully prepared RAM PCM views; keep that path for short samples.
-Streaming could support samples beyond available contiguous RAM, including the
-existing test.wav with retained metadata of **613940 PCM bytes**. Its full loading
-remains [deferred](SYNTH_FOUNDATION.md#identity-and-default-pattern). Preserve
-01/raw0=test2.wav, 02/raw1=MIDI, 03/raw2=Synth, 04/raw3=test3.wav and the
-05/raw4=test.wav binding foundation, reference-note convention and temporary
-fixture-only 0.8 Sample gain. The user confirmed uploading the updated development
-firmware and hearing quieter Samples with the sine Synth easier to hear alongside
-them (2026-10-23); no automated device checks followed that user upload. The observed
-05-99 selections continuing Sample04 are accepted temporarily, not proof of valid
-bindings or test.wav loading. Full test.wav playback, other hardware/listening
-checks, external MIDI delivery/audio synchronization and bridge crackling remain
-open.
+## Production SD-streamed Sample playback
 
-### Ownership and realtime boundary
+The production variable-rate configurations now use unified SD-backed playback
+for Sample01/raw0 (`Samples/test2.wav`), Sample04/raw3 (`Samples/test3.wav`) and
+Sample05/raw4 (`Samples/test.wav`). All are PCM16 mono 44100 Hz with reference
+note 60 and the existing fixture-only 80% level. MIDI02/raw1 and Synth03/raw2,
+the default pattern and output/USB bridge implementation are unchanged.
+Historical native-rate environments and reusable RAM primitives remain available.
+See [production streaming](SD_SAMPLE_STREAMING.md) for the ownership contract,
+measured memory, published ring-range correction, deterministic production producer
+fault tests and remaining validation. Later owner Windows mixed-workload listening
+(streaming/Synth/editing/mute/OFF/transport) is accepted there, separately from
+physical SD robustness, CDC and performance/headroom investigations.
 
-Separate four responsibilities: a storage owner manages file handles and SD read
-ownership; preparation validates the container, format and PCM extent; a bounded
-buffer service fills fixed-size read-ahead buffers outside audio/timing ISRs; voices
-consume published ready spans and render PCM. No filesystem operations, allocation,
-waiting for storage or blocking locks belong in the audio callback. Storage
-completion must never advance, delay or become the authority for the Teensy-owned
-sample timeline. Publish buffer availability through a bounded ownership handoff;
-a buffer cannot be refilled while retained by a renderer.
+The fixed internal-RAM layout is eight 8 KiB rings, three shared 4 KiB immutable
+starts and one shared 4 KiB staging buffer (80 KiB total). Short samples whose
+entire PCM fits a start cache use the same voice path without subsequent reads.
+Foreground refills use 4 KiB reads and a 50% source-frame threshold, additionally
+refilling earlier when pitched depletion time falls below 2048 output frames.
+Refill priority compares source-frame availability divided by the Q32.32 step.
 
-Each simultaneous voice needs its own source-frame position, fractional phase,
-end/release state and request generation, even when several voices reference the
-same sample. Sharing immutable sample metadata is separate from sharing mutable
-file cursors or buffered spans. Independent handles versus serialized positional
-reads, and per-voice buffers versus a shared cache, are unresolved design choices.
+Audio consumes published spans with the existing fractional interpolation and
+scheduled command offsets. Validation and tentative render copies have no storage
+side effects. Only committed renderer state is exported to the foreground owner.
+Generation and source identity must match before a read completion is published.
+Starvation emits silence and advances the source timeline; normal EOF has its
+own counter. I/O errors latch per generation to avoid unlimited failing retries;
+a later note starts a new generation. Other voices and scheduling continue.
 
-Pitched playback changes source consumption per output frame. Read-ahead must
-cover the supported maximum rate, including skipped source frames, and retain the
-interpolation endpoints across buffer wrap/refill edges and at end-of-file. Do not
-assume native-rate sequential consumption or reset interpolation phase at buffer
-boundaries. Reference pitch, source rate and musical tempo remain independent;
-see [Sample Format](SAMPLE_FORMAT.md).
+Preparation is boot-only. A source descriptor and its start cache remain immutable
+for the configured bindings' lifetime. Reconfiguration/Stop/retrigger/Note Off
+invalidate prior generations; there is no runtime file replacement/editor API.
+Future replacement must first release voices and prepare a new immutable source.
+No slicing, reverse, time stretching, new sample loops or tempo matching is added.
 
-Retrigger, seeking and future loop jumps need explicit prefetch/invalidation rules
-so late reads cannot publish data for a replaced voice. NOTE OFF, mute release and
-STOP must preserve the existing release/monophonic replacement semantics and
-retained-span lifetime until rendering releases ownership. Future forward,
-backward and ping-pong loops require endpoint/wrap interpolation and discontinuous
-read planning; format-level loop fields do not establish implemented playback.
-
-### Failure, SD coordination and capacity
-
-Underrun, short read, unexpected EOF and permanent I/O failure need explicit,
-bounded status. Preserve scheduler timing and unaffected voices. Whether the
-starved voice emits silence, releases/stops, or skips missing source frames, and
-whether/how it resumes, remain policy choices requiring review; do not invent
-recovery that replays a stale backlog or silently moves musical events. Distinguish
-normal end-of-sample from lost data and define retry limits outside the ISR.
-
-[D0046](ARCHITECTURE_DECISIONS.md#d0046--sd-readwrite-exclusivity) forbids concurrent
-SD reads/writes and SD writes during playback. Coordinate streamed readers with
-[planned session/module storage](FILE_FORMATS.md#planned-working-session-separate-from-tunesprojects):
-future saves must defer or use an explicitly reviewed stopped/released-read phase,
-not bypass exclusivity. Define cancellation, handle lifetime and read-owner release
-before granting a writer. This outline does not change those storage formats.
-
-Measure available internal RAM/stack margins, maximum simultaneous voices,
-aggregate pitched source-byte demand, seek/refill latency, service cadence and
-worst observed storage stalls before selecting buffer sizes or admitting voices.
-Baseline **eight tracker channels must operate on bare Teensy 4.1 without PSRAM**.
-Design baseline streaming buffers within internal RAM. Supported formats, pitch
-ranges and concurrent streaming workloads must be defined and measured; eight
-logical channels do not promise arbitrary eight-stream performance. Budget
-metadata, endpoint retention, in-flight buffers and safety margin as well as PCM;
-average throughput alone is insufficient. The existing
-[reference SD benchmarks](REFERENCE_SD_CARD.md#streaming-benchmark-results) are
-prior evidence, not proof of worst-case latency or safe production capacity.
-[Optional PSRAM partitions](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels)
-are a separate full-sample/cache possibility, not a baseline streaming dependency.
-That plan defines 0/8/16 MiB behavior and the proposed DSP/Sample reservations;
-no external-memory bandwidth isolation or unspecified "HD" support is implied.
-
-Existing diagnostic/legacy WAV streaming and simulated streaming benchmarks are
-separate from tracker Sample voices. They do not prove production integration,
-pitched multi-voice correctness, lifecycle behavior or audible continuity.
-
-### Possible milestones and validation
-
-Candidates below are neither prioritized nor an agreed implementation sequence:
-
-- Specify ownership, memory/throughput budgets, failure and lifecycle policies.
-- Prototype bounded storage-to-buffer handoff with deterministic fake delays,
-  short reads, errors, cancellation and wrap; keep filesystem work outside ISRs.
-- Exercise per-voice/shared-sample cursors, pitched interpolation, retrigger,
-  NOTE OFF/mute release, seeks and future loop edges against RAM/reference outcomes.
-  Compare different audio-block partitions for identical sample-positioned actions;
-  verify an affected voice cannot disturb timing or other voices.
-- Later stress real SD cards with fragmented files, concurrent readers, high pitch,
-  repeated seeks/retriggers and long runs. Measure latency distributions and
-  underruns under realistic CPU load; test read/write exclusion and recovery before
-  selecting supported capacities. Keep physical/listening approval separate from
-  deterministic test success.
+Existing pitch acceptance is preserved (notes 24..127). This is not a guarantee
+that eight voices at every accepted pitch can stream without underruns: at high
+rates the 4 KiB start and 8 KiB ring cover progressively less output time. Report
+measured workloads and failures rather than restricting or transposing notes.
+Fragmentation, other cards, extreme aggregate pitch demand and future loops need
+separate throughput/endpoint validation; optional PSRAM is not required here.
 
 ## Reference Platform
 
@@ -348,6 +290,30 @@ requires a matching acknowledgment before allowing START for a requested route;
 mismatch, unsupported old firmware, rejection or timeout is visible in status/logs.
 There is no silent acknowledgment of a different output.
 
+The shared host additionally negotiates optional fixed MIDI note delay after
+audio confirmation; see [MIDI setup protocol](MIDI_FOUNDATION.md#configuration-and-acknowledged-setup).
+Only actual initialized Bridge permits nonzero delay. GET is read-only; a changed
+value requires stopped transport and completed MIDI cleanup. START/CONTINUE wait
+for acknowledged applicable setup, PAUSE/STOP stay available, and no automatic
+STOP/reset/playback is added. The audio graph lifetime is unchanged.
+
+The same audio-readiness gate applies to CONTINUE. Space while stopped or paused
+reports whether selection is still waiting or has failed, including the requested
+and device-reported active routes on `restart-required` and the instruction to
+restart Teensy to change route. An ERROR's `active=` field is reported state only;
+it never confirms the requested route. Rejection persists for that connection,
+including after STOP; STOP acknowledgement means transport stopped, not that every
+playback prerequisite passed. PAUSE and STOP remain available. Conflicting
+reconnects never automatically stop, reset, start or replay transport. A new
+connection requires a fresh matching acknowledgement before START or CONTINUE.
+
+To change an already-active route with current firmware, first preserve/save work
+and verify success, close BTX, genuinely reboot Teensy, then reconnect BTX with
+the desired INI preference and verify `SELECTED` before playback. Host restart or
+USB reconnect without an MCU reset does not unlock the graph. The host retains
+the preference in INI and resends it; firmware does not persist a rejected request.
+No firmware rebuild is needed for the existing runtime PT8211 selection.
+
 Audio hardware and AudioMemory activation are deferred until selection, or the
 first pattern transport command (START/STOP/PAUSE/CONTINUE), or legacy WAV
 START, using the fallback.
@@ -358,6 +324,62 @@ the existing route/playback is retained, and no host START is replayed. Reconnec
 never starts playback automatically. Older firmware without audio negotiation
 continues normal controls when no override is requested; an explicit unsupported
 request fails visibly instead of pretending it applied.
+
+### Read-only device and application-boot facts
+
+Production pattern firmware advertises `BTDEVICE1 CAP 1` on HELLO and reports
+facts on HELLO, STATUS, or the exact read-only request `BTDEVICE1 GET 1`:
+
+```text
+BTDEVICE1 FACTS 1 <board> <boot> <audio-state> <route>
+```
+
+`board` reuses the core's existing USB serial descriptor (1..10 decimal digits),
+not a new board-ID algorithm. Current Teensy core 1.162.0 derives its default from
+OTP MAC bits; it is stable over application reboot and USB reconnect, but is not
+a cryptographic identity or guaranteed globally unique. A custom firmware serial
+override must keep its existing stable numeric identity or this field reports
+`unavailable`. `boot` is a once-per-application-start 128-bit hardware-random nonce,
+32 lowercase hex digits, or `unavailable`. No SD/EEPROM writes are involved.
+
+The boot-only adapter uses the installed Entropy library's i.MX RT TRNG setup,
+which resets its configuration and discards stale hardware output. It checks for
+hardware error and four available cached words before reading, with a 50 ms and
+iteration bound before audio/MIDI timer startup. Timeout, error or all-zero data
+latches unavailable for this boot; protocol requests never retry generation.
+Ordinary Arduino `random()` has a fixed default seed and is not used. Application
+startup clears this ordinary BSS state on warm reset; USB/serial reconnect does
+not. Fresh entropy is expected on warm reset but remains physically unverified.
+For independent uniform nonces, one pair collides with probability 2^-128; after
+n boots the birthday approximation is n(n-1)/2^129. Hardware health, bias or defects
+can invalidate that statistical model. This is not authentication or a monotonic
+boot counter, and a same nonce must never be accepted as evidence of reboot.
+
+`audio-state` is `uninitialized`, `initialized` or `failed`. Uninitialized pairs
+with route `default` (no graph constructed). Initialized/failed pair with the
+actual selected/reserved `bridge`, `pt8211` or `audio_shield`. A sticky Shield
+initialization error is `failed`, even though its route is reserved; initialized
+means driver/codec setup returned successfully, not physical audio verification.
+Facts are last-observed main-loop state, not live telemetry or requested intent.
+
+Lines fit a fixed 96-byte LF/NUL-inclusive buffer. Parsing is strict version 1,
+exact fields, bounded identifiers and valid state/route pairs. GET only reads
+cached identity and actual output facts; it does not construct the graph, change
+transport, clean up MIDI or request storage. Malformed/unsupported GET responds
+`BTDEVICE1 ERROR 1 malformed`. The shared host accepts facts only after the known
+capability, clears them on disconnect and invalidates malformed/incomplete facts.
+Unknown capabilities/old firmware keep existing behavior. No new transport gate,
+automatic GET, reset/recovery action or UI is introduced. Normal STATUS polling
+refreshes facts; GET is available to a future observer.
+
+A future restart operation must retain an explicit pre-operation facts copy,
+require available matching board identities and available boot identities, then
+compare: same board/same boot = reconnect, same board/different boot = evidence
+of a new application boot, different board = wrong device, unavailable = unknown.
+It must additionally verify stopped transport, restored work and matching audio
+selection ACK. Facts never substitute for `BTAUDIO1 SELECTED`, and identity changes
+never send START/CONTINUE. Tests simulate fresh entropy/application objects; they
+do not physically prove reboot, entropy quality or USB re-enumeration.
 
 ### Driver ownership and routing
 
@@ -1200,12 +1222,16 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 
 ### SD-Backed Sample Streaming
 
-See the [future Sample streaming outline](#future-sd-streamed-sample-playback) and
+See the [production Sample streaming](#production-sd-streamed-sample-playback) and
 [D0039](ARCHITECTURE_DECISIONS.md#d0039--sd-backed-sample-streaming) for the single
-storage/realtime boundary. Production tracker streaming is not implemented;
-production streaming follows handheld physical tests and Audio Shield validation
-per the [current priorities](TODO_LIST.md#agreed-priorities-2026-10-26). Its internal
-milestone order remains undecided.
+storage/realtime boundary. Production SD-backed Sample streaming is implemented
+without PSRAM for Sample01, Sample04 and Sample05, with foreground refills and
+bounded realtime consumption. See [production streaming](SD_SAMPLE_STREAMING.md)
+for completed automated and Windows hardware/owner validation and remaining checks.
+Implementation does not establish full hardware qualification: handheld validation,
+other cards, fragmented files, extreme aggregate pitch and physical SD fault
+behavior remain separate checks; Audio Shield validation is not a prerequisite
+for the already implemented streaming path.
 
 ## Implemented MIDI output boundary
 
@@ -1221,3 +1247,106 @@ host, UART/DIN and Ethernet backends are future work. Protocol/UMP capabilities
 are separate from transport choice. Internal PCM master gain does not control
 external MIDI volume. Backend faults must remain isolated from audio/timeline;
 each route needs physical timing validation without assumed compensation.
+
+
+## Temporary Synth-left recording diagnostic
+
+The default production firmware remains dual mono: the existing Sample/Synth mix
+feeds both left and right at the existing level. For a temporary comparison of
+internal sine audio with external WASP audio, build/upload the explicit opt-in:
+
+```sh
+pio run -e teensy41_dev_synth_left -t upload
+```
+
+Its image is `.pio/build/teensy41_dev_synth_left/firmware.hex`. The environment
+extends `teensy41_dev` and defines `BROTRACKER_DIAGNOSTIC_SYNTH_LEFT`; there is no
+INI key, live toggle, general panning feature or host deployment change. The
+owner must perform the firmware upload with playback stopped/BTX closed.
+Disable by building/uploading the ordinary default image again:
+
+```sh
+pio run -e teensy41_dev -t upload
+```
+
+That restores `.pio/build/teensy41_dev/firmware.hex`. A BTX restart or INI edit
+alone cannot enable or disable this firmware mode. Reconnect BTX normally after
+upload; retain the existing output/backend selection and MIDI route.
+
+In the opt-in image the shared production renderer/mixer emits the original full
+mix on output0 (left), and the Sample contribution excluding instrument #04
+(display ID 04, raw ID 3, currently `test3.wav`) on output1 (right).
+Sine generation is advanced once; note offsets, envelopes and MIDI command
+preparation are retained. Per-channel gain/mix saturation and the master ramp
+remain at their existing left levels: no stereo summing or gain increase. Both
+outputs use the same master-ramp positions without advancing the live ramp twice.
+Other Sample instruments remain on both sides, including their transition tails.
+Synth and #04 tails are excluded from the right even after instrument replacement.
+The #04 exclusion follows raw instrument identity on every tracker channel, not
+the WAV filename or PCM address, under the same existing compile-time switch.
+The default image has no additional right-side scratch buffers or render work.
+
+PT8211, Audio Shield and USB use that same shared pair. The USB endpoint already
+carries stereo; existing Windows and Linux ALSA bridges preserve its channel order
+without a new host feature or MIDI change. The diagnostic source uses two fixed
+AudioMemory blocks and retains the existing allocation-failure fail-stop policy;
+both blocks must be available before a block is rendered/transmitted.
+
+For the owner's recording, mute Sample channels (and any unwanted Synth voices),
+use matching Synth/MIDI note sequences, then allow release/crossfade tails to
+settle. Connect the host output's left channel to recorder left and WASP analog
+output to recorder right on the same recorder/clock. Do not sum stereo outputs,
+boost gain or enable mono downmix; verify the physical host/recorder mapping.
+Host right contains no Synth or #04 contribution in this mode but can still
+contain other unmuted Sample instruments. No additional activation step is needed
+for #04; uploading `teensy41_dev` restores stereo for both Synth and #04.
+No MIDI routing, capture/analysis tooling or automatic pattern changes are added.
+Keep the Linux capture-holdback selection fixed and record its value: it is part
+of the complete internal-audio output path; Windows does not apply that reserve.
+
+This is a preliminary comparison of **relative onset offset and variability
+across the complete two output paths** (internal synthesis/USB/host analog versus
+MIDI/WASP analog). It is **not isolated MIDI latency or jitter**. Focused host
+checks compare default/diagnostic left PCM and command signatures, check silent
+Synth-right output, preserve streamed Sample PCM/master gain and test crossfade
+transitions plus production graph wiring. Firmware builds are separate from
+physical output/recording validation. Later owner Windows Bridge/H4MIDI/WASP
+acceptance at 82 ms and existing sine/MIDI and sample/MIDI recordings are documented
+in [MIDI Foundation](MIDI_FOUNDATION.md#optional-fixed-sequenced-note-delay); no
+quantified onset/jitter result or universal latency value is established.
+
+## Accepted bridge functionality/compensation milestone (2026-11-08)
+
+The owner accepts Windows USB bridge/H4MIDI/WASP compensation at 82 ms and current
+dArkOS integration at 25 ms. Linux `[audio] capture_holdback_frames=0..128` remains
+implemented with default 0; Windows parses/logs and ignores it for audio. Current
+configuration-driven delay/holdback validation is complete to the tested scope:
+sine/MIDI and Sample/MIDI recordings at 45 frames, plus sine alone without WASP
+at 64 frames specifically to assess crackling. The owner perceived no clear
+improvement at 64; waveform analysis found no convincing reduction in transient
+candidates, not definitive audible-click counts. Keep 45 as the recommended opt-in
+starting value. Occasional quiet crackles remain, most noticeable on sine, and are
+accepted for the fallback platform, not universally crackle-free/latency-free audio.
+
+Latest power topology: handheld USB-C OTG -> unpowered hub -> Teensy and H4MIDI;
+H4MIDI's external adapter was NOT connected. It functioned powered through the hub
+from the handheld and WASP played; its LEDs went out when the console powered off.
+Wi-Fi dongle was disconnected. This corrects assumptions about these latest runs;
+earlier separately powered H4MIDI observations remain historical. No power-current
+capacity, electrical compliance or long-term stability is inferred.
+
+Separately, the owner reports increased handheld analog-output hum when its
+charging/power connector is connected to a PC by USB. An adapter reduces the hum
+only partially. No electrical measurements or controlled grounding diagnosis were
+performed; ground loop, USB supply defect or other cause is not proven. Keep this
+separate from discrete bridge crackles and SD streaming underruns.
+
+Configured 82/25 ms compensation is not measured end-to-end latency; external MIDI
+playback acceptance does not establish unreported mute/OFF/transport behavior or
+quantified timing. Residual crackles and optional latency optimization remain
+future work. Windows queue target 1323 -> 882 frames (30 -> 20 ms) remains proposed,
+unexecuted and not approved as the new default. SD initialization/blocking
+robustness and CDC startup receive overflow remain open; successful recent tests
+do not resolve their historical causes. Instrument screen foundation is the next
+agreed feature milestone, with planned Ctrl+Up / Select+D-pad Up and transition
+policy in [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry).

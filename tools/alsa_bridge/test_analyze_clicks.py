@@ -80,6 +80,15 @@ class ComparisonTests(unittest.TestCase):
         row=next(r for r in self.records if r['kind']==2)
         row['avail']-=1
         self.assertFalse(self.save()['complete'])
+    def test_numeric_holdback_metadata(self):
+        for reserve in [0,45,64,128]:
+            self.meta['capture_holdback_frames']=reserve
+            for row in self.records:
+                if row['kind']==2:row['avail']=row['requested']+reserve+1
+            self.assertTrue(self.save()['complete'])
+        for invalid in [-1,129,True,'45',45.0,None]:
+            self.meta['capture_holdback_frames']=invalid
+            self.assertFalse(self.save()['complete'])
     def test_status_gap_and_recovery_reporting(self):
         self.records.pop()  # replace end with actual status fixtures
         self.event(4, avail=7, delay=9)

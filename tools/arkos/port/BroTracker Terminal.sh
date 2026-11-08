@@ -209,6 +209,15 @@ printf 'Launcher: executable-relative config=%s/config/config.ini\n' "$app_dir"
 # The shared parser decides opt-in. Never inherit a stale private control mapping.
 unset BROTRACKER_LISTEN_CONTROL BROTRACKER_LISTEN_BASE
 # No serial or ALSA access by this query.
+# Always export a numeric value, including zero. Config overrides inherited legacy
+# enables, even an owner's old BROTRACKER_CAPTURE_HOLDBACK=1 export in this script.
+holdback_frames=$(./BroTrackerTerminal --capture-holdback-config)
+if [[ ! "$holdback_frames" =~ ^[0-9]+$ ]] || (( ${#holdback_frames}>3 )) || (( 10#$holdback_frames>128 )); then
+    printf 'Launcher: invalid capture holdback probe; using 0 frames\n'
+    holdback_frames=0
+fi
+export BROTRACKER_CAPTURE_HOLDBACK_FRAMES="$holdback_frames"
+printf 'Launcher: capture holdback reserve=%s frames (config authoritative)\n' "$holdback_frames"
 if audible_base=$(./BroTrackerTerminal --bridge-audible-config); then
     ports_storage=$(cd -- "$launcher_dir" && pwd -P)
     if [[ "$audible_base" == /* && "$audible_base" != "$ports_storage" && "$audible_base" != "$ports_storage/"* ]] && mkdir -p -- "$audible_base"; then

@@ -11,6 +11,7 @@
 #include <IntervalTimer.h>
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_output.h"
+#include "bringup/midi_note_delay_service.h"
 extern "C" {
 int brotracker_midi_try_submit(const uint32_t*, uint32_t, uint32_t);
 int brotracker_midi_tx_fault(uint32_t);
@@ -23,6 +24,7 @@ extern volatile uint8_t usb_configuration;
 }
 #endif
 #include "production_audio_output.h"
+#include "device_identity.h"
 #include <musical_tick_cursor.h> // PlatformIO discovers the existing scheduler library.
 #include "bringup/pattern_player_selection.h"
 #include "bringup/pattern_fixture.h"
@@ -35,6 +37,9 @@ extern volatile uint8_t usb_configuration;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #include "sd_wav_preparation.h"
 #include "sd_wav_inspection.h"
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+#include "sd_sample_streaming.h"
+#endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
 #include "bringup/session_save_schedule.h"
@@ -80,15 +85,16 @@ namespace
     SelectedPatternBringUpControl g_control; // Includes the statically allocated core player/scratch.
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-    constexpr std::size_t kPreparedFrameCapacity=kDevelopmentManualWavFrameCapacity;
-    DMAMEM alignas(32) static std::int16_t g_prepared_pcm3[kPreparedFrameCapacity];
-    SdWavPreparation g_preparation3;
+    DMAMEM alignas(32) static SdSampleStreaming::Storage g_stream_memory;
+    SdSampleStreaming g_streaming;
+    SdWavPreparation& g_preparation=g_streaming.reports[1];
+    SdWavPreparation& g_preparation3=g_streaming.reports[2];
     SdPreparationReport g_preparation_report3;
 #else
     constexpr std::size_t kPreparedFrameCapacity=131072;
-#endif
     DMAMEM alignas(32) static std::int16_t g_prepared_pcm[kPreparedFrameCapacity];
-    SdWavPreparation g_preparation; // Main-owned immutable after setup; optionally retained by voices.
+    SdWavPreparation g_preparation;
+#endif
     SdPreparationReport g_preparation_report;
     DevelopmentWavInspection g_wav_inspection;
     WavInspectionReport g_wav_inspection_report;
@@ -153,6 +159,7 @@ namespace
         });
     }
     void CollectMidi(std::uint32_t render_us) {
+        g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
         CollectMidiBlock(g_control,g_midi,render_us,AUDIO_BLOCK_SAMPLES);
     }
 #endif
@@ -178,8 +185,17 @@ namespace
                 initialized_ = true;
             }
             audio_block_t* block = allocate();
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            audio_block_t* right=block ? allocate() : nullptr;
+            if(!block || !right)
+#else
             if (!block)
+#endif
             {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                if(block)release(block);
+                if(right)release(right);
+#endif
                 g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                 CollectMidi(render_us);
@@ -189,12 +205,20 @@ namespace
 #endif
                 return; // Fail-stop: no timeline advance and no stale block transmitted.
             }
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true,right->data);
+#else
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             CollectMidi(render_us);
 #endif
             transmit(block);
             release(block);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            transmit(right,1);
+            release(right);
+#endif
 #ifdef BROTRACKER_PATTERN_PERF
             RecordCost(begin,first);
 #endif
@@ -214,6 +238,7 @@ namespace
     PatternAudioSource g_source;
     AudioOutputUSB g_usb; // Enumeration retained; no PCM connections in PT8211 mode.
     ProductionAudioOutput g_output;
+    DeviceIdentity g_identity;
     const char* SelectAudio(AudioOutputChoice request) {
         const auto* error=g_output.Select(request,g_source,g_usb);
         if(!error) { InterruptGuard guard; g_audio_ready=true; }
@@ -222,9 +247,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Full production HELLO is 30 lines including explicit SD capability and boot status.
-    constexpr std::size_t kDiscoveryReserve = 32;
-    constexpr std::size_t kTxCapacity = 33;
+    // Reserve discovery including device facts and the optional delay capability.
+    constexpr std::size_t kDiscoveryReserve = 35;
+    constexpr std::size_t kTxCapacity = 36;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -309,6 +334,11 @@ namespace
     }
 #endif
     void StorageReply(const char* operation,const char* result,std::uint32_t revision=0);
+    void QueueDeviceFacts() {
+        char line[kDeviceFactsLineCapacity];
+        if(FormatDeviceFacts(g_output.Facts(g_identity.Facts()),line,sizeof(line)))
+            (void)QueueLine(line);
+    }
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
@@ -317,8 +347,11 @@ namespace
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
+        QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
         if(advertise_snapshot) (void)QueueLine("BTMUTE1 CAP 1\n");
         QueueMuteState();
@@ -743,6 +776,22 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             else if (!std::strncmp(line,"BTSTORE1",8)) {StorageCommand(line,now);}
 #endif
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            else if (!std::strcmp(line,"BTSTREAM1 GET")) {
+                char reply[160];
+                std::snprintf(reply,sizeof(reply),"BTSTREAM1 IO %lu %lu %u %lu %lu\n",
+                    (unsigned long)g_streaming.reads,(unsigned long)g_streaming.io_errors,g_streaming.P99(),
+                    (unsigned long)g_streaming.max_read_us,(unsigned long)g_streaming.stale_reads);
+                (void)QueueLine(reply);
+                for(unsigned i=0;i<8;++i) {
+                    const auto state=g_streaming.Snapshot(i);
+                    std::snprintf(reply,sizeof(reply),"BTSTREAM1 VOICE %u %lu %lu %lu %lu %lu %lu\n",i,
+                        (unsigned long)state.position,(unsigned long)state.underruns,(unsigned long)state.eofs,
+                        (unsigned long)state.min_ready,(unsigned long)state.hash,(unsigned long)bool(state.sample));
+                    (void)QueueLine(reply);
+                }
+            }
+#endif
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
@@ -771,6 +820,16 @@ namespace
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTMUTE1 %s 1 %lu\n",accepted?"SUBMITTED":"REJECTED",(unsigned long)f[0]);
                     (void)QueueLine(reply);
                 }
+            }
+            else if (!std::strncmp(line,"BTMIDIDELAY1",12)) {
+                MidiDelayRequest request;MidiDelayReply result;char reply[96];
+                if(ParseMidiDelayRequest(line,used,request)) {
+                    { InterruptGuard guard;
+                      const bool stopped=g_control.Snapshot().transport==PatternTransportState::Stopped;
+                      result=ApplyMidiDelayRequest(request,g_protocol_connected,stopped,g_output,g_midi);
+                    }
+                }
+                if(FormatMidiDelayReply(result,reply,sizeof(reply))) (void)QueueLine(reply);
             }
             else if (!std::strncmp(line,"BTMIDI1",7)) {
                 char reply[192];
@@ -801,6 +860,10 @@ namespace
                 (void)QueueLine(reply);
             }
 #endif
+            else if (!std::strncmp(line,"BTDEVICE1",9)) {
+                if(!std::strcmp(line,"BTDEVICE1 GET 1"))QueueDeviceFacts();
+                else (void)QueueLine("BTDEVICE1 ERROR 1 malformed\n");
+            }
             else if (!std::strncmp(line,"BTAUDIO1",8)) {
                 AudioOutputChoice request=AudioOutputChoice::Default;
                 const bool valid=ParseAudioOutputRequest(line,request);
@@ -996,6 +1059,7 @@ namespace
     void PatternBringUpPlatformInit()
     {
         Serial.begin(115200);
+        g_identity.Initialize();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         g_midi_timer.priority(208);
         g_midi_timer_ready=g_midi_timer.begin(ServiceMidi,100);
@@ -1015,13 +1079,12 @@ namespace
         g_storage_backend.ready=sd_ready;
         g_wav_inspection.InspectOnce(sd_ready);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        PrepareDevelopmentWavs(sd_ready,g_preparation,g_prepared_pcm,kPreparedFrameCapacity,
-            g_preparation3,g_prepared_pcm3,kPreparedFrameCapacity);
+        g_streaming.Prepare(sd_ready,g_stream_memory,g_wav_inspection);
 #else
         g_preparation.Prepare(sd_ready,"Samples/test2.wav",g_prepared_pcm,kPreparedFrameCapacity);
 #endif
 #endif
-#ifdef BROTRACKER_PATTERN_SD_PLAYBACK
+#if defined(BROTRACKER_PATTERN_SD_PLAYBACK) && !defined(BROTRACKER_PATTERN_VARIABLE_RATE)
         // Preparation failure leaves an invalid view and the working beeper fixture.
         const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view,true);
         g_active_pattern = selected.pattern;
@@ -1030,7 +1093,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         // Eight-channel development fixture; pitched sequences need variable-rate mapping.
         // Sample 01=test2.wav; USB MIDI 02; Synth 03; Sample 04=test3.wav.
-        const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view);
+        const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view,g_streaming.reports[0].view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
 #endif
         g_working.working=g_active_pattern;
@@ -1060,6 +1123,11 @@ namespace
         // Until then no DMA callbacks run; SD preparation and protocol remain available.
     }
     void PatternBringUpKernelInit() {}
-    void PatternBringUpKernelRun() { ServiceSerial(); }
+    void PatternBringUpKernelRun() {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        g_streaming.Service();
+#endif
+        ServiceSerial();
+    }
 }
 #endif

@@ -296,3 +296,13 @@ The following must be verified before finalizing the kernel memory architecture:
 These questions will be analyzed before committing to the final low-level kernel memory layout.
 
 The Teensy diagnostics tool under `tools/teensy_diagnostics/` is used to experimentally verify memory placement and relative access characteristics before the final memory allocation policy is defined.
+
+## Production Sample streaming (2026-11-07)
+
+The variable-rate production target removes the two 136568-byte full PCM arrays.
+Eight 8192-byte rings, three shared 4096-byte starts and 4096-byte staging use 81920
+bytes of RAM2. No PSRAM allocation is introduced. See the
+[production measurements](SD_SAMPLE_STREAMING.md) for ELF/map region totals,
+DTCM state and stack/heap budgets; those budgets are not stack high-water marks
+or runtime heap measurements. Historical RAM regression targets retain their
+own full PCM buffers.

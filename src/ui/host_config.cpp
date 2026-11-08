@@ -29,7 +29,8 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     HostConfig candidate;
     unsigned section=0;
     bool display=false,numbering=false,diagnostics=false,audible=false;
-    bool pattern=false,confirm_load=false;
+    bool pattern=false,confirm_load=false,holdback=false;
+    bool audio_bridge=false,midi_delay=false;
     bool development=false,startup_pattern=false,language=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
     while (!text.empty()) {
@@ -41,6 +42,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         if(line=="[logging]") { if(logging) return HostConfigStatus::Invalid; logging=true; section=2; continue; }
         if(line=="[editing]") {if(editing) return HostConfigStatus::Invalid; editing=true; section=3; continue;}
         if(line=="[audio]") {if(audio) return HostConfigStatus::Invalid; audio=true; section=4; continue;}
+        if(line=="[audio.bridge]") {if(audio_bridge)return HostConfigStatus::Invalid;audio_bridge=true;section=10;continue;}
         if(line=="[midi]") {if(midi) return HostConfigStatus::Invalid; midi=true; section=5; continue;}
         if(line=="[display]") {if(display) return HostConfigStatus::Invalid; display=true; section=6; continue;}
         if(line=="[diagnostics]") {if(diagnostics) return HostConfigStatus::Invalid; diagnostics=true; section=7; continue;}
@@ -50,7 +52,11 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         const auto eq=line.find('='); if(eq==line.npos) return HostConfigStatus::Invalid;
         const auto key=Trim(line.substr(0,eq)), raw=Trim(line.substr(eq+1));
         std::uint32_t value=0;
-        if(section==9 && key=="confirm_load_replace" && !confirm_load) {
+        if(section==10 && key=="midi_delay_ms" && !midi_delay) {
+            midi_delay=true;
+            if(Decimal(raw,value) && value<=160)candidate.midi_delay_ms=value;
+            else candidate.midi_delay_ms_invalid=true;
+        } else if(section==9 && key=="confirm_load_replace" && !confirm_load) {
             if(raw!="true" && raw!="false")return HostConfigStatus::Invalid;
             confirm_load=true;candidate.confirm_load_replace=raw=="true";
         } else if(section==1 && key=="language" && !language) {
@@ -75,6 +81,10 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
                 if(Decimal(raw,value) && value>=1 && value<=16) candidate.midi_output_channel=value;
                 else candidate.midi_output_invalid=true;
             }
+        } else if(section==4 && key=="capture_holdback_frames" && !holdback) {
+            holdback=true;
+            if(Decimal(raw,value) && value<=128)candidate.capture_holdback_frames=value;
+            else candidate.capture_holdback_frames_invalid=true;
         } else if(section==4 && key=="output" && !audio_output) {
             audio_output=true;
             if(raw=="bridge") candidate.audio_output=AudioOutputChoice::Bridge;
@@ -140,7 +150,7 @@ const char* HostConfigDiagnostic(HostConfigStatus status) noexcept {
     case HostConfigStatus::Missing: return "config.ini absent; using built-in defaults";
     case HostConfigStatus::SafeDefaults: return "--safe-config: external config bypassed; using built-in defaults";
     case HostConfigStatus::TooLarge: return "config.ini exceeds 4096 bytes; using defaults. Reduce the file or use --safe-config";
-    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields and optional [logging] mode=basic/debug, preserve_last=0..20 [audio] output=bridge/pt8211/audio_shield and [editing] value_step_direction=normal/reversed (deprecated alias note_step_direction; use one name only), or use --safe-config";
+    case HostConfigStatus::Invalid: return "Invalid config.ini; using defaults. Check required [btx] fields, duplicate keys/sections and optional [audio.bridge] midi_delay_ms=0..160, [logging] mode=basic/debug, preserve_last=0..20 [audio] output=bridge/pt8211/audio_shield and [editing] value_step_direction=normal/reversed (deprecated alias note_step_direction; use one name only), or use --safe-config";
     default: return "Cannot read config.ini; using defaults. Check path/permissions or use --safe-config";
     }
 }

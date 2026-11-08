@@ -37,7 +37,8 @@ def analyze(directory):
         return {'complete': False, 'errors': ['missing: '+', '.join(missing)], 'sha256': hashes}
     meta = json.loads((directory/'run.json').read_text())
     reserve=meta.get('capture_holdback_frames',0)
-    if reserve not in [0,45]:errors.append('unsupported experimental capture reserve')
+    if type(reserve) is not int or not 0<=reserve<=128:
+        errors.append('unsupported experimental capture reserve');reserve=0
     completion = json.loads((directory/'completion.json').read_text())
     if meta.get('schema') != 1 or meta.get('rate') != 44100 or meta.get('format') != 'S16_LE' or meta.get('frame_bytes') != 4 or meta.get('channels') != 2:
         errors.append('incompatible PCM schema')

@@ -86,8 +86,10 @@ the same rate adjustment twice.
 
 Current portable loading supports signed PCM16 mono 44100 Hz. Native-rate playback
 and VariableRateSampleVoice both require matching source/output sample rates;
-the variable-rate voice accepts explicit Q32.32 steps. Reference-note interval
-mapping is next. Additional rates, general source/output conversion, tuning metadata
+the variable-rate voice accepts explicit Q32.32 steps with reference-note interval
+mapping. Production Sample bindings now use fixed-memory SD streaming through
+that voice, including short sources entirely covered by their start cache; see
+[production streaming](SD_SAMPLE_STREAMING.md). Additional rates, general source/output conversion, tuning metadata
 integration, tempo matching/detection and time stretching remain pending. The
 C-3/D-3 beeper bindings are trigger anchors, not measured physical tuning. Loop
 metadata above also does not imply sample-loop playback is implemented.

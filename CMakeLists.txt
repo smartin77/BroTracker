@@ -187,8 +187,10 @@ add_executable(BroTrackerTests
     tests/test_sine_synth.cpp
     tests/test_channel_mute.cpp
     tests/test_midi_foundation.cpp
+    tests/test_midi_note_delay.cpp
     tests/test_midi_usb_core.cpp
     tests/test_midi_status_exchange.cpp
+    tests/test_streamed_sample_voice.cpp
     tests/test_variable_rate_sample_voice.cpp
     tests/test_variable_rate_voice_block_renderer.cpp
     tests/test_note_playback_step.cpp
@@ -316,6 +318,7 @@ endif()
 # without exposing the fake Arduino/SD API to other production/host targets.
 add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer_loader.cpp
     tests/test_pattern_storage.cpp
+    tests/test_sd_sample_streaming.cpp
     libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp
     libraries/scheduler/src/pattern_position.cpp
@@ -338,3 +341,31 @@ add_executable(BroTrackerProductionAudioTests tests/test_main.cpp tests/test_pro
 target_include_directories(BroTrackerProductionAudioTests PRIVATE tests/stubs/production_audio tests ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerProductionAudioTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerProductionAudioTests COMMAND BroTrackerProductionAudioTests)
+
+add_executable(BroTrackerDeviceFactsTests tests/test_main.cpp tests/test_device_facts.cpp
+    tests/test_production_audio_output.cpp firmware/teensy/BroTracker/production_audio_output.cpp)
+target_include_directories(BroTrackerDeviceFactsTests PRIVATE tests/stubs/production_audio tests src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerDeviceFactsTests PRIVATE AUDIO_INTERFACE)
+add_test(NAME BroTrackerDeviceFactsTests COMMAND BroTrackerDeviceFactsTests)
+
+add_executable(BroTrackerMidiDelaySetupTests tests/test_main.cpp tests/test_midi_delay_setup.cpp
+    tests/test_production_audio_output.cpp firmware/teensy/BroTracker/production_audio_output.cpp)
+target_include_directories(BroTrackerMidiDelaySetupTests PRIVATE tests/stubs/production_audio tests src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerMidiDelaySetupTests PRIVATE AUDIO_INTERFACE)
+target_link_libraries(BroTrackerMidiDelaySetupTests PRIVATE BroTrackerBringUp)
+add_test(NAME BroTrackerMidiDelaySetupTests COMMAND BroTrackerMidiDelaySetupTests)
+
+# Focused default/opt-in production mix and output-graph checks; no hardware.
+foreach(mode Default SynthLeft)
+    add_executable(BroTrackerDiagnosticStereo${mode}Tests tests/test_main.cpp
+        tests/test_diagnostic_synth_routing.cpp firmware/teensy/BroTracker/production_audio_output.cpp
+        libraries/scheduler/src/musical_timing.cpp libraries/scheduler/src/musical_tick_cursor.cpp
+        libraries/scheduler/src/pattern_position.cpp)
+    target_include_directories(BroTrackerDiagnosticStereo${mode}Tests PRIVATE
+        tests/stubs/production_audio tests src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(BroTrackerDiagnosticStereo${mode}Tests PRIVATE AUDIO_INTERFACE BROTRACKER_PATTERN_VARIABLE_RATE)
+    if(mode STREQUAL "SynthLeft")
+        target_compile_definitions(BroTrackerDiagnosticStereo${mode}Tests PRIVATE BROTRACKER_DIAGNOSTIC_SYNTH_LEFT)
+    endif()
+    add_test(NAME BroTrackerDiagnosticStereo${mode}Tests COMMAND BroTrackerDiagnosticStereo${mode}Tests)
+endforeach()

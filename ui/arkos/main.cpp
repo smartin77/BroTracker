@@ -96,6 +96,13 @@ int main(int argc, char* argv[])
         }
         SDL_free(evidence_directory);
     }
+    // Launcher probes the same executable-relative config independently of recording.
+    if(argc==2 && !std::strcmp(argv[1],"--capture-holdback-config")) {
+        if(host_config.config.capture_holdback_frames_invalid)
+            std::fprintf(stderr,"Invalid [audio] capture_holdback_frames: expected integer 0..128; using 0\n");
+        std::printf("%u\n",host_config.config.capture_holdback_frames);
+        return 0;
+    }
     if(argc==2 && !std::strcmp(argv[1],"--bridge-audible-config")) {
         if(!host_config.config.bridge_audible_test) return 2;
         const auto& base=audible_base;
@@ -323,6 +330,7 @@ int main(int argc, char* argv[])
     std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
+    serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     BroTracker::MidiStatusExchange midi_exchange(BroTracker::MidiRuntimeDirectory(),bring_up_log);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
@@ -414,6 +422,7 @@ int main(int argc, char* argv[])
             serial.PublicationStatus(), {}, serial.MidiStatus()};
         midi_exchange.Tick(serial.MidiHealth(SDL_GetTicks()),serial.Playing()?"playing":serial.Paused()?"paused":serial.MidiRecoveryStopped()?"stopped":"unknown",BroTracker::MidiStatusExchange::Now());
         panel.midi_route_status=midi_exchange.route;panel.midi_usb_status=midi_exchange.usb;
+        panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();

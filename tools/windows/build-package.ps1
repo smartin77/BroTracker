@@ -1,7 +1,8 @@
 param(
     [string]$ToolchainBin = (Split-Path (Get-Command g++.exe -ErrorAction Stop).Source),
     [string]$BuildDirectory = "build",
-    [switch]$EmptyWindowTitle
+    [switch]$EmptyWindowTitle,
+    [switch]$DeliveryOnly
 )
 $ErrorActionPreference = "Stop"
 $emptyTitle = if ($EmptyWindowTitle) { "ON" } else { "OFF" }
@@ -24,10 +25,16 @@ Check-Exit
     "-DSDL2_DIR=$ToolchainBin/../lib/cmake/SDL2" -DBROTRACKER_BUILD_WINDOWS_TERMINAL=ON `
     "-DBROTRACKER_WINDOWS_EMPTY_TITLE=$emptyTitle"
 Check-Exit
-& "$ToolchainBin/cmake.exe" --build $build --parallel 4
+if ($DeliveryOnly) {
+    & "$ToolchainBin/cmake.exe" --build $build --target BroTrackerTerminal --parallel 4
+} else {
+    & "$ToolchainBin/cmake.exe" --build $build --parallel 4
+}
 Check-Exit
-& "$ToolchainBin/ctest.exe" --test-dir $build --output-on-failure
-Check-Exit
+if (!$DeliveryOnly) {
+    & "$ToolchainBin/ctest.exe" --test-dir $build --output-on-failure
+    Check-Exit
+}
 New-Item -ItemType Directory -Force $package | Out-Null
 Copy-Item -LiteralPath "$build/BroTrackerTerminal.exe" -Destination $package
 # Resolve the full transitive runtime closure from this exact toolchain.

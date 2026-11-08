@@ -21,20 +21,18 @@ Preserve the existing one-based instrument display, as confirmed by the user:
 | 02 | 1 | MIDI | Reserved unsupported placeholder; no audio or MIDI events |
 | 03 | 2 | Synth | New realtime sine, equal-tempered tuning |
 | 04 | 3 | Sample | Retained independently loaded `Samples/test3.wav`, reference 60 |
-| 05 | 4 | Sample | `Samples/test.wav`, reference 60; binding foundation only; full SD loading deferred pending storage |
+| 05 | 4 | Sample | `Samples/test.wav`, reference 60; unified SD-backed streaming; no full PCM allocation |
 
 IDs are instance identities, not type numbers. The binding stores `InstrumentType`
 separately; another project can bind Synth, Sample or MIDI at different IDs.
-The existing boot-time SD preparation and inspection are unchanged. Missing or
+Boot-time metadata inspection is retained; preparation now caches starts instead
+of complete PCM for the production Sample bindings. Missing or
 invalid WAV views omit only that Sample binding; they never substitute another
 WAV or Synth. Raw4/display05 now accepts a separately validated test.wav view,
-but the development firmware cannot yet prepare its full contiguous buffer:
-retained SD inspection measured PCM16 mono/44100 Hz, 306970 frames (613940 bytes).
-That exceeds either internal RAM bank; the retained PSRAM probe reported 0 MB.
-These format figures are from the retained read-only SD inspection of 2026-10-15;
-fresh inspection remains pending. Storage changes were explicitly deferred by the user on 2026-10-23. Storage must
-be resolved before this instrument can play on that hardware;
-no truncation, substitution, SD streaming in rendering or PSRAM assumption was added.
+and the production variable-rate firmware now prepares its immutable start and
+streams its remaining PCM outside rendering. Fresh inspection and validation are
+recorded in [production streaming](SD_SAMPLE_STREAMING.md). No full contiguous
+buffer, truncation, format expansion or PSRAM assumption is needed.
 The editor already accepts displayed05 (existing editable range01..99); no new
 pattern notes or host assets are needed. Reference60 is the established C-3 anchor,
 not a measured musical pitch or loop-tempo inference.
@@ -55,8 +53,7 @@ after that user upload.
 The user also observed that selecting displayed instruments 05-99 currently
 continues playing Sample04. This behavior is accepted temporarily without a fix.
 It does not establish that test.wav is loaded, that those IDs have valid bindings,
-or that they are intentional aliases for Sample04. Full test.wav playback remains
-deferred pending storage; bridge crackling and other unconfirmed checks stay open.
+or that they are intentional aliases for Sample04. Full test.wav storage now uses streaming; bridge crackling and other unconfirmed checks stay open.
 
 The default 32-row/eight-channel development
 pattern keeps the existing sparse note sequences on CH1 and CH2, both selecting
