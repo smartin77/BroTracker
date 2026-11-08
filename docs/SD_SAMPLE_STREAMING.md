@@ -6,8 +6,9 @@ Implemented, built, flashed and hardware-tested on feature/sd-streaming without
 PSRAM. All ten successful Windows BTX / USB audio bridge workloads below had
 zero device underruns and I/O errors. Original published/working session contents
 were restored and verified by readback; playback is stopped. The existing four
-pattern files and WAVs were not overwritten. Physical listening and output capture
-remain pending; host bridge counters are not physical-output validation.
+pattern files and WAVs were not overwritten. Listening/output capture were not
+part of that initial automated validation. Later owner listening is recorded below;
+host bridge counters alone are not physical-output validation.
 
 The card initialized after the requested physical power cycle. Earlier
 post-firmware-swap SD initialization failures remain recorded; no SD initialization
@@ -182,11 +183,48 @@ Created fixture names and successful save replies are in test2-eof-publish.log.
 The final restored session is recorded in original-session.json and
 session-restore-final.json. No BTX test process remains running.
 
+## Published ring-range correction and producer fault coverage
+
+The later published-range correction advances begin past overwritten slots:
+`begin=max(existing-or-gap-begin,max(0,end-kStreamRingFrames))`. Generation/source
+rejection precedes metadata mutation; forward-gap handling remains intact. Three
+production-helper regressions check repeated wraps, gaps and rejected completions;
+all eight focused streaming tests, host 7/7 suites and the production firmware build
+passed. No hardware test/upload was performed for that correction. Evidence:
+`_backyard/sd-valid-range-20261107/RESULTS.md`.
+
+Seven deterministic production producer tests (16 scenarios) exercise actual
+`SdSampleStreaming::Prepare/Publish/Service` with the existing voice: seek/negative/
+short/premature-EOF failures, final partial chunk, generation-latched failure and
+retry, retained ring PCM, independent progress and cancellation/replacement at
+read/pre-commit boundaries. Focused 15/15 and host 7/7 suites plus firmware build
+passed. No producer defect required correction; the range fix is retained. These
+host-controlled outcomes do not establish physical SD fault recovery, ARM interrupt
+timing or DMA behavior. Evidence: `_backyard/sd-producer-faults-20261107/results.txt`.
+
+## Later Windows mixed-workload owner validation
+
+The owner confirmed streaming, Synth, editing, mute/OFF and transport behaved
+correctly and sounded clean. Baseline -> final BTSTREAM1: reads 15096 -> 27106;
+I/O errors 0 -> 0; every voice's underruns 0 -> 0; stale completions 11 -> 21;
+maximum SD read remained 5217 us. Stale completion rejection is distinct from an
+I/O error or underrun. BTX logs showed zero callback-budget overruns and no growing
+audio drop/render-empty counters after startup. Evidence is retained under
+`_backyard/sd-mixed-owner-20261107-163310/` (BTX logs/config/owner notes), with this
+listening/workflow acceptance supplied by the owner. This is separate from the
+initial automated run's 5277 us maximum and does not replace its historical values.
+No physical output-onset/jitter analysis or handheld external MIDI control coverage
+is inferred from the mixed-workload acceptance.
+
 ## Remaining checks
 
-Physical listening and physical-output capture/comparison remain pending.
-Long mixed Sample/Synth/MIDI workloads, fragmented files, other cards, extreme
-aggregate pitch, and injected permanent read failures need further qualification.
+Windows mixed-workload listening is accepted above; physical-output capture/
+comparison and longer mixed/external-MIDI qualification remain open. Fragmented
+files, other cards, extreme aggregate pitch and physical permanent read failures
+need further qualification; deterministic producer tests do not close these.
+Retain SD initialization failures, the separate CDC receive-overflow/reconnect
+attempt and streaming performance/headroom investigations. Neither clean Windows
+listening nor successful retries establish their cause or resolution.
 No slicing, reverse, sample loops, new formats or time stretching were added.
 The tested native and short 2x three-file workloads do not promise arbitrary
 pitched eight-file throughput. The prior isolated eight-distinct-long-file

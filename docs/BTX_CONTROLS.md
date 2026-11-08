@@ -79,6 +79,27 @@ transitions were faster, and the owner accepted this behavior. This confirmation
 is scoped to those tested setups; it does not establish validation for other
 handhelds, mappings or configurations.
 
+## Planned Instrument entry
+
+After current bridge-audio refinement and agreed validation close, Instrument
+screen foundation is the next feature priority. Intended entry from Pattern is
+**Windows Ctrl+Up** / **handheld Select+D-pad Up**. These are planned bindings,
+not current controls. Instrument Inventory is the planned destination, with an
+instrument editor below it; foundation scope follows the existing
+[screen map](UI_SCREEN_MAP.md#3-instrument-inventory), without adding instrument features.
+
+Current `ui/windows/input.h` only maps Ctrl+Left/Right for screens and excludes
+Ctrl from row editing, so Ctrl+Up has no action. `ui/arkos/input.h` intercepts
+Select only for horizontal screen chords; Select+Up can reach ordinary row
+navigation. Future implementation must consume the chord once per press and
+preserve L1 value-edit/R1 beat precedence, including release/held-input handling.
+The shared action enum currently has no ScreenUp. Back/return binding and
+selection-versus-assignment behavior remain follow-up decisions.
+
+Reuse the established automatic STOP/acknowledged IDLE and successful session
+SAVE before entry, return without automatic resume and retain host view context.
+The future MIX playback exception remains. No Instrument screen/input is implemented.
+
 ## Desktop controls
 
 | Function | Key / button combination | Context / behavior |
@@ -277,6 +298,8 @@ latency/performance result. This consolidation involved no physical testing.
 | 2026-10-15: user confirmed ArkOS controls/workflows and added held navigation; shared held navigation confirmed on Windows and ArkOS | Supersedes the earlier held-navigation-pending note. Does not establish dArkOS validation, physical timing/realtime performance, every mapping/profile or later shortcuts. See the [navigation/controls records](TEENSY_PATTERN_BRINGUP.md) and [completed tasks](TODO_LIST.md). |
 | Windows live-tempo manual checklist confirmed, including requested BPM pending-color indication | Preserve that recorded confirmation; no additional cases are inferred. See [tempo evidence/checklist](LIVE_TEMPO_CONTROL.md). |
 | 2026-10-22: user confirmed smooth handheld R1+Left/Right tempo changes and R1+Up/Down beat navigation during playback; supplied handheld control test passed | Other unreported boundary/modifier/hold cases remain unconfirmed. Does not establish audio quality, MIDI alignment or a separate dArkOS/R36S physical mapping test. Windows Shift+Up/Down manual beat-shortcut checks remain pending; ordinary shared navigation confirmation does not cover them. |
+| 2026-11-08 reconciliation: Windows mixed streaming/Synth/editing/mute/OFF/transport behaved correctly and sounded clean | Scoped owner listening/workflow acceptance; device and host counter evidence is in [production streaming](SD_SAMPLE_STREAMING.md). Does not validate handheld external MIDI controls or all failure/recovery cases. |
+| Windows USB bridge with H4MIDI/WASP: owner accepts 82 ms compensation; sine/MIDI and sample/MIDI recordings exist | Listening acceptance, not quantified onset/jitter or universal latency; current handheld 25 ms integration remains pending. See [MIDI setup](MIDI_FOUNDATION.md#configuration-and-acknowledged-setup). |
 | Windows mouse mute, header navigation and enlarged channel numbers user-confirmed | Physical handheld header/mute UX and listening remain unconfirmed. No desktop keyboard mute binding exists. See [mute evidence/checklist](CHANNEL_MUTE.md). |
 | 2026-10-25: physical volume-key response, display updates and PT8211 listening level user-confirmed | Hold-repeat, exact silence, OS-control restoration, mixer-exclusion and USB-bridge listening remain unconfirmed, as detailed above. |
 | 2026-10-28: Windows reconnect retained edited note 61/C#3; user explicitly pressed legacy F5 Publish; complete 256-cell readback verified the edited RAM publication | This was Publish, not legacy F4 Restore or an SD session restore. Then-current reconnect-hold F4 behavior and interrupted/rejected/uncertain recovery are host-test covered, not physically verified. Powered-only USB interruption and dArkOS fix validation remain open. See [captured evidence and receive-buffer limitation](RECONNECT_CONTINUITY.md). |

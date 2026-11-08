@@ -8,17 +8,72 @@ Items may be added during development to record agreed next steps or work that n
 
 ## Next Development Steps
 
-### Agreed priorities (2026-10-26)
+### Agreed priorities (updated 2026-11-08)
 
-1. Physical ArkOS/dArkOS tests: external MIDI playback through H4MIDI; investigate
-   bridge crackling with external recordings of physical output and the existing
-   [opt-in bridge-audible evidence capture](../tools/alsa_bridge/README.md#manual-listening-correlation-normal-ports-launch).
-   Both remain pending; recording correlation is not a compensation decision.
-2. Audio Shield integration and physical validation (existing plan below).
-3. Production Sample streaming (existing outline below).
+1. Close current bridge-audio fixes/refinement and agreed validation before the
+   next feature milestone. Handheld: validate current MIDI-delay integration at
+   configured 25 ms and configuration-driven capture holdback, comparing 45 vs 64
+   frames. Remaining crackles and latency optimization stay open. Windows queue
+   target 1323 -> 882 frames is proposed only, not implemented or approved as the
+   new default; it needs a separately scoped implementation/A/B task.
+2. After that closure, Instrument screen foundation is the owner's next feature
+   priority; see the milestone below. Audio Shield and remaining streaming work
+   retain their open checks, without an invented order ahead of Instrument.
 
-* [ ] Defer USB host work. Successful handheld H4MIDI playback would remove its
-  immediate urgency; it has not yet been confirmed.
+Owner evidence, distinct from pending integration tests. Older severe-crackling
+and routing-pending entries below retain their historical scope; the following
+acceptance supersedes a blanket claim that handheld playback is still unconfirmed:
+
+* [x] Windows mixed streaming/Synth/editing/mute/OFF/transport workload behaved
+  correctly and sounded clean. BTSTREAM1 reads 15096 -> 27106; I/O errors 0 -> 0;
+  all voice underruns 0 -> 0; stale completions 11 -> 21; maximum SD read remained
+  5217 us. BTX logged zero callback-budget overruns and no growing audio drop or
+  render-empty counters after startup. See [streaming evidence](SD_SAMPLE_STREAMING.md).
+* [x] Earlier dArkOS offline setup: unpowered USB-C OTG hub, Teensy and H4MIDI,
+  Wi-Fi disconnected; WASP audibly played through H4MIDI. With 45-frame holdback,
+  occasional quiet sine crackles remained; the owner did not notice them in complex
+  pattern 4 and accepted the fallback bridge result. This does not validate external
+  MIDI mute/OFF/transport, the current delay integration or configuration-driven
+  holdback changes. Evidence: `_backyard/btx-darkos-streaming-midi.tar.gz`.
+* [x] Owner physically tested Windows USB bridge with H4MIDI/WASP and accepts
+  82 ms compensation; sine/MIDI and sample/MIDI recordings exist. This is owner
+  acceptance, not quantified onset/jitter analysis or universal Windows latency.
+  See [MIDI configuration and setup](MIDI_FOUNDATION.md#configuration-and-acknowledged-setup).
+
+### Implemented bridge preparation; handheld validation pending
+
+* [x] Add Linux `[audio] capture_holdback_frames=0..128` (default 0); Windows
+  parses/logs but ignores it. Shared config, launcher, metadata and focused delivery
+  checks pass. Only 45 has earlier physical acceptance; configuration-driven
+  selection and 45 vs 64 comparison remain pending. See
+  `_backyard/capture-holdback-frames/results.txt`.
+* [x] Provide temporary `teensy41_dev_synth_left` diagnostic firmware: original
+  full mix left, right excludes Synth and Sample04/raw3, other Samples retained.
+  Default/diagnostic PCM and MIDI signatures and firmware builds pass. See
+  [routing/recording contract](TEENSY_AUDIO_ARCHITECTURE.md#temporary-synth-left-recording-diagnostic)
+  and `_backyard/{synth-left-routing,sample04-left-routing}/results.txt`.
+  Recordings now exist for Windows sine/MIDI and sample/MIDI; quantified analysis
+  remains pending. This is not a general stereo/panning or Instrument feature.
+
+### Instrument screen foundation (next feature after bridge closure)
+
+* [ ] Implement the foundation within the existing instrument architecture and
+  [screen map](UI_SCREEN_MAP.md#3-instrument-inventory); no new editor capabilities,
+  instrument features or registry design are decided here. Intended Pattern entry:
+  Windows Ctrl+Up; handheld Select+D-pad Up. These bindings are planned only.
+* [ ] Reuse screen entry's automatic STOP/acknowledgement and successful working-
+  session persistence before switching; retain the future MIX playback exception.
+  Preserve view context on return without automatic playback resume.
+* [ ] Resolve Back/return binding, selection versus assignment and foundation scope
+  against available identity/capability data. Current input has no ScreenUp action:
+  Ctrl+Up is unused; Select+Up can reach ordinary row navigation. Consume the future
+  chord once per press, preserving L1 value-edit and R1 beat-navigation precedence.
+  See [planned controls](BTX_CONTROLS.md#planned-instrument-entry).
+
+### Other deferred follow-up
+
+* [ ] Defer USB host work. Confirmed offline handheld H4MIDI/WASP playback removes
+  its immediate urgency; it does not establish shared-hub/Wi-Fi stability.
 * [ ] Follow the [shared MIDI backend direction](MIDI_FOUNDATION.md#approved-direction-shared-midi-scheduling-and-selectable-backends)
   when implementation is separately scoped: one explicit backend, validated
   Teensy-owned routing, separate destination/channel/protocol settings. No new
@@ -28,7 +83,7 @@ Items may be added during development to record agreed next steps or work that n
   waiting-for-device state (observed 2026-10-31). Keep this separate from the
   unrelated MIDI/SD failures; see [routing issues and platform limits](MIDI_FOUNDATION.md#open-issues-and-platform-limits-2026-10-31).
 
-### Future SD-streamed Sample playback
+### Production SD-streamed Sample playback
 
 * [x] Integrate unified production SD-backed Sample playback without PSRAM:
   Sample01/test2.wav, Sample04/test3.wav and Sample05/test.wav retain their IDs,
@@ -39,9 +94,17 @@ Items may be added during development to record agreed next steps or work that n
   retrigger/Note Off, Stop/Start, pitch and a 60 s eight-voice run through Windows
   BTX/USB bridge: zero device underruns/I/O errors; stopped saves and original
   session restoration verified. See the measured report above.
-* [ ] Complete physical listening/capture, extreme aggregate pitch, fragmentation,
-  other cards, permanent-I/O fault injection and long mixed Sample/Synth/MIDI/USB
-  qualification. Successful host flow is not physical audible validation.
+* [x] Correct published ring ranges to exclude overwritten slots; three production-
+  helper regressions plus five existing streaming tests pass; host 7/7 and firmware
+  build pass. No hardware test for this correction. See SD_SAMPLE_STREAMING.md.
+* [x] Add deterministic actual-production producer fault coverage: seven tests / 16
+  scenarios, focused 15/15, host 7/7 and firmware build pass. Host-injected outcomes
+  do not validate physical SD failure, ARM interrupt or DMA behavior.
+* [ ] Retain physical output capture/onset analysis, extreme aggregate pitch,
+  fragmentation, other cards, physical permanent-I/O failure and longer mixed/
+  external-MIDI qualification. Investigate recorded SD initialization and CDC
+  receive-overflow failures separately; successful Windows listening does not
+  close storage robustness, callback headroom or those control-path failures.
 
 * [ ] Implement required [non-destructive sample slicing (D0060)](ARCHITECTURE_DECISIONS.md#d0060---non-destructive-sample-slicing):
   host analysis/editing, persistent boundaries, pattern slice selection and both
@@ -57,7 +120,7 @@ Items may be added during development to record agreed next steps or work that n
 
 ### Future output capabilities and memory review
 
-Audio Shield integration/physical validation is second priority above. Other
+Audio Shield integration/physical validation remains open. Other
 capability and memory investigations remain planning items without assigned order.
 
 * [ ] Review [shared output backends and SGTL5000 capabilities](TEENSY_AUDIO_ARCHITECTURE.md#shared-engine-and-output-backend-planning):
@@ -93,9 +156,10 @@ capability and memory investigations remain planning items without assigned orde
 * [x] Record user observation: selecting displayed instruments 05-99 currently
   continues playing Sample04. Accepted temporarily without a fix; this does not
   establish test.wav loading or valid bindings for those IDs.
-* [ ] Keep full test.wav playback, measured external/internal audio alignment,
-  handheld routing, bridge crackling and other unconfirmed checks open. Windows
-  WASP USB listening and separate H4MIDI/DIN playback are confirmed below.
+* [x] Full test.wav EOF playback is now verified in production streaming; see above.
+* [ ] Keep quantified external/internal onset analysis, remaining bridge crackles
+  and other unconfirmed checks open. Preserve the scoped Windows and handheld
+  H4MIDI/WASP confirmations above.
 
 
 ### Runtime config location correction (2026-10-23)
@@ -132,40 +196,30 @@ capability and memory investigations remain planning items without assigned orde
 
 * [x] Separate published/working BTWS session, with bounded CRC-validated records
   and candidate/previous replacement. Legacy single-record sessions remain readable.
-* [x] F5 / row A temporary Save and F4 / L1+Y Load of tune.btdraft; F3 /
-  Select+Start explicitly loads the configured development file. Normal startup and
-  reconnect synchronize current work, without fixture LOAD or START.
+* [x] Historical temporary draft/development-file shortcuts were implemented, then
+  retired on 2026-11-06. Pattern Load/Save is now the manual file workflow; normal
+  startup/reconnect synchronize current work without fixture LOAD or START.
 * [x] Pause/Stop session persistence, bounded playing RAM deferral, regular exit
   persistence without STOP, and disconnected main-loop service.
-* [x] Keep RAM Publish/Restore separate (Shift+F5/F4, handheld L1+A/X).
+* [x] Retain internal published/working synchronization; user-facing Publish/Restore
+  shortcuts were retired on 2026-11-06.
 * [x] Windows physical session/draft operations, BTX window-close/running reconnect,
   and user power-cycle restoration with distinct unpublished edits (stopped).
 * [ ] Physical interrupted-write/card-failure and rollback injection; separately
   powered physical USB removal, acoustic/peripheral continuity and handheld checks.
-* [ ] Step 1 foundation (2026-11-05): shared left/right screen actions and minimal
-  Pattern Load/Save view; entry waits for confirmed STOP when active and successful
-  Teensy session SAVE, independently of Publish/Restore. DONE automatically STOPs
-  to IDLE. Return retains the cursor within the same BTX run without resuming;
-  the next Play starts at pattern row zero. Future MIX will allow playback. Windows Ctrl+Left/Right
-  and handheld Select+D-pad Left/Right consume one action per direction press.
-  Pattern Load browsing/confirmation now reuses the Teensy SD decoder and LOAD
-  path; patern1..4 and other compatible .btdev files are supported. Default-on
-  [pattern] confirm_load_replace may opt out of confirmation only. Successful
-  synchronized Load returns with the first Note cursor; cancel/rejection retains
-  work. Pattern Save now targets the synchronized Load source, using unpublished
-  working edits and safe replacement; unknown-source Save is disabled. Save As,
-  filename entry/character map, shortcut retirement and physical validation
-  remain separate.
-* [ ] **Pattern Load/Save foundation (future):** Add a separate Pattern screen,
-  navigable with directional controls on desktop and handheld, without dedicated
-  function keys or new handheld combinations for individual Load/Save operations.
-  Load Pattern replaces the selected pattern (currently one active pattern);
-  Save Pattern stores the current pattern in a selected pattern file. Load test
-  patterns through the same mechanism as other patterns. Automatically retain the
-  working session when safe, prioritizing audio consistency during playback.
-  Remove user-facing Publish/Restore; assess which internal synchronization
-  mechanisms remain necessary or can be removed. Design unsaved-change and file
-  overwrite handling; the exact UI remains open.
+* [x] Pattern Load/Save foundation: shared Ctrl+Left/Right and Select+D-pad
+  Left/Right navigation; automatic STOP/confirmed IDLE and successful session SAVE
+  before entry; compatible .btdev browser, optional replacement confirmation and
+  Save to the synchronized Load source. Successful Load returns at the first Note
+  cursor; cancel/rejection retains work. Unknown-source Save is disabled. See
+  [current controls and owner validation](BTX_CONTROLS.md#pattern-loadsave-navigation-foundation-2026-11-05).
+* [x] Owner confirmed Pattern Load/Save on Windows and tested dArkOS; the first
+  dArkOS transition during playback after startup took about one second or slightly
+  longer, later transitions were faster, and this behavior was accepted.
+* [x] Retire legacy file/Publish/Restore shortcuts; preserve automatic session
+  scheduling and explicit retained-host-work recovery. This does not establish
+  physical interrupted-write or every reconnect/recovery case.
+* [ ] Save As, filename entry/character map, and remaining failure/recovery checks.
 * [ ] **Deferred:** Load/Save Tune and Load/Save Project, full BTT/BTP/BTM
   Load/Save/Save As dialogs and self-contained Sample storage.
 
@@ -222,7 +276,8 @@ for bindings/startup behavior and distinguish automated from physical evidence.
   silence/ramps, holds/releases/opposition/focus/reconnect, unchanged system mixer
   during BTX, normal system keys afterward, unsupported firmware/profile handling.
   Basic PT8211 use is confirmed above; other cases are not inferred. Shared-hub instability,
-  bridge crackling, handheld external MIDI and measured audio alignment stay open.
+  remaining bridge crackles, unreported handheld external MIDI control cases and
+  measured audio alignment stay open.
 
 ### MIDI lifecycle and session follow-up
 
@@ -376,14 +431,18 @@ for bindings/startup behavior and distinguish automated from physical evidence.
   No electrical measurement or universal power requirement is claimed.
   These are user playback confirmations, not automated or long-term stability tests;
   no DIN timing/listening acceptance is inferred from the separate pure-USB result.
-* [ ] Verify handheld routing and H4MIDI OUT2 if needed. Earlier automated capture
-  lacked a CME output/external audio; subsequent user playback results above are
-  separate evidence. Exact offset/jitter/drift remain unmeasured for both routes.
+* [ ] Verify additional handheld routing cases and H4MIDI OUT2 if needed; offline
+  H4MIDI/WASP playback is confirmed above. External MIDI mute/OFF/transport and
+  quantified offset/jitter/drift remain unverified for the reported handheld setup.
 * [ ] Measure simultaneous internal/external audio on two recording channels;
   separate constant offset from jitter and patch attack, state topology and
   agree tolerance before declaring audible synchronization verified.
-* [ ] Review output compensation separately only if measurements justify it;
-  assess MIDI lookahead versus internal audio delay and live-edit/input latency.
+* [x] Implement shared capability-gated [audio.bridge] midi_delay_ms=0..160
+  configuration/negotiation; only initialized Bridge permits nonzero effective
+  delay, native outputs use zero. Windows/ARM64 focused checks and firmware builds
+  passed; see MIDI_FOUNDATION.md and `_backyard/bridge-midi-delay/integration/results.md`.
+* [ ] Physically validate current handheld 25 ms integration; keep quantified
+  onset/jitter analysis separate from accepted Windows 82 ms listening.
 * [ ] Retain remaining unconfirmed parent-branch physical handheld validations below.
   Bridge diagnostics remain paused; no SSH or handheld deployment in this milestone.
 
@@ -1638,9 +1697,9 @@ design remains unchanged.
   do not identify it as the cause of the reported larger pop. One completed A/B
   supports experimental holdback, not a universal fix. Holdback remains opt-in;
   normal production defaults are unchanged. The kernel publication/copy race and
-  exact running-kernel source match remain unconfirmed; dArkOS physical validation
-  remains pending. Preserve all original/failed evidence; no further tests during
-  this pause. Resolved historical cold-boot corruption is not reopened.
+  exact running-kernel source match remain unconfirmed. Later dArkOS fallback
+  listening acceptance is recorded above, not a repeat of this instrumented A/B.
+  Preserve all original/failed evidence; no further tests during this pause. Resolved historical cold-boot corruption is not reopened.
 * [x] Implement the [minimal sine Synth foundation](SYNTH_FOUNDATION.md) for the
   current eight-channel development player. Displayed IDs: 01 Sample/test2.wav,
   02 unsupported silent MIDI, 03 sine Synth; retain test3.wav as Sample 04 and
@@ -1878,4 +1937,6 @@ existing temporary files preserved. Valid working sessions take startup preceden
 missing/invalid sessions use existing config filename or blank length. Automatic
 working-session scheduling retains deferred/failed pending work. Reconnect mismatch
 recovery remains explicit through the existing screen with review/confirmation.
-Owner validation of new firmware and refreshed host delivery remains pending.
+Pattern Load/Save owner validation is recorded above and in BTX_CONTROLS.md.
+Separate shortcut-retirement edge cases and interrupted recovery are not inferred
+from that screen confirmation.

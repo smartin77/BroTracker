@@ -118,9 +118,10 @@ and engine defaults remain zero. These are explicit development test settings,
 not platform defaults: Windows **82**, handheld **25** milliseconds.
 
 Both terminals read `config/config.ini` beside their executable and reload on
-terminal restart. The Windows delivery runtime file has 82; its existing
-`output=pt8211` is preserved, so effective delay is **0** until the owner selects
-Bridge and confirms that route. On handheld, edit the installed
+terminal restart. The integration delivery preserved the then-existing Windows
+`output=pt8211` and added 82; that historical preservation is not the route of the
+later owner-confirmed Bridge test below. Effective delay is **0** on native routes
+and nonzero requires confirmed initialized Bridge. On handheld, edit the installed
 `/roms/ports/brotracker/config/config.ini` and add the section with 25, preserving
 other settings. The ArkOS installer ships an example with zero and never creates
 or overwrites that installed runtime file. Disabling compensation means setting
@@ -236,10 +237,15 @@ not a timing guarantee. The unchanged lateness/overflow cleanup policy remains
 the explicit failure path if realtime service cannot keep up.
 
 The owner-selected values for the later configuration-integration test are
-Windows `midi_delay_ms=82` (following an approximately 82 ms Bridge measurement)
-and handheld `midi_delay_ms=25`. These are explicit test values, not engine or
-platform defaults. No configuration files are changed here, no host option is
-implemented yet, and missing configuration must continue to mean zero delay.
+Windows `midi_delay_ms=82` and handheld `midi_delay_ms=25`. Shared host configuration
+and capability-gated negotiation are now implemented as described above; missing
+configuration means zero. The owner physically tested Windows USB bridge with
+H4MIDI/WASP and accepts 82 ms compensation; sine/MIDI and sample/MIDI recordings
+exist. This is owner acceptance, not quantified onset/jitter analysis or a universal
+Windows latency value. Current handheld integration at configured 25 ms remains
+physically unvalidated. No firmware timer-service timing guarantee follows from
+listening acceptance. Integration evidence: `_backyard/bridge-midi-delay/integration/results.md`
+and `activation.md` (historical delivery/activation state, not later owner results).
 
 At the timer-service timestamp, a command more than one nominal block (**2903 us**) late, malformed/backward
 input, disconnected enqueue, or queue overflow latches a fault, cancels unsent
@@ -678,6 +684,17 @@ These are user-confirmed physical results, separate from the ArkOS tests and
 earlier dArkOS USB failures. They confirm this offline setup and reboot repeat,
 not simultaneous operation of all three devices, general USB stability or a
 proven cause of the previous failures. Those stability questions remain open.
+
+### Later owner-confirmed dArkOS bridge fallback
+
+The earlier tested setup used an unpowered USB-C OTG hub with Teensy and H4MIDI,
+Wi-Fi disconnected; WASP audibly played through H4MIDI. With 45-frame capture
+holdback, occasional quiet crackles remained audible on sine; the owner did not
+notice them in complex pattern 4 and accepted the fallback bridge-audio result.
+Evidence is retained in `_backyard/btx-darkos-streaming-midi.tar.gz`. This does not
+establish external MIDI mute/OFF/transport validation, quantified onset/jitter,
+current 25 ms integration or configuration-driven holdback selection/comparison
+of 45 vs 64. Hub/Wi-Fi limitations and remaining crackles stay open.
 
 ### Open issues and platform limits (2026-10-31, updated 2026-11-03)
 

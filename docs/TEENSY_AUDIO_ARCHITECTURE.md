@@ -138,12 +138,14 @@ bridge crackling and other pending physical checks remain unresolved; this plan
 does not reopen bridge diagnostics.
 
 For the bare-board eight-channel baseline, optional memory capacity and shared
-bandwidth constraints, use the [streaming outline](#future-sd-streamed-sample-playback)
+bandwidth constraints, use the [streaming outline](#production-sd-streamed-sample-playback)
 and [PSRAM partition plan](TEENSY_MEMORY_ARCHITECTURE.md#proposed-psram-partitions-and-capability-levels).
 More memory alone does not supply more DSP throughput or higher audio resolution;
 future "HD" Sample formats remain unspecified.
 
-## Future SD-streamed Sample playback
+<a id="future-sd-streamed-sample-playback"></a>
+
+## Production SD-streamed Sample playback
 
 The production variable-rate configurations now use unified SD-backed playback
 for Sample01/raw0 (`Samples/test2.wav`), Sample04/raw3 (`Samples/test3.wav`) and
@@ -152,7 +154,10 @@ note 60 and the existing fixture-only 80% level. MIDI02/raw1 and Synth03/raw2,
 the default pattern and output/USB bridge implementation are unchanged.
 Historical native-rate environments and reusable RAM primitives remain available.
 See [production streaming](SD_SAMPLE_STREAMING.md) for the ownership contract,
-measured memory, tests and remaining validation.
+measured memory, published ring-range correction, deterministic production producer
+fault tests and remaining validation. Later owner Windows mixed-workload listening
+(streaming/Synth/editing/mute/OFF/transport) is accepted there, separately from
+physical SD robustness, CDC and performance/headroom investigations.
 
 The fixed internal-RAM layout is eight 8 KiB rings, three shared 4 KiB immutable
 starts and one shared 4 KiB staging buffer (80 KiB total). Short samples whose
@@ -1217,12 +1222,16 @@ Realtime playback timing must not depend on CPU frequency, whether the Teensy is
 
 ### SD-Backed Sample Streaming
 
-See the [future Sample streaming outline](#future-sd-streamed-sample-playback) and
+See the [production Sample streaming](#production-sd-streamed-sample-playback) and
 [D0039](ARCHITECTURE_DECISIONS.md#d0039--sd-backed-sample-streaming) for the single
-storage/realtime boundary. Production tracker streaming is not implemented;
-production streaming follows handheld physical tests and Audio Shield validation
-per the [current priorities](TODO_LIST.md#agreed-priorities-2026-10-26). Its internal
-milestone order remains undecided.
+storage/realtime boundary. Production SD-backed Sample streaming is implemented
+without PSRAM for Sample01, Sample04 and Sample05, with foreground refills and
+bounded realtime consumption. See [production streaming](SD_SAMPLE_STREAMING.md)
+for completed automated and Windows hardware/owner validation and remaining checks.
+Implementation does not establish full hardware qualification: handheld validation,
+other cards, fragmented files, extreme aggregate pitch and physical SD fault
+behavior remain separate checks; Audio Shield validation is not a prerequisite
+for the already implemented streaming path.
 
 ## Implemented MIDI output boundary
 
@@ -1301,4 +1310,26 @@ MIDI/WASP analog). It is **not isolated MIDI latency or jitter**. Focused host
 checks compare default/diagnostic left PCM and command signatures, check silent
 Synth-right output, preserve streamed Sample PCM/master gain and test crossfade
 transitions plus production graph wiring. Firmware builds are separate from
-physical output/recording validation; no new listening or capture claim is made.
+physical output/recording validation. Later owner Windows Bridge/H4MIDI/WASP
+acceptance at 82 ms and existing sine/MIDI and sample/MIDI recordings are documented
+in [MIDI Foundation](MIDI_FOUNDATION.md#optional-fixed-sequenced-note-delay); no
+quantified onset/jitter result or universal latency value is established.
+
+## Current bridge refinement and pending handheld validation (2026-11-08)
+
+Linux `[audio] capture_holdback_frames=0..128` is implemented (default 0); Windows
+parses/logs and ignores it for audio. Shared config/launcher/metadata checks passed;
+see `_backyard/capture-holdback-frames/results.txt`. Earlier owner dArkOS offline
+playback with Teensy/H4MIDI on an unpowered OTG hub, Wi-Fi disconnected, produced
+WASP audio. At 45 frames, occasional quiet sine crackles remained, were not noticed
+in complex pattern 4, and the fallback bridge result was accepted. This does not
+validate configuration-driven selection or external MIDI mute/OFF/transport.
+
+Pending before feature advancement: current shared MIDI-delay integration at
+configured handheld 25 ms, configuration-driven holdback and 45 vs 64 comparison,
+remaining crackles and agreed bridge refinement/latency validation. The Windows
+queue-target change 1323 -> 882 frames (30 -> 20 ms) is proposed only; it is neither
+implemented nor approved as the new default. Capacity is not observed occupancy;
+82/25 ms compensation settings are not total platform latency measurements.
+After bridge closure the next feature priority is Instrument screen foundation,
+with planned entry and transition policy in [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry).
