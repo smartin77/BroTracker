@@ -42,8 +42,8 @@ separate properties must be assessed:
 The dependency for physically precise dispatch is an observed mapping from the
 engine sample timeline to the chosen audio output's physical phase, together
 with measured external response for that topology. The first transport does not
-satisfy the final audible-sync goal by itself. No lookahead, audio delay or fixed
-compensation has been added.
+satisfy the final audible-sync goal by itself. The optional fixed sequenced-note
+delay below does not establish that physical mapping or compensate variable jitter.
 
 ## Bounded adapter and installed USB core
 
@@ -77,7 +77,7 @@ Submission uses short PRIMASK/BASEPRI protection because the underlying PJRC
 routine re-enables PRIMASK. Higher priority IRQ execution can defer service;
 100 us is the configured cadence, not a certified maximum jitter.
 
-The handoff holds **64 tracker commands**, retaining absolute sample targets,
+The handoff holds **1024 tracker commands**, retaining absolute sample targets,
 release deadlines and input order. Each timer invocation handles at most eight
 commands and initiates at most one transfer. Equal-target commands preserve
 tracker order; replacements release before ON. More than eight coincident tracker
@@ -86,6 +86,160 @@ transport. This is part of dispatch uncertainty, not sample-accurate wire timing
 Busy submission retains the
 whole attempted group and ownership for retry, never partially commits it.
 The adapter does not drain accumulated events whenever `loop()` happens to run.
+
+### Optional fixed sequenced-note delay
+
+The internal `MidiOutput::SetNoteDelayMs(ms, active_route, initialization, stopped)`
+accepts whole integer milliseconds from **0 through 160**, with explicit result
+codes for invalid values/facts, running transport, queued events, unresolved
+cleanup/ownership and uninitialized/failed audio. A latched playback fault after
+confirmed cleanup does not block setting changes: it remains latched and needs
+the existing explicit START recovery. Otherwise configuration gating could
+deadlock that recovery. Callers must supply actual
+engine output facts and use the existing ownership/interrupt exclusion. An
+initialized Bridge applies the requested value; initialized PT8211/Audio Shield
+apply zero additional delay. Default is zero. Shared Windows/ArkOS configuration
+and the capability-gated setup below can now set this engine option.
+This is one narrow output-aware setting, not a
+configuration framework or automatic latency measurement.
+
+#### Configuration and acknowledged setup
+
+```ini
+[audio.bridge]
+midi_delay_ms=0
+```
+
+Missing means zero. Only whole decimal integers 0..160 are accepted (surrounding
+whitespace and leading zeros are allowed). Empty, signed, fractional, trailing
+garbage and overflowing values visibly block START/CONTINUE, retaining unrelated
+configuration fields. No clamping or partial numeric parsing occurs. Examples
+and engine defaults remain zero. These are explicit development test settings,
+not platform defaults: Windows **82**, handheld **25** milliseconds.
+
+Both terminals read `config/config.ini` beside their executable and reload on
+terminal restart. The Windows delivery runtime file has 82; its existing
+`output=pt8211` is preserved, so effective delay is **0** until the owner selects
+Bridge and confirms that route. On handheld, edit the installed
+`/roms/ports/brotracker/config/config.ini` and add the section with 25, preserving
+other settings. The ArkOS installer ships an example with zero and never creates
+or overwrites that installed runtime file. Disabling compensation means setting
+zero (or removing the key) and restarting BTX; reconnect then verifies live state
+and explicitly clears an earlier host's nonzero setting when safe.
+
+New firmware upload is required for this protocol. Build/upload with the existing
+`pio run -e teensy41_dev -t upload` workflow (owner operation). No MCU reset is
+required merely to change delay while safely stopped. Audio selection itself
+remains boot-locked: conflicting routes still require a genuine Teensy restart.
+Windows/ArkOS terminal updates alone cannot enable nonzero delay on old firmware.
+
+Firmware advertises `BTMIDIDELAY1 CAP 1`. After successful `BTAUDIO1 SELECTED`,
+the host sends the following bounded, correlated version-1 lines:
+
+| Request / reply | Meaning |
+| --- | --- |
+| `BTMIDIDELAY1 GET 1 <id>` | Read effective milliseconds and change readiness; no audio activation, transport, storage or cleanup mutation. |
+| `BTMIDIDELAY1 STATE 1 <id> <effective> <condition>` | Actual engine value; condition 0 ready, 2 not stopped, 3 pending events, 4 cleanup/ownership unresolved, 5 audio not initialized successfully. |
+| `BTMIDIDELAY1 SET 1 <id> <configured>` | Apply using actual initialized output facts under existing interrupt exclusion. |
+| `BTMIDIDELAY1 SELECTED 1 <id> <configured> <effective>` | Success only: echoed intent, effective Bridge intent or native zero. |
+| `BTMIDIDELAY1 ERROR 1 <id> <condition>` | Explicit rejection; code 1 invalid/disconnected, otherwise readiness codes above. Malformed input uses id 0. |
+
+IDs are nonzero uint32, monotonic across a terminal's serial reconnects; malformed,
+wrong-ID or unrelated reply kinds cannot confirm setup. All fields use bounded
+full-token parsing, firmware RX/TX lines remain fixed-size. No engine queue or
+realtime service budget changes. The firmware TX FIFO adds one 104-byte line slot.
+
+Every capable connection first GETs live state, including configured zero. A
+matching value can be confirmed while Playing/Paused, without SET or STOP. A
+different value waits for user STOP, drained events and completed MIDI cleanup.
+The host never automatically stops/resets playback to change compensation.
+START/CONTINUE require exact acknowledged effective state; PAUSE/STOP remain
+available. STOP re-arms a fresh GET, including after rejection/mismatch/timeout;
+it never blindly replays an uncertain SET. Cleanup polls every 250 ms for at most
+6 seconds, with a 6-second response timeout and at most three SET attempts per
+STOP/reconnect. Persistent failure remains visible until explicit STOP/reconnect.
+No automatic START/CONTINUE occurs, and setup does not own or discard editor work.
+
+Status/logs distinguish `configured=Xms` from `effective=Yms` and confirmation;
+before verification effective is unknown. An ERROR or sent request is not an
+acknowledgment. Old firmware without the capability retains legacy operation only
+for zero configuration (effective state cannot be verified there). Unsupported
+nonzero fails visibly. No Bridge fallback or MIDI routing change is introduced.
+Physical timing/listening/USB stability remain separate owner tests; automated
+fake-serial and QEMU checks are not physical proof of compensation.
+
+The queue retains each event's unmodified absolute musical sample position for
+ordering and its separate delivery deadline in the existing `micros()` timebase:
+`render_us + floor(sample_offset * 1000000 / 44100) + uint64(ms) * 1000`.
+The delay conversion is exact: no fractional arithmetic, whole-block rounding,
+or accumulated event-to-event rounding. The existing sample-offset truncation
+(less than one microsecond) is unchanged. All sequenced commands that change MIDI
+note ownership, including corresponding OFF and same-note replacement/retrigger,
+receive the same shift. Service never submits before that computed deadline;
+the existing 2903 us late threshold is measured relative to the delayed deadline.
+Wrap-safe microsecond comparisons remain valid with this bounded horizon. USB
+transport/host delivery can still add latency and spread; this is not a promise
+of physical MIDI timing, compensation for all paths, or isolated MIDI latency.
+Clock, transport messages and live input are outside this sequenced-note adapter.
+
+Capacity is deliberately conservative: production exports at most 16 commands
+per 128-frame block. At 44100 Hz, 120 ms spans `ceil(120*44100/128000)=42`
+blocks: `(42+2)*16 = 704` entries with the existing two-block service/burst margin.
+That does not cover the supported maximum. At 160 ms the bound is 56 blocks:
+`(56+2)*16 = 928` entries. Allocate **1024** (next power of two) to cover that bound
+and preserve cheap power-of-two ring indexing; the assertion uses wide integer
+arithmetic and the actual supported maximum. The extra 96 entries are rounding
+headroom, not a replacement for the service margin.
+The unchanged 100 us timer and eight-command budget can service a full 16-command
+burst in two successful invocations. CPU preemption/USB backpressure are not
+assumed unbounded: the existing deadline/overflow faults cancel backlog and
+request immediate cleanup rather than clamp/drop individual notes silently.
+Tests sustain the conservative burst rate at maximum delay, but do not establish
+physical CPU headroom. The 1024 fixed 16-byte event slots cost **16384 bytes**,
+12288 more than the 0–40 ms foundation's queue (15360 more than the original
+64-entry queue), plus unchanged delay/cancel fields and a four-byte player
+cancel-mask export (object padding is compiler-dependent). No second queue, heap
+allocation, event-generation timer or host sleep is introduced.
+
+STOP, PAUSE, restart and existing lifecycle/fault reset clear all pending events
+and use the original undelayed uncertain-note cleanup. A nonzero-delay mute
+exports a channel-cancellation mask only on successful render commit; the shared
+handoff removes that channel's queued events in one bounded 1024-entry compaction
+and filters its synthetic mute Release out of the delayed queue. At the next
+service, at most eight targeted OFFs release submitted ownership while preserving
+other channels/shared pitches. Busy submission retains the cancellation for retry;
+global/quarantined cleanup continues to own release after a fault. A cancelled
+unsent ON is never submitted later. Already accepted USB transfers remain subject
+to existing backend cancellation/completion semantics; submitted does not mean
+an external synth heard the message. Emergency OFFs are never intentionally delayed.
+
+At zero effective delay the original mute Release handoff is retained exactly;
+ordinary event timing, ordering and envelopes are unchanged. Render copies/probes
+have no output side effects; failed renders export no new events or cancel masks.
+The platform drains only the actual committed player's export once. Settings can
+change only while stopped with no queued/cancelling work, active/uncertain pitches,
+abort or unresolved cleanup. A cleaned-up playback fault remains latched for
+existing START recovery. STOP does not clear the configured delay; fresh startup
+defaults it to zero. Unmute cannot resurrect cancelled notes; normal sequenced
+retrigger rules still apply.
+
+Worst-case cancellation now visits/copies at most 1024 entries (16 KiB), four
+times the old 256-entry scan; normal timer service remains capped at eight
+commands and one transfer. Compaction runs once per committed cancellation mask
+in the audio-owner handoff. Audio and MIDI timer IRQs both use priority 208, so
+the timer cannot preempt that work; it may postpone MIDI service, audio completion
+and lower-priority work. Main-context access still requires interrupt exclusion.
+The scan is fixed and bounded, but its elapsed time, effect on the 100 us service
+cadence and CPU/deadline headroom are **not hardware-validated**. Tests exercise
+896 queued events and exact survivor order; they establish functional behavior,
+not a timing guarantee. The unchanged lateness/overflow cleanup policy remains
+the explicit failure path if realtime service cannot keep up.
+
+The owner-selected values for the later configuration-integration test are
+Windows `midi_delay_ms=82` (following an approximately 82 ms Bridge measurement)
+and handheld `midi_delay_ms=25`. These are explicit test values, not engine or
+platform defaults. No configuration files are changed here, no host option is
+implemented yet, and missing configuration must continue to mean zero delay.
 
 At the timer-service timestamp, a command more than one nominal block (**2903 us**) late, malformed/backward
 input, disconnected enqueue, or queue overflow latches a fault, cancels unsent
@@ -137,7 +291,7 @@ remain intact. USB configuration/attachment, transfer acceptance, USB completion
 application consumption, routing and external synth presence/delivery are separate
 facts. Teensy USB MIDI cannot detect an external synth behind its host.
 
-A fault cancels all 64-slot software work, rejects further musical batches for
+A fault cancels all 1024-slot software work, rejects further musical batches for
 that session, and requests asynchronous **MIDI TX endpoint only** DMA cancellation.
 The timer writes ENDPTFLUSH and checks once per service for flush/prime/status
 completion, reissuing the flush if the endpoint is still active. Only then does it

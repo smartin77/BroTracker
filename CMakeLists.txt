@@ -187,6 +187,7 @@ add_executable(BroTrackerTests
     tests/test_sine_synth.cpp
     tests/test_channel_mute.cpp
     tests/test_midi_foundation.cpp
+    tests/test_midi_note_delay.cpp
     tests/test_midi_usb_core.cpp
     tests/test_midi_status_exchange.cpp
     tests/test_streamed_sample_voice.cpp
@@ -346,6 +347,13 @@ add_executable(BroTrackerDeviceFactsTests tests/test_main.cpp tests/test_device_
 target_include_directories(BroTrackerDeviceFactsTests PRIVATE tests/stubs/production_audio tests src ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerDeviceFactsTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerDeviceFactsTests COMMAND BroTrackerDeviceFactsTests)
+
+add_executable(BroTrackerMidiDelaySetupTests tests/test_main.cpp tests/test_midi_delay_setup.cpp
+    tests/test_production_audio_output.cpp firmware/teensy/BroTracker/production_audio_output.cpp)
+target_include_directories(BroTrackerMidiDelaySetupTests PRIVATE tests/stubs/production_audio tests src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerMidiDelaySetupTests PRIVATE AUDIO_INTERFACE)
+target_link_libraries(BroTrackerMidiDelaySetupTests PRIVATE BroTrackerBringUp)
+add_test(NAME BroTrackerMidiDelaySetupTests COMMAND BroTrackerMidiDelaySetupTests)
 
 # Focused default/opt-in production mix and output-graph checks; no hardware.
 foreach(mode Default SynthLeft)

@@ -11,6 +11,7 @@
 #include <IntervalTimer.h>
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_output.h"
+#include "bringup/midi_note_delay_service.h"
 extern "C" {
 int brotracker_midi_try_submit(const uint32_t*, uint32_t, uint32_t);
 int brotracker_midi_tx_fault(uint32_t);
@@ -246,9 +247,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve the existing discovery burst plus the device capability/facts pair.
-    constexpr std::size_t kDiscoveryReserve = 34;
-    constexpr std::size_t kTxCapacity = 35;
+    // Reserve discovery including device facts and the optional delay capability.
+    constexpr std::size_t kDiscoveryReserve = 35;
+    constexpr std::size_t kTxCapacity = 36;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -350,6 +351,7 @@ namespace
         QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
         if(advertise_snapshot) (void)QueueLine("BTMUTE1 CAP 1\n");
         QueueMuteState();
@@ -818,6 +820,16 @@ namespace
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTMUTE1 %s 1 %lu\n",accepted?"SUBMITTED":"REJECTED",(unsigned long)f[0]);
                     (void)QueueLine(reply);
                 }
+            }
+            else if (!std::strncmp(line,"BTMIDIDELAY1",12)) {
+                MidiDelayRequest request;MidiDelayReply result;char reply[96];
+                if(ParseMidiDelayRequest(line,used,request)) {
+                    { InterruptGuard guard;
+                      const bool stopped=g_control.Snapshot().transport==PatternTransportState::Stopped;
+                      result=ApplyMidiDelayRequest(request,g_protocol_connected,stopped,g_output,g_midi);
+                    }
+                }
+                if(FormatMidiDelayReply(result,reply,sizeof(reply))) (void)QueueLine(reply);
             }
             else if (!std::strncmp(line,"BTMIDI1",7)) {
                 char reply[192];

@@ -7,6 +7,7 @@
 #include "bringup/pattern_directory.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/device_facts.h"
+#include "bringup/host_midi_note_delay.h"
 #include "bringup/development_pattern_selection.h"
 #include "live_playback_view.h"
 #include "local_pattern_editor.h"
@@ -134,6 +135,9 @@ public:
     bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
+    void SetMidiNoteDelay(unsigned ms,bool invalid=false){midi_delay_.Configure(ms,invalid);}
+    bool MidiDelayReady()const{return midi_delay_.Ready();}
+    const char* MidiDelayStatus()const{return midi_delay_.Status();}
     bool DeviceFactsSupported() const {return device_facts_supported_;}
     const BroTracker::DeviceFacts* DeviceFacts() const {return device_facts_valid_?&device_facts_:nullptr;}
     bool AudioTransportReady() const {
@@ -187,6 +191,8 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    BroTracker::HostMidiNoteDelay midi_delay_;
+    char logged_midi_delay_[256]{};
     bool device_facts_supported_=false,device_facts_valid_=false;
     BroTracker::DeviceFacts device_facts_;
     bool sd_status_supported_=false;

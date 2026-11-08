@@ -285,6 +285,13 @@ requires a matching acknowledgment before allowing START for a requested route;
 mismatch, unsupported old firmware, rejection or timeout is visible in status/logs.
 There is no silent acknowledgment of a different output.
 
+The shared host additionally negotiates optional fixed MIDI note delay after
+audio confirmation; see [MIDI setup protocol](MIDI_FOUNDATION.md#configuration-and-acknowledged-setup).
+Only actual initialized Bridge permits nonzero delay. GET is read-only; a changed
+value requires stopped transport and completed MIDI cleanup. START/CONTINUE wait
+for acknowledged applicable setup, PAUSE/STOP stay available, and no automatic
+STOP/reset/playback is added. The audio graph lifetime is unchanged.
+
 The same audio-readiness gate applies to CONTINUE. Space while stopped or paused
 reports whether selection is still waiting or has failed, including the requested
 and device-reported active routes on `restart-required` and the instruction to

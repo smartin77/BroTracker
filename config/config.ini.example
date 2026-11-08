@@ -54,10 +54,7 @@ capture_holdback_frames=0
 
 [midi]
 ; USB device output channel: decimal 1..16; built-in/empty/missing: 12.
-; Invalid warns once, uses 12. Capability-gated ACK before START; old firmware
-; reports unsupported. Changed active channel needs Teensy restart; reload BTX.
-; Reconnect never autoSTARTs. No external-presence detection, routing, per-part
-; channels, MIDI clock or latency compensation.
+; Channel changes need Teensy restart. Reconnect never starts playback.
 output_channel=12
 
 [diagnostics]
@@ -80,3 +77,6 @@ startup_pattern=none
 ; false skips only the Load replacement prompt. Restart BTX after editing.
 [pattern]
 confirm_load_replace=true
+
+[audio.bridge]
+midi_delay_ms=0

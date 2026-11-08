@@ -88,6 +88,7 @@ int main(int argc, char* argv[]) try {
     BringUpSerial serial(log_file);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
     serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
+    serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
     if(host_config.config.startup_pattern_invalid)serial.SetStartupPattern("invalid.filename");
@@ -168,6 +169,7 @@ int main(int argc, char* argv[]) try {
             (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+        panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();

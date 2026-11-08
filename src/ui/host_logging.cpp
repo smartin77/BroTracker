@@ -164,6 +164,9 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Terminal","BTX application start; platform=%s; build=%s %s; device firmware build identity unavailable",platform,__DATE__,__TIME__);
     HostLogf(file,HostLogLevel::Basic,"Configuration","%s; path=%s; new_pattern_length=%u value_step_direction=%s",HostConfigDiagnostic(config.status),path.empty()?"unavailable (executable directory resolution failed)":path.u8string().c_str(),config.config.new_pattern_length,config.config.value_step_direction==ValueStepDirection::Reversed?"reversed":"normal");
     HostLogf(file,HostLogLevel::Basic,"Configuration","audio.output=%s (Teensy production route)", AudioOutputName(config.config.audio_output));
+    HostLogf(file,HostLogLevel::Basic,"Configuration","audio.bridge.midi_delay_ms=%u (configured intent; effective value requires Teensy verification)",config.config.midi_delay_ms);
+    if(config.config.midi_delay_ms_invalid)HostLog(file,HostLogLevel::Basic,"Configuration",
+        "Invalid [audio.bridge] midi_delay_ms: expected whole integer 0..160; START/CONTINUE blocked until corrected; other config retained");
     HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
     HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
     if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",

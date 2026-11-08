@@ -1,5 +1,6 @@
 #pragma once
 #include "core/audio/variable_rate_voice_block_renderer.h"
+#include "device_facts.h"
 #include <cstdint>
 
 namespace BroTracker {
@@ -7,7 +8,39 @@ namespace BroTracker {
 // main-context access requires interrupt exclusion. No allocation or I/O here.
 class MidiOutput {
 public:
-    static constexpr unsigned Capacity=64, ServiceBudget=8;
+    static constexpr unsigned Capacity=1024, ServiceBudget=8;
+    static constexpr std::uint32_t MaximumNoteDelayMs=160;
+    // 120ms: (42+2)*16=704; 160ms: (56+2)*16=928. Round up to
+    // a power of two to retain cheap ring indexing; service margin is unchanged.
+    static_assert(Capacity>=((std::uint64_t(MaximumNoteDelayMs)*44100u+127999u)/128000u+2u)*kVariableRateVoiceCommandCapacity,
+                  "Delay horizon must fit the fixed queue");
+    static_assert((Capacity&(Capacity-1u))==0,"Keep ring indexing power-of-two bounded");
+    enum class DelaySetting { Applied, Invalid, NotStopped, Pending, Cleanup, AudioNotReady };
+    DelaySetting NoteDelayReadiness(bool stopped) const noexcept {
+        if(!stopped)return DelaySetting::NotStopped;
+        if(count_ || cancel_mask_)return DelaySetting::Pending;
+        // A latched playback fault can remain after cleanup is confirmed. It
+        // still requires existing START recovery, but must not deadlock setup.
+        if(cleanup_ || abort_ || HasNotes())return DelaySetting::Cleanup;
+        return DelaySetting::Applied;
+    }
+    DelaySetting SetNoteDelayMs(std::uint32_t ms,AudioOutputChoice route,
+                               AudioInitialization audio,bool stopped) noexcept {
+        const bool known_route=route==AudioOutputChoice::Default || route==AudioOutputChoice::Bridge ||
+            route==AudioOutputChoice::Pt8211 || route==AudioOutputChoice::AudioShield;
+        const bool known_state=audio==AudioInitialization::Uninitialized || audio==AudioInitialization::Initialized ||
+            audio==AudioInitialization::Failed;
+        if(ms>MaximumNoteDelayMs || !known_route || !known_state ||
+            ((route==AudioOutputChoice::Default)!=(audio==AudioInitialization::Uninitialized)))return DelaySetting::Invalid;
+        const auto readiness=NoteDelayReadiness(stopped);
+        if(readiness!=DelaySetting::Applied)return readiness;
+        if(ms && audio!=AudioInitialization::Initialized)return DelaySetting::AudioNotReady;
+        // Output queue timebase is micros(): integer milliseconds are exact.
+        delay_us_=route==AudioOutputChoice::Bridge && audio==AudioInitialization::Initialized ?
+            static_cast<std::uint32_t>(std::uint64_t(ms)*1000u):0;
+        return DelaySetting::Applied;
+    }
+    std::uint32_t NoteDelayUs() const noexcept {return delay_us_;}
     static constexpr std::uint32_t DeadlineUs=(128u*1000000u+44100u-1)/44100u;
     struct Counters {
         std::uint32_t submitted=0, busy=0, late=0, overflow=0, disconnect=0;
@@ -48,13 +81,24 @@ public:
     // DMA or queued event can still run. Explicit Reset re-arms cleanup and
     // blocks storage again until completed or safely quarantined.
     bool StorageReady(bool backend_idle) const noexcept {
-        return backend_idle && !abort_ && !count_ &&
+        return backend_idle && !abort_ && !count_ && !cancel_mask_ &&
             (!cleanup_ || (fault_ && cleanup_blocked_));
     }
 
     // Cancel unsent work, release only notes this adapter has submitted.
     // Submission is never an assertion of host/external delivery.
-    void Reset() noexcept { head_=count_=0; cleanup_=true; cleanup_cursor_=0; cleanup_all_submitted_=false; cleanup_sent_=false; cleanup_blocked_=false; abort_=true; }
+    void Reset() noexcept { head_=count_=cancel_mask_=0; cleanup_=true; cleanup_cursor_=0; cleanup_all_submitted_=false; cleanup_sent_=false; cleanup_blocked_=false; abort_=true; }
+    // Successful render handoff only. Compact once, retaining peer order, then
+    // release submitted ownership through the immediate (undelayed) service path.
+    void CancelChannels(unsigned mask) noexcept {
+        mask&=255u;unsigned retained=0;
+        for(unsigned i=0;i<count_;++i) {
+            const auto event=queue_[(head_+i)%Capacity];
+            if(!(mask&(1u<<event.tracker)))queue_[(head_+retained++)%Capacity]=event;
+        }
+        count_=retained;
+        if(!cleanup_ && !fault_)cancel_mask_|=mask; // Global/quarantined cleanup already owns release.
+    }
     // Called only after the backend observes all accepted DMA transfers complete
     // without errors. Host USB completion is still not external delivery proof.
     void ConfirmTransfers() noexcept {
@@ -95,7 +139,7 @@ public:
         for(unsigned i=0;i<batch.count;++i) {
             const auto& c=batch.commands[i];
             auto& e=queue_[(head_+count_++)%Capacity];
-            e={base+c.sample_offset,render_us+static_cast<std::uint32_t>(c.sample_offset*1000000u/44100u),
+            e={base+c.sample_offset,render_us+static_cast<std::uint32_t>(c.sample_offset*1000000u/44100u)+delay_us_,
                static_cast<std::uint8_t>(c.channel),static_cast<std::uint8_t>(c.synth_note),
                c.action==VariableRateVoiceAction::TriggerMidi};
             Increment(counters.submitted);
@@ -124,6 +168,18 @@ public:
             return;
         }
         int tentative[8]; for(unsigned c=0;c<8;++c) tentative[c]=notes_[c];
+        if(cancel_mask_) {
+            for(unsigned c=0;c<8;++c)if(cancel_mask_&(1u<<c))tentative[c]=-1;
+            for(unsigned c=0;c<8;++c)if((cancel_mask_&(1u<<c)) && notes_[c]>=0 && !Contains(tentative,notes_[c])) {
+                const auto word=Pack(false,notes_[c]);
+                bool duplicate=false;for(unsigned i=0;i<n;++i)duplicate|=words[i]==word;
+                if(!duplicate)words[n++]=word;
+            }
+            if(n && !try_submit(words,n)) {Increment(counters.busy);return;}
+            if(n) {Increment(counters.transfers);for(unsigned i=0;i<n;++i)Mark((words[i]>>16)&127u);}
+            for(unsigned c=0;c<8;++c)notes_[c]=tentative[c];
+            cancel_mask_=0;return; // At most one transfer and eight urgent OFFs.
+        }
         unsigned consumed=0;
         while(consumed<count_ && consumed<ServiceBudget) {
             const auto& e=queue_[(head_+consumed)%Capacity];
@@ -162,7 +218,9 @@ private:
     void Mark(unsigned note) noexcept { uncertain_[note/32] |= 1u<<(note%32); }
     bool HasNotes() const noexcept { for(auto bits:uncertain_) if(bits) return true; return false; }
     void Fail(Fault reason) noexcept { if(!fault_) reason_=reason; fault_=true; Reset(); }
-    struct Event { std::uint64_t sample=0; std::uint32_t release_us=0; std::uint8_t tracker=0,note=0; bool on=false; };
+    struct Event { std::uint64_t sample=0; // Musical sample position, never shifted.
+        std::uint32_t release_us=0; // Delivery deadline, including fixed delay.
+        std::uint8_t tracker=0,note=0; bool on=false; };
     Event queue_[Capacity]{};
     int notes_[8]={-1,-1,-1,-1,-1,-1,-1,-1};
     std::uint32_t uncertain_[4]{};
@@ -172,6 +230,8 @@ private:
     bool activated_=false,connected_=false,cleanup_=false,fault_=false,abort_=false,cleanup_blocked_=false;
     Fault reason_=Fault::None;
     std::uint32_t generation_=0;
+    std::uint32_t delay_us_=0;
+    unsigned cancel_mask_=0;
 };
 // Shared platform handoff policy: always drain the engine export, even while a
 // sink is quarantined. MIDI admission failure never mutates core/audio control.
@@ -180,7 +240,17 @@ void CollectMidiBlock(Control& control, MidiOutput& midi, std::uint32_t render_u
                       unsigned frames=128) noexcept {
     auto& player=control.OutputPlayer().MidiPlayer();
     if(player.TakeMidiReset()) midi.Reset();
-    const auto batch=player.TakeMidiCommands();
+    auto cancelled=player.TakeMidiCancelMask();
+    if(!midi.NoteDelayUs())cancelled=0; // Preserve the existing zero-delay mute handoff exactly.
+    if(cancelled)midi.CancelChannels(cancelled);
+    auto batch=player.TakeMidiCommands();
+    unsigned retained=0;
+    for(unsigned i=0;i<batch.count;++i) {
+        const auto& c=batch.commands[i];
+        if(c.channel<8 && c.action==VariableRateVoiceAction::Release && !c.sample_offset && (cancelled&(1u<<c.channel)))continue;
+        batch.commands[retained++]=c;
+    }
+    batch.count=retained;
     if(batch.count) (void)midi.Enqueue(batch,player.GetNextSamplePosition()-frames,render_us);
 }
 }

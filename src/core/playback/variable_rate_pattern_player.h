@@ -55,6 +55,7 @@ namespace BroTracker
         // Successful render export, consumed once by the platform output adapter.
         VariableRateVoiceCommandBatch TakeMidiCommands() noexcept { auto b=midi_commands_; midi_commands_.count=0; return b; }
         bool TakeMidiReset() noexcept { const bool reset=midi_reset_; midi_reset_=false; return reset; }
+        unsigned TakeMidiCancelMask() noexcept {const auto mask=midi_cancel_mask_;midi_cancel_mask_=0;return mask;}
         // Validate every active cell and timing enum (including non-OFF cells),
         // dimensions, tempo/rate and active sample
         // bindings before committing. Inactive cells are never consumed. Binding
@@ -86,7 +87,7 @@ namespace BroTracker
             cursor_ = cursor;
             preparer_ = preparer;
             renderer_ = renderer;
-            midi_reset_=true; midi_commands_.count=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
             gains_ = {}; // Successful configuration restores exact unity.
             mute_mask_=mute_releases_=mute_history_=0;
             configured_ = true;
@@ -247,7 +248,7 @@ namespace BroTracker
         // Idempotent, also valid before configuration. Retain pattern/bindings.
         void Stop() noexcept
         {
-            midi_reset_=true; midi_commands_.count=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
             if (preview_pending_) pattern_ = preview_pattern_;
             preview_pending_ = false;
             pending_ = {};
@@ -272,7 +273,7 @@ namespace BroTracker
             if (transport_ != VariableRatePatternTransportState::Playing) return VariableRatePatternPlayerStatus::InvalidTransportState;
             if(pending_tempo_) { tempo_hundredths_=pending_tempo_; pending_tempo_=0; }
             pending_ = {};
-            midi_reset_=true; midi_commands_.count=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
             renderer_.Reset(); transport_ = VariableRatePatternTransportState::Paused;
             return VariableRatePatternPlayerStatus::Success;
         }
@@ -475,7 +476,7 @@ namespace BroTracker
             tempo_hundredths_=tempo; pending_tempo_=next_tempo;
             preparer_ = preparer;
             renderer_ = renderer;
-            midi_commands_=commands; mute_releases_=0;
+            midi_commands_=commands; midi_cancel_mask_|=mute_releases_; mute_releases_=0;
             position_ = position;
             // BeginBlock checked the absolute block end for uint64_t overflow.
             next_sample_ += frame_count;
@@ -553,6 +554,7 @@ namespace BroTracker
         VariableRateVoiceBlockRenderer renderer_;
         VariableRateVoiceCommandBatch midi_commands_{};
         bool midi_reset_=true;
+        unsigned midi_cancel_mask_=0;
         bool configured_ = false;
         VariableRatePatternTransportState transport_ = VariableRatePatternTransportState::Stopped;
         std::uint64_t next_sample_ = 0;

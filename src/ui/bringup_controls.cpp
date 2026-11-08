@@ -44,6 +44,11 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         (!serial_.SupportsPatternTransport() || !serial_.Playing())))) {
         Log(serial_.AudioReadinessStatus());return;
     }
+    if(serial_.Connected() && !serial_.MidiDelayReady() &&
+        (action==BringUpAction::Start || (action==BringUpAction::PatternToggle &&
+        (!serial_.SupportsPatternTransport() || !serial_.Playing())))) {
+        Log(serial_.MidiDelayStatus());return;
+    }
     if(load_save_screen_ && action==BringUpAction::ScreenLeft)action=BringUpAction::BrowserBack;
     const bool recovery_available=serial_.RecoveryMenuAvailable();
     if(action==BringUpAction::ScreenLeft && recovery_available && !load_save_screen_) {

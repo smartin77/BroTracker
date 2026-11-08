@@ -67,8 +67,8 @@ TEST_CASE(MidiDeadlinesCapacityBusyRetryAndClockWrap) {
     CHECK(h.output.PendingCleanup()); h.Service(10000); CHECK(h.output.PendingCleanup());
     h.busy=false; h.Service(10100); CHECK_EQ(h.words.back(),h.output.Pack(false,69)); CHECK(!h.output.PendingCleanup());
     CHECK(!h.output.Enqueue(Command(0,70),0,0));
-    MidiHarness full; for(unsigned i=0;i<64;++i) CHECK(full.output.Enqueue(Command(0,69),i,0));
-    CHECK_EQ(full.output.Queued(),64); CHECK(!full.output.Enqueue(Command(0,69),64,0));
+    MidiHarness full; for(unsigned i=0;i<MidiOutput::Capacity;++i) CHECK(full.output.Enqueue(Command(0,69),i,0));
+    CHECK_EQ(full.output.Queued(),MidiOutput::Capacity); CHECK(!full.output.Enqueue(Command(0,69),MidiOutput::Capacity,0));
     CHECK(full.output.Faulted()); CHECK_EQ(full.output.counters.overflow,1);
     MidiHarness bounded; for(unsigned i=0;i<16;++i) CHECK(bounded.output.Enqueue(Command(0,69),i,0));
     bounded.Service(0); CHECK_EQ(bounded.output.Queued(),8); CHECK_EQ(bounded.words.size(),15);
@@ -162,7 +162,7 @@ TEST_CASE(MidiFailureRecoveryDropsBacklogAndKeepsUncertainOwnershipAcrossDisconn
         MidiHarness h; h.Send(0,69); h.output.TakeAbortRequest();
         if(overflow) {
             for(unsigned i=0;i<MidiOutput::Capacity;++i) CHECK(h.output.Enqueue(Command(1,70),i,0));
-            CHECK(!h.output.Enqueue(Command(1,71),64,0));
+            CHECK(!h.output.Enqueue(Command(1,71),MidiOutput::Capacity,0));
         } else {
             CHECK(h.output.Enqueue(Command(1,70),1,0)); h.busy=true;
             h.Service(MidiOutput::DeadlineUs+1);

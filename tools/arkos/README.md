@@ -255,6 +255,23 @@ Reconnect resends the preference but never starts playback or resets an unchange
 route. The acknowledged route must match; a different locked route is rejected
 with restart-required. PT8211 is manual only; no presence detection is enabled.
 
+Optional development MIDI compensation uses the same shared setup as Windows:
+
+```ini
+[audio.bridge]
+midi_delay_ms=25
+```
+
+Add this owner-selected handheld test value to the existing installed
+`/roms/ports/brotracker/config/config.ini`, preserving other values. Missing means
+zero; examples/defaults stay zero. Only whole integers 0..160 are accepted.
+Restart BTX after editing. Updated Teensy firmware is required for nonzero delay;
+only confirmed initialized Bridge applies it (PT8211/Shield acknowledge zero).
+BTX verifies the current value first, then asks for user STOP/cleanup if a change
+is needed. There is no automatic STOP/reset/playback. Logs/UI show configured and
+acknowledged effective milliseconds separately; failures block START/CONTINUE,
+while PAUSE/STOP remain available. See [protocol and activation](../../docs/MIDI_FOUNDATION.md#configuration-and-acknowledged-setup).
+
 Packages/installations carry `config/config.ini.example` as an example
 inside the application tree. Neither launcher nor installer creates or overwrites
 the actual runtime config. Merge the example manually if a user file exists.
