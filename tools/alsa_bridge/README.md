@@ -966,13 +966,43 @@ Windows parses the shared field and ignores it for audio. Restart BTX to reload.
 
 Recommended opt-in starting point is 45 frames, physically tested by the owner on
 dArkOS: sound improved and was accepted for the fallback USB bridge, although
-quiet crackles remained. External MIDI via H4MIDI to WASP also worked. Only 45 has
-physical validation; all other nonzero values remain experimental. This reserve
+quiet crackles remained. Latest owner acceptance (2026-11-08) includes current
+configuration-driven 25 ms MIDI compensation with sine/MIDI and Sample/MIDI
+recordings at 45-frame holdback. The additional 64-frame recording was sine only,
+without WASP, specifically for crackle assessment. The owner perceived no clear
+improvement; waveform analysis found no convincing reduction in transient
+candidates, not definitive audible-click counts. Keep 45 recommended; 64 was
+compared only in that scope, and other nonzero values remain experimental.
+Occasional quiet crackles, most noticeable on sine, remain accepted for the
+fallback platform; this is not universally crackle-free or latency-free playback.
+This reserve
 keeps reads behind the newest available capture frames, without filtering,
 interpolation, discard or PCM synthesis, and does not guarantee clean audio.
 At 44.1 kHz, 45/64/128 frames represent about 1.02/1.45/2.90 ms of capture reserve,
 not total end-to-end latency. Larger values may delay audio relative to external
 MIDI and alter read/wait behavior; larger is not necessarily better.
+
+The latest topology was handheld USB-C OTG -> unpowered hub -> Teensy and H4MIDI,
+with no H4MIDI external adapter connected and Wi-Fi dongle disconnected. H4MIDI
+functioned powered through the hub from the handheld, WASP played, and its LEDs
+went out when the console powered off. Earlier separately powered H4MIDI results
+remain historical; no current capacity, electrical compliance or long-term
+stability is inferred from this corrected latest topology.
+
+The bridge functionality/compensation milestone is owner-accepted (Windows 82 ms,
+dArkOS 25 ms); these are configured values, not measured end-to-end latency or
+quantified onset/jitter. No unreported external MIDI mute/OFF/transport validation
+is implied. Residual crackles and optional latency optimization remain future
+work; the Windows 30 -> 20 ms queue-target experiment is proposed and unexecuted.
+
+Separate owner observation: connecting the handheld charging/power connector to a
+PC by USB increases analog-output hum; an adapter reduces it only partially.
+No electrical measurements or controlled grounding diagnosis were performed.
+Neither a ground loop nor a USB supply defect is proven; hum is distinct from
+discrete bridge crackles and SD streaming underruns. SD initialization/blocking
+robustness and CDC startup receive overflow remain open, regardless of recent
+successful playback. Instrument screen foundation is the next feature milestone
+(see [TODO](../../docs/TODO_LIST.md)).
 
 This works independently of `bridge_audible_test`; diagnostic recording is not
 required. Existing raw-hardware/2048-frame capture-buffer validation, PCM formats,

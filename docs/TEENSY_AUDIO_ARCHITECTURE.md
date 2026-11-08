@@ -1315,21 +1315,38 @@ acceptance at 82 ms and existing sine/MIDI and sample/MIDI recordings are docume
 in [MIDI Foundation](MIDI_FOUNDATION.md#optional-fixed-sequenced-note-delay); no
 quantified onset/jitter result or universal latency value is established.
 
-## Current bridge refinement and pending handheld validation (2026-11-08)
+## Accepted bridge functionality/compensation milestone (2026-11-08)
 
-Linux `[audio] capture_holdback_frames=0..128` is implemented (default 0); Windows
-parses/logs and ignores it for audio. Shared config/launcher/metadata checks passed;
-see `_backyard/capture-holdback-frames/results.txt`. Earlier owner dArkOS offline
-playback with Teensy/H4MIDI on an unpowered OTG hub, Wi-Fi disconnected, produced
-WASP audio. At 45 frames, occasional quiet sine crackles remained, were not noticed
-in complex pattern 4, and the fallback bridge result was accepted. This does not
-validate configuration-driven selection or external MIDI mute/OFF/transport.
+The owner accepts Windows USB bridge/H4MIDI/WASP compensation at 82 ms and current
+dArkOS integration at 25 ms. Linux `[audio] capture_holdback_frames=0..128` remains
+implemented with default 0; Windows parses/logs and ignores it for audio. Current
+configuration-driven delay/holdback validation is complete to the tested scope:
+sine/MIDI and Sample/MIDI recordings at 45 frames, plus sine alone without WASP
+at 64 frames specifically to assess crackling. The owner perceived no clear
+improvement at 64; waveform analysis found no convincing reduction in transient
+candidates, not definitive audible-click counts. Keep 45 as the recommended opt-in
+starting value. Occasional quiet crackles remain, most noticeable on sine, and are
+accepted for the fallback platform, not universally crackle-free/latency-free audio.
 
-Pending before feature advancement: current shared MIDI-delay integration at
-configured handheld 25 ms, configuration-driven holdback and 45 vs 64 comparison,
-remaining crackles and agreed bridge refinement/latency validation. The Windows
-queue-target change 1323 -> 882 frames (30 -> 20 ms) is proposed only; it is neither
-implemented nor approved as the new default. Capacity is not observed occupancy;
-82/25 ms compensation settings are not total platform latency measurements.
-After bridge closure the next feature priority is Instrument screen foundation,
-with planned entry and transition policy in [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry).
+Latest power topology: handheld USB-C OTG -> unpowered hub -> Teensy and H4MIDI;
+H4MIDI's external adapter was NOT connected. It functioned powered through the hub
+from the handheld and WASP played; its LEDs went out when the console powered off.
+Wi-Fi dongle was disconnected. This corrects assumptions about these latest runs;
+earlier separately powered H4MIDI observations remain historical. No power-current
+capacity, electrical compliance or long-term stability is inferred.
+
+Separately, the owner reports increased handheld analog-output hum when its
+charging/power connector is connected to a PC by USB. An adapter reduces the hum
+only partially. No electrical measurements or controlled grounding diagnosis were
+performed; ground loop, USB supply defect or other cause is not proven. Keep this
+separate from discrete bridge crackles and SD streaming underruns.
+
+Configured 82/25 ms compensation is not measured end-to-end latency; external MIDI
+playback acceptance does not establish unreported mute/OFF/transport behavior or
+quantified timing. Residual crackles and optional latency optimization remain
+future work. Windows queue target 1323 -> 882 frames (30 -> 20 ms) remains proposed,
+unexecuted and not approved as the new default. SD initialization/blocking
+robustness and CDC startup receive overflow remain open; successful recent tests
+do not resolve their historical causes. Instrument screen foundation is the next
+agreed feature milestone, with planned Ctrl+Up / Select+D-pad Up and transition
+policy in [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry).

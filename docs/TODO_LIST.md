@@ -10,17 +10,16 @@ Items may be added during development to record agreed next steps or work that n
 
 ### Agreed priorities (updated 2026-11-08)
 
-1. Close current bridge-audio fixes/refinement and agreed validation before the
-   next feature milestone. Handheld: validate current MIDI-delay integration at
-   configured 25 ms and configuration-driven capture holdback, comparing 45 vs 64
-   frames. Remaining crackles and latency optimization stay open. Windows queue
-   target 1323 -> 882 frames is proposed only, not implemented or approved as the
-   new default; it needs a separately scoped implementation/A/B task.
-2. After that closure, Instrument screen foundation is the owner's next feature
-   priority; see the milestone below. Audio Shield and remaining streaming work
-   retain their open checks, without an invented order ahead of Instrument.
+1. Bridge functionality/compensation milestone is accepted by the owner: Windows
+   USB bridge/H4MIDI/WASP at 82 ms and current dArkOS integration at 25 ms.
+   Configuration-driven delay/holdback validation is complete to the scope below;
+   residual quiet crackles are accepted for the fallback platform. Optional latency
+   optimization remains future work, not a blocker for the next feature.
+2. Instrument screen foundation is the next agreed feature milestone; see below.
+   Audio Shield and remaining streaming work retain their open checks, without an
+   invented order ahead of Instrument.
 
-Owner evidence, distinct from pending integration tests. Older severe-crackling
+Owner evidence, distinct from quantified timing or broader qualification. Older severe-crackling
 and routing-pending entries below retain their historical scope; the following
 acceptance supersedes a blanket claim that handheld playback is still unconfirmed:
 
@@ -40,12 +39,39 @@ acceptance supersedes a blanket claim that handheld playback is still unconfirme
   acceptance, not quantified onset/jitter analysis or universal Windows latency.
   See [MIDI configuration and setup](MIDI_FOUNDATION.md#configuration-and-acknowledged-setup).
 
-### Implemented bridge preparation; handheld validation pending
+### Accepted bridge milestone and remaining follow-up (2026-11-08)
+
+* [x] Current dArkOS integration at configured 25 ms works and is accepted.
+  Sine/MIDI and Sample/MIDI recordings used configuration-selected 45-frame capture
+  holdback. The additional 64-frame recording was sine only, without WASP, to assess
+  crackling. The owner perceived no clear improvement; waveform analysis found no
+  convincing reduction in transient candidates, not definitive audible-click counts.
+  Keep 45 as the recommended opt-in starting value. Occasional quiet crackles,
+  especially on sine, are accepted for this fallback bridge-audio platform.
+* [x] Correct latest topology: handheld USB-C OTG -> unpowered hub -> Teensy and
+  H4MIDI. H4MIDI's external adapter was NOT connected; it operated from the handheld
+  through the hub and WASP played. H4MIDI LEDs went out when the console powered off.
+  Wi-Fi dongle was disconnected. This supersedes externally powered assumptions for
+  these runs, not earlier separately powered results. No current-capacity,
+  electrical-compliance or long-term-stability conclusion follows.
+* [ ] Retain residual crackles and optional latency optimization as future work.
+  Windows queue target 1323 -> 882 frames (30 -> 20 ms) remains proposed and
+  unexecuted, not approved as the new default. Configured 82/25 ms compensation is
+  distinct from measured end-to-end latency; no quantified timing or unreported
+  external MIDI mute/OFF/transport validation is claimed.
+* [ ] Investigate analog-output hum separately: owner reports more hum when the
+  handheld charging/power connector is connected to a PC by USB; an adapter reduces
+  it only partially. No electrical measurements or controlled grounding diagnosis;
+  ground loop, USB supply defect or other cause is not proven. This is distinct
+  from discrete bridge crackles and SD streaming underruns.
+* [ ] Keep SD initialization/blocking robustness and CDC startup receive overflow
+  open for later investigation. Successful recent tests do not resolve their
+  historical causes.
 
 * [x] Add Linux `[audio] capture_holdback_frames=0..128` (default 0); Windows
   parses/logs but ignores it. Shared config, launcher, metadata and focused delivery
-  checks pass. Only 45 has earlier physical acceptance; configuration-driven
-  selection and 45 vs 64 comparison remain pending. See
+  checks pass. Configuration-driven selection and the scoped 45/64 comparison are
+  now physically completed as recorded above; 45 remains recommended. See
   `_backyard/capture-holdback-frames/results.txt`.
 * [x] Provide temporary `teensy41_dev_synth_left` diagnostic firmware: original
   full mix left, right excludes Synth and Sample04/raw3, other Samples retained.
@@ -55,7 +81,7 @@ acceptance supersedes a blanket claim that handheld playback is still unconfirme
   Recordings now exist for Windows sine/MIDI and sample/MIDI; quantified analysis
   remains pending. This is not a general stereo/panning or Instrument feature.
 
-### Instrument screen foundation (next feature after bridge closure)
+### Instrument screen foundation (next agreed feature milestone)
 
 * [ ] Implement the foundation within the existing instrument architecture and
   [screen map](UI_SCREEN_MAP.md#3-instrument-inventory); no new editor capabilities,
@@ -441,8 +467,10 @@ for bindings/startup behavior and distinguish automated from physical evidence.
   configuration/negotiation; only initialized Bridge permits nonzero effective
   delay, native outputs use zero. Windows/ARM64 focused checks and firmware builds
   passed; see MIDI_FOUNDATION.md and `_backyard/bridge-midi-delay/integration/results.md`.
-* [ ] Physically validate current handheld 25 ms integration; keep quantified
-  onset/jitter analysis separate from accepted Windows 82 ms listening.
+* [x] Owner accepts current handheld 25 ms integration with 45-frame holdback,
+  separately from accepted Windows 82 ms listening; see scoped results above.
+* [ ] Quantified onset/jitter analysis and unreported external MIDI control cases
+  remain separate future validation, not conditions for the accepted milestone.
 * [ ] Retain remaining unconfirmed parent-branch physical handheld validations below.
   Bridge diagnostics remain paused; no SSH or handheld deployment in this milestone.
 

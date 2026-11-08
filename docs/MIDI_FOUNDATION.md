@@ -242,8 +242,11 @@ and capability-gated negotiation are now implemented as described above; missing
 configuration means zero. The owner physically tested Windows USB bridge with
 H4MIDI/WASP and accepts 82 ms compensation; sine/MIDI and sample/MIDI recordings
 exist. This is owner acceptance, not quantified onset/jitter analysis or a universal
-Windows latency value. Current handheld integration at configured 25 ms remains
-physically unvalidated. No firmware timer-service timing guarantee follows from
+Windows latency value. Current dArkOS integration at configured 25 ms now works
+and is accepted by the owner; sine/MIDI and Sample/MIDI recordings used 45-frame
+capture holdback. Configuration-driven delay/holdback validation is complete to
+that scope; see the later fallback acceptance below. No firmware timer-service
+timing guarantee follows from
 listening acceptance. Integration evidence: `_backyard/bridge-midi-delay/integration/results.md`
 and `activation.md` (historical delivery/activation state, not later owner results).
 
@@ -693,8 +696,32 @@ holdback, occasional quiet crackles remained audible on sine; the owner did not
 notice them in complex pattern 4 and accepted the fallback bridge-audio result.
 Evidence is retained in `_backyard/btx-darkos-streaming-midi.tar.gz`. This does not
 establish external MIDI mute/OFF/transport validation, quantified onset/jitter,
-current 25 ms integration or configuration-driven holdback selection/comparison
-of 45 vs 64. Hub/Wi-Fi limitations and remaining crackles stay open.
+the then-pending 25 ms integration or configuration-driven holdback comparison.
+The later acceptance below supersedes those pending statuses, not this historical
+observation or the earlier separately powered H4MIDI tests.
+
+Latest owner confirmation (2026-11-08): current dArkOS integration at configured
+25 ms works and is accepted. Sine/MIDI and Sample/MIDI recordings used 45-frame
+capture holdback. The 64-frame recording contained sine without WASP specifically
+for crackle assessment: no clear improvement was perceived, and waveform analysis
+found no convincing reduction in transient candidates. These are not definitive
+counts of audible clicks. Keep 45 as the recommended opt-in starting value.
+Occasional quiet sine crackles remain and are accepted for the fallback platform;
+playback is not claimed universally crackle-free or latency-free.
+
+Correct latest topology: **handheld USB-C OTG -> unpowered USB hub -> Teensy and
+H4MIDI**. H4MIDI's external adapter was **not connected**; it functioned powered
+through the hub from the handheld and WASP played. The owner noticed its LEDs went
+out when the console powered off. Wi-Fi was disconnected. This supersedes any
+externally powered H4MIDI assumption for these latest runs; earlier separately
+powered observations above remain historical results. No power-current capacity,
+electrical compliance or long-term stability is established.
+
+The bridge functionality/compensation milestone is accepted on Windows at 82 ms
+and dArkOS at 25 ms. These are configured compensation values, not measured
+end-to-end latency. External MIDI playback acceptance does not establish unreported
+mute/OFF/transport behavior or quantified onset/jitter. Residual crackles and
+optional latency optimization remain future work; Instrument foundation is next.
 
 ### Open issues and platform limits (2026-10-31, updated 2026-11-03)
 
