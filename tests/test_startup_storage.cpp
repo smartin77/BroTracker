@@ -3,6 +3,10 @@
 #include "ui/bringup_controls.h"
 #include "ui/host_logging.h"
 #include "ui/host_config.h"
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+#include "ui/windows/input.h"
+#include "ui/arkos/input.h"
+#endif
 #include "bringup/pattern_file_store.h"
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
@@ -35,6 +39,7 @@ struct StoragePeer:SerialTransport {
         const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
         CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
     }
+    bool metadata_cap=false,identity_cap=false;std::string saved_view;
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
     unsigned working_note=0;
@@ -60,6 +65,8 @@ struct StoragePeer:SerialTransport {
             rx+="BTTEST1 STATE "+state+"\n";
             rx+=std::string("BTPATTERN1 POS 2 ")+(state=="PLAYING"?"1":"0")+(configured_rows?" 0 0 0 0 "+std::to_string(configured_rows)+" 8\n":pattern==5?" 0 0 0 0 16 3\n":" 0 0 0 0 32 8\n");
             if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\nBTSTORE1 SESSIONCAP 2\n"):std::string{});
+            if(line=="BTTEST1 HELLO" && metadata_cap)rx+="BTSESSION1 CAP 1\nBTSESSION1 VIEW 1 19 6 1 0\n";
+            if(line=="BTTEST1 HELLO" && identity_cap)rx+="BTINS1 CAP 1\n";
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
@@ -100,6 +107,14 @@ struct StoragePeer:SerialTransport {
             if(pattern_save_result=="ok") {saved_pattern=simulated_working;have_saved=true;}
             const auto reply="BTSTORE1 RESULT 1 pattern-save-"+line.substr(sizeof("BTSTORE1 PATTERNSAVE 1 ")-1)+" "+pattern_save_result+" 0\n";
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
+        }
+        else if(line.rfind("BTINS1 GET 1 ",0)==0) {
+            const auto id=std::stoul(line.substr(13));rx+="BTINS1 STATE 1 "+std::to_string(id)+" "+std::to_string(id==2?3:0)+"\n";
+        }
+        else if(line.rfind("BTSTORE1 SAVE 2 ",0)==0) {
+            saved_view=line.substr(16);
+            const auto reply="BTSTORE1 RESULT 1 save "+result+" 0\n";
+            if(hold_save)save_reply+=reply;else rx+=reply;
         }
         else if(line=="BTSTORE1 SAVE 1" || line=="BTSTORE1 DRAFTSAVE 1") {
             if(line=="BTSTORE1 SAVE 1" && cleanup_busy) {rx+="BTSTORE1 RESULT 1 save busy-or-not-ready 0\n";return n;}
@@ -915,5 +930,276 @@ TEST_CASE(SingleScreenRequestWaitsForPostStopReadinessAndAutosaveThenCurrentSess
         wire->save_reply.clear();drive(120,130);
         CHECK_EQ(controls.LoadSaveScreen(),!failure);CHECK(!controls.ScreenPending());CHECK_EQ(count("BTTEST1 STOP"),1);
         if(failure)CHECK(std::string(controls.ScreenStatus()).find("failed")!=std::string::npos);
+    }
+}
+
+TEST_CASE(InstrumentEntryWaitsForStopSaveCapturesContextAndBrowsesWithoutResave) {
+    for(bool failure:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_stop=wire->hold_save=true;wire->metadata_cap=true;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,90,&editor);
+        editor.RestoreCursor({0,0,EditField::Note,false});serial.SyncEditor(editor,1799);
+        wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";serial.Tick(1800);
+        BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);const auto source=editor.Cursor();const auto before=*editor.Draft();
+        const auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){wire->now=i*20;wire->AudioService();serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        const auto count=[&](const char* line){return std::count(wire->commands.begin(),wire->commands.end(),line);};
+        controls.Request(BringUpAction::ScreenUp,"single navigation request",1801);
+        editor.RestoreCursor({4,4,EditField::Instrument,false});
+        controls.Request(BringUpAction::ScreenUp,"coalesce",1802);
+        drive(91,95);CHECK_EQ(count("BTTEST1 STOP"),1);CHECK_EQ(count("BTSTORE1 SAVE 2 0 0 0 0"),0);
+        wire->cleanup_busy=true;wire->state="IDLE";wire->rx+="BTTEST1 STOPPED\n";drive(95,105);
+        CHECK(controls.ScreenPending());CHECK(!controls.LoadSaveScreen());
+        CHECK_EQ(count("BTSTORE1 READY 1"),1);CHECK_EQ(count("BTSTORE1 SAVE 2 0 0 0 0"),0);
+        wire->rx+="BTSTORE1 RESULT 1 session-auto ok 0\n";drive(105,108);
+        CHECK(controls.ScreenPending());CHECK(!controls.LoadSaveScreen()); // Autosave is not an ACK for this request.
+        wire->cleanup_busy=false;drive(108,120);
+        CHECK(controls.ScreenPending());CHECK_EQ(count("BTSTORE1 SAVE 2 0 0 0 0"),1);CHECK(!controls.LoadSaveScreen());
+        if(failure)wire->rx+="BTSTORE1 RESULT 1 save io 0\n";
+        else wire->rx+=wire->save_reply;
+        wire->save_reply.clear();drive(120,130);
+        CHECK_EQ(controls.InstrumentScreen(),!failure);CHECK(!controls.ScreenPending());CHECK_EQ(count("BTTEST1 STOP"),1);
+        if(!failure) {
+            CHECK_EQ(controls.InstrumentNumber(),unsigned(before.cells[source.row][source.channel].instrument)+1);
+            for(unsigned n=0;n<110;++n)controls.Request(BringUpAction::ScreenRight,"next",2700+n);
+            CHECK_EQ(controls.InstrumentNumber(),99u);
+            for(unsigned n=0;n<110;++n)controls.Request(BringUpAction::ScreenLeft,"previous",2900+n);
+            CHECK_EQ(controls.InstrumentNumber(),1u);CHECK_EQ(count("BTSTORE1 SAVE 2 0 0 0 0"),1);
+            controls.Request(BringUpAction::ScreenDown,"Pattern",3100);CHECK(!controls.InstrumentScreen());
+            CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);CHECK(editor.Cursor().field==source.field);
+            auto assigned=before;assigned.cells[source.row][source.channel].instrument=0;
+            CHECK(SamePattern(assigned,*editor.Draft()));CHECK(editor.Undo());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(count("BTTEST1 START"),0);
+        }
+        if(failure)CHECK(std::string(controls.ScreenStatus()).find("failed")!=std::string::npos);
+    }
+}
+
+TEST_CASE(SessionViewIsRestoredOnceSavedWithMusicAndNotReplayedOnReconnect) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=true;wire->identity_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    CHECK(editor.Ready());CHECK_EQ(editor.Cursor().row,19u);CHECK_EQ(editor.Cursor().channel,6u);CHECK(editor.Cursor().field==EditField::Instrument);
+    editor.RestoreCursor({11,3,EditField::Note,true});serial.SyncEditor(editor,2000);
+    CHECK(serial.RequestFile(BringUpSerial::FileAction::Session,2001,true));Pump(serial,101,160,&editor);
+    CHECK(serial.SessionSaveSucceeded());CHECK_EQ(wire->saved_view,std::string("0 3 0 1"));
+    serial.InspectInstrument(3);Pump(serial,160,170,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Sine Synth"));
+    serial.InspectInstrument(99);Pump(serial,170,180,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Unbound"));
+    wire->healthy=false;serial.Tick(3600);CHECK_EQ(serial.InstrumentIdentity(),std::string("Unknown (identity unavailable)"));
+    wire->healthy=true;Pump(serial,240,350,&editor);
+    CHECK_EQ(editor.Cursor().channel,3u);CHECK(editor.Cursor().header);
+    CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTMUTE1 SET",0)==0;}),0);
+}
+
+TEST_CASE(InstrumentReconnectMismatchKeepsBrowsingSeparateFromExplicitRecovery) {
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+    for(unsigned route=0;route<4;++route) { // Direct, Windows, SDL controller, verified raw hat.
+#else
+    for(unsigned route=0;route<1;++route) {
+#endif
+    for(bool cancel_disconnected:{false,true}) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->preview_cap=wire->simulate_working=wire->recovery_publication=true;
+    MakeStoredDevelopmentPattern(wire->simulated_working,1);
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;
+    BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+    WindowsScreenInput windows_screen;WindowsEditorInput windows_editor;ArkOSEditorInput handheld;
+    SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+    bindings[SDL_CONTROLLER_BUTTON_BACK].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
+    bindings[SDL_CONTROLLER_BUTTON_BACK].value.button=2;
+    bindings[SDL_CONTROLLER_BUTTON_START].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;
+    bindings[SDL_CONTROLLER_BUTTON_START].value.button=3;
+    for(auto b:{SDL_CONTROLLER_BUTTON_B,SDL_CONTROLLER_BUTTON_A}) {
+        bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b==SDL_CONTROLLER_BUTTON_B?4:5;
+    }
+    const unsigned hats[]={SDL_HAT_UP,SDL_HAT_DOWN,SDL_HAT_LEFT,SDL_HAT_RIGHT};
+    for(unsigned i=0;i<4;++i) {
+        auto& binding=bindings[SDL_CONTROLLER_BUTTON_DPAD_UP+i];binding.bindType=SDL_CONTROLLER_BINDTYPE_HAT;
+        binding.value.hat.hat=0;binding.value.hat.hat_mask=hats[i];
+    }
+    handheld.Select(7,route==3?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);
+#endif
+    const auto request=[&](BringUpAction action,const char* source,std::uint32_t now) {
+        if(route==0 || (action!=BringUpAction::ScreenUp && action!=BringUpAction::ScreenDown &&
+            action!=BringUpAction::ScreenLeft && action!=BringUpAction::ScreenRight && action!=BringUpAction::PatternToggle &&
+            action!=BringUpAction::InstrumentCancel && action!=BringUpAction::BrowserConfirm && action!=BringUpAction::BrowserBack)) {
+            controls.Request(action,source,now);return;
+        }
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+        const bool blocked=serial.UserActionsBlocked() || controls.PatternInputBlocked();
+        if(route==1) {
+            SDL_Event e{};e.type=SDL_KEYDOWN;
+            e.key.keysym.sym=action==BringUpAction::ScreenUp?SDLK_UP:action==BringUpAction::ScreenDown?SDLK_DOWN:
+                action==BringUpAction::ScreenLeft?SDLK_LEFT:action==BringUpAction::ScreenRight?SDLK_RIGHT:
+                action==BringUpAction::InstrumentCancel?SDLK_ESCAPE:action==BringUpAction::BrowserConfirm?SDLK_RETURN:action==BringUpAction::BrowserBack?SDLK_BACKSPACE:SDLK_SPACE;
+            e.key.keysym.mod=(action==BringUpAction::PatternToggle || action>=BringUpAction::BrowserUp)?KMOD_NONE:KMOD_CTRL;
+            const auto handle=[&]() {
+                auto mapped=windows_screen.Handle(e);LocalPatternEditor sink;
+                if((!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable()) {
+                    const auto browser=MapWindowsBrowserAction(e);if(browser!=BringUpAction::None)mapped=browser;
+                }
+                if(blocked)windows_editor.Cancel();
+                windows_editor.Handle(e,now,blocked?sink:editor);
+                const bool allowed=!blocked || AllowWindowsBlockedAction(mapped,serial,controls) ||
+                    (controls.RecoveryScreen() && controls.BrowserInputAvailable() && mapped>=BringUpAction::BrowserUp && mapped<=BringUpAction::BrowserBack);
+                if(action==BringUpAction::PatternToggle && blocked)CHECK(!allowed);
+                if(mapped==action && action!=BringUpAction::PatternToggle)CHECK(allowed);
+                if(allowed)controls.Request(mapped,source,now);
+                return mapped;
+            };
+            CHECK(handle()==action);e.type=SDL_KEYUP;handle();
+        } else {
+            const auto button=action==BringUpAction::ScreenUp?SDL_CONTROLLER_BUTTON_DPAD_UP:action==BringUpAction::ScreenDown?SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                action==BringUpAction::ScreenLeft?SDL_CONTROLLER_BUTTON_DPAD_LEFT:action==BringUpAction::ScreenRight?SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                action==BringUpAction::InstrumentCancel || action==BringUpAction::BrowserBack?SDL_CONTROLLER_BUTTON_B:action==BringUpAction::BrowserConfirm?SDL_CONTROLLER_BUTTON_A:SDL_CONTROLLER_BUTTON_START;
+            const auto edge=[&](SDL_GameControllerButton b,bool down) {
+                ConfigureArkOSInputBarrier(handheld,serial,controls);
+                SDL_Event e{};
+                if(route==3 && b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT) {
+                    e.type=SDL_JOYHATMOTION;e.jhat.which=7;e.jhat.hat=0;e.jhat.value=down?hats[b-SDL_CONTROLLER_BUTTON_DPAD_UP]:SDL_HAT_CENTERED;
+                } else if(route==3) {
+                    e.type=down?SDL_JOYBUTTONDOWN:SDL_JOYBUTTONUP;e.jbutton.which=7;e.jbutton.button=b==SDL_CONTROLLER_BUTTON_BACK?2:b==SDL_CONTROLLER_BUTTON_START?3:b==SDL_CONTROLLER_BUTTON_B?4:5;
+                } else {e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=b;}
+                LocalPatternEditor sink;if(blocked)handheld.Cancel();
+                const auto result=handheld.Handle(e,now,!blocked,blocked?sink:editor);
+                CHECK(!result.publish && !result.restore && result.mute_channel<0 && result.file==BringUpSerial::FileAction::None);
+                const bool allowed=!blocked || AllowArkOSBlockedTransport(result.transport,serial,controls);
+                if(result.transport==action && action!=BringUpAction::PatternToggle)CHECK(allowed);
+                if(allowed)controls.Request(result.transport,source,now);
+                if(blocked)handheld.Cancel();
+                return result.transport;
+            };
+            const bool chord=action>=BringUpAction::ScreenLeft && action<=BringUpAction::ScreenDown;
+            if(chord)edge(SDL_CONTROLLER_BUTTON_BACK,true);
+            const auto pressed=edge(button,true);const auto released=edge(button,false);
+            if(action!=BringUpAction::PatternToggle) {CHECK(pressed==action);if(chord)edge(SDL_CONTROLLER_BUTTON_BACK,false);}
+            else {CHECK(pressed==BringUpAction::None);CHECK(released==BringUpAction::None);}
+        }
+#endif
+    };
+    const auto drive=[&](unsigned first,unsigned last) {
+        for(unsigned i=first;i<last;++i) {
+            wire->now=i*20;wire->AudioService();serial.SyncEditor(editor,i*20);
+            controls.Tick(i*20);serial.SyncEditor(editor,i*20);
+        }
+    };
+    drive(0,100);CHECK(editor.Ready());
+    editor.RestoreCursor({0,0,EditField::Note,false});
+    CHECK(editor.Apply(EditorAction::SetValue,75));drive(100,180);
+    const auto retained=*editor.Draft();const auto baseline=*editor.Baseline();const auto source=editor.Cursor();
+    CHECK(SamePattern(retained,wire->simulated_working));
+    request(BringUpAction::ScreenUp,"Instrument",3601);drive(181,260);
+    CHECK(controls.InstrumentScreen());CHECK(!controls.RecoveryScreen());CHECK(!controls.LoadSaveScreen());
+    const auto number=controls.InstrumentNumber();CHECK(number>1 && number<99);
+
+    // Normal cancellation restores the captured context, with no assignment.
+    request(BringUpAction::ScreenLeft,"browse before cancel",5190);
+    editor.RestoreCursor({3,1,EditField::Instrument,false});
+    request(BringUpAction::InstrumentCancel,"normal cancel",5191);
+    CHECK(!controls.InstrumentScreen());CHECK(SamePattern(retained,*editor.Draft()));
+    CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);CHECK(editor.Cursor().field==source.field);
+    request(BringUpAction::ScreenUp,"re-enter",5192);drive(260,300);CHECK(controls.InstrumentScreen());
+    wire->healthy=false;controls.Tick(6001);serial.SyncEditor(editor,6001);
+    CHECK(!serial.Connected());CHECK(controls.InstrumentScreen());
+    if(cancel_disconnected) {
+        request(BringUpAction::InstrumentCancel,"disconnected cancel",6002);
+        CHECK(!controls.InstrumentScreen());CHECK(SamePattern(retained,*editor.Draft()));
+        CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);CHECK(editor.Cursor().field==source.field);
+        CHECK(serial.UserActionsBlocked());continue;
+    }
+    wire->healthy=true;wire->pattern=2;wire->simulated_revision=7;
+    MakeStoredDevelopmentPattern(wire->simulated_working,2);
+    const auto live=wire->simulated_working;
+    drive(301,480);
+    CHECK(serial.ReconnectRecoveryPending());CHECK(serial.RecoveryMenuAvailable());
+    CHECK(serial.UserActionsBlocked());CHECK(editor.Locked());CHECK(!SamePattern(retained,live));
+
+    request(BringUpAction::ScreenLeft,"previous",9601);
+    CHECK(controls.InstrumentScreen());CHECK(!controls.RecoveryScreen());CHECK(!controls.LoadSaveScreen());
+    CHECK_EQ(controls.InstrumentNumber(),number-1);
+    request(BringUpAction::ScreenRight,"next",9602);
+    CHECK(controls.InstrumentScreen());CHECK(!controls.RecoveryScreen());CHECK(!controls.LoadSaveScreen());
+    CHECK_EQ(controls.InstrumentNumber(),number);
+    request(BringUpAction::ScreenDown,"Pattern",9603);
+    CHECK(controls.InstrumentScreen());CHECK(!controls.RecoveryScreen());CHECK(!controls.LoadSaveScreen());
+    CHECK(serial.ReconnectRecoveryPending());CHECK(serial.UserActionsBlocked());CHECK(editor.Locked());
+    CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);
+    CHECK(editor.Cursor().field==source.field);CHECK_EQ(editor.Cursor().header,source.header);
+    CHECK(!editor.Apply(EditorAction::SetValue,76));
+    request(BringUpAction::PatternToggle,"blocked playback",9604);
+    request(BringUpAction::ScreenUp,"blocked re-entry",9605);CHECK(controls.InstrumentScreen());
+
+    CHECK(std::string(controls.ScreenStatus()).find("Return unavailable")!=std::string::npos);
+    CHECK(!controls.RecoveryScreen());CHECK(!controls.LoadSaveScreen());
+    request(BringUpAction::InstrumentCancel,"recovery cancel",9606);
+    CHECK(!controls.InstrumentScreen());CHECK(!controls.LoadSaveScreen());
+    CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);CHECK(editor.Cursor().field==source.field);
+    request(BringUpAction::ScreenLeft,"explicit recovery entry",9607);
+    CHECK(controls.RecoveryScreen());CHECK(controls.LoadSaveScreen());
+    CHECK(controls.BrowserText().find("retained")!=std::string::npos);
+    request(BringUpAction::BrowserConfirm,"review only",9608);CHECK(controls.BrowserConfirming());
+    request(BringUpAction::BrowserBack,"cancel review",9609);CHECK(controls.RecoveryScreen());CHECK(!controls.BrowserConfirming());
+    request(BringUpAction::BrowserBack,"leave recovery",9610);CHECK(!controls.LoadSaveScreen());
+    drive(481,540);
+    CHECK(serial.ReconnectRecoveryPending());CHECK(serial.RecoveryMenuAvailable());
+    CHECK(serial.UserActionsBlocked());CHECK(editor.Locked());
+    CHECK(SamePattern(retained,*editor.Draft()));CHECK(SamePattern(baseline.pattern,editor.Baseline()->pattern));
+    CHECK(SamePattern(live,wire->simulated_working));CHECK_EQ(wire->simulated_revision,7u);
+    const auto retained_view=serial.PlaybackView(10000); // Recovery hold presents the retained baseline, not live data.
+    CHECK(retained_view && retained_view->device_pattern);
+    if(retained_view && retained_view->device_pattern)CHECK(SamePattern(baseline.pattern,retained_view->device_pattern->pattern));
+    // Discovery/readback only after reconnect: no preview, publication, file write,
+    // assignment or transport commands, even while reviewing the recovery prompt.
+    const auto reconnect=std::find(wire->commands.begin()+1,wire->commands.end(),"BTTEST1 HELLO");
+    CHECK(reconnect!=wire->commands.end());
+    for(auto it=reconnect;it!=wire->commands.end();++it)
+        CHECK(*it=="BTTEST1 HELLO" || *it=="BTTEST1 STATUS" || it->rfind("BTPATTERN1 GET ",0)==0 ||
+            it->rfind("BTPREVIEW1 GET ",0)==0 || it->rfind("BTAUDIO1 SET ",0)==0 || it->rfind("BTMIDI1 SET ",0)==0);
+    }
+    }
+}
+
+TEST_CASE(InstrumentSelectorReturnAssignsCapturedCellThroughPreviewAndUndo) {
+    for(auto field:{EditField::Note,EditField::Instrument})for(bool explicit_id:{false,true})for(bool browse:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->preview_cap=wire->simulate_working=true;
+        MakeStoredDevelopmentPattern(wire->simulated_working,1);
+        wire->simulated_working.cells[0][1]={NOTE_EMPTY,4};wire->simulated_working.cells[2][1]={62,static_cast<std::uint8_t>(explicit_id?2:255)};
+        wire->simulated_working.note_off_timing[2][1]=NoteOffTiming::EndOfPosition;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);editor.RestoreCursor({2,1,field,false});const auto before=*editor.Draft();
+        controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());
+        CHECK_EQ(controls.OriginalInstrumentNumber(),explicit_id?3u:0u);CHECK_EQ(controls.InstrumentNumber(),explicit_id?3u:5u);
+        if(browse)controls.Request(BringUpAction::ScreenRight,"next",3600);
+        CHECK(SamePattern(before,*editor.Draft()));CHECK(SamePattern(before,wire->simulated_working));
+        auto assigned=before;assigned.cells[2][1].instrument=controls.InstrumentNumber()-1;
+        editor.RestoreCursor({6,4,EditField::Note,false}); // Later cursor movement cannot retarget confirmation.
+        controls.Request(BringUpAction::ScreenDown,"return",3601);drive(181,260);
+        CHECK(!controls.InstrumentScreen());CHECK(SamePattern(assigned,*editor.Draft()));CHECK(SamePattern(assigned,wire->simulated_working));
+        CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==field);
+        CHECK_EQ(editor.CanUndo(),!explicit_id || browse);
+        if(!explicit_id || browse) {CHECK(editor.Undo());drive(261,340);CHECK(SamePattern(before,wire->simulated_working));}
+        else CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
+    }
+}
+TEST_CASE(InstrumentSelectorKeepsSelectionUnderEditorBarrierAndExitDoesNotConfirm) {
+    for(bool close_instead:{false,true}) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    editor.RestoreCursor({0,0,EditField::Note,false});BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);
+    for(unsigned i=101;i<180;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+    CHECK(controls.InstrumentScreen());const auto before=*editor.Draft();
+    controls.Request(BringUpAction::ScreenRight,"browse",3600);editor.SetLocked(true);
+    controls.Request(BringUpAction::ScreenDown,"blocked return",3601);CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
+    CHECK(std::string(controls.ScreenStatus()).find("Return unavailable")!=std::string::npos);
+    if(close_instead) {
+        controls.Request(BringUpAction::Exit,"close is not assignment",3602);
+        CHECK(SamePattern(before,*editor.Draft()));
+    } else {
+        editor.SetLocked(false);CHECK(serial.RequestFile(BringUpSerial::FileAction::Session,3602,true));
+        controls.Request(BringUpAction::ScreenDown,"file barrier",3603);CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
+        for(unsigned i=181;i<260;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+        CHECK(!serial.FilePending());controls.Request(BringUpAction::ScreenDown,"retry after barrier",5201);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(editor.Draft()->cells[0][0].instrument,3u);
+    }
     }
 }

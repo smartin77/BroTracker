@@ -335,3 +335,17 @@ TEST_CASE(GeneratedCoreActionsRemainPartitionIndependentAcrossMutePreviewTempoAn
         const auto reference=run(1);for(unsigned block:{17u,97u,128u}){const auto actual=run(block);CHECK(actual.pcm==reference.pcm);CHECK(actual.events==reference.events);}
     }
 }
+
+TEST_CASE(SessionBootMuteUsesAcknowledgedAudioOwnerWithoutPlaybackOrReconnectWrites) {
+    using C=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
+    C control;auto fixture=SelectDevelopmentFixture({});
+    CHECK_EQ(control.InitializeAudio(15500,44100,fixture.pattern,fixture.bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(control.SubmitMute(165,1),PatternRequestStatus::Accepted);
+    CHECK_EQ(control.Snapshot().mute_mask,0u);CHECK(!control.Snapshot().running);
+    std::int16_t pcm[128];control.AudioBlock(pcm,128,true);
+    CHECK_EQ(control.Snapshot().mute_mask,165u);CHECK_EQ(control.Snapshot().applied_mute_id,1u);CHECK(!control.Snapshot().running);
+    HostChannelMute host;const auto receive=[&](const char* line){return host.Response(line,std::strlen(line));};
+    CHECK(receive("BTMUTE1 CAP 1"));CHECK(receive("BTMUTE1 STATE 1 1 2 165"));CHECK(host.Synchronized());CHECK(!host.Begin());
+    host.Disconnect();CHECK(receive("BTMUTE1 CAP 1"));CHECK(receive("BTMUTE1 STATE 1 8 9 17"));
+    CHECK_EQ(host.Mask(),17u);CHECK(!host.Begin()); // Running device facts replace disk intent.
+}

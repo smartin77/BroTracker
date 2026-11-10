@@ -348,3 +348,14 @@ Thus note 61 was verified during the explicit publication test, but was not save
 to SD or left as the final test RAM pattern. No test client/serial capture remains
 open. Changes are uncommitted in the current `master` working tree; no branch,
 index or remote mutation was performed.
+
+## Instrument foundation session snapshot (2026-11-09)
+
+BTWS v2 extends the existing working-session snapshot with host edit-frame
+row/channel/field/header and acknowledged channel mutes. Legacy music is retained
+with default view/unmuted metadata. A fresh host restores saved view, while a
+surviving host keeps its context; restored coordinates are clamped without resize.
+Only boot applies disk mutes via the authoritative audio-owner coordination.
+HELLO/reconnect does not overwrite the live device or alter uncertain working/mute
+recovery, and never automatically starts playback. See [format and coordination](FILE_FORMATS.md#instrument-foundation-session-snapshot-2026-11-09).
+Physical validation remains pending for this extension.

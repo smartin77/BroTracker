@@ -2,24 +2,44 @@
 #include "pattern_file_store.h"
 namespace BroTracker {
 // Two independently validated BTSS records: published baseline and working intent.
-// No transport/request identity is persisted. Fixed maximum: 3144 bytes.
-constexpr std::size_t kWorkingSessionCapacity=24+2*kPatternFileCapacity;
+// No transport/request identity is persisted. Version 2 appends eight bytes of host view and authoritative mute metadata.
+constexpr std::size_t kWorkingSessionCapacity=32+2*kPatternFileCapacity;
+struct SessionView {
+    std::uint8_t row=0,channel=0,field=0,header=0;
+};
+inline SessionView ValidatedSessionView(SessionView v,const RealtimePattern& p) noexcept {
+    if(v.row>=p.active_rows)v.row=p.active_rows-1;
+    if(v.channel>=p.active_channels)v.channel=p.active_channels-1;
+    if(v.field>1)v.field=0;
+    if(v.header>1)v.header=0;
+    if(v.header)v.row=0;
+    return v;
+}
 struct WorkingSession {
     RealtimePattern published,working;
+    SessionView view{};
+    std::uint8_t mute_mask=0;
     std::uint32_t published_tempo=12500,working_tempo=12500;
 };
 inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t n,WorkingSession& out) noexcept {
     if(!b || n<24 || n>kWorkingSessionCapacity)return PatternFileResult::Invalid;
-    if(std::memcmp(b,"BTWS",4) || b[4]!=1 || b[5] || b[6]!=24 || b[7])return PatternFileResult::Unsupported;
+    if(std::memcmp(b,"BTWS",4) || (b[4]!=1 && b[4]!=2) || b[5] || b[6]!=24 || b[7])return PatternFileResult::Unsupported;
     for(unsigned i=16;i<20;++i)if(b[i])return PatternFileResult::Invalid;
     const auto a=PatternFileU32(b+8),c=PatternFileU32(b+12);
-    if(a>kPatternFileCapacity || c>kPatternFileCapacity || n!=24+a+c || PatternFileU32(b+20)!=PatternFileCrc(b,n))return PatternFileResult::Invalid;
+    if(a>kPatternFileCapacity || c>kPatternFileCapacity || n!=24+a+c+(b[4]==2?8:0) || PatternFileU32(b+20)!=PatternFileCrc(b,n))return PatternFileResult::Invalid;
     if(a<24 || c<24 || b[32]!=b[24+a+8] || b[33]!=b[24+a+9])return PatternFileResult::Invalid;
+    if(b[4]==2) {const auto* m=b+24+a+c;if(m[5] || m[6] || m[7])return PatternFileResult::Invalid;}
     // Validate both before touching caller state.
     auto r=ValidatePatternFile(PatternFileKind::Session,b+24,a);if(r!=PatternFileResult::Ok)return r;
     r=ValidatePatternFile(PatternFileKind::Session,b+24+a,c);if(r!=PatternFileResult::Ok)return r;
     DecodePatternFile(PatternFileKind::Session,b+24,a,out.published,out.published_tempo);
     DecodePatternFile(PatternFileKind::Session,b+24+a,c,out.working,out.working_tempo);
+    out.view={};out.mute_mask=0;
+    if(b[4]==2) {
+        const auto* m=b+24+a+c;
+        if(m[5] || m[6] || m[7])return PatternFileResult::Invalid;
+        out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];
+    }
     return PatternFileResult::Ok;
 }
 template<class Backend> class WorkingSessionStore {
@@ -39,9 +59,12 @@ public:
         if(r!=PatternFileResult::Ok)return r;
         r=EncodePatternFile(PatternFileKind::Session,s.working,s.working_tempo,bytes_+24+a,kPatternFileCapacity,c);
         if(r!=PatternFileResult::Ok)return r;
-        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTWS",4);bytes_[4]=1;bytes_[6]=24;
+        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTWS",4);bytes_[4]=2;bytes_[6]=24;
         PatternFilePut32(bytes_+8,a);PatternFilePut32(bytes_+12,c);
-        const auto n=24+a+c;PatternFilePut32(bytes_+20,PatternFileCrc(bytes_,n));
+        const auto v=ValidatedSessionView(s.view,s.working);
+        auto* m=bytes_+24+a+c;std::memset(m,0,8);
+        m[0]=v.row;m[1]=v.channel;m[2]=v.field;m[3]=v.header;m[4]=s.mute_mask;
+        const auto n=32+a+c;PatternFilePut32(bytes_+20,PatternFileCrc(bytes_,n));
         Lease lease(b,true);if(!lease.held)return PatternFileResult::Busy;
         if(b.Exists(kSessionCandidatePath) || b.Exists(kSessionPreviousPath))return PatternFileResult::RecoveryRequired;
         if(b.Exists(kSessionPath) && !b.RegularFile(kSessionPath))return PatternFileResult::Io;
@@ -77,7 +100,7 @@ private:
         // Legacy sessions had one published record, hence no unpublished state to recover.
         if(n>=4 && !std::memcmp(bytes_,"BTSS",4)) {
             r=DecodePatternFile(PatternFileKind::Session,bytes_,n,s.published,s.published_tempo);
-            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;}return r;
+            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;s.view={};s.mute_mask=0;}return r;
         }
         return DecodeWorkingSession(bytes_,n,s);
     }

@@ -5,6 +5,13 @@
 #include "ui/editor_step_input.h"
 #include "ui/navigation_repeat.h"
 #include "ui/tempo_repeat.h"
+// Shared by the blocked main-loop path and fake-transport input integration tests.
+inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& serial,const BringUpControls& controls) {
+    return action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
+        (action==BringUpAction::InstrumentCancel && controls.InstrumentScreen()) ||
+        ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
+         (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenUp || action==BringUpAction::ScreenDown));
+}
 inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
     if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
     switch(event.key.keysym.sym) {
@@ -111,6 +118,8 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
     const auto modifiers = event.key.keysym.mod;
     if (key == SDLK_x && (modifiers & KMOD_CTRL)) return BringUpAction::Exit;
     if((modifiers & KMOD_CTRL) && !(modifiers & (KMOD_SHIFT|KMOD_ALT|KMOD_GUI))) {
+        if(key==SDLK_UP)return BringUpAction::ScreenUp;
+        if(key==SDLK_DOWN)return BringUpAction::ScreenDown;
         if(key==SDLK_LEFT)return BringUpAction::ScreenLeft;
         if(key==SDLK_RIGHT)return BringUpAction::ScreenRight;
     }
@@ -159,4 +168,34 @@ public:
         return !old && mapped && focused_ ? PatternGrid::HeaderAt(x,y) : -1;
     }
 private: bool held_=false,focused_=true;
+};
+
+// Screen chords share physical arrow tracking across Pattern and other screens.
+class WindowsScreenInput {
+public:
+    BringUpAction Handle(const SDL_Event& e) noexcept {
+        if(e.type==SDL_QUIT)return BringUpAction::Exit; // Preserve window close before arrow-only filtering.
+        if(e.type==SDL_WINDOWEVENT) {
+            if(e.window.event==SDL_WINDOWEVENT_FOCUS_LOST) {
+                focused_=false;
+                for(auto& held:held_)held=false; // KEYUP may be lost while another window owns focus.
+            }
+            if(e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED)focused_=true;
+        }
+        if(e.type!=SDL_KEYDOWN && e.type!=SDL_KEYUP)return BringUpAction::None;
+        const auto key=e.key.keysym.sym;
+        const int i=key==SDLK_UP?0:key==SDLK_DOWN?1:key==SDLK_LEFT?2:key==SDLK_RIGHT?3:-1;
+        if(focused_ && e.type==SDL_KEYDOWN && !e.key.repeat && key==SDLK_ESCAPE &&
+           !(e.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return BringUpAction::InstrumentCancel;
+        if(i<0)return MapWindowsAction(e);
+        if(e.type==SDL_KEYUP) {held_[i]=false;return BringUpAction::None;}
+        if(!focused_)return BringUpAction::None;
+        if(e.key.repeat) {held_[i]=true;return BringUpAction::None;} // Still held after focus gain, never a new edge.
+        if(held_[i])return BringUpAction::None;
+        held_[i]=true;
+        if(!focused_ || held_[i^1])return BringUpAction::None;
+        return MapWindowsAction(e);
+    }
+private:
+    bool held_[4]{},focused_=true;
 };

@@ -7,7 +7,7 @@
 enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
-    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat };
+    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat, AssignInstrument };
 struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; bool header=false; };
 constexpr unsigned kEditableInstrumentMaximum = 98; // Displayed 99; wire IDs remain unrestricted.
 
@@ -62,9 +62,10 @@ public:
     const EditCursor& Cursor() const noexcept { return cursor_; }
     void RestoreCursor(EditCursor cursor) noexcept {
         if(!ready_)return;
-        const auto rows=draft_.active_rows<32?draft_.active_rows:32u;
+        const auto rows=draft_.active_rows; // Validate stored context against data, independently of viewport.
         cursor.row=cursor.row<rows?cursor.row:rows-1;
         cursor.channel=cursor.channel<draft_.active_channels?cursor.channel:draft_.active_channels-1;
+        if(cursor.field!=EditField::Note && cursor.field!=EditField::Instrument)cursor.field=EditField::Note;
         if(cursor.header)cursor.row=0;
         cursor_=cursor;
     }
@@ -93,6 +94,16 @@ public:
     bool CanRedo() const noexcept { return ready_ && !locked_ && history_.CanRedo(); }
     bool Undo() noexcept { if(!CanUndo()) return false; const auto before=draft_; if(!history_.Undo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
     bool Redo() noexcept { if(!CanRedo()) return false; const auto before=draft_; if(!history_.Redo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
+    // Selector confirmation: validate the captured cell before moving the cursor.
+    // Apply supplies the usual capture/history path; note and timing are untouched.
+    bool AssignInstrumentAt(EditCursor target,unsigned instrument) noexcept {
+        if(!ready_ || locked_ || target.header || (target.field!=EditField::Note && target.field!=EditField::Instrument) || target.row>=draft_.active_rows ||
+            target.channel>=draft_.active_channels || instrument>kEditableInstrumentMaximum ||
+            (target.field==EditField::Instrument && draft_.cells[target.row][target.channel].note==NOTE_OFF))return false;
+        const auto previous=cursor_;cursor_=target;
+        if(Apply(EditorAction::AssignInstrument,instrument))return true;
+        cursor_=previous;return false;
+    }
     // Record resulting data only; navigation/no-ops do not enter history.
     bool Apply(EditorAction action, unsigned value = 0) noexcept {
         if(action==EditorAction::Undo) return Undo();
@@ -161,6 +172,10 @@ private:
         case EditorAction::PreviousChannel:
             next.channel = (next.channel + draft_.active_channels - 1) % draft_.active_channels;
             if(!next.header) next.field = EditField::Note; break;
+        case EditorAction::AssignInstrument:
+            if(next.header || value>kEditableInstrumentMaximum ||
+                (next.field==EditField::Instrument && draft_.cells[next.row][next.channel].note==NOTE_OFF))return false;
+            draft_.cells[next.row][next.channel].instrument=static_cast<std::uint8_t>(value);return true;
         case EditorAction::Restore:
             draft_ = baseline_.pattern;
             return true;

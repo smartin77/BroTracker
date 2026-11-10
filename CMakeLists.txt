@@ -333,6 +333,11 @@ add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_star
     src/ui/serial_unavailable.cpp)
 target_link_libraries(BroTrackerStartupStorageTests PRIVATE BroTrackerBringUp BroTrackerCore)
 target_include_directories(BroTrackerStartupStorageTests PRIVATE tests)
+if(BROTRACKER_SDL2_TARGET)
+    target_link_libraries(BroTrackerStartupStorageTests PRIVATE ${BROTRACKER_SDL2_TARGET})
+    target_include_directories(BroTrackerStartupStorageTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(BroTrackerStartupStorageTests PRIVATE SDL_MAIN_HANDLED BROTRACKER_TEST_HOST_INPUT_ROUTING)
+endif()
 add_test(NAME BroTrackerStartupStorageTests COMMAND BroTrackerStartupStorageTests)
 
 # Actual production graph/lifecycle with isolated fake PJRC objects and bus.

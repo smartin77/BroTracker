@@ -9,6 +9,32 @@
 #include "bringup/pattern_storage_protocol.h"
 #include <array>
 using namespace BroTracker;
+TEST_CASE(ProductionStorageDispatchAcceptsSnapshotCoordinatesIncludingZeroRow) {
+    const char* valid[]={"BTSTORE1 SAVE 2 0 0 0 0","BTSTORE1 SAVE 2 0 7 1 1","BTSTORE1 SAVE 2 19 6 1 0","BTSTORE1 SAVE 2 63 7 1 1"};
+    const std::uint32_t expected[][4]={{0,0,0,0},{0,7,1,1},{19,6,1,0},{63,7,1,1}};
+    for(unsigned n=0;n<4;++n) {
+        std::uint32_t view[4]={99,99,99,99};
+        CHECK_EQ(ParseStorageOperation(valid[n]),StorageOperation::Save);
+        CHECK(ParseSessionSnapshotSave(valid[n],std::strlen(valid[n]),view));
+        for(unsigned i=0;i<4;++i)CHECK_EQ(view[i],expected[n][i]);
+    }
+    CHECK_EQ(ParseStorageOperation("BTSTORE1 SAVE 1"),StorageOperation::Save);
+    std::uint32_t legacy[4]={99,99,99,99};
+    CHECK(!ParseSessionSnapshotSave("BTSTORE1 SAVE 1",std::strlen("BTSTORE1 SAVE 1"),legacy));CHECK_EQ(legacy[0],99u);
+    for(const char* bad:{"BTSTORE1 SAVE 2","BTSTORE1 SAVE 2 0 0 0","BTSTORE1 SAVE 2 0 0 0 0 0",
+        "BTSTORE1 SAVE 2 64 0 0 0","BTSTORE1 SAVE 2 0 8 0 0","BTSTORE1 SAVE 2 0 0 2 0","BTSTORE1 SAVE 2 0 0 0 2",
+        "BTSTORE1 SAVE 2 -1 0 0 0","BTSTORE1 SAVE 2 +1 0 0 0","BTSTORE1 SAVE 2 4294967296 0 0 0",
+        "BTSTORE1 SAVE 2 0  0 0 0","BTSTORE1 SAVE 2 0 0 0 0 ","BTSTORE1 SAVE 2 0 0 0 0\r",
+        "BTSTORE1 SAVE 3 0 0 0 0","BTSTORE1 SAVE 0 0 0 0 0","BTSTORE1 SAVE 02 0 0 0 0",
+        "BTSTORE1 SAVE 0002 0 0 0 0","BTSTORE1 SAVE 1 0 0 0 0","BTSTORE2 SAVE 2 0 0 0 0"}) {
+        std::uint32_t view[4]={99,99,99,99};
+        CHECK_EQ(ParseStorageOperation(bad),StorageOperation::Invalid);
+        CHECK(!ParseSessionSnapshotSave(bad,std::strlen(bad),view));
+        for(const auto value:view)CHECK_EQ(value,99u);
+    }
+    // Request IDs still require nonzero; the fix must not weaken the shared parser.
+    std::uint32_t id=99;CHECK(!SnapshotFields("BTPATTERN1 GET 2 0",std::strlen("BTPATTERN1 GET 2 0"),"BTPATTERN1 GET 2 ",&id,1));CHECK_EQ(id,99u);
+}
 namespace {
 void Same(const RealtimePattern& a,const RealtimePattern& b) {
     CHECK_EQ(a.active_rows,b.active_rows);CHECK_EQ(a.active_channels,b.active_channels);
@@ -400,4 +426,25 @@ TEST_CASE(AutomaticSessionIntentSurvivesDeferralAndFailedWriteAndInvalidFileIsPr
     CHECK_EQ(store.Save(backend,work),PatternFileResult::Ok);CHECK(!store.PreserveInvalid(backend));
     CHECK_EQ(ParseStorageOperation("BTSTORE1 DRAFTLOAD 1"),StorageOperation::Invalid);
     CHECK_EQ(ParseStorageOperation("BTSTORE1 DRAFTSAVE 1"),StorageOperation::Invalid);
+}
+
+TEST_CASE(SessionMetadataRoundtripLegacyAndInvalidCoordinatesPreserveMusic) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession s;s.published=MakeDevelopmentPattern();s.working=s.published;s.view={19,6,1,0};s.mute_mask=165;
+    CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);
+    CHECK_EQ(loaded.view.row,19u);CHECK_EQ(loaded.view.channel,6u);CHECK_EQ(loaded.view.field,1u);CHECK_EQ(loaded.mute_mask,165u);
+    const auto bytes=FakePatternSd::files[kSessionPath].bytes;
+    auto legacy=bytes;legacy.resize(legacy.size()-8);legacy[4]=1;PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
+    CHECK_EQ(DecodeWorkingSession(legacy.data(),legacy.size(),loaded),PatternFileResult::Ok);
+    CHECK_EQ(loaded.view.row,0u);CHECK_EQ(loaded.mute_mask,0u);Same(s.working,loaded.working);
+    for(bool header:{false,true}) {
+        auto invalid=bytes;auto* m=invalid.data()+invalid.size()-8;m[0]=255;m[1]=255;m[2]=255;m[3]=header?1:255;
+        PatternFilePut32(invalid.data()+20,PatternFileCrc(invalid.data(),invalid.size()));
+        CHECK_EQ(DecodeWorkingSession(invalid.data(),invalid.size(),loaded),PatternFileResult::Ok);
+        CHECK_EQ(loaded.view.row,header?0u:31u);CHECK_EQ(loaded.view.channel,7u);CHECK_EQ(loaded.view.field,0u);
+        Same(s.working,loaded.working);
+    }
+    s.view={22,3,1,1};CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(loaded.view.row,0u);CHECK_EQ(loaded.view.header,1u);
 }

@@ -30,6 +30,15 @@ public:
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    void InspectInstrument(unsigned number) {
+        if(number<1 || number>99 || number==identity_number_)return;
+        identity_number_=number;identity_ready_=false;identity_request_=true;
+    }
+    std::string InstrumentIdentity() const {
+        if(!connected_ || !identity_supported_)return "Unknown (identity unavailable)";
+        if(!identity_ready_)return "Unknown (awaiting device)";
+        return identity_type_==0?"Unbound":identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
+    }
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
@@ -107,12 +116,13 @@ public:
     bool PatternListReady()const{return list_ready_;}
     const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
     const char* PatternListStatus()const{return list_status_;}
-    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false);
+    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false,const EditCursor* view=nullptr);
     bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
     bool FilePending() const {return file_action_!=FileAction::None;}
     const char* PatternSource()const{return pattern_source_.c_str();}
     bool PatternSaveAvailable()const{return pattern_save_supported_ && !pattern_source_.empty();}
     bool PatternSaveSucceeded()const{return pattern_save_succeeded_;}
+    bool SessionSnapshotAvailable() const {return connected_ && snapshot_metadata_supported_;}
     bool SessionSaveSucceeded() const {return session_save_succeeded_;}
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
@@ -291,6 +301,10 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
+    bool identity_supported_=false,identity_request_=false,identity_ready_=false;
+    unsigned identity_number_=0,identity_type_=0;
+    bool snapshot_metadata_supported_=false,restore_view_pending_=false,host_view_seen_=false;
+    EditCursor host_view_{},restored_view_{},save_view_{};
     BroTracker::HostChannelMute mute_; bool tx_mute_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;

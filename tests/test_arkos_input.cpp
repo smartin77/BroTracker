@@ -606,3 +606,32 @@ TEST_CASE(ArkOSPatternBrowserConsumesActionsWithoutEditingAndKeepsSelectNavigati
     f.input.SetActionBarrier(true,true);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::None);
 }
+
+TEST_CASE(ArkOSInstrumentChordConsumesUpAndKeepsShoulderPrecedence) {
+    for(auto direction:{SDL_CONTROLLER_BUTTON_DPAD_UP,SDL_CONTROLLER_BUTTON_DPAD_DOWN}) {
+        InputFixture f;const auto cursor=f.editor.Cursor();f.Edge(SDL_CONTROLLER_BUTTON_BACK);
+        CHECK(f.Edge(direction).transport==(direction==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown));
+        CHECK(f.Edge(direction).transport==BringUpAction::None);f.input.Tick(3000,true,f.editor);
+        CHECK_EQ(f.editor.Cursor().row,cursor.row);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);f.input.Tick(6000,true,f.editor);
+        CHECK_EQ(f.editor.Cursor().row,cursor.row);
+        for(auto shoulder:{SDL_CONTROLLER_BUTTON_LEFTSHOULDER,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}) {
+            InputFixture other;other.Edge(SDL_CONTROLLER_BUTTON_BACK);other.Edge(shoulder);
+            CHECK(other.Edge(direction).transport==BringUpAction::None);
+        }
+    }
+}
+
+TEST_CASE(InstrumentCancelUsesOnlyUnmodifiedBAndPreservesStopCombinations) {
+    for(bool connected:{false,true})for(int modifier:{-1,int(SDL_CONTROLLER_BUTTON_BACK),int(SDL_CONTROLLER_BUTTON_START),int(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),int(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)}) {
+        InputFixture f;f.input.SetActionBarrier(true,true,false,false,false,false,true);
+        LocalPatternEditor sink;
+        const auto edge=[&](unsigned button,bool down=true) {
+            SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=button;
+            return f.input.Handle(e,0,connected,sink).transport;
+        };
+        if(modifier>=0)edge(modifier);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==(modifier<0?BringUpAction::InstrumentCancel:BringUpAction::ResetStop));
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==BringUpAction::None);edge(SDL_CONTROLLER_BUTTON_B,false);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==(modifier<0?BringUpAction::InstrumentCancel:BringUpAction::ResetStop));
+    }
+}

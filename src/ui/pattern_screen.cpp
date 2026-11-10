@@ -817,7 +817,25 @@ static void RenderPatternScreen(
         tune,
         pattern, display, live);
 
-    if(host.load_save_screen) {
+    if(host.instrument_number) {
+        static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+        const int x=layout.pattern_x+8, width=layout.pattern_width-16;
+        int y=layout.pattern_y+12;
+        const auto line=[&](const std::string& text) {
+            HostBitmap::Text(framebuffer,face,x,y+face.ascent,text,header_name);y+=52;
+        };
+        const auto title=host.text.Get(WarningText::Instrument)+" "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
+        line(title);
+        if(host.instrument_original_number)
+            HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+16,y-52+face.ascent,
+                "["+host.text.Get(WarningText::Original)+": "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",editing_frame);
+        const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
+        line(host.text.Get(WarningText::Type)+": "+identity);
+        line(host.text.Get(WarningText::Name)+": "+host.text.Get(WarningText::Unavailable));
+        line(host.text.Get(WarningText::Load)+": "+host.text.Get(WarningText::Unavailable));
+        line(host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable));
+        line(host.text.Get(WarningText::FineTune)+": "+host.text.Get(WarningText::Unavailable));
+    } else if(host.load_save_screen) {
         static const auto heading=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
         static const auto filename=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
         DrawFileList(framebuffer,host.pattern_browser_list,layout.pattern_x+8,layout.pattern_y+8,

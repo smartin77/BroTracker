@@ -79,26 +79,53 @@ transitions were faster, and the owner accepted this behavior. This confirmation
 is scoped to those tested setups; it does not establish validation for other
 handhelds, mappings or configurations.
 
-## Planned Instrument entry
+## Instrument entry
 
-After current bridge-audio refinement and agreed validation close, Instrument
-screen foundation is the next feature priority. Intended entry from Pattern is
-**Windows Ctrl+Up** / **handheld Select+D-pad Up**. These are planned bindings,
-not current controls. Instrument Inventory is the planned destination, with an
-instrument editor below it; foundation scope follows the existing
-[screen map](UI_SCREEN_MAP.md#3-instrument-inventory), without adding instrument features.
+Pattern **Ctrl+Up** / **Select+D-pad Up** opens one specific Instrument directly.
+There is no Inventory screen or menu. Entry captures the edit target, automatically
+STOPs Playing/Paused/DONE, waits for acknowledged IDLE and synchronized edits,
+and requires successful working-session persistence. Already IDLE skips STOP.
+Failures retain Pattern and recoverable work. Future MIX retains its playback exception.
 
-Current `ui/windows/input.h` only maps Ctrl+Left/Right for screens and excludes
-Ctrl from row editing, so Ctrl+Up has no action. `ui/arkos/input.h` intercepts
-Select only for horizontal screen chords; Select+Up can reach ordinary row
-navigation. Future implementation must consume the chord once per press and
-preserve L1 value-edit/R1 beat precedence, including release/held-input handling.
-The shared action enum currently has no ScreenUp. Back/return binding and
-selection-versus-assignment behavior remain follow-up decisions.
+An explicit source-cell ID selects that instrument. Otherwise the nearest explicit
+ID in preceding rows of the same channel is selected, including instrument-only
+events; with none, select 01. No wrap, other-channel or playback lookup. The nearest
+unsupported ID is reported, not skipped. Note-only and empty ordinary Instrument
+fields are supported; headers, NOTE_OFF timing fields and IDs outside 01-99 remain
+unavailable. Entry itself never assigns a cell.
 
-Reuse the established automatic STOP/acknowledged IDLE and successful session
-SAVE before entry, return without automatic resume and retain host view context.
-The future MIX playback exception remains. No Instrument screen/input is implemented.
+The header distinguishes selection from [Original: NN], shown only for the source
+cell's original explicit ID. Normal return confirms the selected instrument onto
+that captured cell, retaining its note/timing and original field. Empty cells
+become instrument-only events. Unchanged assignments create no extra history or
+preview. Existing undo/history and preview apply. Return while blocked retains
+Instrument and selection with a reason until safely accepted; it never triggers
+automatic recovery. Enter remains STOP; closing BTX is not assignment confirmation.
+
+Instrument selector cancellation: Windows **Escape** / handheld **unmodified B**
+returns to Pattern without assignment and restores the captured source cursor.
+Cancellation remains available while disconnected or held for reconnect recovery;
+retained musical work is preserved. Then enter recovery explicitly from Pattern
+(Ctrl+Left / Select+Left), review and confirm or cancel using the existing recovery
+menu. Cancellation never recovers work automatically or starts playback.
+Ctrl+Down / Select+Down confirms assignment and remains blocked when unsafe.
+Modified B keeps its existing STOP combinations; Enter remains STOP.
+Closing BTX does not confirm assignment.
+
+
+Provisional owner-validation bindings inside Instrument:
+
+| Action | Windows | Handheld |
+|---|---|---|
+| Previous / next (clamped 01-99) | Ctrl+Left / Right | Select+Left / Right |
+| Assign selection to source cell and return in its original field | Ctrl+Down | Select+Down |
+| Cancel selection and return without assignment, including recovery hold | Escape | Unmodified B |
+
+Select precedes D-pad; L1 value-edit and R1 beat/tempo precedence remain.
+Chords consume once per physical arrow/direction press, suppress held repeat and
+retain focus-loss/controller-removal handling. Browsing performs no session save,
+assignment or automatic playback resume. Type is read-only device identity;
+Name, Load, Save and Fine Tune are unavailable placeholders. Transpose is deferred.
 
 ## Desktop controls
 

@@ -23,6 +23,8 @@ class HostChannelMute {
 public:
     void Disconnect() noexcept { *this=HostChannelMute{}; }
     bool Available() const noexcept { return supported_ && known_ && !uncertain_; }
+    bool Supported() const noexcept {return supported_;}
+    bool Synchronized() const noexcept {return Available() && !current_ && goal_==mask_ && !read_ && !rejected_;}
     bool Known() const noexcept { return supported_ && known_; }
     unsigned Mask() const noexcept { return mask_; }
     const char* Status() const noexcept {

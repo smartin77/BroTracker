@@ -7,7 +7,7 @@ Implemented on feature/midi-foundation, following D0036. Prior Windows/ArkOS
 version was user-confirmed working. Windows mouse mute, header navigation and
 enlarged numbers are now user-confirmed. Keyboard mute, example-config review,
 listening and physical handheld checks remain unconfirmed. External MIDI hardware/playback and audible alignment remain pending.
-Bridge diagnostics stay paused. No persistence, solo or Mixer screen is added.
+Bridge diagnostics stay paused. Mute persistence is now part of the working-session snapshot below; solo and Mixer remain deferred.
 
 ## Input and presentation
 
@@ -114,7 +114,8 @@ Rejection is explicit: failed-channel intent is discarded, but later toggles on
 independent channels survive and wait for readback before a fresh, never-reused
 request ID. Reconnect discards old goals and reads current device state.
 It does not replay toggles or start playback. Older firmware lacks CAP, so mute is
-unavailable while ordinary controls remain usable. Boot defaults all unmuted.
+unavailable while ordinary controls remain usable. Boot restores a validated session mask through the existing audio-owner coordination;
+legacy/missing sessions default all unmuted.
 
 ## Validation and manual checklist
 
@@ -136,3 +137,12 @@ Before manual Windows/handheld testing:
 
 Manual checks do not replace external routing verification or simultaneous
 separate-output audio onset/offset/jitter measurement. No audible sync claim.
+
+## Instrument foundation session snapshot (2026-11-09)
+
+Working-session v2 now persists acknowledged channel mutes alongside the existing
+published/working music and host edit-frame context. Legacy sessions default to
+unmuted. Boot restores via SubmitMute and audio block acknowledgment, without
+START. Reconnect only reads live state; it never reapplies the saved disk mask.
+See [snapshot format and coordination](FILE_FORMATS.md#instrument-foundation-session-snapshot-2026-11-09).
+Physical persistence/reconnect validation for this extension remains pending.

@@ -1,5 +1,6 @@
 #include "bringup_serial.h"
 #include "host_logging.h"
+#include "bringup/instrument_identity.h"
 #include <cstring>
 
 BringUpSerial::BringUpSerial(FILE* log, const char* test_device)
@@ -30,7 +31,7 @@ bool BringUpSerial::FileIdle() const {
     return connected_ && !PublicationBusy() && !TransportPending() &&
         !pattern_assembler_.Active() && (!preview_.Supported() || !preview_.TransferBusy());
 }
-bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now,bool wait_for_storage) {
+bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now,bool wait_for_storage,const EditCursor* view) {
     diagnostic_now_=now;
     if(SdStatus()==SdAvailability::Unavailable)return false;
     const bool early_test=action==FileAction::Test && !attempted_;
@@ -62,7 +63,7 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now,bool wait_fo
     }
     if(action==FileAction::Session) {
         if(wait_for_storage && !storage_ready_supported_) {std::strcpy(file_status_,"Session save readiness unsupported");return false;}
-        session_save_succeeded_=session_storage_ready_=false;session_ready_required_=wait_for_storage;
+        save_view_=view?*view:host_view_;session_save_succeeded_=session_storage_ready_=false;session_ready_required_=wait_for_storage;
     }
     file_action_=action;file_requested_at_=now;
     std::strcpy(file_status_,action==FileAction::PatternSave?"Pattern Save queued; synchronizing working edits":action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
@@ -139,6 +140,8 @@ void BringUpSerial::Disconnect(const char* reason)
     transport_->Close();
     opened_ = false;
     connected_ = false;
+    identity_supported_=identity_ready_=snapshot_metadata_supported_=false;
+    identity_request_=identity_number_!=0;restore_view_pending_=false;
     stopped_ = false;
     pending_ = Command::None;
     start_queued_ = stop_queued_ = false;
@@ -290,6 +293,12 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     if(!startup_selection_enabled_ && connected_ && editor.Ready() && pattern_assembler_.Snapshot() &&
         (!preview_.Supported() || preview_.VerifiedWorking())) initial_sync_ready_=true;
     if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
+    if(editor.Ready()) {
+        if(restore_view_pending_ && !host_view_seen_ && !continuity_pending_) {
+            editor.RestoreCursor(restored_view_);restore_view_pending_=false;
+        }
+        host_view_=editor.Cursor();host_view_seen_=true;
+    }
     editor.SetLocked(UserActionsBlocked() || exit_requested_ || file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave || !StartupPatternReady() || PublicationBusy());
     publication_.RefreshAvailability(PublicationUnavailable(editor));
     if(std::strcmp(logged_preview_status_,preview_.Status())) {
@@ -521,6 +530,8 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     }
     if(command==Command::File) {
         if(file_action_==FileAction::PatternSave)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 PATTERNSAVE 1 %s\n",pattern_source_.c_str());
+        else if(file_action_==FileAction::Session && snapshot_metadata_supported_)
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 SAVE 2 %u %u %u %u\n",save_view_.row,save_view_.channel,unsigned(save_view_.field),unsigned(save_view_.header));
         else tx_size_=std::snprintf(tx_,sizeof(tx_),file_action_==FileAction::Save?"BTSTORE1 DRAFTSAVE 1\n":"BTSTORE1 SAVE 1\n");
     }
     tx_offset_ = 0; tx_publication_=false;
@@ -644,6 +655,20 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(!std::strstr(line_," ok ") && !std::strstr(line_," missing "))
             std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
         return;
+    }
+    if(!std::strcmp(line_,"BTINS1 CAP 1")) {identity_supported_=connected_;return;}
+    if(!std::strncmp(line_,"BTINS1 STATE 1 ",15)) {
+        unsigned id=0,type=0;
+        if(connected_ && BroTracker::ParseInstrumentIdentity(line_,used_,id,type) && id+1==identity_number_) {
+            identity_type_=type;identity_ready_=true;
+        }return;
+    }
+    if(!std::strcmp(line_,"BTSESSION1 CAP 1")) {snapshot_metadata_supported_=connected_;return;}
+    if(!std::strncmp(line_,"BTSESSION1 VIEW 1 ",17)) {
+        unsigned r=0,c=0,f=0,h=0;int n=0;
+        if(connected_ && !host_view_seen_ && std::sscanf(line_,"BTSESSION1 VIEW 1 %u %u %u %u%n",&r,&c,&f,&h,&n)==4 && !line_[n] && r<64 && c<8 && f<2 && h<2) {
+            restored_view_={r,c,static_cast<EditField>(f),h!=0};restore_view_pending_=true;
+        }return;
     }
     if(!std::strcmp(line_,"BTSTORE1 SESSIONCAP 2")) {if(connected_)working_storage_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 READYCAP 1")) {if(connected_)storage_ready_supported_=true;return;}
@@ -1088,7 +1113,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && FileIdle() &&
             editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
                 BroTracker::SamePattern(observed_editor_,*preview_.VerifiedWorking()))) &&
-            (!tempo_.Supported() || tempo_.Synchronized())) {
+            (!tempo_.Supported() || tempo_.Synchronized()) && (!mute_.Supported() || mute_.Synchronized())) {
             // STOPPED does not imply MIDI/SD readiness. Keep this Session request
             // pending through the existing bounded READY negotiation, then save
             // the synchronized current work; unsolicited autosave is not its ACK.
@@ -1139,6 +1164,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
+        }
+        else if(connected_ && identity_supported_ && identity_request_ && !pattern_assembler_.Active()) {
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 GET 1 %u\n",identity_number_-1);tx_offset_=0;identity_request_=false;
         }
         else if(connected_ && volume_.Supported() && !pattern_assembler_.Active() &&
             (volume_.NeedsRead(now) || volume_.Sending() || volume_.Begin())) {

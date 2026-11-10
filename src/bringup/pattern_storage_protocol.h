@@ -1,6 +1,7 @@
 #pragma once
 #include <cstring>
 #include "development_pattern_selection.h"
+#include "pattern_snapshot.h"
 namespace BroTracker {
 enum class StorageOperation { Invalid, Save, Restore, Seed1, Seed2, Seed3, Seed4,
     Load, Replace3, Migrate1, Migrate2, Migrate3, Migrate4, SaveDraft, LoadDraft, SavePattern };
@@ -20,7 +21,19 @@ inline bool ParseStoragePatternSave(const char* line,DevelopmentPattern& output)
     const std::string_view name(line+sizeof(prefix)-1);
     return DevelopmentHasExtension(name) && output.Assign(name) && !output.IsNone();
 }
+inline bool ParseSessionSnapshotSave(const char* line,std::size_t length,std::uint32_t (&view)[4]) noexcept {
+    // SnapshotFields requires a nonzero first field (normally a request ID).
+    // Parse the nonzero version first: zero is valid for every view coordinate.
+    std::uint32_t fields[5]{};
+    if(!SnapshotFields(line,length,"BTSTORE1 SAVE ",fields,5) || fields[0]!=2 ||
+        std::strncmp(line,"BTSTORE1 SAVE 2 ",sizeof("BTSTORE1 SAVE 2 ")-1) ||
+        fields[1]>=64 || fields[2]>=8 || fields[3]>=2 || fields[4]>=2)return false;
+    for(unsigned i=0;i<4;++i)view[i]=fields[i+1];
+    return true;
+}
 inline StorageOperation ParseStorageOperation(const char* line) noexcept {
+    std::uint32_t view[4]{};
+    if(ParseSessionSnapshotSave(line,std::strlen(line),view))return StorageOperation::Save;
     DevelopmentPattern name;if(ParseStorageLoad(line,name))return StorageOperation::Load;
     if(ParseStoragePatternSave(line,name))return StorageOperation::SavePattern;
     struct Entry {const char* line;StorageOperation operation;};

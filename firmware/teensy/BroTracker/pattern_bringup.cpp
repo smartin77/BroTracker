@@ -1,5 +1,6 @@
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
+#include "bringup/instrument_identity.h"
 #endif
 #ifdef BROTRACKER_PATTERN_BRINGUP
 #include "bringup/master_volume_protocol.h"
@@ -103,6 +104,7 @@ namespace
     SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
     PatternPreviewReadback g_working;
     std::uint32_t g_boot_tempo=kTempoHundredths,g_published_tempo=kTempoHundredths;
+    unsigned g_boot_mute=0;
     bool g_audio_ready = false; // Published under InterruptGuard after AudioMemory.
 
     // Save/restore PRIMASK, including callers with interrupts already disabled.
@@ -182,6 +184,9 @@ namespace
             if (!initialized_)
             {
                 (void)g_control.InitializeAudio(g_boot_tempo,44100,g_working.working,g_selected_bindings,g_published_tempo);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                if(g_boot_mute)(void)g_control.SubmitMute(g_boot_mute,1);
+#endif
                 initialized_ = true;
             }
             audio_block_t* block = allocate();
@@ -247,9 +252,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve discovery including device facts and the optional delay capability.
-    constexpr std::size_t kDiscoveryReserve = 35;
-    constexpr std::size_t kTxCapacity = 36;
+    // Reserve all 38 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 38;
+    constexpr std::size_t kTxCapacity = 39;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -268,7 +273,7 @@ namespace
     WorkingSessionStore<SdPatternFiles> g_session_files;
     WorkingSession g_session;
     SessionSaveSchedule g_session_save;bool g_session_recovery_blocked=false,g_session_saved_valid=false;
-    std::uint32_t g_session_tempo=0;
+    std::uint32_t g_session_tempo=0;unsigned g_session_mute=0;
     PatternFileResult g_session_result=PatternFileResult::Missing,g_boot_session_result=PatternFileResult::Missing;
     RealtimePattern g_storage_pattern; // Frozen main-context file/snapshot scratch, never live PCM.
     std::uint32_t g_storage_restore_id=0;
@@ -353,7 +358,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) (void)QueueLine("BTMUTE1 CAP 1\n");
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -368,7 +373,8 @@ namespace
             (void)QueueLine("BTPREVIEW1 DELTACAP 1\n"); }
         if (advertise_snapshot) (void)QueueLine("BTGAIN1 CAP 1\n");
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 NEWCAP 1\n"); (void)QueueLine("BTSTORE1 PATTERNSAVECAP 1\n"); (void)QueueLine("BTSTORE1 LISTCAP 1\n"); (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSTORE1 READYCAP 1\n");
+        if (advertise_snapshot) { (void)QueueLine("BTSTORE1 NEWCAP 1\n"); (void)QueueLine("BTSTORE1 PATTERNSAVECAP 1\n"); (void)QueueLine("BTSTORE1 LISTCAP 1\n"); (void)QueueLine("BTSTORE1 CAP 1\n"); (void)QueueLine("BTSTORE1 SESSIONCAP 2\n"); (void)QueueLine("BTSESSION1 CAP 1\n");
+            char view[80];std::snprintf(view,sizeof(view),"BTSESSION1 VIEW 1 %u %u %u %u\n",g_session.view.row,g_session.view.channel,g_session.view.field,g_session.view.header);(void)QueueLine(view); (void)QueueLine("BTSTORE1 READYCAP 1\n");
             (void)QueueLine("BTSTORE1 SDCAP 1\n");
             (void)QueueLine(g_storage_backend.ready ? "BTSTORE1 SD 1 available\n" : "BTSTORE1 SD 1 unavailable\n");
                     StorageReply("session-boot",g_session_saved_valid?"ok":PatternFileResultName(g_boot_session_result)); }
@@ -516,6 +522,8 @@ namespace
         }
         std::uint32_t new_rows=0;
         const bool new_pattern=SnapshotFields(line,std::strlen(line),"BTSTORE1 NEW 1 ",&new_rows,1) && (new_rows==16 || new_rows==32 || new_rows==64);
+        std::uint32_t view[4]{};
+        const bool snapshot=ParseSessionSnapshotSave(line,std::strlen(line),view);
         const auto op=new_pattern?StorageOperation::Load:ParseStorageOperation(line);
         DevelopmentPattern selection;
         char operation[80];
@@ -531,6 +539,8 @@ namespace
         if(!(op==StorageOperation::Load && selection.IsNone()) && !g_storage_backend.ready) {StorageReply(operation,"sd-unavailable");return;}
         if(op==StorageOperation::Save && g_session_recovery_blocked) {StorageReply(operation,"recovery-required");return;}
         if(op==StorageOperation::Save && Snapshot().transport==PatternTransportState::Playing) {
+            // Preserve deferred host view intent in main-owned RAM; no playing SD I/O.
+            if(snapshot)g_session.view=ValidatedSessionView({static_cast<std::uint8_t>(view[0]),static_cast<std::uint8_t>(view[1]),static_cast<std::uint8_t>(view[2]),static_cast<std::uint8_t>(view[3])},g_working.pending_id?g_working.pending:g_working.working);
             g_session_save.Changed();StorageReply(operation,"deferred-playing");return;
         }
         if(op==StorageOperation::SavePattern && Snapshot().transport!=PatternTransportState::Stopped) {
@@ -545,7 +555,8 @@ namespace
             if(op==StorageOperation::SavePattern) result=g_pattern_files.SaveDevelopment(g_storage_backend,selection.stem,work,status.tempo);
             else {
                 g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
-                g_session.working=work;g_session.working_tempo=status.tempo;
+                g_session.working=work;g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
+                if(snapshot)g_session.view=ValidatedSessionView({static_cast<std::uint8_t>(view[0]),static_cast<std::uint8_t>(view[1]),static_cast<std::uint8_t>(view[2]),static_cast<std::uint8_t>(view[3])},work);
                 result=g_session_files.Save(g_storage_backend,g_session);g_session_result=result;
                 g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true;
             }
@@ -733,11 +744,12 @@ namespace
             if (QueueLine(error)) reported_failures = status.failures;
         }
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+        if(status.mute_mask!=g_session_mute) {g_session_mute=status.mute_mask;g_session_save.Changed();}
         if(status.tempo && status.tempo!=g_session_tempo) {g_session_tempo=status.tempo;g_session_save.Changed();}
         if(g_session_save.Ready(!g_session_recovery_blocked && g_storage_backend.ready && !StorageBlock(true))) {
             g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
             g_session.working=g_working.pending_id?g_working.pending:g_working.working;
-            g_session.working_tempo=status.tempo;
+            g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
             g_session_result=g_session_files.Save(g_storage_backend,g_session);
             g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true; // Failures are explicit; no unbounded retry loop.
             if(g_protocol_connected) StorageReply("session-auto",PatternFileResultName(g_session_result));
@@ -810,6 +822,13 @@ namespace
 #endif
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            else if (!std::strncmp(line,"BTINS1",6)) {
+                std::uint32_t id=0;
+                if(g_protocol_connected && SnapshotFields(line,used,"BTINS1 GET 1 ",&id,1) && id<99) {
+                    const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
+                    char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);
+                }
+            }
             else if (!std::strncmp(line,"BTMUTE1",7)) {
                 if(!std::strcmp(line,"BTMUTE1 GET 1")) QueueMuteState();
                 else {
@@ -1107,7 +1126,7 @@ namespace
                     validator.Configure(g_session.working_tempo,44100,g_session.working,g_selected_bindings)==PatternPlayerStatus::Success;
                 if(valid) {
                     g_active_pattern=g_session.published;g_published_tempo=g_session.published_tempo;
-                    g_working.working=g_session.working;g_boot_tempo=g_session.working_tempo;
+                    g_working.working=g_session.working;g_boot_tempo=g_session.working_tempo;g_boot_mute=g_session.mute_mask;
                 } else g_session_result=PatternFileResult::Invalid;
             }
         }

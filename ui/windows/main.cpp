@@ -97,6 +97,7 @@ int main(int argc, char* argv[]) try {
         WindowsDiagnostic(log_file, "Invalid BROTRACKER_DIAGNOSTIC_CHANNEL_GAINS", "Expected exactly eight comma-separated Q16 values 0..65536; nothing will be sent");
     WindowsTempoInput tempo_input;
     LocalPatternEditor editor;
+    WindowsScreenInput screen_input;
     WindowsEditorInput editor_input(host_config.config.value_step_direction);
     BringUpControls controls(serial, log_file);
     controls.SetConfirmLoadReplace(host_config.config.confirm_load_replace);
@@ -106,7 +107,7 @@ int main(int argc, char* argv[]) try {
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
-        serial.SyncEditor(editor,SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
         BroTracker::Pcm16ChannelGains diagnostic_request;
         if(diagnostic_gains.TakeRequest(serial.Connected(),serial.ChannelGainsSupported(),serial.ChannelGainsSynchronized(),diagnostic_request)) {
             const bool accepted=serial.RequestChannelGains(diagnostic_request);
@@ -116,6 +117,7 @@ int main(int argc, char* argv[]) try {
         if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {editor_input.Cancel();tempo_input.Cancel();}
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            const auto mapped_screen_action=screen_input.Handle(event);
             if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {
                 editor_input.Cancel();tempo_input.Cancel();
                 // Track physical releases/presses against an unready sink; never mutate the retained editor.
@@ -127,9 +129,8 @@ int main(int argc, char* argv[]) try {
                     const auto browser=MapWindowsBrowserAction(event);
                     if(browser!=BringUpAction::None){controls.Request(browser,"Pattern browser",SDL_GetTicks());continue;}
                 }
-                const auto action=MapWindowsAction(event);
-                if(action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
-                    ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight)))
+                const auto action=mapped_screen_action;
+                if(AllowWindowsBlockedAction(action,serial,controls))
                     controls.Request(action,"warning input",SDL_GetTicks());
                 continue;
             }
@@ -142,14 +143,14 @@ int main(int argc, char* argv[]) try {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
                 continue;
             }
-            const auto screen_action=MapWindowsAction(event);
-            if(screen_action==BringUpAction::ScreenLeft || screen_action==BringUpAction::ScreenRight) {
+            const auto screen_action=mapped_screen_action;
+            if(screen_action==BringUpAction::ScreenLeft || screen_action==BringUpAction::ScreenRight || screen_action==BringUpAction::ScreenUp || screen_action==BringUpAction::ScreenDown) {
                 (void)editor_input.Handle(event,SDL_GetTicks(),editor);editor_input.Cancel();tempo_input.Cancel();
-                serial.SyncEditor(editor,SDL_GetTicks());
+                serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
                 controls.Request(screen_action,"Ctrl+Left/Right",SDL_GetTicks());continue;
             }
             if (editor_input.Handle(event, SDL_GetTicks(), editor)) continue;
-            const auto action = MapWindowsAction(event);
+            const auto action = mapped_screen_action;
             if (action != BringUpAction::None) {
                 const char* source = event.type == SDL_QUIT ? "window close" :
                     action == BringUpAction::PatternToggle ? "Space" : action == BringUpAction::ResetStop ? "Enter" : "Ctrl+X";
@@ -157,11 +158,11 @@ int main(int argc, char* argv[]) try {
                 controls.Request(action, source, SDL_GetTicks());
             }
         }
-        serial.SyncEditor(editor,SDL_GetTicks()); // Capture edits before incoming recovery replies.
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor); // Capture edits before incoming recovery replies.
         // Service freshly queued transport before rendering/presenting the UI.
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
-        serial.SyncEditor(editor,SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
         if(const auto step=tempo_input.Tick(SDL_GetTicks(),serial.TempoAvailable() && !controls.PatternInputBlocked())) (void)serial.StepTempo(step);
         if(!serial.UserActionsBlocked() && !controls.PatternInputBlocked())editor_input.Tick(SDL_GetTicks(), SDL_GetModState(), editor);
         else editor_input.Cancel();
@@ -170,12 +171,18 @@ int main(int argc, char* argv[]) try {
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
+        if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
+        panel.text=warning_text;
+        panel.instrument_original_number=controls.OriginalInstrumentNumber();
+        panel.instrument_identity=serial.InstrumentIdentity();
+        panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
+        if(controls.InstrumentScreen())panel.transport_hints="Ctrl+Left/Right: select | Ctrl+Down: assign | Esc: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;
@@ -188,10 +195,10 @@ int main(int argc, char* argv[]) try {
         for(unsigned pass=0;pass<kWindowsSerialIdleServicePasses && !controls.Quit();++pass) {
             SDL_Delay(kWindowsSerialServiceSliceMs);
             // Capture already accepted edits before processing recovery replies.
-            serial.SyncEditor(editor,SDL_GetTicks());
+            serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
             controls.Tick(SDL_GetTicks());
             warning_presentation.ObserveConnection(serial.Connected());
-            serial.SyncEditor(editor,SDL_GetTicks());
+            serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
         }
     }
     if (audio) audio->Stop(); // Join the host audio worker before the shared log closes.

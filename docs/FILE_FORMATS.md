@@ -202,24 +202,26 @@ policy](RECONNECT_CONTINUITY.md).
 
 This is a bounded one-pattern foundation, not BTT/BTP/BTM or a self-contained tune.
 Raw instrument references use current bindings. No Sample PCM/paths, instrument
-definitions, voice phase, playback position/running state, mute/gain/master volume,
+definitions, voice phase, playback position/running state, gain/master volume,
 MIDI route/ownership, external instrument state or host configuration is stored.
+Host edit-frame context and acknowledged channel mute mask are retained in BTWS v2.
 Unsent host-only edits cannot be reconstructed after a host crash.
 
 ### Working-session envelope
 
-All integers are unsigned little-endian; no native struct dumps. Maximum 3144 bytes.
+All integers are unsigned little-endian; no native struct dumps. Maximum 3152 bytes (v2); legacy v1 maximum 3144 bytes.
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |
 | 0 | 4 | ASCII `BTWS` |
-| 4 | 2 | Version 1 |
+| 4 | 2 | Version 2; readers also accept 1 |
 | 6 | 2 | Header length 24 |
 | 8 | 4 | Published BTSS record length |
 | 12 | 4 | Working BTSS record length |
 | 16 | 4 | Reserved zero |
 | 20 | 4 | CRC-32/ISO-HDLC of envelope header/payload, omitting bytes 20..23 |
 | 24 | variable | Published BTSS record, then working BTSS record |
+| after records | 8 (v2 only) | Row, channel, field, header, mute mask, three reserved zeros |
 
 Both records and the complete envelope validate before destination mutation. Each
 record is bounded to 1560 bytes. Unsupported versions, reserved fields, excessive
@@ -395,3 +397,27 @@ barriers leave it pending. Failed writes retain pending intent with a failure la
 another mutation/request rearms it. No busy-loop I/O retry. The firmware no longer
 accepts DRAFTSAVE/DRAFTLOAD; old tune.btdraft files are left untouched. Internal
 publication/readback recovery remains available via explicit retained-work review.
+
+## Instrument foundation session snapshot (2026-11-09)
+
+`current.btsession` previously held BTWS v1: two BTSS records, published baseline
+and working intent, each with cells, NOTE_OFF metadata, dimensions and tempo.
+It did not store channel mutes or the host edit frame. BTWS v2 retains those
+records and appends eight CRC-covered bytes: row, channel, field (0 Note / 1
+Instrument), header flag, authoritative mute mask and three reserved zero bytes.
+BTWS v1 and legacy single BTSS files load with default cursor and unmuted channels.
+Coordinates are validated/clamped against existing dimensions, never resized.
+
+`BTSESSION1 CAP 1` enables `BTSTORE1 SAVE 2 row channel field header` through the
+same readiness/synchronization and atomic candidate/previous session writer.
+`BTSESSION1 VIEW 1 row channel field header` advertises saved host view on HELLO;
+a surviving host retains its current context. Geometry is main-owned opaque session
+metadata and never goes to the realtime player. Explicit save/exit captures the
+host view; automatic musical saves retain the last captured view.
+
+Mute is captured from acknowledged audio-owner state after host mute coordination
+settles. At boot, the restored mask uses the existing SubmitMute slot and audio
+block application/STATE acknowledgment, with no START. HELLO/reconnect never applies
+a saved mute or overwrites the running device; existing uncertain mute readback and
+retained working-draft recovery remain authoritative. Browsing instruments neither
+saves nor changes mutes or musical data. Physical validation remains pending.

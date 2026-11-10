@@ -51,7 +51,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
     }
     if(load_save_screen_ && action==BringUpAction::ScreenLeft)action=BringUpAction::BrowserBack;
     const bool recovery_available=serial_.RecoveryMenuAvailable();
-    if(action==BringUpAction::ScreenLeft && recovery_available && !load_save_screen_) {
+    // Instrument owns Left for browsing; explicit recovery is entered from Pattern.
+    if(action==BringUpAction::ScreenLeft && recovery_available && !load_save_screen_ && !instrument_screen_) {
         recovery_screen_=load_save_screen_=true;recovery_confirm_=false;return;
     }
     if(recovery_screen_) {
@@ -62,6 +63,22 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(!recovery_confirm_)recovery_confirm_=true;
             else if(serial_.RecoverRetainedWork(now))recovery_screen_=load_save_screen_=false;
         }
+        if(action!=BringUpAction::ResetStop)return;
+    }
+    if(instrument_screen_) {
+        if(action==BringUpAction::InstrumentCancel) {
+            if(editor_)editor_->RestoreCursor(instrument_entry_.source);
+            instrument_screen_=false;screen_status_.clear();return;
+        }
+        if(action==BringUpAction::ScreenDown) {
+            if(serial_.UserActionsBlocked() || serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending() ||
+                !editor_ || !editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {
+                screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
+            }
+            serial_.SyncEditor(*editor_,now);
+            instrument_screen_=false;screen_status_.clear();
+        } else if(action==BringUpAction::ScreenLeft && instrument_number_>1) --instrument_number_;
+        else if(action==BringUpAction::ScreenRight && instrument_number_<99) ++instrument_number_;
         if(action!=BringUpAction::ResetStop)return;
     }
     if(serial_.UserActionsBlocked() && !(action==BringUpAction::ResetStop && serial_.StopAvailable()))return;
@@ -92,26 +109,32 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         return;
     }
-    if(action>=BringUpAction::BrowserUp)return;
+    if(action>=BringUpAction::BrowserUp || action==BringUpAction::ScreenDown)return;
     if(action==BringUpAction::ScreenRight) {
         if(!ScreenPending()) {browser_confirm_=false;load_save_screen_=false;screen_status_="";}
         return;
     }
-    if(action==BringUpAction::ScreenLeft) {
-        if(PatternInputBlocked())return; // One transition, regardless of repeated input.
+    if(action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenUp) {
+        if(PatternInputBlocked())return;
+        instrument_destination_=action==BringUpAction::ScreenUp;
+        if(instrument_destination_) {
+            instrument_entry_=editor_?CaptureInstrumentEntry(*editor_):InstrumentEntry{};
+            if(!instrument_entry_) {screen_status_=instrument_entry_.reason;return;}
+            if(!serial_.SessionSnapshotAvailable()) {screen_status_="Instrument unavailable: update session-snapshot firmware";return;}
+        } // One transition, regardless of repeated input.
         if(serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending()) {
             screen_status_="Pattern Load/Save unavailable: wait for current operation";return;
         }
         browser_initialized_=browser_confirm_=browser_ready_=browser_collecting_=false;browser_list_={};browser_menu_=true;browser_saving_=false;browser_action_=0;
         screen_started_=now;
         if(serial_.Playing() || serial_.Paused() || serial_.Done()) {
-            if(!serial_.Stop()) {screen_status_="Pattern Load/Save: STOP unavailable";return;}
-            screen_phase_=ScreenPhase::Stop;screen_status_="Pattern Load/Save: waiting for STOP acknowledgement";
+            if(!serial_.Stop()) {screen_status_="Screen entry: STOP unavailable";return;}
+            screen_phase_=ScreenPhase::Stop;screen_status_="Screen entry: waiting for STOP acknowledgement";
         } else if(serial_.MidiRecoveryStopped()) {
-            if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true)) {
-                screen_phase_=ScreenPhase::Save;screen_status_="Pattern Load/Save: saving session";
-            } else screen_status_="Pattern Load/Save: session save unavailable";
-        } else screen_status_="Pattern Load/Save: stopped state unconfirmed";
+            if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true,instrument_destination_?&instrument_entry_.source:nullptr)) {
+                screen_phase_=ScreenPhase::Save;screen_status_="Screen entry: saving session";
+            } else screen_status_="Screen entry: session save unavailable";
+        } else screen_status_="Screen entry: stopped state unconfirmed";
         return;
     }
     if(PatternInputBlocked() && action!=BringUpAction::ResetStop)return;
@@ -152,22 +175,27 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 }
 void BringUpControls::Tick(std::uint32_t now) {
     serial_.Tick(now);
+    if(instrument_screen_ && serial_.UserActionsBlocked())
+        screen_status_="Return unavailable: synchronize/recover before instrument assignment";
     if(exit_after_stop_ && serial_.ExitReady()) {quit_=true;return;}
     if(ScreenPending()) {
         if(serial_.UserActionsBlocked()) {
-            screen_phase_=ScreenPhase::Idle;screen_status_="Pattern Load/Save cancelled: device unavailable or synchronizing";
+            screen_phase_=ScreenPhase::Idle;screen_status_="Screen entry cancelled: device unavailable or synchronizing";
         } else if(screen_phase_==ScreenPhase::Stop) {
             if(serial_.Stopped() && serial_.MidiRecoveryStopped()) {
-                if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true)) {
-                    screen_phase_=ScreenPhase::Save;screen_status_="Pattern Load/Save: saving session";
-                } else {screen_phase_=ScreenPhase::Idle;screen_status_="Pattern Load/Save: session save unavailable";}
+                if(serial_.RequestFile(BringUpSerial::FileAction::Session,now,true,instrument_destination_?&instrument_entry_.source:nullptr)) {
+                    screen_phase_=ScreenPhase::Save;screen_status_="Screen entry: saving session";
+                } else {screen_phase_=ScreenPhase::Idle;screen_status_="Screen entry: session save unavailable";}
             } else if(now-screen_started_>=12500) {
-                screen_phase_=ScreenPhase::Idle;screen_status_="Pattern Load/Save: STOP unconfirmed";
+                screen_phase_=ScreenPhase::Idle;screen_status_="Screen entry: STOP unconfirmed";
             }
         } else if(!serial_.FilePending()) {
-            load_save_screen_=serial_.SessionSaveSucceeded() && serial_.MidiRecoveryStopped();
+            const bool entered=serial_.SessionSaveSucceeded() && serial_.MidiRecoveryStopped();
+            load_save_screen_=entered && !instrument_destination_;
+            instrument_screen_=entered && instrument_destination_;
+            if(instrument_screen_)instrument_number_=instrument_entry_.number;
             screen_phase_=ScreenPhase::Idle;
-            screen_status_=load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Pattern Load/Save: session save failed; current work retained";
+            screen_status_=instrument_screen_?"Session saved | Instrument":load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Screen entry: session save failed; current work retained";
         }
     }
     if(load_save_screen_ && !recovery_screen_) {

@@ -1347,6 +1347,6 @@ quantified timing. Residual crackles and optional latency optimization remain
 future work. Windows queue target 1323 -> 882 frames (30 -> 20 ms) remains proposed,
 unexecuted and not approved as the new default. SD initialization/blocking
 robustness and CDC startup receive overflow remain open; successful recent tests
-do not resolve their historical causes. Instrument screen foundation is the next
-agreed feature milestone, with planned Ctrl+Up / Select+D-pad Up and transition
-policy in [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry).
+do not resolve their historical causes. The Instrument screen foundation now
+implements direct Ctrl+Up / Select+D-pad Up entry and the transition policy in
+[BTX Controls](BTX_CONTROLS.md#instrument-entry); owner validation remains pending.

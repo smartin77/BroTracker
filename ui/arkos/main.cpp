@@ -349,12 +349,8 @@ int main(int argc, char* argv[])
     {
         controls.Tick(SDL_GetTicks());
         warning_presentation.ObserveConnection(serial.Connected());
-        serial.SyncEditor(editor,SDL_GetTicks());
-        editor_input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
-            !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
-            !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),
-            (!serial.UserActionsBlocked() && controls.PatternInputBlocked()) || serial.RecoveryMenuAvailable() || controls.RecoveryScreen(),
-            (!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable());
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
+        ConfigureArkOSInputBarrier(editor_input,serial,controls);
         if(audible && serial.Playing() && SDL_GetTicks()-next_audible_observation>=1000) {
             next_audible_observation=SDL_GetTicks();const auto view=serial.PlaybackView(SDL_GetTicks());
             if(view) audible->Publish(listening::Observation,view->tempo_hundredths,view->position.tick);
@@ -390,8 +386,7 @@ int main(int argc, char* argv[])
                 const bool publish=(recovery || (!controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable())) && result.publish && !editor.Cursor().header;
                 const bool restore=recovery && result.restore;
                 result={};result.publish=publish;result.restore=restore;
-                if(transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
-                   ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) && (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp))))result.transport=transport;
+                if(AllowArkOSBlockedTransport(transport,serial,controls))result.transport=transport;
                 editor_input.Cancel();
             }
             if(result.mute_channel>=0) (void)serial.ToggleChannelMute(unsigned(result.mute_channel));
@@ -411,10 +406,10 @@ int main(int argc, char* argv[])
             (void)serial.StepVolume(step);
         editor_input.Tick(SDL_GetTicks(),!serial.UserActionsBlocked() && !controls.PatternInputBlocked() && !controls.Exiting(),editor);
         if(const auto step=editor_input.TakeTempoStep()) (void)serial.StepTempo(step);
-        serial.SyncEditor(editor,SDL_GetTicks()); // Observe edits before processing incoming recovery replies.
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor); // Observe edits before processing incoming recovery replies.
         controls.Tick(SDL_GetTicks()); // Fresh transport work precedes rendering.
         warning_presentation.ObserveConnection(serial.Connected());
-        serial.SyncEditor(editor,SDL_GetTicks());
+        serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
         HostPanelInformation panel{serial.Status(),
             controls.StopPending() ? (controls.Exiting() ? "STOP pending, then EXIT" : "STOP pending; please wait") :
             editor_input.Device()<0 ? "Mapped SDL controller required | waiting for controller" :
@@ -423,12 +418,18 @@ int main(int argc, char* argv[])
         midi_exchange.Tick(serial.MidiHealth(SDL_GetTicks()),serial.Playing()?"playing":serial.Paused()?"paused":serial.MidiRecoveryStopped()?"stopped":"unknown",BroTracker::MidiStatusExchange::Now());
         panel.midi_route_status=midi_exchange.route;panel.midi_usb_status=midi_exchange.usb;
         panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
+        if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
+        panel.text=warning_text;
+        panel.instrument_original_number=controls.OriginalInstrumentNumber();
+        panel.instrument_identity=serial.InstrumentIdentity();
+        panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
+        if(controls.InstrumentScreen())panel.transport_hints="Select+Left/Right: select | Select+Down: assign | B: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";
