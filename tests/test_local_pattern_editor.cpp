@@ -942,3 +942,22 @@ TEST_CASE(InstrumentOriginalMarkerUsesActualRendererAndIsAbsentWithoutExplicitId
     panel.instrument_original_number=0;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK_EQ(turquoise(),0u);
     CHECK(fb.SaveBMP("diagnostics/instrument-marker/inherited-03-no-original.bmp"));
 }
+
+TEST_CASE(InstrumentIdentityProductionParsersAcceptZeroAndKeepStrictValidation) {
+    for(unsigned raw:{0u,1u,98u}) {
+        unsigned id=55,type=55;const auto get="BTINS1 GET 1 "+std::to_string(raw);
+        CHECK(BroTracker::ParseInstrumentIdentityRequest(get.data(),get.size(),id));CHECK_EQ(id,raw);
+        for(unsigned kind=0;kind<=3;++kind) {
+            const auto state="BTINS1 STATE 1 "+std::to_string(raw)+" "+std::to_string(kind);
+            CHECK(BroTracker::ParseInstrumentIdentity(state.data(),state.size(),id,type));CHECK_EQ(id,raw);CHECK_EQ(type,kind);
+        }
+    }
+    for(const std::string line:std::initializer_list<std::string>{"BTINS1 GET 1 99","BTINS1 GET 1 255","BTINS1 GET 1 -1","BTINS1 GET 1 +0","BTINS1 GET 1 4294967296","BTINS1 GET 1 0 extra","BTINS1 GET 2 0","BTINS1 GET 01 0","BTINS1 GET 0 0","BTINS1 GET 1  0","BTINS1 GET 1 ","BTINS1 GET 1 0 ","BTINS1 GET 1 0\r",std::string("BTINS1 GET 1 0\0",15)}) {
+        unsigned id=55;CHECK(!BroTracker::ParseInstrumentIdentityRequest(line.data(),line.size(),id));CHECK_EQ(id,55u);
+    }
+    for(const std::string line:std::initializer_list<std::string>{"BTINS1 STATE 1 99 1","BTINS1 STATE 1 255 1","BTINS1 STATE 1 -1 2","BTINS1 STATE 1 +0 1","BTINS1 STATE 1 0 4","BTINS1 STATE 1 0 -1","BTINS1 STATE 1 0 4294967296","BTINS1 STATE 1 4294967296 1","BTINS1 STATE 1 0 1 extra","BTINS1 STATE 2 0 1","BTINS1 STATE 01 0 1","BTINS1 STATE 0 0 1","BTINS1 STATE 1  0 1","BTINS1 STATE 1 0","BTINS1 STATE 1 0 1 ","BTINS1 STATE 1 0 1\r",std::string("BTINS1 STATE 1 0 1\0",19)}) {
+        unsigned id=55,type=55;CHECK(!BroTracker::ParseInstrumentIdentity(line.data(),line.size(),id,type));CHECK_EQ(id,55u);CHECK_EQ(type,55u);
+    }
+    std::uint32_t request=55;const char* zero="BTPATTERN1 GET 1 0";
+    CHECK(!BroTracker::SnapshotFields(zero,std::strlen(zero),"BTPATTERN1 GET 1 ",&request,1));CHECK_EQ(request,55u);
+}

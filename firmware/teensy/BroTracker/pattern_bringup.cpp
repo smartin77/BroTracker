@@ -823,8 +823,8 @@ namespace
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
-                std::uint32_t id=0;
-                if(g_protocol_connected && SnapshotFields(line,used,"BTINS1 GET 1 ",&id,1) && id<99) {
+                unsigned id=0;
+                if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);
                 }

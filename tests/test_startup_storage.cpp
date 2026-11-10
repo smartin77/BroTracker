@@ -13,6 +13,7 @@
 #include "bringup/storage_ready_wait.h"
 #include "bringup/master_volume_protocol.h"
 #include "bringup/pattern_preview.h"
+#include "bringup/instrument_identity.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -109,7 +110,13 @@ struct StoragePeer:SerialTransport {
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
-            const auto id=std::stoul(line.substr(13));rx+="BTINS1 STATE 1 "+std::to_string(id)+" "+std::to_string(id==2?3:0)+"\n";
+            unsigned id=0;
+            BroTracker::VariableRateSampleBindings bindings;bindings.count=3;
+            bindings.bindings[0].instrument=0;bindings.bindings[0].type=BroTracker::InstrumentType::Sample;
+            bindings.bindings[1].instrument=1;bindings.bindings[1].type=BroTracker::InstrumentType::MIDI;
+            bindings.bindings[2].instrument=2;bindings.bindings[2].type=BroTracker::InstrumentType::Synth;
+            if(BroTracker::ParseInstrumentIdentityRequest(line.data(),line.size(),id))
+                rx+="BTINS1 STATE 1 "+std::to_string(id)+" "+std::to_string(BroTracker::InstrumentBindingIdentity(bindings,id))+"\n";
         }
         else if(line.rfind("BTSTORE1 SAVE 2 ",0)==0) {
             saved_view=line.substr(16);
@@ -1201,5 +1208,17 @@ TEST_CASE(InstrumentSelectorKeepsSelectionUnderEditorBarrierAndExitDoesNotConfir
         CHECK(!serial.FilePending());controls.Request(BringUpAction::ScreenDown,"retry after barrier",5201);
         CHECK(!controls.InstrumentScreen());CHECK_EQ(editor.Draft()->cells[0][0].instrument,3u);
     }
+    }
+}
+
+TEST_CASE(Instrument01IdentityTraversesProductionGetStateAndHostDisplayedType) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->identity_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    unsigned tick=100;
+    for(auto item:{std::pair<unsigned,const char*>{1,"Sample"},{2,"MIDI"},{3,"Sine Synth"},{99,"Unbound"},{1,"Sample"}}) {
+        serial.InspectInstrument(item.first);Pump(serial,tick,tick+10,&editor);tick+=10;
+        CHECK_EQ(serial.InstrumentIdentity(),std::string(item.second));
+        const auto get="BTINS1 GET 1 "+std::to_string(item.first-1);
+        CHECK(std::find(wire->commands.begin(),wire->commands.end(),get)!=wire->commands.end());
     }
 }
