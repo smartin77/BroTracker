@@ -828,7 +828,7 @@ static void RenderPatternScreen(
         line(title);
         if(host.instrument_original_number)
             HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+16,y-52+face.ascent,
-                "["+host.text.Get(WarningText::Original)+": "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",editing_frame);
+                "[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
         const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
         line(host.text.Get(WarningText::Type)+": "+identity);
         line(host.text.Get(WarningText::Name)+": "+host.text.Get(WarningText::Unavailable));

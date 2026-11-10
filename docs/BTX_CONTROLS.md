@@ -94,7 +94,7 @@ unsupported ID is reported, not skipped. Note-only and empty ordinary Instrument
 fields are supported; headers, NOTE_OFF timing fields and IDs outside 01-99 remain
 unavailable. Entry itself never assigns a cell.
 
-The header distinguishes selection from [Original: NN], shown only for the source
+The header distinguishes selection from the turquoise [*NN] marker, shown only for the source
 cell's original explicit ID. Normal return confirms the selected instrument onto
 that captured cell, retaining its note/timing and original field. Empty cells
 become instrument-only events. Unchanged assignments create no extra history or

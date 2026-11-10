@@ -16,7 +16,7 @@ There is no wrap, cross-channel lookup or playback-state inference. The nearest
 unsupported inherited ID is reported, never skipped. Headers, NOTE_OFF timing
 fields and IDs outside 01-99 stay unavailable. Note-only cells are supported.
 
-The header shows the current selection and an orange [Original: NN] marker only
+The header shows the current selection and a turquoise [*NN] marker only
 when the source cell had its own explicit ID. Inherited/default selection never
 creates an original marker. Browsing only changes selection, not musical data.
 

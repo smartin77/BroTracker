@@ -9,7 +9,7 @@
 // Minimal host-only warning catalog. Selection/reload is independent of drawing.
 class WarningText {
 public:
-    enum Key { TeensyHeading, TeensyBody, SdHeading, SdBody, Instrument, Type, Name, Load, Save, FineTune, Unavailable, Sample, Midi, SineSynth, Original, Count };
+    enum Key { TeensyHeading, TeensyBody, SdHeading, SdBody, Instrument, Type, Name, Load, Save, FineTune, Unavailable, Sample, Midi, SineSynth, Count };
     WarningText() { Reset(); }
     const std::string& Get(Key key) const {return values_[key];}
     void Parse(std::string_view source) {
@@ -38,7 +38,7 @@ public:
         if(input) {std::ostringstream data;data<<input.rdbuf();Parse(data.str());}
     }
 private:
-    void Reset() {values_={"TEENSY BOARD NOT CONNECTED","Connect the Teensy board to continue.","SD CARD UNAVAILABLE","The application cannot continue without an SD card.","Instrument","Type","Name","Load","Save","Fine Tune","unavailable","Sample","MIDI","Sine Synth","Original"};}
-    inline static constexpr std::array<const char*,Count> keys_{"teensy_heading","teensy_body","sd_heading","sd_body","instrument","instrument_type","instrument_name","instrument_load","instrument_save","instrument_fine_tune","instrument_unavailable","instrument_sample","instrument_midi","instrument_sine_synth","instrument_original"};
+    void Reset() {values_={"TEENSY BOARD NOT CONNECTED","Connect the Teensy board to continue.","SD CARD UNAVAILABLE","The application cannot continue without an SD card.","Instrument","Type","Name","Load","Save","Fine Tune","unavailable","Sample","MIDI","Sine Synth"};}
+    inline static constexpr std::array<const char*,Count> keys_{"teensy_heading","teensy_body","sd_heading","sd_body","instrument","instrument_type","instrument_name","instrument_load","instrument_save","instrument_fine_tune","instrument_unavailable","instrument_sample","instrument_midi","instrument_sine_synth"};
     std::array<std::string,Count> values_;
 };

@@ -926,13 +926,19 @@ TEST_CASE(InstrumentSelectorAssignmentPreservesNoteTimingFieldAndUsesHistory) {
     BroTracker::SparsePreviewCell cell;CHECK(!editor.TakeCapturedCell(0,cell));
 }
 TEST_CASE(InstrumentOriginalMarkerUsesActualRendererAndIsAbsentWithoutExplicitId) {
-    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-selector");
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-marker");
     Framebuffer fb(640,480);Tune tune;Pattern pattern;auto view=ConnectedDraft();LocalPatternEditor editor;editor.Sync(view);
     HostPanelInformation panel;panel.instrument_number=4;panel.instrument_original_number=3;
     RenderMainScreen(fb,tune,pattern,view,&editor,panel);
-    auto orange=[&](){unsigned count=0;for(unsigned y=35;y<66;++y)for(unsigned x=120;x<435;++x) {auto c=fb.PixelData()[y*640+x];if(c.r==255 && c.g==160 && c.b==64)++count;}return count;};
-    CHECK(orange()>0);CHECK(fb.SaveBMP("diagnostics/instrument-selector/selected-04-original-03.bmp"));
-    panel.instrument_number=3;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(fb.SaveBMP("diagnostics/instrument-selector/selected-original-03.bmp"));
-    panel.instrument_original_number=0;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK_EQ(orange(),0u);
-    CHECK(fb.SaveBMP("diagnostics/instrument-selector/inherited-03-no-original.bmp"));
+    auto turquoise=[&](){unsigned count=0;for(unsigned y=35;y<66;++y)for(unsigned x=120;x<435;++x) {auto c=fb.PixelData()[y*640+x];if(c.r==76 && c.g==195 && c.b==201)++count;}return count;};
+    CHECK(turquoise()>0);
+    // Compact marker ends before x=180; no orange edit-frame pixels in the title.
+    for(unsigned y=35;y<66;++y)for(unsigned x=120;x<435;++x) {
+        const auto c=fb.PixelData()[y*640+x];CHECK(!(c.r==255 && c.g==160 && c.b==64));
+        if(x>=180)CHECK(!(c.r==76 && c.g==195 && c.b==201));
+    }
+    const auto marker_pixels=turquoise();CHECK(fb.SaveBMP("diagnostics/instrument-marker/selected-04-original-03.bmp"));
+    panel.instrument_number=3;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK_EQ(turquoise(),marker_pixels);CHECK(fb.SaveBMP("diagnostics/instrument-marker/selected-original-03.bmp"));
+    panel.instrument_original_number=0;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK_EQ(turquoise(),0u);
+    CHECK(fb.SaveBMP("diagnostics/instrument-marker/inherited-03-no-original.bmp"));
 }
