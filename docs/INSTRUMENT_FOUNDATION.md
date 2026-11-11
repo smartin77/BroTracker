@@ -12,11 +12,14 @@ row/channel/field and its original explicit instrument separately from selection
 Raw IDs 0-98 display as 01-99; 0xff means no explicit update. An explicit source
 ID wins; otherwise the nearest preceding explicit ID in the same channel supplies
 the initial selection (instrument-only events included). No earlier ID means 01.
-There is no wrap, cross-channel lookup or playback-state inference. The nearest
-unsupported inherited ID is reported, never skipped. Headers, NOTE_OFF timing
-fields and IDs outside 01-99 stay unavailable. Note-only cells are supported.
+Inheritance lookup never wraps or consults another channel/playback state. The
+nearest ID is never skipped. Collection-capable firmware permits reviewing an
+out-of-collection reference as Undefined, including received IDs beyond99;
+legacy entry still rejects IDs outside01-99. Headers and NOTE_OFF timing fields
+stay unavailable. Note-only cells are supported.
 
-The header shows the current selection and a turquoise [*NN] marker only
+The header appends a turquoise * directly after the original selected number
+(e.g. Instrument 03*); when browsing another number it shows turquoise [*NN] only
 when the source cell had its own explicit ID. Inherited/default selection never
 creates an original marker. Browsing only changes selection, not musical data.
 
@@ -88,7 +91,7 @@ Definitions remain firmware-initialized and immutable in this step. User creatio
 contiguous collection navigation, rotation, Type editing and durable instrument
 persistence are deferred. No new instrument parameter set or file format exists.
 The development five definitions happen to be contiguous; maximum future collection
-size remains 99. There is no New action, renumbering or sample-loading UI.
+size remains 99. Creation, renumbering and sample-loading UI remain deferred.
 
 ## Text presentation and deferred work
 
@@ -119,3 +122,59 @@ running reconnect on physical devices. Automated results are not physical proof.
 Cursor restoration validates the full stored pattern dimensions, including valid
 rows beyond the existing 32-row viewport. It does not resize a pattern or implement
 paging; the separate 64-row paging/layout policy remains deferred.
+
+## Contiguous collection browsing
+
+Capable Teensy firmware advertises `BTINS1 COLLECTIONCAP 1`. BTX requests exactly
+`BTINS1 COLLECTION GET 1`, receiving `BTINS1 COLLECTION STATE 1 N` (0-99). N is
+computed from the firmware definition table, including Samples with unavailable
+resources. This read-only extension neither creates nor changes definitions.
+The bounded count is invalidated on disconnect and requested again on reconnect;
+repeated capability lines do not repeat queries. Navigation/confirmation wait for
+a valid count on supported firmware; cancellation remains available. Legacy
+firmware without this capability retains clamped 01-99 navigation after snapshot
+readback, including its recovery rules.
+
+With N confirmed, Left from01 wraps to N, Left from02-N decrements, Right advances
+up to N and stays there. An existing out-of-collection source reference is shown
+as Undefined and retained as the original reference. It cannot be confirmed;
+Left selects N and Right selects01, or cancel preserves the source. References
+beyond99 can be reviewed/cancelled on capable firmware without sending invalid
+identity requests. Only a selection inside the confirmed collection can replace
+the source; resource unavailability does not make a defined Sample undefined.
+Entry STOP/session-save, original cursor restoration and assignment/history paths
+remain unchanged. No creation, deletion or Type editing. New is exposed only as a noncommitting Pattern editor action.
+
+When selected number equals the captured explicit original, only a turquoise
+asterisk is appended directly to the number. Otherwise the existing [*NN] marker
+shows that original. No explicit source ID means neither marker, even for inherited
+or default selection. The original ID never follows browsing or playback.
+
+## Pattern instrument choices and safe undefined drafts
+
+Pattern instrument value input uses the confirmed Teensy collection, independently
+of whether the Pattern is empty. For N1-98, choices are01-N plus exactly N+1 New
+Instrument. For N0, only01 New is offered; confirmed zero has a separate readiness
+flag from pending/unknown count. N99 offers01-99 without New. Supported/pending
+count holds instrument selection. Older firmware keeps legacy01-99 editing.
+These bounds apply centrally to steps, held repeats, reversed steps, direct values
+and instrument assignment. Existing project/history references are not sanitized.
+
+New is transient editor state: its number is shown in the field with a New
+Instrument status, while the cell byte remains unchanged. It creates no undo,
+preview or persistence data. Further increment cannot select N+2. Escape cancels
+the choice; handheld B retains STOP and clears the transient choice. Creation is
+not implemented, so no New number can be committed without a future successful
+Teensy creation acknowledgement. Ctrl+Up on New does not save/open an undefined ID.
+
+Stopped working-draft preview now accepts syntactically valid unbound references
+as metadata, retaining their bytes so Instrument inspection/session save can
+complete. Live rendering and publication validation remain strict; this does not
+make an undefined reference playable or substitute another binding. Normal note,
+pitch, dimensions, gain and timing validation remains. Instrument browsing keeps
+the original reference until explicit defined replacement; cancellation keeps it.
+
+Escape/unmodified B can also cancel pending Instrument entry, including preview
+rejection/session-save wait. Unsent entry saves are cancelled; already transmitted
+operations retain their normal acknowledgement/readiness barriers. Late save ACKs
+cannot reopen Instrument. Closing still does not confirm assignment.

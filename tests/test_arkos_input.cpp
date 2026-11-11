@@ -635,3 +635,11 @@ TEST_CASE(InstrumentCancelUsesOnlyUnmodifiedBAndPreservesStopCombinations) {
         CHECK(edge(SDL_CONTROLLER_BUTTON_B)==(modifier<0?BringUpAction::InstrumentCancel:BringUpAction::ResetStop));
     }
 }
+
+TEST_CASE(HandheldPatternCollectionNewIsNonCommittingAndCannotAdvanceToSeven) {
+    InputFixture f;f.editor.SetInstrumentCollection(true,true,5);f.editor.RestoreCursor({0,0,EditField::Instrument,false});
+    CHECK(f.editor.Apply(EditorAction::SetValue,4));const auto before=*f.editor.Draft();f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK(f.editor.NewInstrumentSelected());CHECK_EQ(f.editor.NewInstrumentNumber(),6u);
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK(f.editor.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*f.editor.Draft()));
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);CHECK(!f.editor.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*f.editor.Draft()));
+}

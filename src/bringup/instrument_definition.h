@@ -11,8 +11,9 @@ inline constexpr InstrumentDefinition kDevelopmentInstrumentDefinitions[]={
     {InstrumentType::Sample,"Samples/test.wav"}
 };
 static_assert(sizeof(kDevelopmentInstrumentDefinitions)/sizeof(InstrumentDefinition)<=99,"Instrument bound");
+inline constexpr unsigned DevelopmentInstrumentCount() noexcept {return sizeof(kDevelopmentInstrumentDefinitions)/sizeof(InstrumentDefinition);}
 inline const InstrumentDefinition* DevelopmentInstrumentDefinition(unsigned raw) noexcept {
-    return raw<sizeof(kDevelopmentInstrumentDefinitions)/sizeof(InstrumentDefinition)?&kDevelopmentInstrumentDefinitions[raw]:nullptr;
+    return raw<DevelopmentInstrumentCount()?&kDevelopmentInstrumentDefinitions[raw]:nullptr;
 }
 inline unsigned InstrumentTypeCode(InstrumentType type) noexcept {
     return type==InstrumentType::Sample?1:type==InstrumentType::MIDI?2:3;

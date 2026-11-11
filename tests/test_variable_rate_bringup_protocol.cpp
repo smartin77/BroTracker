@@ -506,7 +506,7 @@ TEST_CASE(VariableBringUp_TransposedPublicationPreviewAndExactReadback) {
     const std::int16_t expected[]={10,15,20,25}; for(unsigned i=0;i<4;++i) CHECK_EQ(out[i],expected[i]);
 }
 
-TEST_CASE(VariableBringUpMissingLoadedWavRejectsPreviewWithoutChangingPlayback) {
+TEST_CASE(VariableBringUpStoppedDraftRetainsUnavailableWavWithoutPlaybackSubstitution) {
     const std::int16_t wav[]={-100,-200};
     // test2 failed to load; only test3 exists, still raw 3/display 04 (never substituted for missing Sample 01).
     const auto fixture=SelectDevelopmentFixture({},Pcm16MonoView{wav,2,44100});
@@ -519,8 +519,8 @@ TEST_CASE(VariableBringUpMissingLoadedWavRejectsPreviewWithoutChangingPlayback) 
     CHECK_EQ(control.SubmitPreview(*transfer.Frozen(),1),PatternRequestStatus::Accepted);
     std::int16_t out=777; control.AudioBlock(&out,0,true);
     std::vector<PatternAppliedRequest> events; PreviewDrain(control,transfer,metadata,events);
-    CHECK_EQ(events.size(),1); CHECK_EQ(events[0].result,PatternPlayerStatus::UnknownInstrument);
-    CHECK_EQ(metadata.working_id,0); CHECK_EQ(metadata.pending_id,0); Same(metadata.working,fixture.pattern);
+    CHECK_EQ(events.size(),2); CHECK_EQ(events[0].result,PatternPlayerStatus::Success);
+    CHECK_EQ(metadata.working_id,1); CHECK_EQ(metadata.pending_id,0); Same(metadata.working,bad);
     CHECK_EQ(bad.cells[0][2].note,60); CHECK_EQ(bad.cells[0][2].instrument,0); CHECK_EQ(out,777);
     CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
     control.AudioBlock(&out,1,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack)); CHECK_EQ(out,0);

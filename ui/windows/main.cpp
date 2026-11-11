@@ -184,6 +184,7 @@ int main(int argc, char* argv[]) try {
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
         if(controls.InstrumentScreen())panel.transport_hints="Ctrl+Left/Right: select | Ctrl+Down: assign | Esc: cancel";
+        if(editor.NewInstrumentSelected())panel.publication_status=editor.InstrumentSelectionStatus();
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;

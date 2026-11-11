@@ -9,6 +9,7 @@ public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
     void Request(BringUpAction action, const char* source, std::uint32_t now);
     void ObserveEditor(LocalPatternEditor& editor) { editor_=&editor; }
+    bool InstrumentCancellationAvailable()const{return instrument_screen_ || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
     unsigned InstrumentNumber()const{return instrument_number_;}

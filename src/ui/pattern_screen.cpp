@@ -382,7 +382,8 @@ namespace
                         const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
                         const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
                         note_value = cell.note;
-                        instrument_value = cell.instrument;
+                        instrument_value = editor && editor->NewInstrumentSelected() && editor->Cursor().row==unsigned(row) && editor->Cursor().channel==channel?
+                            static_cast<std::uint8_t>(editor->NewInstrumentNumber()-1):cell.instrument;
                     }
                 }
 
@@ -826,9 +827,11 @@ static void RenderPatternScreen(
         };
         const auto title=host.text.Get(WarningText::Instrument)+" "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
         line(title);
-        if(host.instrument_original_number)
-            HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+16,y-52+face.ascent,
-                "[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
+        if(host.instrument_original_number) {
+            const bool original=host.instrument_original_number==host.instrument_number;
+            HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+(original?0:16),y-52+face.ascent,
+                original?"*":"[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
+        }
         const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
         line(host.text.Get(WarningText::Type)+": "+identity);
         line("Availability: "+host.instrument_availability);

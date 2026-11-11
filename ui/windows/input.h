@@ -8,7 +8,7 @@
 // Shared by the blocked main-loop path and fake-transport input integration tests.
 inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& serial,const BringUpControls& controls) {
     return action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
-        (action==BringUpAction::InstrumentCancel && controls.InstrumentScreen()) ||
+        (action==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenUp || action==BringUpAction::ScreenDown));
 }
@@ -56,6 +56,10 @@ public:
     }
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
         if(!editor.Ready() || (editor.Locked() && !navigation_.Active()) || MapWindowsPublish(event)) Cancel();
+        if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_ESCAPE &&
+           !(event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)) && editor.NewInstrumentSelected()) {
+            Cancel();editor.CancelInstrumentChoice();return true;
+        }
         if(event.type==SDL_QUIT) { Cancel(); return false; }
         if(event.type==SDL_WINDOWEVENT) {
             if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; Cancel(); }

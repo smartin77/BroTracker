@@ -78,4 +78,10 @@ inline bool ParseInstrumentFacts(const char* line,std::size_t length,InstrumentF
     if(std::strlen(parsed.resource)!=length-split || !ValidInstrumentFacts(parsed))return false;
     output=parsed;return true;
 }
+inline bool ParseInstrumentCollectionCount(const char* line,std::size_t length,unsigned& count) noexcept {
+    std::uint32_t fields[2]{};
+    if(!SnapshotFields(line,length,"BTINS1 COLLECTION STATE ",fields,2) ||
+       std::memcmp(line,"BTINS1 COLLECTION STATE 1 ",26) || fields[0]!=1 || fields[1]>99)return false;
+    count=fields[1];return true;
+}
 }

@@ -223,7 +223,17 @@ namespace BroTracker
             if (!configured_) return VariableRatePatternPlayerStatus::NotConfigured;
             if (pattern.active_rows != pattern_.active_rows || pattern.active_channels != pattern_.active_channels)
                 return VariableRatePatternPlayerStatus::InvalidDimensions;
-            if (transport_ == VariableRatePatternTransportState::Stopped) return ReplacePattern(pattern);
+            if (transport_ == VariableRatePatternTransportState::Stopped) {
+                // Working editor metadata may retain unavailable IDs. Validate
+                // syntax/pitch normally, but do not require every ID to be playable
+                // merely to inspect/save a stopped draft. Live render stays strict.
+                const auto validation=ValidatePattern(pattern);
+                if(validation!=VariableRatePatternPlayerStatus::Success)return validation;
+                auto tentative=preparer_;tentative.Reset();
+                const auto compatibility=ApplyLogicalRows(pattern,tentative,2*pattern.active_rows,0,true);
+                if(compatibility!=VariableRatePatternPlayerStatus::Success)return compatibility;
+                preview_pending_=false;pattern_=pattern;Stop();return VariableRatePatternPlayerStatus::Success;
+            }
             if (transport_ == VariableRatePatternTransportState::Paused) return ReplacePausedPattern(pattern);
             const auto validation = ValidatePattern(pattern);
             if (validation != VariableRatePatternPlayerStatus::Success) return validation;
@@ -490,7 +500,7 @@ namespace BroTracker
             rows.count=n;
         }
         static VariableRatePatternPlayerStatus ApplyLogicalRows(const RealtimePattern& pattern,
-            VariableRateSampleCommandPreparer& preparer, std::uint64_t row_count,unsigned mask=0) noexcept {
+            VariableRateSampleCommandPreparer& preparer, std::uint64_t row_count,unsigned mask=0,bool metadata_only=false) noexcept {
             for (std::uint64_t row=0; row<row_count; ++row) {
                 RowEventBatch events{};
                 const MusicalTick tick{row * kTicksPerRow, 0, 0};
@@ -498,7 +508,7 @@ namespace BroTracker
                     return VariableRatePatternPlayerStatus::ComponentError;
                 SuppressRows(events,mask);
                 VariableRateVoiceCommandBatch ignored{};
-                const auto result = preparer.Prepare(events,ignored);
+                const auto result = preparer.Prepare(events,ignored,metadata_only);
                 if (result != VariableSampleCommandStatus::Success) return SampleStatus(result);
             }
             return VariableRatePatternPlayerStatus::Success;

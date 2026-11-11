@@ -140,8 +140,9 @@ void BringUpSerial::Disconnect(const char* reason)
     transport_->Close();
     opened_ = false;
     connected_ = false;
+    collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
-    identity_request_=identity_number_!=0;restore_view_pending_=false;
+    identity_request_=identity_number_!=0 && identity_number_<=99;restore_view_pending_=false;
     stopped_ = false;
     pending_ = Command::None;
     start_queued_ = stop_queued_ = false;
@@ -161,6 +162,7 @@ void BringUpSerial::Disconnect(const char* reason)
 void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
 {
     diagnostic_now_=now;
+    editor.SetInstrumentCollection(InstrumentCollectionSupported(),InstrumentCollectionKnown(),collection_count_);
     if(SdStatus()==SdAvailability::Unavailable) {editor.SetLocked(true);preview_.Suspend(true);return;}
     if(continuity_pending_) {
         // Freeze the actual editor before its normal disconnected Sync can clear it.
@@ -656,12 +658,21 @@ void BringUpSerial::OnLine(std::uint32_t now)
             std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
         return;
     }
+    if(!std::strcmp(line_,"BTINS1 COLLECTIONCAP 1")) {
+        if(connected_ && !collection_supported_) {collection_supported_=true;collection_ready_=false;collection_count_=0;collection_request_=true;}
+        return;
+    }
+    if(!std::strncmp(line_,"BTINS1 COLLECTION STATE ",24)) {
+        unsigned count=0;if(connected_ && collection_supported_ && !collection_ready_ &&
+            BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;}
+        return;
+    }
     if(!std::strcmp(line_,"BTINS1 CAP 2")) {
         if(connected_ && !identity_extended_) {
             identity_extended_=identity_supported_=true;
             identity_ready_=identity_facts_ready_=false;identity_resource_[0]=0;
             // CAP1 may already have consumed the request with GET1 in an earlier read.
-            identity_request_=identity_number_!=0;
+            identity_request_=identity_number_!=0 && identity_number_<=99;
         }return;
     }
     if(!std::strncmp(line_,"BTINS1 STATE 2 ",15)) {
@@ -1179,6 +1190,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
+        }
+        else if(connected_ && collection_supported_ && collection_request_ && !pattern_assembler_.Active()) {
+            std::strcpy(tx_,"BTINS1 COLLECTION GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;collection_request_=false;
         }
         else if(connected_ && identity_supported_ && identity_request_ && !pattern_assembler_.Active()) {
             tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 GET %u %u\n",identity_extended_?2u:1u,identity_number_-1);tx_offset_=0;identity_request_=false;

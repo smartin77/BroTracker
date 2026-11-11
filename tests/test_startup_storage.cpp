@@ -40,12 +40,14 @@ struct StoragePeer:SerialTransport {
         const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
         CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
     }
+    bool collection_cap=false,hold_collection=false;unsigned collection_count=DevelopmentInstrumentCount();
     bool hold_identity=false;std::string identity_reply;
     bool facts_cap=false;BroTracker::InstrumentAvailability facts_availability=BroTracker::InstrumentAvailability::Ready;
     bool metadata_cap=false,identity_cap=false;std::string saved_view;
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
     unsigned working_note=0;
+    bool reject_preview=false;
     bool pattern_save_cap=false,simulate_working=false,have_saved=false;
     RealtimePattern simulated_working{},saved_pattern{};
     PatternPublication simulated_preview;
@@ -71,6 +73,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && metadata_cap)rx+="BTSESSION1 CAP 1\nBTSESSION1 VIEW 1 19 6 1 0\n";
             if(line=="BTTEST1 HELLO" && identity_cap)rx+="BTINS1 CAP 1\n";
             if(line=="BTTEST1 HELLO" && facts_cap)rx+="BTINS1 CAP 2\n";
+            if(line=="BTTEST1 HELLO" && collection_cap)rx+="BTINS1 COLLECTIONCAP 1\n";
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
@@ -102,6 +105,10 @@ struct StoragePeer:SerialTransport {
             const auto status=simulated_preview.AcceptSparse(message,now,simulated_working,simulated_revision);
             if(message.kind==PublicationKind::Begin && status==PublicationStatus::Receiving)rx+="BTPREVIEW1 RECEIVING 1 "+std::to_string(message.fields[0])+"\n";
             if(status==PublicationStatus::Ready) {
+                if(reject_preview) {
+                    CHECK(simulated_preview.Freeze());simulated_preview.Finish();
+                    const auto id=std::to_string(message.fields[0]);rx+="BTPREVIEW1 SUBMITTED 1 "+id+"\nBTPREVIEW1 REJECTED 1 "+id+" unknown-instrument\n";return n;
+                }
                 CHECK(simulated_preview.Freeze());simulated_working=*simulated_preview.Frozen();simulated_revision=message.fields[0];simulated_preview.Finish();
                 const auto id=std::to_string(simulated_revision);
                 rx+="BTPREVIEW1 SUBMITTED 1 "+id+"\nBTPREVIEW1 ACCEPTED 1 "+id+"\nBTPREVIEW1 APPLIED 1 "+id+"\nBTPREVIEW1 STATE 1 1 "+id+" 0\n";
@@ -111,6 +118,9 @@ struct StoragePeer:SerialTransport {
             if(pattern_save_result=="ok") {saved_pattern=simulated_working;have_saved=true;}
             const auto reply="BTSTORE1 RESULT 1 pattern-save-"+line.substr(sizeof("BTSTORE1 PATTERNSAVE 1 ")-1)+" "+pattern_save_result+" 0\n";
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
+        }
+        else if(line=="BTINS1 COLLECTION GET 1") {
+            if(!hold_collection)rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(collection_count)+"\n";
         }
         else if(line.rfind("BTINS1 GET 2 ",0)==0) {
             unsigned id=0;if(ParseInstrumentFactsRequest(line.data(),line.size(),id)) {
@@ -1284,4 +1294,126 @@ TEST_CASE(SelectedInstrumentReconnectUpgradesSplitCapabilitiesExactlyOnce) {
         CHECK_EQ(count("BTINS1 GET 2 0"),1);CHECK_EQ(count("BTINS1 GET 1 0"),1);
         CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Resource unavailable"));
     }
+}
+
+TEST_CASE(InstrumentCollectionNavigationUsesConfirmedDefinitionsAndKeepsSource) {
+    for(unsigned count:{1u,5u})for(unsigned source:{0u,98u,200u}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->identity_cap=wire->facts_cap=wire->collection_cap=true;
+        wire->collection_count=count;wire->hold_collection=true;wire->facts_availability=InstrumentAvailability::ResourceUnavailable;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);editor.RestoreCursor({2,1,EditField::Note,false});auto project=*editor.Draft();project.cells[2][1].instrument=source;CHECK(editor.RecoverDraft(project));
+        const auto before=*editor.Draft();controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());
+        const auto initial=controls.InstrumentNumber();CHECK_EQ(initial,source+1);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
+        controls.Request(BringUpAction::ScreenRight,"held until count",3601);CHECK_EQ(controls.InstrumentNumber(),initial);
+        controls.Request(BringUpAction::ScreenDown,"held confirmation",3602);CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
+        wire->rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(count)+"\n";drive(181,190);CHECK_EQ(serial.InstrumentCollectionLimit(),count);
+        serial.InspectInstrument(initial);drive(190,200);
+        if(source) {CHECK_EQ(serial.InstrumentIdentity(),std::string("Undefined"));controls.Request(BringUpAction::ScreenDown,"undefined cannot confirm",4001);CHECK(controls.InstrumentScreen());}
+        else {CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Resource unavailable"));}
+        controls.Request(BringUpAction::ScreenLeft,"wrap or recover undefined",4002);CHECK_EQ(controls.InstrumentNumber(),count);
+        controls.Request(BringUpAction::ScreenRight,"clamp",4003);CHECK_EQ(controls.InstrumentNumber(),count);
+        if(count>1) {controls.Request(BringUpAction::ScreenLeft,"previous",4004);CHECK_EQ(controls.InstrumentNumber(),count-1);}
+        controls.Request(BringUpAction::ScreenDown,"defined confirmation",4005);CHECK(!controls.InstrumentScreen());
+        CHECK_EQ(editor.Draft()->cells[2][1].instrument,count>1?count-2:0);CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==EditField::Note);
+        CHECK_EQ(editor.Draft()->cells[2][1].note,before.cells[2][1].note);
+    }
+}
+TEST_CASE(InstrumentCollectionInvalidatesReacquiresAndPreservesLegacyBrowsing) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);CHECK_EQ(serial.InstrumentCollectionLimit(),5u);editor.RestoreCursor({0,0,EditField::Note,false});
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());const auto initial=controls.InstrumentNumber();
+    wire->healthy=false;controls.Tick(3601);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);controls.Request(BringUpAction::ScreenLeft,"disconnected hold",3602);CHECK_EQ(controls.InstrumentNumber(),initial);
+    wire->hold_collection=true;wire->healthy=true;drive(200,300);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
+    controls.Request(BringUpAction::ScreenRight,"reconnect hold",6001);CHECK_EQ(controls.InstrumentNumber(),initial);
+    wire->rx+="BTINS1 COLLECTION STATE 1 -1\nBTINS1 COLLECTION STATE 1 100\n";drive(301,310);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
+    wire->rx+="BTINS1 COLLECTION STATE 1 1\nBTINS1 COLLECTIONCAP 1\n";drive(310,320);CHECK_EQ(serial.InstrumentCollectionLimit(),1u);
+    CHECK_EQ(std::count(wire->commands.begin(),wire->commands.end(),"BTINS1 COLLECTION GET 1"),2);
+    controls.Request(BringUpAction::ScreenLeft,"one collection",6401);CHECK_EQ(controls.InstrumentNumber(),1u);
+    controls.Request(BringUpAction::InstrumentCancel,"cancel",6402);CHECK(!controls.InstrumentScreen());
+    wire->healthy=false;controls.Tick(6403);wire->collection_cap=false;wire->healthy=true;drive(350,450);CHECK_EQ(serial.InstrumentCollectionLimit(),99u);
+    controls.Request(BringUpAction::ScreenUp,"legacy entry",9001);drive(451,530);CHECK(controls.InstrumentScreen());
+    for(unsigned i=0;i<100;++i)controls.Request(BringUpAction::ScreenLeft,"legacy clamp",10601+i);
+    CHECK_EQ(controls.InstrumentNumber(),1u);controls.Request(BringUpAction::ScreenRight,"legacy next",10702);CHECK_EQ(controls.InstrumentNumber(),2u);
+}
+
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+TEST_CASE(InstrumentCollectionBoundsReachWindowsAndHandheldThroughBlockedFilters) {
+    for(unsigned count:{1u,5u})for(bool windows:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=true;wire->collection_count=count;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto before=*editor.Draft();
+        controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());
+        WindowsScreenInput keyboard;ArkOSEditorInput handheld;handheld.Select(7);
+        const auto arrow=[&](BringUpAction action) {
+            CHECK(controls.PatternInputBlocked());
+            if(windows) {
+                SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.mod=KMOD_CTRL;
+                e.key.keysym.sym=action==BringUpAction::ScreenLeft?SDLK_LEFT:SDLK_RIGHT;
+                const auto mapped=keyboard.Handle(e);CHECK(mapped==action);CHECK(AllowWindowsBlockedAction(mapped,serial,controls));
+                controls.Request(mapped,"Windows filtered arrow",3601);e.type=SDL_KEYUP;keyboard.Handle(e);
+            } else {
+                const auto edge=[&](SDL_GameControllerButton button,bool down) {
+                    ConfigureArkOSInputBarrier(handheld,serial,controls);SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=button;
+                    LocalPatternEditor sink;const auto result=handheld.Handle(e,3601,false,sink);
+                    if(result.transport!=BringUpAction::None) {CHECK(AllowArkOSBlockedTransport(result.transport,serial,controls));controls.Request(result.transport,"handheld filtered arrow",3601);}
+                    return result.transport;
+                };
+                edge(SDL_CONTROLLER_BUTTON_BACK,true);const auto button=action==BringUpAction::ScreenLeft?SDL_CONTROLLER_BUTTON_DPAD_LEFT:SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+                CHECK(edge(button,true)==action);edge(button,false);edge(SDL_CONTROLLER_BUTTON_BACK,false);
+            }
+        };
+        arrow(BringUpAction::ScreenLeft);arrow(BringUpAction::ScreenLeft);arrow(BringUpAction::ScreenLeft);
+        CHECK_EQ(controls.InstrumentNumber(),count);arrow(BringUpAction::ScreenRight);CHECK_EQ(controls.InstrumentNumber(),count);
+        CHECK(SamePattern(before,*editor.Draft()));
+    }
+}
+#endif
+
+TEST_CASE(InstrumentEntryCancellationWorksWhileSessionSaveIsStillPending) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=true;wire->hold_save=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    Pump(serial,0,100,&editor);editor.RestoreCursor({0,0,EditField::Instrument,false});const auto before=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);
+    for(unsigned i=101;i<180;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+    CHECK(controls.ScreenPending());CHECK(controls.InstrumentCancellationAvailable());
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+    WindowsScreenInput keys;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;
+    const auto action=keys.Handle(e);CHECK(AllowWindowsBlockedAction(action,serial,controls));controls.Request(action,"filtered cancel",3601);
+#else
+    controls.Request(BringUpAction::InstrumentCancel,"cancel",3601);
+#endif
+    CHECK(!controls.ScreenPending());CHECK(!controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
+    wire->rx+=wire->save_reply;wire->save_reply.clear();for(unsigned i=181;i<220;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
+    CHECK(!controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
+}
+TEST_CASE(ConfirmedEmptyInstrumentPoolIsDifferentFromPendingCount) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->collection_cap=true;wire->collection_count=0;wire->hold_collection=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    editor.RestoreCursor({0,0,EditField::Instrument,false});CHECK(!serial.InstrumentCollectionKnown());CHECK(!editor.Apply(EditorAction::SetValue,0));
+    wire->rx+="BTINS1 COLLECTION STATE 1 0\n";Pump(serial,100,110,&editor);CHECK(serial.InstrumentCollectionKnown());CHECK_EQ(serial.InstrumentCollectionSize(),0u);
+    editor.RestoreCursor({0,0,EditField::Instrument,false});const auto before=*editor.Draft();CHECK(editor.Apply(EditorAction::SetValue,0));CHECK(editor.NewInstrumentSelected());CHECK_EQ(editor.NewInstrumentNumber(),1u);CHECK(SamePattern(before,*editor.Draft()));
+}
+
+TEST_CASE(RejectedPreviewEntryCancelsBeforeSaveAndRetainsUndefinedWork) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=wire->preview_cap=wire->simulate_working=true;
+    MakeStoredDevelopmentPattern(wire->simulated_working,1);const auto live=wire->simulated_working;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){wire->now=i*20;serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);auto project=*editor.Draft();project.cells[0][0]={60,18};CHECK(editor.RecoverDraft(project));editor.RestoreCursor({0,0,EditField::Instrument,false});wire->reject_preview=true;
+    drive(100,180);CHECK(SamePattern(live,wire->simulated_working));CHECK(SamePattern(project,*editor.Draft()));
+    controls.Request(BringUpAction::ScreenUp,"entry after preview rejection",3601);drive(181,200);CHECK(controls.ScreenPending());CHECK(serial.FilePending());
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTSTORE1 SAVE",0)==0;}));
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+    WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;const auto action=input.Handle(e);
+    CHECK(AllowWindowsBlockedAction(action,serial,controls));controls.Request(action,"Escape while rejected",4001);
+#else
+    controls.Request(BringUpAction::InstrumentCancel,"cancel while rejected",4001);
+#endif
+    drive(201,210);CHECK(!controls.ScreenPending());CHECK(!serial.FilePending());CHECK(!editor.Locked());CHECK(SamePattern(project,*editor.Draft()));
+    wire->reject_preview=false;CHECK(editor.AssignInstrumentAt(editor.Cursor(),4));drive(210,260);CHECK_EQ(wire->simulated_working.cells[0][0].instrument,4u);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c=="BTTEST1 START" || c.rfind("BTSTORE1 SAVE",0)==0;}));
 }

@@ -182,6 +182,19 @@ static int ScreenFocusRegression() {
     }
     return 0;
 }
+static int CollectionChoiceRegression() {
+    for(auto direction:{BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
+        LocalPatternEditor editor;std::optional<LivePlaybackView> live=LivePlaybackView{};
+        BroTracker::DevicePatternSnapshot snapshot;snapshot.transfer_id=1;snapshot.tempo_hundredths=12500;snapshot.pattern.active_rows=4;snapshot.pattern.active_channels=1;
+        snapshot.pattern.cells[0][0]={60,4};live->device_pattern=snapshot;live->telemetry_available=true;live->position.rows=4;live->position.channels=1;
+        editor.Sync(live);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,5);
+        WindowsEditorInput input(direction);const auto key=direction==BroTracker::ValueStepDirection::Normal?SDLK_PAGEUP:SDLK_PAGEDOWN;
+        SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;input.Handle(e,0,editor);e.type=SDL_KEYUP;input.Handle(e,1,editor);
+        CHECK(editor.NewInstrumentSelected());CHECK(editor.NewInstrumentNumber()==6);CHECK(editor.Draft()->cells[0][0].instrument==4);
+        e.type=SDL_KEYDOWN;input.Handle(e,2,editor);e.type=SDL_KEYUP;input.Handle(e,3,editor);CHECK(editor.NewInstrumentNumber()==6);CHECK(editor.Draft()->cells[0][0].instrument==4);
+        e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(input.Handle(e,4,editor));CHECK(!editor.NewInstrumentSelected());CHECK(editor.Draft()->cells[0][0].instrument==4);
+    }return 0;
+}
 int main() {
     for(bool focused:{false,true})for(auto arrow:{SDLK_UP,SDLK_DOWN,SDLK_LEFT,SDLK_RIGHT}) {
         WindowsScreenInput screen;WindowsEditorInput editor_input;WindowsTempoInput tempo;WindowsHeaderInput header;
@@ -199,6 +212,7 @@ int main() {
     }
     CHECK(ScreenFocusRegression()==0);
     CHECK(HeaderMouseRegression()==0);
+    CHECK(CollectionChoiceRegression()==0);
     CHECK(NavigationRegression()==0);
     CHECK(BeatNavigationRegression()==0);
     CHECK(TempoRegression()==0);

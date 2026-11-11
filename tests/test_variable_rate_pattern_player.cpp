@@ -1201,3 +1201,17 @@ TEST_CASE(VariableRate_FractionalVoiceLateFailureRollbackAndSmallerRetry) {
     CHECK_EQ(player.Render(output,1),VariableRatePatternPlayerStatus::UnknownInstrument);
     CHECK_EQ(output[0],999); CheckPlayback(player,boundary);
 }
+
+TEST_CASE(StoppedWorkingPreviewPreservesUndefinedReferencesWithoutGrantingPlayback) {
+    const std::int16_t pcm[]={100,200};BroTracker::VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]={0,60,{pcm,2,44100}};
+    for(auto note:{Note(60),NOTE_EMPTY}) {
+        BroTracker::RealtimePattern pattern;pattern.active_rows=4;pattern.active_channels=1;pattern.cells[0][0]={60,0};
+        BroTracker::VariableRatePatternPlayer player;CHECK(player.Configure(12500,44100,pattern,bindings)==BroTracker::VariableRatePatternPlayerStatus::Success);
+        auto unknown=pattern;unknown.cells[0][0]={note,18};
+        CHECK(player.ReplaceWorkingPattern(unknown)==BroTracker::VariableRatePatternPlayerStatus::Success);
+        std::int16_t out[8];CHECK(player.Render(out,8)==BroTracker::VariableRatePatternPlayerStatus::Success);for(auto sample:out)CHECK_EQ(sample,0);
+        // Publication remains strict, and no unknown ID is replaced with a binding.
+        if(note!=NOTE_EMPTY)CHECK(player.ReplacePattern(unknown)==BroTracker::VariableRatePatternPlayerStatus::UnknownInstrument);
+        CHECK(player.ReplaceWorkingPattern(pattern)==BroTracker::VariableRatePatternPlayerStatus::Success);
+    }
+}

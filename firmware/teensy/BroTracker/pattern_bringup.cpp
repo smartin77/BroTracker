@@ -252,9 +252,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 39 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 39;
-    constexpr std::size_t kTxCapacity = 40;
+    // Reserve all 40 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 40;
+    constexpr std::size_t kTxCapacity = 41;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -358,7 +358,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -824,7 +824,9 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
                 unsigned id=0;
-                if(g_protocol_connected && ParseInstrumentFactsRequest(line,used,id)) {
+                if(g_protocol_connected && !std::strcmp(line,"BTINS1 COLLECTION GET 1")) {
+                    char reply[48];std::snprintf(reply,sizeof(reply),"BTINS1 COLLECTION STATE 1 %u\n",DevelopmentInstrumentCount());(void)QueueLine(reply);
+                } else if(g_protocol_connected && ParseInstrumentFactsRequest(line,used,id)) {
                     auto availability=InstrumentAvailability::Undefined;
                     if(const auto* definition=DevelopmentInstrumentDefinition(id)) {
                         availability=definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;

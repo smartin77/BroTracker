@@ -31,6 +31,11 @@ void BringUpControls::LoadSelected(std::uint32_t now) {
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
+    if(action==BringUpAction::InstrumentCancel && !exit_after_stop_ && InstrumentCancellationAvailable()) {
+        if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;instrument_screen_=false;
+        if(editor_)editor_->RestoreCursor(instrument_entry_.source);
+        screen_status_="Instrument cancelled; cell unchanged";return;
+    }
     if(action==BringUpAction::Exit) {
         screen_phase_=ScreenPhase::Idle;
         if(!exit_after_stop_) {exit_after_stop_=true;serial_.BeginExit(now);}
@@ -66,19 +71,28 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(action!=BringUpAction::ResetStop)return;
     }
     if(instrument_screen_) {
-        if(action==BringUpAction::InstrumentCancel) {
-            if(editor_)editor_->RestoreCursor(instrument_entry_.source);
-            instrument_screen_=false;screen_status_.clear();return;
-        }
         if(action==BringUpAction::ScreenDown) {
+            const auto limit=serial_.InstrumentCollectionLimit();
+            if(!limit || instrument_number_>limit) {
+                screen_status_=serial_.InstrumentCollectionKnown() && !limit?"Return unavailable: no defined instruments; cancel to Pattern (01 New)":
+                    !limit?"Return unavailable: waiting for instrument collection; cancel is available":"Return unavailable: select a defined instrument or cancel";
+                return;
+            }
+
             if(serial_.UserActionsBlocked() || serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending() ||
                 !editor_ || !editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {
                 screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
             }
             serial_.SyncEditor(*editor_,now);
             instrument_screen_=false;screen_status_.clear();
-        } else if(action==BringUpAction::ScreenLeft && instrument_number_>1) --instrument_number_;
-        else if(action==BringUpAction::ScreenRight && instrument_number_<99) ++instrument_number_;
+        } else if(action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight) {
+            const auto limit=serial_.InstrumentCollectionLimit();
+            if(!limit) {screen_status_=serial_.InstrumentCollectionKnown()?"No defined instruments; cancel remains available":"Waiting for instrument collection; cancel remains available";return;}
+            if(action==BringUpAction::ScreenLeft)instrument_number_=instrument_number_>limit?limit:instrument_number_==1?(serial_.InstrumentCollectionSupported()?limit:1):instrument_number_-1;
+            else if(instrument_number_>limit)instrument_number_=1;
+            else if(instrument_number_<limit)++instrument_number_;
+            screen_status_.clear();
+        }
         if(action!=BringUpAction::ResetStop)return;
     }
     if(serial_.UserActionsBlocked() && !(action==BringUpAction::ResetStop && serial_.StopAvailable()))return;
@@ -118,7 +132,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(PatternInputBlocked())return;
         instrument_destination_=action==BringUpAction::ScreenUp;
         if(instrument_destination_) {
-            instrument_entry_=editor_?CaptureInstrumentEntry(*editor_):InstrumentEntry{};
+            if(editor_ && editor_->NewInstrumentSelected()) {screen_status_.clear();return;}
+            instrument_entry_=editor_?CaptureInstrumentEntry(*editor_,serial_.InstrumentCollectionSupported()):InstrumentEntry{};
             if(!instrument_entry_) {screen_status_=instrument_entry_.reason;return;}
             if(!serial_.SessionSnapshotAvailable()) {screen_status_="Instrument unavailable: update session-snapshot firmware";return;}
         } // One transition, regardless of repeated input.

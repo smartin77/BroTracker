@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include "live_playback_view.h"
 #include "pattern_edit_history.h"
 #include "pattern_grid.h"
@@ -7,7 +8,7 @@
 enum class EditField { Note, Instrument };
 using LocalNoteOffTiming = BroTracker::NoteOffTiming; // Compatibility name, core metadata only.
 enum class EditorAction { None, Up, Down, Left, Right, NextChannel, PreviousChannel, Increment,
-    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat, AssignInstrument };
+    Decrement, NoteOff, Clear, Restore, SetValue, Undo, Redo, PreviousBeat, NextBeat, AssignInstrument, CancelInstrumentSelection };
 struct EditCursor { unsigned row = 0, channel = 0; EditField field = EditField::Note; bool header=false; };
 constexpr unsigned kEditableInstrumentMaximum = 98; // Displayed 99; wire IDs remain unrestricted.
 
@@ -21,7 +22,7 @@ class LocalPatternEditor
 public:
     void Sync(const std::optional<LivePlaybackView>& live) noexcept
     {
-        if (!live) { ClearCaptured(); instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; return; }
+        if (!live) {new_instrument_=false; ClearCaptured(); instrument_cycle_empty_=false; ready_=false; locked_=false; baseline_={}; draft_={}; return; }
         if (ready_) return;
         const auto display = ResolvePatternDisplay(live);
         if (!display.device_pattern) return;
@@ -55,12 +56,13 @@ public:
         for(unsigned r=0;r<pattern.active_rows;++r) for(unsigned c=0;c<pattern.active_channels;++c)
             if(!IsPatternNote(pattern.cells[r][c].note) || !BroTracker::ValidNoteOffTiming(pattern.note_off_timing[r][c])) return false;
         if(!BroTracker::SamePattern(draft_,pattern)) { history_.Clear(); instrument_cycle_empty_=false; }
-        draft_=pattern; ClearCaptured(); return true;
+        new_instrument_=false;draft_=pattern; ClearCaptured(); return true;
     }
     bool Ready() const noexcept { return ready_; }
-    bool SelectHeader(unsigned channel) noexcept {if(!ready_ || channel>=draft_.active_channels) return false;cursor_.channel=channel;cursor_.header=true;cursor_.row=0;return true;}
+    bool SelectHeader(unsigned channel) noexcept {new_instrument_=false;if(!ready_ || channel>=draft_.active_channels) return false;cursor_.channel=channel;cursor_.header=true;cursor_.row=0;return true;}
     const EditCursor& Cursor() const noexcept { return cursor_; }
     void RestoreCursor(EditCursor cursor) noexcept {
+        new_instrument_=false;
         if(!ready_)return;
         const auto rows=draft_.active_rows; // Validate stored context against data, independently of viewport.
         cursor.row=cursor.row<rows?cursor.row:rows-1;
@@ -88,16 +90,28 @@ public:
     // Clear edit/history context; file Load can retain the current cursor for Sync to clamp.
     void ResetContext(bool retain_cursor=false) noexcept {
         ClearCaptured();
-        instrument_cycle_empty_=false; ready_=locked_=false; baseline_={}; draft_={}; if(!retain_cursor)cursor_={}; history_.Clear();
+        new_instrument_=false;instrument_cycle_empty_=false; ready_=locked_=false; baseline_={}; draft_={}; if(!retain_cursor)cursor_={}; history_.Clear();
     }
     bool CanUndo() const noexcept { return ready_ && !locked_ && history_.CanUndo(); }
     bool CanRedo() const noexcept { return ready_ && !locked_ && history_.CanRedo(); }
-    bool Undo() noexcept { if(!CanUndo()) return false; const auto before=draft_; if(!history_.Undo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
-    bool Redo() noexcept { if(!CanRedo()) return false; const auto before=draft_; if(!history_.Redo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
+    bool Undo() noexcept {new_instrument_=false; if(!CanUndo()) return false; const auto before=draft_; if(!history_.Undo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
+    bool Redo() noexcept {new_instrument_=false; if(!CanRedo()) return false; const auto before=draft_; if(!history_.Redo(draft_)) return false; Capture(before); instrument_cycle_empty_=false; return true; }
     // Selector confirmation: validate the captured cell before moving the cursor.
     // Apply supplies the usual capture/history path; note and timing are untouched.
+    void SetInstrumentCollection(bool supported,bool known,unsigned count) noexcept {
+        if(supported!=collection_supported_ || known!=collection_known_ || count!=collection_count_)new_instrument_=false;
+        collection_supported_=supported;collection_known_=known;collection_count_=count;
+    }
+    void CancelInstrumentChoice() noexcept {new_instrument_=false;}
+    bool NewInstrumentSelected() const noexcept {return new_instrument_;}
+    unsigned NewInstrumentNumber() const noexcept {return new_instrument_?collection_count_+1:0;}
+    std::string InstrumentSelectionStatus() const {
+        if(!new_instrument_)return {};
+        const auto number=NewInstrumentNumber();
+        return (number<10?"0":"")+std::to_string(number)+" New Instrument (creation not implemented); cell unchanged";
+    }
     bool AssignInstrumentAt(EditCursor target,unsigned instrument) noexcept {
-        if(!ready_ || locked_ || target.header || (target.field!=EditField::Note && target.field!=EditField::Instrument) || target.row>=draft_.active_rows ||
+        if(!ready_ || locked_ || (collection_supported_ && (!collection_known_ || instrument>=collection_count_)) || target.header || (target.field!=EditField::Note && target.field!=EditField::Instrument) || target.row>=draft_.active_rows ||
             target.channel>=draft_.active_channels || instrument>kEditableInstrumentMaximum ||
             (target.field==EditField::Instrument && draft_.cells[target.row][target.channel].note==NOTE_OFF))return false;
         const auto previous=cursor_;cursor_=target;
@@ -109,6 +123,7 @@ public:
         if(action==EditorAction::Undo) return Undo();
         if(action==EditorAction::Redo) return Redo();
         if(!ready_) return false;
+        if(action!=EditorAction::Increment && action!=EditorAction::Decrement && action!=EditorAction::SetValue)new_instrument_=false;
         const auto before=draft_;
         const bool success=ApplyImpl(action,value);
         if(success) {
@@ -173,9 +188,10 @@ private:
             next.channel = (next.channel + draft_.active_channels - 1) % draft_.active_channels;
             if(!next.header) next.field = EditField::Note; break;
         case EditorAction::AssignInstrument:
-            if(next.header || value>kEditableInstrumentMaximum ||
+            if(next.header || (collection_supported_ && (!collection_known_ || value>=collection_count_)) || value>kEditableInstrumentMaximum ||
                 (next.field==EditField::Instrument && draft_.cells[next.row][next.channel].note==NOTE_OFF))return false;
             draft_.cells[next.row][next.channel].instrument=static_cast<std::uint8_t>(value);return true;
+        case EditorAction::CancelInstrumentSelection:new_instrument_=false;return true;
         case EditorAction::Restore:
             draft_ = baseline_.pattern;
             return true;
@@ -196,6 +212,23 @@ private:
                     return true;
                 }
                 return false; // No numeric instrument editing for OFF.
+            }
+            if(!note && collection_supported_) {
+                if(action==EditorAction::Clear) {new_instrument_=false;cell.instrument=255;return true;}
+                if(!collection_known_)return false;
+                if(action==EditorAction::NoteOff)return false;
+                unsigned target=value;
+                if(action==EditorAction::Increment || action==EditorAction::Decrement) {
+                    if(!collection_count_)target=0;
+                    else if(new_instrument_)target=action==EditorAction::Increment?collection_count_:collection_count_-1;
+                    else if(cell.instrument==255)target=0;
+                    else if(cell.instrument>=collection_count_)target=action==EditorAction::Increment && collection_count_<99?collection_count_:collection_count_-1;
+                    else if(action==EditorAction::Increment)target=cell.instrument<collection_count_-(collection_count_==99)?cell.instrument+1:cell.instrument;
+                    else target=cell.instrument?cell.instrument-1:0;
+                }
+                if(target==collection_count_ && collection_count_<99) {new_instrument_=true;return true;}
+                if(target>=collection_count_)return false;
+                new_instrument_=false;cell.instrument=static_cast<std::uint8_t>(target);return true;
             }
             const unsigned old = note ? cell.note : cell.instrument;
             const unsigned minimum = note ? kPatternNoteMinimum : 0;
@@ -253,6 +286,7 @@ private:
     }
 private:
     // Input interaction only: an empty reached by cycling is not fresh field entry.
+    bool collection_supported_=false,collection_known_=false,new_instrument_=false;unsigned collection_count_=0;
     bool instrument_cycle_empty_ = false;
     PatternEditHistory history_;
     bool ready_ = false, locked_ = false;

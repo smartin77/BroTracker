@@ -113,7 +113,7 @@ namespace BroTracker
         // Work bounded by eight events, eight channel-state entries and 8*16 lookups.
         // No silent truncation; no measured Teensy execution budget is claimed.
         [[nodiscard]] VariableSampleCommandStatus Prepare(const RowEventBatch& events,
-            VariableRateVoiceCommandBatch& output) noexcept
+            VariableRateVoiceCommandBatch& output,bool metadata_only=false) noexcept
         {
             static_assert(kVariableRateVoiceCommandCapacity >= kRealtimePatternChannelCapacity,
                 "Every row event must fit the prepared command batch");
@@ -146,7 +146,7 @@ namespace BroTracker
                             selected = &bindings_.bindings[j];
                             break;
                         }
-                    if (selected == nullptr) return VariableSampleCommandStatus::UnknownInstrument;
+                    if (selected == nullptr) {if(metadata_only) {result.commands[result.count++]=command;continue;}return VariableSampleCommandStatus::UnknownInstrument;}
                     if(selected->type == InstrumentType::MIDI) {
                         command.action=VariableRateVoiceAction::TriggerMidi; command.synth_note=event.note;
                         result.commands[result.count++]=command; continue;

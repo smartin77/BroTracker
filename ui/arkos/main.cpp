@@ -431,6 +431,7 @@ int main(int argc, char* argv[])
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
         if(controls.InstrumentScreen())panel.transport_hints="Select+Left/Right: select | Select+Down: assign | B: cancel";
+        if(editor.NewInstrumentSelected())panel.publication_status=editor.InstrumentSelectionStatus();
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";

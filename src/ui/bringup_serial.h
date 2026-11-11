@@ -31,16 +31,20 @@ public:
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
     void InspectInstrument(unsigned number) {
-        if(number<1 || number>99 || number==identity_number_)return;
-        identity_number_=number;identity_ready_=identity_facts_ready_=false;identity_request_=true;identity_resource_[0]=0;
+        if(number<1 || number>255 || (number>99 && !InstrumentCollectionSupported()) || number==identity_number_)return;
+        identity_number_=number;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
     }
     std::string InstrumentIdentity() const {
-        if(!connected_ || !identity_supported_)return "Unknown (identity unavailable)";
+        if(!connected_)return "Unknown (identity unavailable)";
+        if(collection_ready_ && identity_number_>collection_count_)return "Undefined";
+        if(!identity_supported_)return "Unknown (identity unavailable)";
         if(!identity_ready_)return "Unknown (awaiting device)";
         return identity_type_==0?(identity_facts_ready_?"Undefined":"Unbound (legacy binding only)"):identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
     }
     std::string InstrumentAvailabilityText() const {
-        if(!connected_ || !identity_supported_)return "Unknown (device unavailable)";
+        if(!connected_)return "Unknown (device unavailable)";
+        if(collection_ready_ && identity_number_>collection_count_)return "Undefined";
+        if(!identity_supported_)return "Unknown (device unavailable)";
         if(!identity_ready_)return "Unknown (awaiting device)";
         if(!identity_facts_ready_)return "Unknown (legacy firmware)";
         switch(identity_availability_) {
@@ -51,8 +55,17 @@ public:
         }return "Unknown";
     }
     std::string InstrumentResource() const {
+        if(connected_ && collection_ready_ && identity_number_>collection_count_)return "None";
         if(!connected_ || !identity_facts_ready_)return "Unknown";
         return !std::strcmp(identity_resource_,"-")?"None":identity_resource_;
+    }
+    // Zero holds navigation/confirmation until this connection supplies its count.
+    // Older firmware retains the original 01-99 selector after snapshot readback.
+    bool InstrumentCollectionSupported() const {return connected_ && collection_supported_;}
+    bool InstrumentCollectionKnown() const {return connected_ && collection_supported_ && collection_ready_;}
+    unsigned InstrumentCollectionSize() const {return collection_count_;}
+    unsigned InstrumentCollectionLimit() const {
+        return !connected_?0:collection_supported_?(collection_ready_?collection_count_:0):pattern_assembler_.Snapshot()?99:0;
     }
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
@@ -133,6 +146,7 @@ public:
     const char* PatternListStatus()const{return list_status_;}
     bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false,const EditCursor* view=nullptr);
     bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
+    void CancelQueuedScreenSave() {if(file_action_==FileAction::Session && pending_!=Command::File && pending_!=Command::StorageReady) {file_action_=FileAction::None;session_save_succeeded_=false;}}
     bool FilePending() const {return file_action_!=FileAction::None;}
     const char* PatternSource()const{return pattern_source_.c_str();}
     bool PatternSaveAvailable()const{return pattern_save_supported_ && !pattern_source_.empty();}
@@ -316,6 +330,7 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
+    bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;
     bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
     unsigned identity_availability_=0;char identity_resource_[64]{};
     unsigned identity_number_=0,identity_type_=0;
