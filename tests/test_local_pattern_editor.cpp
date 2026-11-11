@@ -961,3 +961,28 @@ TEST_CASE(InstrumentIdentityProductionParsersAcceptZeroAndKeepStrictValidation) 
     std::uint32_t request=55;const char* zero="BTPATTERN1 GET 1 0";
     CHECK(!BroTracker::SnapshotFields(zero,std::strlen(zero),"BTPATTERN1 GET 1 ",&request,1));CHECK_EQ(request,55u);
 }
+
+TEST_CASE(InstrumentDefinitionFactsHaveBoundedStrictVersionedWireFormat) {
+    for(unsigned id:{0u,1u,2u,3u,4u,98u}) {
+        const auto availability=id==1?BroTracker::InstrumentAvailability::ExternalUnknown:BroTracker::InstrumentAvailability::Ready;
+        auto facts=BroTracker::DevelopmentInstrumentFacts(id,availability);char line[96];CHECK(BroTracker::FormatInstrumentFacts(facts,line,sizeof(line)));
+        BroTracker::InstrumentFacts parsed;CHECK(BroTracker::ParseInstrumentFacts(line,std::strlen(line)-1,parsed));CHECK_EQ(parsed.id,id);CHECK_EQ(parsed.type,facts.type);CHECK_EQ(std::string(parsed.resource),std::string(facts.resource));
+        const auto get="BTINS1 GET 2 "+std::to_string(id);unsigned raw=99;CHECK(BroTracker::ParseInstrumentFactsRequest(get.data(),get.size(),raw));CHECK_EQ(raw,id);
+        CHECK(!BroTracker::ParseInstrumentIdentityRequest(get.data(),get.size(),raw));
+    }
+    for(const char* line:{"BTINS1 STATE 2 99 1 1 Samples/a.wav","BTINS1 STATE 2 0 4 1 -","BTINS1 STATE 2 0 1 8 Samples/a.wav","BTINS1 STATE 2 0 0 1 -","BTINS1 STATE 2 0 1 1 -","BTINS1 STATE 2 1 2 1 -","BTINS1 STATE 2 0 1 3 Samples/a.wav extra","BTINS1 STATE 02 0 1 1 Samples/a.wav","BTINS1 STATE 2 -1 1 1 Samples/a.wav","BTINS1 STATE 2 0 1 1 Samples/a.wav\r","BTINS1 STATE 2 0 1 1 "}) {
+        BroTracker::InstrumentFacts out;out.id=77;CHECK(!BroTracker::ParseInstrumentFacts(line,std::strlen(line),out));CHECK_EQ(out.id,77u);
+    }
+}
+
+TEST_CASE(InstrumentDefinitionAvailabilityUsesActualRendererWithoutInventingType) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-definitions");
+    Framebuffer fb(640,480);Tune tune;Pattern pattern;auto view=ConnectedDraft();LocalPatternEditor editor;editor.Sync(view);
+    HostPanelInformation panel;panel.instrument_number=1;panel.instrument_identity="Sample";panel.instrument_resource="Samples/test2.wav";
+    for(auto status:{"Prepared","Resource unavailable","Preparation failed","No sample selected"}) {
+        panel.instrument_availability=status;panel.instrument_resource=std::string(status)=="No sample selected"?"None":"Samples/test2.wav";
+        RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(fb.SaveBMP((std::string("diagnostics/instrument-definitions/")+status+".bmp").c_str()));
+    }
+    panel.instrument_number=99;panel.instrument_identity="Undefined";panel.instrument_availability="Undefined";panel.instrument_resource="None";
+    RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(fb.SaveBMP("diagnostics/instrument-definitions/Undefined.bmp"));
+}

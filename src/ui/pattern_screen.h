@@ -31,6 +31,7 @@ struct HostPanelInformation
     WarningText text{};
     unsigned instrument_number=0,instrument_original_number=0;
     std::string instrument_identity="Unknown (identity unavailable)";
+    std::string instrument_availability="Unknown",instrument_resource="Unknown";
     bool load_save_screen=false;
     std::string pattern_browser_text{};
     FileListView pattern_browser_list{};

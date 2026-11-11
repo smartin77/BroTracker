@@ -252,9 +252,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 38 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 38;
-    constexpr std::size_t kTxCapacity = 39;
+    // Reserve all 39 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 39;
+    constexpr std::size_t kTxCapacity = 40;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -358,7 +358,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -824,7 +824,23 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
                 unsigned id=0;
-                if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
+                if(g_protocol_connected && ParseInstrumentFactsRequest(line,used,id)) {
+                    auto availability=InstrumentAvailability::Undefined;
+                    if(const auto* definition=DevelopmentInstrumentDefinition(id)) {
+                        availability=definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
+                        if(definition->type==InstrumentType::Sample) {
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                            const unsigned source=id==0?1:id==3?2:0;
+                            availability=SamplePreparationAvailability(*definition,g_streaming.reports[source],g_wav_inspection.files[source]);
+                            if(availability==InstrumentAvailability::Ready && !InstrumentBindingIdentity(g_selected_bindings,id))availability=InstrumentAvailability::PreparationFailed;
+#else
+                            availability=InstrumentAvailability::NotPrepared;
+#endif
+                        }
+                    }
+                    char reply[96];
+                    if(FormatInstrumentFacts(DevelopmentInstrumentFacts(id,availability),reply,sizeof(reply)))(void)QueueLine(reply);
+                } else if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);
                 }

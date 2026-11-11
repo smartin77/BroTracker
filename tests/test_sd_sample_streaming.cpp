@@ -1,6 +1,8 @@
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
 #include "core/audio/variable_rate_sample_voice.h"
+#include "bringup/pattern_fixture.h"
+#include "bringup/instrument_identity.h"
 #include <array>
 #include <algorithm>
 #include <vector>
@@ -241,4 +243,24 @@ TEST_CASE(SdStreamProducerRejectsStopAndRetriggerAfterCopyBeforeCommit) {
 }
 TEST_CASE(SdStreamProducerStaleReadFailureDoesNotLatchTheNewGeneration) {
     CancelledCompletion(false,Change::Retrigger,true);
+}
+
+TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailures) {
+    for(unsigned mode=0;mode<3;++mode) {
+        FakePatternSd::Reset();FakeStreamPlatform::primask=0;
+        SdSampleStreaming::Storage memory{};SdSampleStreaming producer;DevelopmentWavInspection inspection;
+        inspection.attempted=inspection.sd_ready=true;auto& inspected=inspection.files[1];
+        inspected.open_status=mode==1?SdWavBufferStatus::OpenFailed:SdWavBufferStatus::Success;
+        inspected.validation=mode==1?WavBufferStatus::IoError:WavBufferStatus::Success;
+        inspected.metadata.frames=32;inspected.metadata.data_offset=44;
+        const auto& definition=*DevelopmentInstrumentDefinition(0);
+        if(mode!=1)FakePatternSd::files[definition.resource].bytes.resize(44+64);
+        if(mode==2)FakePatternSd::short_read_path=definition.resource;
+        producer.Prepare(true,memory,inspection);
+        const auto availability=SamplePreparationAvailability(definition,producer.reports[1],inspected);
+        CHECK(availability==(mode==0?InstrumentAvailability::Ready:mode==1?InstrumentAvailability::ResourceUnavailable:InstrumentAvailability::PreparationFailed));
+        const auto facts=DevelopmentInstrumentFacts(0,availability);CHECK_EQ(facts.type,1u);CHECK_EQ(std::string(facts.resource),std::string("Samples/test2.wav"));
+        const auto playable=SelectDevelopmentFixture(producer.reports[1].view).bindings;
+        CHECK_EQ(playable.count,mode==0?3u:2u);CHECK_EQ(InstrumentBindingIdentity(playable,0),mode==0?1u:0u);
+    }
 }

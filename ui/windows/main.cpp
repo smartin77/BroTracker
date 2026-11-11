@@ -175,6 +175,7 @@ int main(int argc, char* argv[]) try {
         panel.text=warning_text;
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
         panel.instrument_identity=serial.InstrumentIdentity();
+        panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
         panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();

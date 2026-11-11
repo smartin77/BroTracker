@@ -140,7 +140,7 @@ void BringUpSerial::Disconnect(const char* reason)
     transport_->Close();
     opened_ = false;
     connected_ = false;
-    identity_supported_=identity_ready_=snapshot_metadata_supported_=false;
+    identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
     identity_request_=identity_number_!=0;restore_view_pending_=false;
     stopped_ = false;
     pending_ = Command::None;
@@ -656,10 +656,25 @@ void BringUpSerial::OnLine(std::uint32_t now)
             std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
         return;
     }
+    if(!std::strcmp(line_,"BTINS1 CAP 2")) {
+        if(connected_ && !identity_extended_) {
+            identity_extended_=identity_supported_=true;
+            identity_ready_=identity_facts_ready_=false;identity_resource_[0]=0;
+            // CAP1 may already have consumed the request with GET1 in an earlier read.
+            identity_request_=identity_number_!=0;
+        }return;
+    }
+    if(!std::strncmp(line_,"BTINS1 STATE 2 ",15)) {
+        BroTracker::InstrumentFacts facts;
+        if(connected_ && identity_extended_ && BroTracker::ParseInstrumentFacts(line_,used_,facts) && facts.id+1==identity_number_) {
+            identity_type_=facts.type;identity_availability_=unsigned(facts.availability);
+            std::memcpy(identity_resource_,facts.resource,sizeof(identity_resource_));identity_ready_=identity_facts_ready_=true;
+        }return;
+    }
     if(!std::strcmp(line_,"BTINS1 CAP 1")) {identity_supported_=connected_;return;}
     if(!std::strncmp(line_,"BTINS1 STATE 1 ",15)) {
         unsigned id=0,type=0;
-        if(connected_ && BroTracker::ParseInstrumentIdentity(line_,used_,id,type) && id+1==identity_number_) {
+        if(connected_ && !identity_extended_ && BroTracker::ParseInstrumentIdentity(line_,used_,id,type) && id+1==identity_number_) {
             identity_type_=type;identity_ready_=true;
         }return;
     }
@@ -1166,7 +1181,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             }
         }
         else if(connected_ && identity_supported_ && identity_request_ && !pattern_assembler_.Active()) {
-            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 GET 1 %u\n",identity_number_-1);tx_offset_=0;identity_request_=false;
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 GET %u %u\n",identity_extended_?2u:1u,identity_number_-1);tx_offset_=0;identity_request_=false;
         }
         else if(connected_ && volume_.Supported() && !pattern_assembler_.Active() &&
             (volume_.NeedsRead(now) || volume_.Sending() || volume_.Begin())) {

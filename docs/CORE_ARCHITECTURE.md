@@ -248,3 +248,13 @@ The [working session](FILE_FORMATS.md#working-session-separate-from-tunesproject
 now persists applied and published tempo independently, without writing config.ini. Pattern cells and
 cell-preview traffic do not own tempo. Sample rates/pitch and Synth tuning /
 envelope duration remain independent of tempo; output/bridge policy is unchanged.
+
+## Firmware-initialized instrument definitions
+
+The [instrument definition/availability foundation](INSTRUMENT_FOUNDATION.md#definitions-and-read-only-availability)
+separates instance existence and Type/resource reference from derived playable
+bindings. Five immutable development definitions remain authoritative on Teensy;
+preparation failure never removes a definition or substitutes another instrument.
+Read-only protocol v2 exposes availability independently. Definitions currently
+have no user creation or durable instrument persistence; those are deferred.
+Realtime player bindings, ownership, gains, timing and routing remain unchanged.

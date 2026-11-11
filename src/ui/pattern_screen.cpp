@@ -831,7 +831,8 @@ static void RenderPatternScreen(
                 "[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
         const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
         line(host.text.Get(WarningText::Type)+": "+identity);
-        line(host.text.Get(WarningText::Name)+": "+host.text.Get(WarningText::Unavailable));
+        line("Availability: "+host.instrument_availability);
+        line("Resource: "+host.instrument_resource);
         line(host.text.Get(WarningText::Load)+": "+host.text.Get(WarningText::Unavailable));
         line(host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable));
         line(host.text.Get(WarningText::FineTune)+": "+host.text.Get(WarningText::Unavailable));

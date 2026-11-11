@@ -124,8 +124,11 @@ Provisional owner-validation bindings inside Instrument:
 Select precedes D-pad; L1 value-edit and R1 beat/tempo precedence remain.
 Chords consume once per physical arrow/direction press, suppress held repeat and
 retain focus-loss/controller-removal handling. Browsing performs no session save,
-assignment or automatic playback resume. Type is read-only device identity;
-Name, Load, Save and Fine Tune are unavailable placeholders. Transpose is deferred.
+assignment or automatic playback resume. Type is read-only device definition identity on capable firmware, with separate
+Availability and Resource lines. Missing/failed Sample preparation retains its
+Type/reference. MIDI definition does not prove an external device is present.
+Older firmware retains binding-only Type with honestly unknown availability.
+Load, Save and Fine Tune remain unavailable placeholders. Transpose is deferred.
 
 ## Desktop controls
 

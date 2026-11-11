@@ -46,23 +46,49 @@ Modified B keeps its existing STOP combinations; Enter remains STOP.
 Closing BTX does not confirm assignment.
 
 
-## Read-only identity
+## Definitions and read-only availability
 
-The variable-rate Teensy advertises `BTINS1 CAP 1`. BTX requests
-`BTINS1 GET 1 raw_id` for the currently inspected instance. The reply is
-`BTINS1 STATE 1 raw_id type`, with 0 unbound, 1 Sample, 2 MIDI, 3 Sine Synth.
-The bounded helper reads the actual frozen `g_selected_bindings` table, including
-only resources actually bound by boot preparation. An absent binding is unbound;
-this does not invent a missing instrument definition or availability information.
-The discovery FIFO reserve grows by exactly three lines for identity CAP and
-session CAP/view, retaining the existing one-line headroom. There is no
-name/preset registry, type mutation or DSP change.
+Teensy is authoritative. `kDevelopmentInstrumentDefinitions` is the single
+firmware-initialized definition table: raw0/display01 Sample `Samples/test2.wav`,
+02 MIDI, 03 Sine Synth, 04 Sample `Samples/test3.wav`, 05 Sample `Samples/test.wav`.
+IDs identify instances, not Types. Definitions carry only Type and an optional
+resource reference. The existing playable binding table is derived boot output,
+not a definition registry: preparation failure omits playback but retains the same
+ID, Type and reference. No replacement instrument is substituted. Existing binding
+order, sample ownership, 80% fixture gains, timing and routing remain unchanged.
 
-BTX clears facts on selection change/disconnect and accepts only valid matching-ID
-replies. Unsupported firmware, disconnected devices or no response show unknown;
-unbound is shown explicitly. The host contains no fixed ID-to-type mapping. The
-current Synth binding represents the existing sine engine. Future Synth engines
-will need an explicit identity extension rather than assuming all Synth is sine.
+Preparation/inspection reports supply the immutable boot-preparation snapshot separately;
+Prepared is not a guarantee against future streaming I/O errors. Sample status may
+be Prepared, No sample selected, Resource unavailable, Preparation failed,
+Not prepared or SD unavailable. Missing/open-failed resource is distinguished from
+an inspected resource that failed validation/preparation. MIDI definition reports
+External MIDI device unknown; neither definition nor this exchange proves an
+external receiver is present. Synth reports Ready. No audio callback accesses
+files, allocates memory or mutates definitions.
+
+New firmware advertises both `BTINS1 CAP 1` and `BTINS1 CAP 2`. New BTX prefers
+`BTINS1 GET 2 raw_id`, receiving exactly
+`BTINS1 STATE 2 raw_id type availability reference`. Raw IDs are 0-98;
+Type is 0 undefined, 1 Sample, 2 MIDI, 3 existing sine Synth. Availability codes
+are 0 undefined, 1 prepared/ready, 2 no resource, 3 resource unavailable,
+4 preparation failed, 5 not prepared, 6 storage unavailable, 7 external MIDI
+unknown. Resource is a single bounded ASCII path token (maximum 63 characters)
+or `-` for none. Lines fit the 96-byte firmware TX entry. Parsers enforce matching
+Type/status/reference combinations; undefined is not an unavailable Sample.
+
+`GET 1` / `STATE 1` semantics remain frozen binding facts for older hosts. New BTX
+on CAP1-only firmware reports the binding Type with availability/resource Unknown
+(legacy firmware); absent legacy binding is Unbound (legacy binding only), never
+claimed to prove undefined. Unknown/disconnected/awaiting facts remain distinct.
+Selection changes and disconnect clear all cached extension facts. Only negotiated,
+valid, matching-ID replies are accepted; late legacy replies cannot replace v2 facts.
+The Instrument screen shows Type, Availability and Resource separately.
+
+Definitions remain firmware-initialized and immutable in this step. User creation,
+contiguous collection navigation, rotation, Type editing and durable instrument
+persistence are deferred. No new instrument parameter set or file format exists.
+The development five definitions happen to be contiguous; maximum future collection
+size remains 99. There is no New action, renumbering or sample-loading UI.
 
 ## Text presentation and deferred work
 

@@ -32,12 +32,27 @@ public:
     void Tick(std::uint32_t now);
     void InspectInstrument(unsigned number) {
         if(number<1 || number>99 || number==identity_number_)return;
-        identity_number_=number;identity_ready_=false;identity_request_=true;
+        identity_number_=number;identity_ready_=identity_facts_ready_=false;identity_request_=true;identity_resource_[0]=0;
     }
     std::string InstrumentIdentity() const {
         if(!connected_ || !identity_supported_)return "Unknown (identity unavailable)";
         if(!identity_ready_)return "Unknown (awaiting device)";
-        return identity_type_==0?"Unbound":identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
+        return identity_type_==0?(identity_facts_ready_?"Undefined":"Unbound (legacy binding only)"):identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
+    }
+    std::string InstrumentAvailabilityText() const {
+        if(!connected_ || !identity_supported_)return "Unknown (device unavailable)";
+        if(!identity_ready_)return "Unknown (awaiting device)";
+        if(!identity_facts_ready_)return "Unknown (legacy firmware)";
+        switch(identity_availability_) {
+        case 0:return "Undefined";case 1:return identity_type_==1?"Prepared":"Ready";
+        case 2:return "No sample selected";case 3:return "Resource unavailable";
+        case 4:return "Preparation failed";case 5:return "Not prepared";
+        case 6:return "SD unavailable";case 7:return "External MIDI device unknown";
+        }return "Unknown";
+    }
+    std::string InstrumentResource() const {
+        if(!connected_ || !identity_facts_ready_)return "Unknown";
+        return !std::strcmp(identity_resource_,"-")?"None":identity_resource_;
     }
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
@@ -301,7 +316,8 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
-    bool identity_supported_=false,identity_request_=false,identity_ready_=false;
+    bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
+    unsigned identity_availability_=0;char identity_resource_[64]{};
     unsigned identity_number_=0,identity_type_=0;
     bool snapshot_metadata_supported_=false,restore_view_pending_=false,host_view_seen_=false;
     EditCursor host_view_{},restored_view_{},save_view_{};

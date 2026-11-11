@@ -40,6 +40,8 @@ struct StoragePeer:SerialTransport {
         const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
         CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
     }
+    bool hold_identity=false;std::string identity_reply;
+    bool facts_cap=false;BroTracker::InstrumentAvailability facts_availability=BroTracker::InstrumentAvailability::Ready;
     bool metadata_cap=false,identity_cap=false;std::string saved_view;
     bool volume_cap=false,hold_volume=false;unsigned volume=73,volume_id=0;std::string volume_reply;
     std::string VolumeState() const {return "BTVOL1 STATE 1 "+std::to_string(volume_id)+" "+std::to_string(volume_id+1)+" "+std::to_string(volume)+" "+std::to_string((volume*65536u+50)/100)+"\n";}
@@ -68,6 +70,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO")rx+="BTAUDIO1 CAP 1\nBTMIDI1 CAP 1\nBTPATTERN1 SNAPCAP 2\n"+(cap?std::string("BTSTORE1 CAP 1\nBTSTORE1 SESSIONCAP 2\n"):std::string{});
             if(line=="BTTEST1 HELLO" && metadata_cap)rx+="BTSESSION1 CAP 1\nBTSESSION1 VIEW 1 19 6 1 0\n";
             if(line=="BTTEST1 HELLO" && identity_cap)rx+="BTINS1 CAP 1\n";
+            if(line=="BTTEST1 HELLO" && facts_cap)rx+="BTINS1 CAP 2\n";
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
@@ -109,14 +112,22 @@ struct StoragePeer:SerialTransport {
             const auto reply="BTSTORE1 RESULT 1 pattern-save-"+line.substr(sizeof("BTSTORE1 PATTERNSAVE 1 ")-1)+" "+pattern_save_result+" 0\n";
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
         }
+        else if(line.rfind("BTINS1 GET 2 ",0)==0) {
+            unsigned id=0;if(ParseInstrumentFactsRequest(line.data(),line.size(),id)) {
+                auto availability=id==1?InstrumentAvailability::ExternalUnknown:id==2?InstrumentAvailability::Ready:facts_availability;
+                char reply[96];if(FormatInstrumentFacts(DevelopmentInstrumentFacts(id,availability),reply,sizeof(reply))) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
+            }
+        }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
             unsigned id=0;
             BroTracker::VariableRateSampleBindings bindings;bindings.count=3;
             bindings.bindings[0].instrument=0;bindings.bindings[0].type=BroTracker::InstrumentType::Sample;
             bindings.bindings[1].instrument=1;bindings.bindings[1].type=BroTracker::InstrumentType::MIDI;
             bindings.bindings[2].instrument=2;bindings.bindings[2].type=BroTracker::InstrumentType::Synth;
-            if(BroTracker::ParseInstrumentIdentityRequest(line.data(),line.size(),id))
-                rx+="BTINS1 STATE 1 "+std::to_string(id)+" "+std::to_string(BroTracker::InstrumentBindingIdentity(bindings,id))+"\n";
+            if(BroTracker::ParseInstrumentIdentityRequest(line.data(),line.size(),id)) {
+                const auto reply="BTINS1 STATE 1 "+std::to_string(id)+" "+std::to_string(BroTracker::InstrumentBindingIdentity(bindings,id))+"\n";
+                if(hold_identity)identity_reply+=reply;else rx+=reply;
+            }
         }
         else if(line.rfind("BTSTORE1 SAVE 2 ",0)==0) {
             saved_view=line.substr(16);
@@ -987,7 +998,7 @@ TEST_CASE(SessionViewIsRestoredOnceSavedWithMusicAndNotReplayedOnReconnect) {
     CHECK(serial.RequestFile(BringUpSerial::FileAction::Session,2001,true));Pump(serial,101,160,&editor);
     CHECK(serial.SessionSaveSucceeded());CHECK_EQ(wire->saved_view,std::string("0 3 0 1"));
     serial.InspectInstrument(3);Pump(serial,160,170,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Sine Synth"));
-    serial.InspectInstrument(99);Pump(serial,170,180,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Unbound"));
+    serial.InspectInstrument(99);Pump(serial,170,180,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Unbound (legacy binding only)"));
     wire->healthy=false;serial.Tick(3600);CHECK_EQ(serial.InstrumentIdentity(),std::string("Unknown (identity unavailable)"));
     wire->healthy=true;Pump(serial,240,350,&editor);
     CHECK_EQ(editor.Cursor().channel,3u);CHECK(editor.Cursor().header);
@@ -1215,10 +1226,62 @@ TEST_CASE(Instrument01IdentityTraversesProductionGetStateAndHostDisplayedType) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->identity_cap=true;
     BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
     unsigned tick=100;
-    for(auto item:{std::pair<unsigned,const char*>{1,"Sample"},{2,"MIDI"},{3,"Sine Synth"},{99,"Unbound"},{1,"Sample"}}) {
+    for(auto item:{std::pair<unsigned,const char*>{1,"Sample"},{2,"MIDI"},{3,"Sine Synth"},{99,"Unbound (legacy binding only)"},{1,"Sample"}}) {
         serial.InspectInstrument(item.first);Pump(serial,tick,tick+10,&editor);tick+=10;
         CHECK_EQ(serial.InstrumentIdentity(),std::string(item.second));
         const auto get="BTINS1 GET 1 "+std::to_string(item.first-1);
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),get)!=wire->commands.end());
+    }
+}
+
+TEST_CASE(InstrumentDefinitionsAvailabilityAndLegacyReconnectAreIndependentFacts) {
+    for(auto availability:{InstrumentAvailability::Ready,InstrumentAvailability::ResourceUnavailable,InstrumentAvailability::PreparationFailed}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->identity_cap=wire->facts_cap=true;wire->facts_availability=availability;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+        serial.InspectInstrument(1);Pump(serial,100,110,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));CHECK_EQ(serial.InstrumentResource(),std::string("Samples/test2.wav"));
+        CHECK_EQ(serial.InstrumentAvailabilityText(),std::string(availability==InstrumentAvailability::Ready?"Prepared":availability==InstrumentAvailability::ResourceUnavailable?"Resource unavailable":"Preparation failed"));
+        wire->rx+="BTINS1 STATE 1 0 2\nBTINS1 STATE 2 0 0 1 -\n";serial.Tick(2199);
+        CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample")); // Late legacy/invalid v2 cannot overwrite negotiated facts.
+        serial.InspectInstrument(2);CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));Pump(serial,110,120,&editor);
+        CHECK_EQ(serial.InstrumentIdentity(),std::string("MIDI"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("External MIDI device unknown"));
+        serial.InspectInstrument(99);Pump(serial,120,130,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Undefined"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Undefined"));
+        wire->healthy=false;serial.Tick(2601);CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Unknown (device unavailable)"));
+        wire->facts_cap=false;wire->healthy=true;Pump(serial,160,260,&editor);
+        serial.InspectInstrument(1);Pump(serial,260,270,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));
+        CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Unknown (legacy firmware)"));CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));
+        CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTINS1 GET 2 0")!=wire->commands.end());
+        CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTINS1 GET 1 0")!=wire->commands.end());
+    }
+}
+
+TEST_CASE(SelectedInstrumentReconnectUpgradesSplitCapabilitiesExactlyOnce) {
+    for(bool upgrade:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->identity_cap=wire->facts_cap=true;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+        serial.InspectInstrument(1);Pump(serial,100,110,&editor);CHECK_EQ(serial.InstrumentResource(),std::string("Samples/test2.wav"));
+        wire->healthy=false;serial.Tick(2201);CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));
+        const auto reconnect=wire->commands.size();wire->facts_cap=false;wire->hold_identity=true;wire->healthy=true;
+        Pump(serial,160,260,&editor);CHECK(serial.Connected());
+        const auto count=[&](const char* command){return std::count(wire->commands.begin()+reconnect,wire->commands.end(),std::string(command));};
+        CHECK_EQ(count("BTINS1 GET 1 0"),1);CHECK_EQ(count("BTINS1 GET 2 0"),0);
+        const auto legacy=wire->identity_reply;CHECK_EQ(legacy,std::string("BTINS1 STATE 1 0 1\n"));wire->identity_reply.clear();
+        if(!upgrade) {
+            wire->rx+=legacy;Pump(serial,260,270,&editor);
+            CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Unknown (legacy firmware)"));
+            CHECK_EQ(count("BTINS1 GET 2 0"),0);continue;
+        }
+        // A later read negotiates v2 after GET1 was sent but before STATE1 arrives.
+        wire->facts_availability=InstrumentAvailability::ResourceUnavailable;wire->rx+="BTINS1 CAP 2\n";Pump(serial,260,270,&editor);
+        CHECK_EQ(count("BTINS1 GET 2 0"),1);const auto extended=wire->identity_reply;
+        CHECK_EQ(extended,std::string("BTINS1 STATE 2 0 1 3 Samples/test2.wav\n"));
+        // Duplicate CAPs, the outstanding legacy reply and a different-ID STATE2
+        // cannot clear/requery/replace the current selection's negotiated facts.
+        wire->rx+="BTINS1 CAP 2\n"+legacy+"BTINS1 STATE 2 1 2 7 -\n";Pump(serial,270,280,&editor);
+        CHECK_EQ(serial.InstrumentIdentity(),std::string("Unknown (awaiting device)"));CHECK_EQ(count("BTINS1 GET 2 0"),1);
+        wire->rx+=extended;Pump(serial,280,290,&editor);
+        CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Resource unavailable"));CHECK_EQ(serial.InstrumentResource(),std::string("Samples/test2.wav"));
+        wire->rx+="BTINS1 CAP 2\nBTINS1 CAP 2\n";Pump(serial,290,300,&editor);
+        CHECK_EQ(count("BTINS1 GET 2 0"),1);CHECK_EQ(count("BTINS1 GET 1 0"),1);
+        CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Resource unavailable"));
     }
 }

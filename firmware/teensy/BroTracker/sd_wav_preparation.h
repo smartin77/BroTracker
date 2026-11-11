@@ -34,6 +34,17 @@ struct SdWavPreparation {
         }
     }
 };
+// Boot evidence only; never deletes a definition or changes its resource reference.
+inline InstrumentAvailability SamplePreparationAvailability(const InstrumentDefinition& definition,
+    const SdWavPreparation& prepared,const SdWavInspection& inspected) noexcept {
+    if(!definition.resource || !*definition.resource)return InstrumentAvailability::NoResource;
+    if(!prepared.attempted)return InstrumentAvailability::NotPrepared;
+    if(!prepared.sd_ready)return InstrumentAvailability::StorageUnavailable;
+    if(prepared.view.data && prepared.view.frame_count && prepared.result.status==SdWavBufferStatus::Success)
+        return InstrumentAvailability::Ready;
+    if(inspected.open_status!=SdWavBufferStatus::Success)return InstrumentAvailability::ResourceUnavailable;
+    return InstrumentAvailability::PreparationFailed;
+}
 // Exact measured capacities; storage ownership/placement remains with the caller.
 constexpr std::size_t kDevelopmentManualWavFrameCapacity=68284;
 static_assert(kDevelopmentManualWavFrameCapacity*sizeof(std::int16_t)==136568,"Measured PCM16 bytes");

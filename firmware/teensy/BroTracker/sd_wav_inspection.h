@@ -1,10 +1,11 @@
 #pragma once
 #include "sd_wav_buffer_loader.h"
+#include "bringup/instrument_definition.h"
 #include <cstdio>
 #include <cinttypes>
 namespace BroTracker {
 // Established legacy paths; no enumeration, substitution or general file protocol.
-constexpr const char* kDevelopmentWavPaths[]={"Samples/test.wav","Samples/test2.wav","Samples/test3.wav"};
+constexpr const char* kDevelopmentWavPaths[]={kDevelopmentInstrumentDefinitions[4].resource,kDevelopmentInstrumentDefinitions[0].resource,kDevelopmentInstrumentDefinitions[3].resource};
 struct SdWavInspection {
     SdWavBufferStatus open_status=SdWavBufferStatus::OpenFailed;
     WavBufferStatus validation=WavBufferStatus::IoError;
