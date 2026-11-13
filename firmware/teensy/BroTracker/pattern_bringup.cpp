@@ -562,6 +562,9 @@ namespace
                 g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
                 g_session.working=work;g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
                 if(snapshot)g_session.view=ValidatedSessionView({static_cast<std::uint8_t>(view[0]),static_cast<std::uint8_t>(view[1]),static_cast<std::uint8_t>(view[2]),static_cast<std::uint8_t>(view[3])},work);
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                g_session.definitions=g_instrument_definitions;
+#endif
                 result=g_session_files.Save(g_storage_backend,g_session);g_session_result=result;
                 g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true;
             }
@@ -755,6 +758,9 @@ namespace
             g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
             g_session.working=g_working.pending_id?g_working.pending:g_working.working;
             g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            g_session.definitions=g_instrument_definitions;
+#endif
             g_session_result=g_session_files.Save(g_storage_backend,g_session);
             g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true; // Failures are explicit; no unbounded retry loop.
             if(g_protocol_connected) StorageReply("session-auto",PatternFileResultName(g_session_result));
@@ -837,6 +843,7 @@ namespace
                             InterruptGuard guard;
                             result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,g_audio_ready && g_control.StorageReady(),
                                 [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);});
+                            if(result==0)g_session_save.Changed();
                             g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
                         }
                     }
@@ -849,8 +856,8 @@ namespace
                         availability=definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
                         if(definition->type==InstrumentType::Sample) {
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                            unsigned source=0;for(unsigned i=0;i<3;++i)if(definition->resource && !std::strcmp(definition->resource,kDevelopmentWavPaths[i]))source=i;
-                            availability=SamplePreparationAvailability(*definition,g_streaming.reports[source],g_wav_inspection.files[source]);
+                            unsigned source=3;for(unsigned i=0;i<3;++i)if(definition->resource && !std::strcmp(definition->resource,kDevelopmentWavPaths[i]))source=i;
+                            availability=source<3?SamplePreparationAvailability(*definition,g_streaming.reports[source],g_wav_inspection.files[source]):InstrumentAvailability::ResourceUnavailable;
                             if(availability==InstrumentAvailability::Ready && !InstrumentBindingIdentity(g_selected_bindings,id))availability=InstrumentAvailability::PreparationFailed;
 #else
                             availability=InstrumentAvailability::NotPrepared;
@@ -1155,11 +1162,22 @@ namespace
         if(g_storage_backend.ready) {
             g_session_result=g_session_files.Load(g_storage_backend,g_session);
             if(g_session_result==PatternFileResult::Ok || g_session_result==PatternFileResult::BackupRetained) {
+                // Derive slot bindings from immutable prepared development assets by WAV identity.
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                const auto restored_bindings=RestoreInstrumentBindings(g_session.definitions,g_selected_bindings);
+                const auto& session_bindings=restored_bindings;
+#else
+                const auto& session_bindings=g_selected_bindings;
+#endif
                 // Boot-only validation against actual bindings; no audio callbacks yet.
                 auto& validator=g_control.OutputPlayer();
-                const bool valid=validator.Configure(g_session.published_tempo,44100,g_session.published,g_selected_bindings)==PatternPlayerStatus::Success &&
-                    validator.Configure(g_session.working_tempo,44100,g_session.working,g_selected_bindings)==PatternPlayerStatus::Success;
+                const bool valid=validator.Configure(g_session.published_tempo,44100,g_session.published,session_bindings)==PatternPlayerStatus::Success &&
+                    validator.Configure(g_session.working_tempo,44100,g_session.working,session_bindings)==PatternPlayerStatus::Success;
                 if(valid) {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                    g_instrument_definitions=g_session.definitions;
+#endif
+                    g_selected_bindings=session_bindings;
                     g_active_pattern=g_session.published;g_published_tempo=g_session.published_tempo;
                     g_working.working=g_session.working;g_boot_tempo=g_session.working_tempo;g_boot_mute=g_session.mute_mask;
                 } else g_session_result=PatternFileResult::Invalid;

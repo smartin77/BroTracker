@@ -89,12 +89,21 @@ Selection changes and disconnect clear all cached extension facts. Only negotiat
 valid, matching-ID replies are accepted; late legacy replies cannot replace v2 facts.
 The Instrument screen shows Type, Availability and Resource separately.
 
-Definitions start with the five firmware-initialized development instruments on
-boot. Runtime append extends this same authoritative fixed-capacity table; there
-is no second definition registry. Definitions are RAM-only in this step: reboot
-restores the initial five. Durable definition persistence, deletion, renumbering,
-existing-Type mutation and sample-selection UI remain deferred. Session snapshots
-retain Pattern references, not runtime instrument definitions.
+Definitions start with the five firmware development instruments when no session
+is restored. Temporary BTM session persistence now stores the entire authoritative
+table, including unused and appended definitions; restore preserves slot numbers.
+Legacy sessions without a table use the original five. Deletion, renumbering,
+existing-Type mutation and sample-selection UI remain deferred.
+
+A valid definition is structurally complete: Sample requires a valid SD-relative
+WAV reference; current MIDI and Sine Synth require only their explicit Type.
+Definition validation does not open or prepare WAVs. An unavailable Sample remains
+a defined instrument, contributes to N, and retains its WAV reference and Pattern
+references. It stops/produces no Sample voice rather than substituting another
+instrument. A malformed definition rejects the entire session before activation.
+The current bounded boot preparer can reuse development WAV assets by reference;
+other valid WAV paths remain unavailable. See the temporary BTM and standalone
+Pattern rules in [FILE_FORMATS.md](FILE_FORMATS.md#temporary-btm-session-version-1).
 
 ## Text presentation and deferred work
 
@@ -110,8 +119,9 @@ Synth controls, browser, presets, audition and engine editing are deferred.
 See [format](FILE_FORMATS.md#instrument-foundation-session-snapshot-2026-11-09).
 Instrument entry requires snapshot-capable firmware; older firmware retains Pattern
 with an update-required reason, so successful entry cannot silently omit metadata.
-BTWS v2 extends the existing candidate/previous atomic writer, preserving the two
-musical records and adding host cursor plus audio-owner mute mask. Legacy sessions
+Temporary BTM reuses the candidate/previous writer and retains host cursor plus
+audio-owner mute mask with the working Pattern, BPM and definitions. Legacy BTWS
+v2 remains readable. Legacy sessions
 load with default cursor/unmuted channels. View data is main-owned and never sent
 to the realtime player. Fresh hosts restore saved view; surviving hosts retain
 current view and existing reconnect recovery. Boot mute restoration uses SubmitMute
@@ -200,7 +210,7 @@ assignment/definition confirmation. Enter and modified handheld STOP chords stay
 
 The separate **Save** command is reserved for future file operations and is outside
 this workflow. Existing screen-entry STOP/session snapshot safety is retained;
-this is not durable instrument persistence.
+the shared session snapshot now durably includes definitions in temporary BTM.
 
 ## Bounded definition commit extension
 

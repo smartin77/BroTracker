@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "bringup/working_session.h"
+#include "bringup/instrument_commit.h"
 #include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
@@ -289,7 +290,7 @@ TEST_CASE(DevelopmentStemLoadingUsesFileContentsAndRejectsPathsBeforeIo) {
     CHECK_EQ(store.LoadDevelopment(backend,"4",dest,tempo),PatternFileResult::Missing); // Literal4, no numbered alias.
 }
 
-TEST_CASE(WorkingSessionPreservesUnpublishedEditsAndIndependentSavedTune) {
+TEST_CASE(TemporaryBtmPreservesWorkingIntentAndLeavesRetiredDraftUntouched) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
     WorkingSessionStore<SdPatternFiles> store;PatternFileStore<SdPatternFiles> tunes;
     WorkingSession s;s.published=MakeDevelopmentPattern();s.working=s.published;s.working.cells[0][0].note=61;
@@ -298,8 +299,8 @@ TEST_CASE(WorkingSessionPreservesUnpublishedEditsAndIndependentSavedTune) {
     const auto tune=FakePatternSd::files["/BroTracker/tune.btdraft"].bytes;
     CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
     WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
-    Same(s.published,restored.published);Same(s.working,restored.working);
-    CHECK_EQ(restored.published_tempo,15500u);CHECK_EQ(restored.working_tempo,12753u);
+    Same(s.working,restored.published);Same(s.working,restored.working);
+    CHECK_EQ(restored.published_tempo,12753u);CHECK_EQ(restored.working_tempo,12753u);
     CHECK(FakePatternSd::files["/BroTracker/tune.btdraft"].bytes==tune);
     const auto good=FakePatternSd::files[kSessionPath].bytes;
     for(std::size_t n=0;n<good.size();++n) {
@@ -357,7 +358,7 @@ TEST_CASE(PauseStorageBarrierAllowsCoherentPendingPreviewButPlayingNeverWrites) 
     CHECK(control.StorageReady(true));CHECK(!control.StorageReady());
 }
 
-TEST_CASE(PowerRestartReconstructsWorkingContentAndPublishedTempoButNeverStarts) {
+TEST_CASE(PowerRestartReconstructsOneWorkingPatternAndBpmButNeverStarts) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> files;
     WorkingSession saved;saved.published=MakeDevelopmentPattern();saved.working=saved.published;
     saved.working.cells[0][0].note=61;saved.published_tempo=15500;saved.working_tempo=12753;
@@ -366,10 +367,10 @@ TEST_CASE(PowerRestartReconstructsWorkingContentAndPublishedTempoButNeverStarts)
     BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings> rebooted;
     CHECK_EQ(rebooted.InitializeAudio(restored.working_tempo,44100,restored.working,SelectDevelopmentFixture({}).bindings,restored.published_tempo),PatternPlayerStatus::Success);
     CHECK_EQ(rebooted.Snapshot().transport,PatternTransportState::Stopped);CHECK(!rebooted.Snapshot().running);
-    CHECK_EQ(rebooted.Snapshot().tempo,12753u);CHECK_EQ(rebooted.Snapshot().published_tempo,15500u);
+    CHECK_EQ(rebooted.Snapshot().tempo,12753u);CHECK_EQ(rebooted.Snapshot().published_tempo,12753u);
     std::int16_t audio[128]{};rebooted.AudioBlock(audio,128,true);
     CHECK(!rebooted.Snapshot().running);for(auto sample:audio)CHECK_EQ(sample,0);
-    Same(restored.working,saved.working);Same(restored.published,saved.published);
+    Same(restored.working,saved.working);Same(restored.published,saved.working);
 }
 
 TEST_CASE(PatternDirectoryListsValidatedFixturesAndOtherFilesReadOnlyAcrossPages) {
@@ -435,9 +436,6 @@ TEST_CASE(SessionMetadataRoundtripLegacyAndInvalidCoordinatesPreserveMusic) {
     WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);
     CHECK_EQ(loaded.view.row,19u);CHECK_EQ(loaded.view.channel,6u);CHECK_EQ(loaded.view.field,1u);CHECK_EQ(loaded.mute_mask,165u);
     const auto bytes=FakePatternSd::files[kSessionPath].bytes;
-    auto legacy=bytes;legacy.resize(legacy.size()-8);legacy[4]=1;PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
-    CHECK_EQ(DecodeWorkingSession(legacy.data(),legacy.size(),loaded),PatternFileResult::Ok);
-    CHECK_EQ(loaded.view.row,0u);CHECK_EQ(loaded.mute_mask,0u);Same(s.working,loaded.working);
     for(bool header:{false,true}) {
         auto invalid=bytes;auto* m=invalid.data()+invalid.size()-8;m[0]=255;m[1]=255;m[2]=255;m[3]=header?1:255;
         PatternFilePut32(invalid.data()+20,PatternFileCrc(invalid.data(),invalid.size()));
@@ -447,4 +445,158 @@ TEST_CASE(SessionMetadataRoundtripLegacyAndInvalidCoordinatesPreserveMusic) {
     }
     s.view={22,3,1,1};CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
     CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(loaded.view.row,0u);CHECK_EQ(loaded.view.header,1u);
+}
+
+TEST_CASE(TemporaryBtmDefinitionsRoundtripAndMalformedDefinitionIsTransactional) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession s;s.working=MakeDevelopmentPattern();s.working.cells[0][0]={64,5};s.working_tempo=13925;
+    CHECK(s.definitions.Append(5,1,"Samples/missing.wav"));CHECK(s.definitions.Append(6,2,nullptr));
+    CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    WorkingSession target;CHECK_EQ(store.Load(backend,target),PatternFileResult::Ok);
+    CHECK_EQ(target.definitions.Count(),7u);CHECK_EQ(target.working_tempo,13925u);
+    CHECK_EQ(target.working.cells[0][0].instrument,5u);
+    CHECK(std::strcmp(target.definitions.At(5)->resource,"Samples/missing.wav")==0);
+    auto bytes=FakePatternSd::files[kSessionPath].bytes;auto offset=24+PatternFileU32(bytes.data()+8);
+    bytes[offset]=9;PatternFilePut32(bytes.data()+20,PatternFileCrc(bytes.data(),bytes.size()));
+    CHECK_EQ(DecodeWorkingSession(bytes.data(),bytes.size(),target),PatternFileResult::Invalid);
+    CHECK_EQ(target.definitions.Count(),7u);CHECK_EQ(target.working_tempo,13925u);CHECK_EQ(target.working.cells[0][0].instrument,5u);
+}
+
+TEST_CASE(TemporaryBtmMissingSampleKeepsSlotAndStopsVoiceWithoutFallback) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession s;s.definitions.Reset(false);
+    CHECK(s.definitions.Append(0,3,nullptr));CHECK(s.definitions.Append(1,1,"Samples/missing.wav"));
+    s.working={};s.working.active_rows=16;s.working.active_channels=1;s.working.cells[0][0]={64,1};s.working.cells[1][0]={65,2};
+    s.working_tempo=14725;CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    const auto bindings=RestoreInstrumentBindings(restored.definitions,SelectDevelopmentFixture({}).bindings);
+    CHECK_EQ(bindings.count,1u);CHECK_EQ(bindings.bindings[0].type,InstrumentType::Synth);
+    CHECK_EQ(restored.definitions.Count(),2u);CHECK_EQ(restored.working.cells[0][0].instrument,1u);
+    CHECK_EQ(restored.working.cells[1][0].instrument,2u); // Sole trailing undefined slot survives.
+    VariableRateBringUpPlayer player;
+    CHECK_EQ(player.Configure(restored.working_tempo,44100,restored.working,bindings),PatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),PatternPlayerStatus::Success);
+    std::int16_t audio[128];
+    for(unsigned block=0;block<64;++block) {
+        CHECK_EQ(player.Render(audio,128),PatternPlayerStatus::Success);
+        for(auto sample:audio)CHECK_EQ(sample,0); // Never falls back to defined Synth slot 01.
+    }
+}
+TEST_CASE(TemporaryBtmPreparedAssetsFollowResourceNotSavedSlot) {
+    InstrumentDefinitions definitions(false);CHECK(definitions.Append(0,1,"Samples/test3.wav"));
+    CHECK(definitions.Append(1,2,nullptr));CHECK(definitions.Append(2,1,"Samples/test3.wav"));
+    VariableRateSampleBindings assets;assets.count=1;assets.bindings[0].instrument=3;
+    assets.bindings[0].reference_note=60;assets.bindings[0].sample_level_percent=80;
+    const auto restored=RestoreInstrumentBindings(definitions,assets);
+    CHECK_EQ(restored.count,3u);CHECK_EQ(restored.bindings[0].instrument,0u);CHECK_EQ(restored.bindings[2].instrument,2u);
+    CHECK_EQ(restored.bindings[0].reference_note,60u);CHECK_EQ(restored.bindings[2].sample_level_percent,80u);
+}
+TEST_CASE(LegacyBtwsVersionsAndBtssUseDevelopmentDefinitionsAndMigrateWorkingIntent) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    auto pattern=MakeDevelopmentPattern();std::array<std::uint8_t,kPatternFileCapacity> record{};std::size_t size=0;
+    CHECK_EQ(EncodePatternFile(PatternFileKind::Session,pattern,15500,record.data(),record.size(),size),PatternFileResult::Ok);
+    for(unsigned version:{0u,1u,2u}) {
+        std::vector<std::uint8_t> bytes;
+        if(!version)bytes.assign(record.data(),record.data()+size);
+        else {
+            bytes.resize(24+2*size+(version==2?8:0));std::memcpy(bytes.data(),"BTWS",4);bytes[4]=version;bytes[6]=24;
+            PatternFilePut32(bytes.data()+8,size);PatternFilePut32(bytes.data()+12,size);
+            std::memcpy(bytes.data()+24,record.data(),size);std::memcpy(bytes.data()+24+size,record.data(),size);
+            auto* working=bytes.data()+24+size;working[24]=61;PatternFilePut32(working+12,12753);
+            PatternFilePut32(working+20,PatternFileCrc(working,size));
+            if(version==2){bytes[24+2*size]=19;bytes[24+2*size+4]=165;}
+            PatternFilePut32(bytes.data()+20,PatternFileCrc(bytes.data(),bytes.size()));
+        }
+        FakePatternSd::files[kSessionPath].bytes=bytes;WorkingSession target;target.definitions.Reset(false);
+        CHECK_EQ(store.Load(backend,target),PatternFileResult::Ok);CHECK_EQ(target.definitions.Count(),5u);
+        Same(target.published,pattern);CHECK_EQ(target.published_tempo,15500u);
+        CHECK_EQ(target.working.cells[0][0].note,version?61u:pattern.cells[0][0].note);
+        CHECK_EQ(target.working_tempo,version?12753u:15500u);
+        CHECK_EQ(target.view.row,version==2?19u:0u);CHECK_EQ(target.mute_mask,version==2?165u:0u);
+        CHECK_EQ(store.Save(backend,target),PatternFileResult::Ok);
+        CHECK(std::memcmp(FakePatternSd::files[kSessionPath].bytes.data(),"BTM1",4)==0);
+        WorkingSession migrated;CHECK_EQ(store.Load(backend,migrated),PatternFileResult::Ok);
+        Same(migrated.working,target.working);Same(migrated.published,target.working);
+        CHECK_EQ(migrated.working_tempo,target.working_tempo);CHECK_EQ(migrated.published_tempo,target.working_tempo);
+    }
+}
+
+TEST_CASE(LegacyBtwsV2ReservedMetadataRejectsWithoutMutatingDestination) {
+    const auto published=MakeDevelopmentPattern(16);
+    auto working=published;working.cells[0][0]={61,3};
+    std::vector<std::uint8_t> bytes(32+2*kPatternFileCapacity);
+    std::size_t a=0,c=0;
+    CHECK_EQ(EncodePatternFile(PatternFileKind::Session,published,15500,bytes.data()+24,kPatternFileCapacity,a),PatternFileResult::Ok);
+    CHECK_EQ(EncodePatternFile(PatternFileKind::Session,working,13725,bytes.data()+24+a,kPatternFileCapacity,c),PatternFileResult::Ok);
+    bytes.resize(32+a+c);std::memcpy(bytes.data(),"BTWS",4);bytes[4]=2;bytes[6]=24;
+    PatternFilePut32(bytes.data()+8,a);PatternFilePut32(bytes.data()+12,c);
+    auto* metadata=bytes.data()+24+a+c;
+    metadata[0]=7;metadata[1]=2;metadata[2]=0;metadata[3]=1;metadata[4]=90;
+    PatternFilePut32(bytes.data()+20,PatternFileCrc(bytes.data(),bytes.size()));
+    WorkingSession valid;
+    CHECK_EQ(DecodeWorkingSession(bytes.data(),bytes.size(),valid),PatternFileResult::Ok);
+
+    WorkingSession destination;destination.published=Varied();destination.working=MakeDevelopmentPattern();
+    destination.working.cells[0][0]={72,2};destination.published_tempo=11111;destination.working_tempo=22222;
+    destination.definitions.Reset(false);
+    CHECK(destination.definitions.Append(0,1,"Samples/destination.wav"));
+    CHECK(destination.definitions.Append(1,2,nullptr));CHECK(destination.definitions.Append(2,3,nullptr));
+    destination.view={11,3,1,0};destination.mute_mask=165;
+    const auto before=destination;
+    for(unsigned reserved:{5u,6u,7u}) {
+        auto malformed=bytes;malformed[24+a+c+reserved]=1;
+        PatternFilePut32(malformed.data()+20,PatternFileCrc(malformed.data(),malformed.size()));
+        CHECK_EQ(PatternFileU32(malformed.data()+20),PatternFileCrc(malformed.data(),malformed.size()));
+        CHECK_EQ(DecodeWorkingSession(malformed.data(),malformed.size(),destination),PatternFileResult::Invalid);
+        Same(destination.published,before.published);Same(destination.working,before.working);
+        CHECK_EQ(destination.published_tempo,before.published_tempo);CHECK_EQ(destination.working_tempo,before.working_tempo);
+        CHECK_EQ(destination.definitions.Count(),before.definitions.Count());
+        for(unsigned i=0;i<before.definitions.Count();++i) {
+            const auto* actual=destination.definitions.At(i);const auto* expected=before.definitions.At(i);
+            CHECK(actual!=nullptr);if(!actual)continue;
+            CHECK_EQ(actual->type,expected->type);
+            if(expected->resource) {CHECK(actual->resource!=nullptr);if(actual->resource)CHECK(std::strcmp(actual->resource,expected->resource)==0);}
+            else CHECK(actual->resource==nullptr);
+        }
+        CHECK_EQ(destination.view.row,before.view.row);CHECK_EQ(destination.view.channel,before.view.channel);
+        CHECK_EQ(destination.view.field,before.view.field);CHECK_EQ(destination.view.header,before.view.header);
+        CHECK_EQ(destination.mute_mask,before.mute_mask);
+    }
+}
+
+TEST_CASE(TemporaryBtmMalformedDefinitionsAndIoRestorePreserveActiveSession) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession source;source.working=MakeDevelopmentPattern();source.working_tempo=13725;
+    CHECK_EQ(store.Save(backend,source),PatternFileResult::Ok);const auto good=FakePatternSd::files[kSessionPath].bytes;
+    WorkingSession active;active.working=MakeDevelopmentPattern();active.working.cells[0][0]={72,5};
+    CHECK(active.definitions.Append(5,3,nullptr));active.working_tempo=14550;
+    for(unsigned fault=0;fault<8;++fault) {
+        auto bad=good;const auto offset=24+PatternFileU32(bad.data()+8);
+        if(fault==0)bad[offset]=0;
+        if(fault==1)std::memset(bad.data()+offset+1,0,64); // Sample requires a resource.
+        if(fault==2)bad[offset+1]='/';
+        if(fault==3){bad[offset+1]='.';bad[offset+2]='.';}
+        if(fault==4)std::memset(bad.data()+offset+1,'a',64); // No terminator.
+        if(fault==5)bad[offset+64]=1; // Nonzero padding.
+        if(fault==6)bad[offset+65+1]='x'; // MIDI must have no resource.
+        if(fault==7)PatternFilePut32(bad.data()+12,100);
+        PatternFilePut32(bad.data()+20,PatternFileCrc(bad.data(),bad.size()));
+        FakePatternSd::files[kSessionPath].bytes=bad;
+        CHECK_EQ(store.Load(backend,active),PatternFileResult::Invalid);
+        CHECK_EQ(active.working.cells[0][0].note,72u);CHECK_EQ(active.working_tempo,14550u);CHECK_EQ(active.definitions.Count(),6u);
+    }
+    FakePatternSd::files[kSessionPath].bytes=good;FakePatternSd::fail_open=true;
+    CHECK(store.Load(backend,active)!=PatternFileResult::Ok);
+    CHECK_EQ(active.working.cells[0][0].note,72u);CHECK_EQ(active.working_tempo,14550u);CHECK_EQ(active.definitions.Count(),6u);
+}
+TEST_CASE(TemporaryBtmMaximumTableAndOwnedReferencesSurviveCopy) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession source;source.working=MakeDevelopmentPattern(64);source.definitions.Reset(false);
+    char path[]="Samples/test.wav";
+    for(unsigned i=0;i<99;++i)CHECK(source.definitions.Append(i,1,path));
+    path[0]='X';WorkingSession copy=source;source.definitions.Reset(false);
+    CHECK_EQ(store.Save(backend,copy),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    CHECK_EQ(restored.definitions.Count(),99u);CHECK(std::strcmp(restored.definitions.At(98)->resource,"Samples/test.wav")==0);
+    CHECK_EQ(InstrumentSelectionMaximum(restored.definitions.Count()),99u);
 }

@@ -193,23 +193,75 @@ These details shall be specified separately once the internal data model and sto
 
 ## Working session: separate from tunes/projects
 
-Teensy owns `/BroTracker/current.btsession`. It stores the current published
-baseline **and** working intent, including unpublished preview edits available on
-the device, with independent tempos. Normal startup/reconnect never loads the
-configured development file. Firmware restores a validated session at boot,
-stopped; BTX synchronizes with the device. See [continuity and audio/storage
-policy](RECONNECT_CONTINUITY.md).
+Teensy owns `/BroTracker/current.btsession`. Normal Windows and ArkOS session
+save/exit, automatic stopped saves and boot restore use the temporary BTM below.
+Hosts are UI clients; definitions, playback and session authority stay on Teensy.
+Startup/reconnect never replays a configured development file over a valid session.
 
-This is a bounded one-pattern foundation, not BTT/BTP/BTM or a self-contained tune.
-Raw instrument references use current bindings. No Sample PCM/paths, instrument
-definitions, voice phase, playback position/running state, gain/master volume,
-MIDI route/ownership, external instrument state or host configuration is stored.
-Host edit-frame context and acknowledged channel mute mask are retained in BTWS v2.
-Unsent host-only edits cannot be reconstructed after a host crash.
+### Temporary BTM session version 1
 
-### Working-session envelope
+This bounded development format is **not** the future ZIP BTM described above.
+The existing filename is retained to reuse recovery markers and installed workflows.
+All integers are little-endian. The maximum file length is 8027 bytes.
 
-All integers are unsigned little-endian; no native struct dumps. Maximum 3152 bytes (v2); legacy v1 maximum 3144 bytes.
+| Offset | Bytes | Meaning |
+| --- | --- | --- |
+| 0 | 4 | ASCII `BTM1` (temporary format discriminator) |
+| 4 | 2 | Version 1 |
+| 6 | 2 | Header length 24 |
+| 8 | 4 | Embedded Pattern record length |
+| 12 | 4 | Definition count N, 0..99 |
+| 16 | 4 | Reserved zero |
+| 20 | 4 | CRC-32/ISO-HDLC, omitting bytes 20..23 |
+| 24 | variable | One BTSS-layout Pattern record: notes, timing, raw slots and the single session BPM |
+| after Pattern | N ? 65 | Consecutive definitions: Type byte (1 Sample, 2 MIDI, 3 Sine Synth), 64-byte zero-padded resource |
+| after definitions | 8 | Row, channel, field, header, mute mask, three reserved zeros |
+
+The embedded record's tempo is the sole BTM BPM, not a standalone Pattern BPM.
+Save captures current working intent. Restore initializes both published baseline
+and working state from this one Pattern and BPM; previous publication history is
+not persisted. All definitions, including unused ones, retain their array position
+(raw 0..N-1/display 01..N). Type and SD-relative WAV reference are all the current
+development definition model carries; MIDI/Synth have no resource payload. Sample
+paths are 1..63 ASCII letters/digits/slash/dot/underscore/hyphen, with no leading
+slash or `..`; non-Sample resource fields must be empty. No WAV PCM is embedded.
+Future parameters require a format version change.
+
+Exact length, version, reserved bytes, CRC, Pattern and every definition validate
+before destination mutation. Malformed definitions invalidate the whole session.
+Missing/unprepared WAVs do not invalidate definitions: retain slots, references and
+notes, omit unavailable playback bindings, and never substitute another instrument.
+Prepared development assets are matched by WAV reference rather than saved slot.
+Other valid WAV references remain unavailable with the current bounded preparer.
+The one trailing undefined slot remains selectable and can remain referenced in a
+session; persistence does not create a definition for it or clear its reference.
+
+Legacy single BTSS and BTWS v1/v2 remain readable. They have no definitions and
+therefore use the original five development definitions. BTWS retains its old two
+records/tempos on legacy decode; the next successful save migrates to temporary BTM
+using working intent and its BPM. Legacy files cannot recover previously RAM-only
+appended definitions. Candidate/previous safeguards below apply unchanged, including
+fallback to a validated previous file and never promoting an uncommitted candidate.
+Cursor and acknowledged mute state are retained; restore is stopped. No host config,
+voice phase, playback position, gain or external instrument state is persisted.
+The legacy tooling-only `RESTORE` command remains single-BTSS-only; normal UI restore
+is boot plus authoritative readback, not that retired command.
+
+### Standalone Pattern contract (future import/export)
+
+A standalone Pattern carries notes, timing and instrument slot numbers. BPM and
+definitions belong to the destination project. Import keeps a reference whenever
+that destination slot is defined, even if its instrument differs or its Sample WAV
+is unavailable. If the destination slot is undefined (including the sole trailing
+undefined slot), clear **only** the instrument reference. Preserve notes and timing,
+and use the destination project's BPM. No instrument matching, substitution or
+creation is implied. Standalone Pattern import/export is not implemented here;
+existing development `.btdev` operations retain their temporary behavior.
+
+### Legacy working-session envelope
+
+All integers are unsigned little-endian; no native struct dumps. Historical BTWS maximum 3152 bytes (v2); v1 maximum 3144 bytes.
+New writes use temporary BTM above; the following describes legacy decoding.
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |
@@ -223,7 +275,7 @@ All integers are unsigned little-endian; no native struct dumps. Maximum 3152 by
 | 24 | variable | Published BTSS record, then working BTSS record |
 | after records | 8 (v2 only) | Row, channel, field, header, mute mask, three reserved zeros |
 
-Both records and the complete envelope validate before destination mutation. Each
+For legacy BTWS, both records and the complete envelope validate before destination mutation. Each
 record is bounded to 1560 bytes. Unsupported versions, reserved fields, excessive
 length, truncation, trailing bytes, bad CRC, notes, timings, dimensions or tempo
 are rejected. Old single-record BTSS sessions remain readable as identical
@@ -236,7 +288,8 @@ are left untouched; BTX has no Load/Save/Publish/Restore shortcuts for it, and
 firmware rejects DRAFTSAVE/DRAFTLOAD. BTSS remains documented for legacy readers.
 Pattern Load/Save now targets `.btdev` files; Save As remains future work.
 
-Both draft BTSS and development BTDP records have this version-1 layout:
+Both draft BTSS and development BTDP records have this version-1 layout (temporary
+BTM embeds this layout and uses its tempo as the single session BPM):
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |

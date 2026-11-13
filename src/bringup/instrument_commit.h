@@ -2,6 +2,24 @@
 #include "instrument_identity.h"
 #include "core/playback/variable_rate_sample_commands.h"
 namespace BroTracker {
+// Boot-only derivation. Prepared PCM remains owned by the existing asset loader.
+// Missing resources deliberately produce no binding; definitions remain authoritative.
+inline VariableRateSampleBindings RestoreInstrumentBindings(const InstrumentDefinitions& definitions,
+    const VariableRateSampleBindings& assets) noexcept {
+    VariableRateSampleBindings restored{};
+    for(unsigned id=0;id<definitions.Count();++id) {
+        const auto* d=definitions.At(id);
+        VariableRateSampleBinding binding;bool ready=d->type!=InstrumentType::Sample;binding.type=d->type;
+        if(d->type==InstrumentType::Sample)for(unsigned j=0;j<assets.count;++j) {
+            const auto& asset=assets.bindings[j];const auto* source=DevelopmentInstrumentDefinition(asset.instrument);
+            if(asset.type==InstrumentType::Sample && source && source->resource && !std::strcmp(source->resource,d->resource)) {
+                binding=asset;ready=true;break;
+            }
+        }
+        binding.instrument=id;if(ready)restored.bindings[restored.count++]=binding;
+    }
+    return restored;
+}
 // Main owner, with audio excluded by the caller. One append, no allocation/I/O.
 // Resource references alias existing immutable prepared assets; unavailable assets
 // retain their definition without inventing a playable binding.
