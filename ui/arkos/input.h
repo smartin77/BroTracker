@@ -10,7 +10,7 @@
 // Raw fallback requires bindings obtained from the selected SDL GameController.
 enum class ArkOSInputStream { Controller, VerifiedRaw };
 inline bool AllowArkOSBlockedTransport(BringUpAction transport,const BringUpSerial& serial,const BringUpControls& controls) {
-    return (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
+    return (controls.WavPicker() && (transport==BringUpAction::BrowserBack || transport==BringUpAction::BrowserCancel)) || (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || transport==BringUpAction::ScreenUp || transport==BringUpAction::ScreenDown ||
           (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp)));
@@ -258,5 +258,5 @@ inline void ConfigureArkOSInputBarrier(ArkOSEditorInput& input,const BringUpSeri
         !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
         !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),
         (!serial.UserActionsBlocked() && controls.PatternInputBlocked()) || serial.RecoveryMenuAvailable() || controls.RecoveryScreen(),
-        (!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable(),controls.InstrumentCancellationAvailable());
+        (!serial.UserActionsBlocked() || controls.RecoveryScreen() || controls.WavPicker()) && controls.BrowserInputAvailable(),controls.InstrumentCancellationAvailable());
 }

@@ -55,6 +55,7 @@ struct StoragePeer:SerialTransport {
     PatternPublication simulated_preview;
     std::uint32_t simulated_revision=0;
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
+    bool wav_cap=false,reject_wav=false;
     bool list_cap=false,hold_list=false;std::string list_reply;
     std::vector<std::string> files={"patern1.btdev","patern2.btdev","patern3.btdev","patern4.btdev","other.btdev"};
     std::string boot_sd,boot_session;unsigned configured_rows=0;bool recovery_publication=false;
@@ -81,6 +82,7 @@ struct StoragePeer:SerialTransport {
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
+            if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\n";
             if(line=="BTTEST1 HELLO" && list_cap)rx+="BTSTORE1 LISTCAP 1\n";
             if(line=="BTTEST1 HELLO" && !boot_sd.empty())rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 "+boot_sd+"\n";
             if(volume_cap) {if(line=="BTTEST1 HELLO")rx+="BTVOL1 CAP 1\n";rx+=VolumeState();}
@@ -96,6 +98,11 @@ struct StoragePeer:SerialTransport {
             MasterVolumeMessage m;CHECK(ParseMasterVolume(line.data(),line.size(),m));volume=m.percent;volume_id=m.id;
             const auto reply="BTVOL1 SUBMITTED 1 "+std::to_string(m.id)+"\nBTVOL1 APPLIED 1 "+std::to_string(m.id)+"\n"+VolumeState();
             if(hold_volume)volume_reply+=reply;else rx+=reply;
+        }
+        else if(line.rfind("BTSTORE1 WAVLIST ",0)==0) {
+            std::uint32_t fields[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTSTORE1 WAVLIST ",fields,3));
+            std::string reply="BTSTORE1 WAVFILE 1 "+std::to_string(fields[1])+" selected.wav\nBTSTORE1 WAVEND 1 "+std::to_string(fields[1])+" 32 1\n";
+            if(hold_list)list_reply=reply;else rx+=reply;
         }
         else if(line.rfind("BTSTORE1 LIST ",0)==0) {
             std::uint32_t fields[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTSTORE1 LIST ",fields,3));
@@ -125,7 +132,9 @@ struct StoragePeer:SerialTransport {
         }
         else if(line.rfind("BTINS1 DEFINE ",0)==0) {
             InstrumentDefineRequest request;CHECK(ParseInstrumentDefine(line.data(),line.size(),request));
-            const auto result=CommitInstrumentDefinition(definitions,definition_bindings,request,!reject_define,[](const auto&){return true;});
+            static const std::int16_t pcm[32]={1,2,3};
+            VariableRateSampleBinding prepared;prepared.reference_note=60;prepared.sample={pcm,32,44100};
+            const auto result=reject_wav && request.type==1?6u:CommitInstrumentDefinition(definitions,definition_bindings,request,!reject_define,[](const auto&){return true;},request.type==1 && wav_cap?&prepared:nullptr);
             if(!result)collection_count=definitions.Count();
             const auto reply="BTINS1 DEFINED 1 "+std::to_string(request.request)+" "+std::to_string(result)+" "+std::to_string(definitions.Count())+"\n";
             if(hold_define)define_reply=reply;else rx+=reply;
@@ -1532,4 +1541,51 @@ TEST_CASE(InstrumentDefineUncommittedTimeoutAllowsRetryOnlyAfterFreshReconnectCo
     wire->reject_define=wire->hold_define=false;CHECK(serial.CommitInstrument(2,nullptr,11201));Pump(serial,561,570,&editor);
     CHECK(serial.InstrumentCommitSucceeded());CHECK_EQ(serial.InstrumentCollectionSize(),6u);
     CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTINS1 DEFINE ",0)==0;}),2);
+}
+
+TEST_CASE(SamplePickerCancellationRetainsPreviousDraftAndInstrumentCancellationKeepsSource) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->define_cap=wire->wav_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto before=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
+    for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
+    controls.Request(BringUpAction::InstrumentSample,"Sample",3605);CHECK(controls.InstrumentLoadAvailable());
+    controls.Request(BringUpAction::BrowserConfirm,"Load",3606);drive(181,200);CHECK(controls.WavPicker());
+    CHECK_EQ(controls.BrowserList().names.size(),1u);controls.Request(BringUpAction::BrowserCancel,"cancel picker",4001);
+    CHECK(controls.InstrumentScreen());CHECK(!controls.WavPicker());CHECK(controls.InstrumentDraftResource().empty());
+    controls.Request(BringUpAction::BrowserConfirm,"Load",4002);drive(201,220);
+    controls.Request(BringUpAction::BrowserConfirm,"choose WAV",4401);CHECK(!controls.WavPicker());
+    CHECK_EQ(controls.InstrumentDraftResource(),std::string("BroTracker/Samples/selected.wav"));
+    controls.Request(BringUpAction::BrowserConfirm,"Load again",4402);drive(221,240);
+    controls.Request(BringUpAction::BrowserBack,"B picker back",4801);CHECK(!controls.WavPicker());
+    CHECK_EQ(controls.InstrumentDraftResource(),std::string("BroTracker/Samples/selected.wav"));
+    controls.Request(BringUpAction::BrowserCancel,"Escape Instrument",4802);
+    CHECK(!controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTINS1 DEFINE ",0)==0;}));
+    CHECK(serial.RequestPatternLoad("patern1.btdev",4803)); // WAV browsing must not alter Pattern filename validation.
+}
+TEST_CASE(SelectedSampleAssignsOnlyAfterSuccessfulDefinitionAcknowledgement) {
+    for(bool fail:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->define_cap=wire->wav_cap=wire->hold_define=true;wire->reject_wav=fail;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto before=*editor.Draft();
+        controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
+        for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
+        controls.Request(BringUpAction::InstrumentSample,"Sample",3605);controls.Request(BringUpAction::BrowserConfirm,"Load",3606);drive(181,200);
+        controls.Request(BringUpAction::BrowserConfirm,"select",4001);controls.Request(BringUpAction::ScreenDown,"confirm definition",4002);drive(201,220);
+        CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+        CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.find("5 1 BroTracker/Samples/selected.wav")!=std::string::npos;}));
+        wire->rx+=wire->define_reply;wire->define_reply.clear();drive(221,240);
+        if(fail) {
+            CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+            CHECK(std::string(controls.ScreenStatus()).find("preparation failed")!=std::string::npos);
+        } else {
+            CHECK(!controls.InstrumentScreen());CHECK_EQ(editor.Draft()->cells[0][0].instrument,5u);CHECK_EQ(serial.InstrumentCollectionSize(),6u);
+            CHECK_EQ(serial.InstrumentCollectionLimit(),7u);CHECK(editor.Undo());CHECK(SamePattern(before,*editor.Draft()));
+        }
+    }
 }

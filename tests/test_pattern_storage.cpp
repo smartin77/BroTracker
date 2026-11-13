@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "bringup/working_session.h"
+#include "bringup/wav_directory.h"
 #include "bringup/instrument_commit.h"
 #include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
@@ -599,4 +600,15 @@ TEST_CASE(TemporaryBtmMaximumTableAndOwnedReferencesSurviveCopy) {
     WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
     CHECK_EQ(restored.definitions.Count(),99u);CHECK(std::strcmp(restored.definitions.At(98)->resource,"Samples/test.wav")==0);
     CHECK_EQ(InstrumentSelectionMaximum(restored.definitions.Count()),99u);
+}
+
+TEST_CASE(WavPickerListsOnlyBoundedSdFilenamesWithoutChangingFiles) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
+    FakePatternSd::files[kWavDirectory].directory=true;
+    for(const char* name:{"other.wav","OTHER.WAV","unsupported.wav","notwav.txt","../bad.wav"})FakePatternSd::files[std::string(kWavDirectory)+"/"+name].bytes={1,2,3};
+    FakePatternSd::files[std::string(kWavDirectory)+"/folder.wav"].directory=true;
+    WavDirectoryPage page;CHECK_EQ(ReadWavDirectoryPage(backend,0,page),PatternFileResult::Ok);
+    CHECK_EQ(page.count,3u);CHECK(page.done);CHECK_EQ(FakePatternSd::rename_calls,0u);
+    char resource[64];CHECK(BuildWavResource("other.wav",resource,sizeof(resource)));CHECK_EQ(std::string(resource),std::string("BroTracker/Samples/other.wav"));
+    for(const char* invalid:{"../bad.wav","a/b.wav","with space.wav",".wav","other.wav.candidate"})CHECK(!BuildWavResource(invalid,resource,sizeof(resource)));
 }

@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) try {
                 (void)editor_input.Handle(event,SDL_GetTicks(),blocked_editor);
                 (void)tempo_input.Handle(event,SDL_GetTicks(),false);
                 (void)header_input.Handle(event,0,0,false);
-                if((!serial.UserActionsBlocked() || controls.RecoveryScreen()) && controls.BrowserInputAvailable()) {
+                if((!serial.UserActionsBlocked() || controls.RecoveryScreen() || controls.WavPicker()) && controls.BrowserInputAvailable()) {
                     const auto browser=MapWindowsBrowserAction(event);
                     if(browser!=BringUpAction::None){controls.Request(browser,"Pattern browser",SDL_GetTicks());continue;}
                 }
@@ -176,14 +176,16 @@ int main(int argc, char* argv[]) try {
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
         panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
-        panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
+        panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
+        panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
+        if(!controls.InstrumentDraftResource().empty())panel.instrument_resource=controls.InstrumentDraftResource();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen())panel.transport_hints="Ctrl+Left/Right: slot | 1/2/3: Type | Ctrl+Down: confirm | Esc: cancel";
+        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Ctrl+Left/Right: slot | 1/2/3: Type | Enter: Load WAV | Ctrl+Down: confirm | Esc: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;

@@ -5,6 +5,7 @@
 #include <cstring>
 #include "serial_transport.h"
 #include "bringup/pattern_directory.h"
+#include "bringup/wav_directory.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/device_facts.h"
 #include "bringup/host_midi_note_delay.h"
@@ -154,7 +155,8 @@ public:
     enum class PatternLoadState { Idle, Pending, Succeeded, Failed };
     bool RequestPatternLoad(std::string_view name,std::uint32_t now);
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
-    bool RequestPatternList(std::uint32_t offset,std::uint32_t now);
+    bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
+    bool WavPickerAvailable()const{return connected_ && wav_supported_;}
     bool PatternListBusy()const{return list_queued_ || list_pending_;}
     bool PatternListReady()const{return list_ready_;}
     const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
@@ -260,6 +262,7 @@ private:
     BroTracker::DevelopmentPattern file_pattern_;
     PatternLoadState pattern_load_state_=PatternLoadState::Idle;
     BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool wav_supported_=false,list_wav_=false;
     bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
     std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
     char list_status_[96]{};

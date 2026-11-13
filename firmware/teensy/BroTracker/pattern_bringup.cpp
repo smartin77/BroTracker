@@ -44,6 +44,7 @@ extern volatile uint8_t usb_configuration;
 #endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
+#include "bringup/wav_directory.h"
 #include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
 #include "bringup/pattern_storage_protocol.h"
@@ -104,6 +105,7 @@ namespace
     RealtimePattern g_active_pattern = kPattern; // Main readback source; updated after audio acknowledgement.
     #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     InstrumentDefinitions g_instrument_definitions;
+    InstrumentAvailability g_sample_availability[99]{};
     InstrumentDefineRequest g_last_define{};unsigned g_last_define_result=0,g_last_define_count=0;
     #endif
     SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
@@ -257,9 +259,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 41 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 41;
-    constexpr std::size_t kTxCapacity = 42;
+    // Reserve all 42 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 42;
+    constexpr std::size_t kTxCapacity = 43;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -363,7 +365,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -505,19 +507,20 @@ namespace
     }
     void StorageCommand(const char* line,std::uint32_t now) {
         std::uint32_t list[3]{};
-        if(SnapshotFields(line,std::strlen(line),"BTSTORE1 LIST ",list,3) && list[0]==1 && list[1]) {
+        const bool wav=SnapshotFields(line,std::strlen(line),"BTSTORE1 WAVLIST ",list,3) && list[0]==1 && list[1];
+        if(wav || (SnapshotFields(line,std::strlen(line),"BTSTORE1 LIST ",list,3) && list[0]==1 && list[1])) {
             char reply[96];PatternDirectoryPage page;
             auto result=PatternFileResult::Busy;
-            if(g_protocol_connected && !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped)
-                result=ReadPatternDirectoryPage(g_storage_backend,list[2],page);
+            if(g_protocol_connected && !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped && g_tx_count+kPatternListPageSize+1<=kTxCapacity)
+                result=wav?ReadWavDirectoryPage(g_storage_backend,list[2],page):ReadPatternDirectoryPage(g_storage_backend,list[2],page);
             if(result!=PatternFileResult::Ok) {
-                std::snprintf(reply,sizeof(reply),"BTSTORE1 LISTERROR 1 %" PRIu32 " %s\n",list[1],PatternFileResultName(result));
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 %s 1 %" PRIu32 " %s\n",wav?"WAVERROR":"LISTERROR",list[1],PatternFileResultName(result));
                 (void)QueueLine(reply);return;
             }
             for(unsigned i=0;i<page.count;++i) {
-                std::snprintf(reply,sizeof(reply),"BTSTORE1 FILE 1 %" PRIu32 " %s\n",list[1],page.names[i]);(void)QueueLine(reply);
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 %s 1 %" PRIu32 " %s\n",wav?"WAVFILE":"FILE",list[1],page.names[i]);(void)QueueLine(reply);
             }
-            std::snprintf(reply,sizeof(reply),"BTSTORE1 LISTEND 1 %" PRIu32 " %" PRIu32 " %u\n",list[1],page.next,unsigned(page.done));
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 %s 1 %" PRIu32 " %" PRIu32 " %u\n",wav?"WAVEND":"LISTEND",list[1],page.next,unsigned(page.done));
             (void)QueueLine(reply);return;
         }
         if(!std::strcmp(line,"BTSTORE1 READY 1")) {
@@ -840,9 +843,26 @@ namespace
                     if(ParseInstrumentDefine(line,used,request)) {
                         if(request.request==g_last_define.request && request.expected==g_last_define.expected && request.type==g_last_define.type && !std::strcmp(request.resource,g_last_define.resource))result=g_last_define_result;
                         else {
-                            InterruptGuard guard;
-                            result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,g_audio_ready && g_control.StorageReady(),
-                                [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);});
+                            const bool ready=g_audio_ready && !StorageBlock() && g_control.StorageReady();
+                            VariableRateSampleBinding prepared;prepared.type=InstrumentType::Sample;
+                            prepared.reference_note=60;prepared.sample_level_percent=80;
+                            const auto prior_sources=g_streaming.SourceCount();
+                            result=request.expected!=g_instrument_definitions.Count() || request.expected>=99?2:!ready?3:0;
+                            if(!result && request.type==1) {
+                                if(!g_instrument_definitions.CanAppend(request.expected,request.type,request.resource))result=4;
+                                else {
+                                    const auto available=g_streaming.PreparePath(request.resource,prepared.sample);
+                                    if(available!=InstrumentAvailability::Ready)result=available==InstrumentAvailability::ResourceUnavailable?4:6;
+                                }
+                            }
+                            if(!result) {
+                                InterruptGuard guard;
+                                result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,true,
+                                    [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);},
+                                    request.type==1?&prepared:nullptr);
+                                if(!result && request.type==1)g_sample_availability[request.expected]=InstrumentAvailability::Ready;
+                            }
+                            if(result && g_streaming.SourceCount()>prior_sources)g_streaming.DiscardLast(request.resource);
                             if(result==0)g_session_save.Changed();
                             g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
                         }
@@ -856,9 +876,7 @@ namespace
                         availability=definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
                         if(definition->type==InstrumentType::Sample) {
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                            unsigned source=3;for(unsigned i=0;i<3;++i)if(definition->resource && !std::strcmp(definition->resource,kDevelopmentWavPaths[i]))source=i;
-                            availability=source<3?SamplePreparationAvailability(*definition,g_streaming.reports[source],g_wav_inspection.files[source]):InstrumentAvailability::ResourceUnavailable;
-                            if(availability==InstrumentAvailability::Ready && !InstrumentBindingIdentity(g_selected_bindings,id))availability=InstrumentAvailability::PreparationFailed;
+                            availability=g_sample_availability[id];
 #else
                             availability=InstrumentAvailability::NotPrepared;
 #endif
@@ -1156,6 +1174,13 @@ namespace
         // Sample 01=test2.wav; USB MIDI 02; Synth 03; Sample 04=test3.wav.
         const auto development=SelectDevelopmentFixture(g_preparation.view,g_preparation3.view,g_streaming.reports[0].view);
         g_active_pattern=development.pattern; g_selected_bindings=development.bindings;
+        for(unsigned id=0;id<DevelopmentInstrumentCount();++id) {
+            const auto* d=DevelopmentInstrumentDefinition(id);
+            if(d->type==InstrumentType::Sample) {
+                unsigned source=0;while(source<3 && std::strcmp(d->resource,kDevelopmentWavPaths[source]))++source;
+                g_sample_availability[id]=SamplePreparationAvailability(*d,g_streaming.reports[source],g_wav_inspection.files[source]);
+            }
+        }
 #endif
         g_working.working=g_active_pattern;
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
@@ -1164,7 +1189,10 @@ namespace
             if(g_session_result==PatternFileResult::Ok || g_session_result==PatternFileResult::BackupRetained) {
                 // Derive slot bindings from immutable prepared development assets by WAV identity.
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-                const auto restored_bindings=RestoreInstrumentBindings(g_session.definitions,g_selected_bindings);
+                const auto restored_bindings=PrepareSessionBindings(g_session.definitions,
+                    [&](unsigned id,const char* path,Pcm16MonoView& sample) {
+                        return g_sample_availability[id]=g_streaming.PreparePath(path,sample);
+                    });
                 const auto& session_bindings=restored_bindings;
 #else
                 const auto& session_bindings=g_selected_bindings;

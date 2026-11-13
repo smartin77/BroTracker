@@ -69,13 +69,14 @@ bool BringUpSerial::RequestFile(FileAction action,std::uint32_t now,bool wait_fo
     std::strcpy(file_status_,action==FileAction::PatternSave?"Pattern Save queued; synchronizing working edits":action==FileAction::Save?"Save queued; synchronizing working edits":action==FileAction::Session?"Session save queued":"Load requested; current work retained until validation");
     Log("File action:",file_status_);return true;
 }
-bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now) {
-    if(UserActionsBlocked() || !MidiRecoveryStopped() || !list_supported_ || PatternListBusy() || FilePending()) {
-        std::strcpy(list_status_,"Pattern list unavailable: stopped, synchronized LISTCAP firmware required");return false;
+bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav) {
+    if(UserActionsBlocked() || !MidiRecoveryStopped() || !(wav?wav_supported_:list_supported_) || PatternListBusy() || FilePending()) {
+        std::strcpy(list_status_,wav?"WAV list unavailable: stopped, synchronized WAVCAP firmware required":"Pattern list unavailable: stopped, synchronized LISTCAP firmware required");return false;
     }
     if(list_id_==UINT32_MAX){std::strcpy(list_status_,"Reconnect to refresh pattern listing");return false;}
+    list_wav_=wav;
     ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_staging_={};
-    std::strcpy(list_status_,"Reading pattern files...");return true;
+    std::strcpy(list_status_,wav?"Reading WAV files...":"Reading pattern files...");return true;
 }
 bool BringUpSerial::RequestPatternLoad(std::string_view name,std::uint32_t now) {
     if(FilePending() || PatternLoadResult()==PatternLoadState::Pending || !BroTracker::CompatiblePatternName(name) || !MidiRecoveryStopped() || PatternListBusy() || !file_pattern_.Assign(name))return false;
@@ -100,6 +101,7 @@ void BringUpSerial::Disconnect(const char* reason)
     if(pattern_load_state_==PatternLoadState::Pending)pattern_load_state_=PatternLoadState::Failed;
     new_pattern_supported_=false;if(!startup_decided_)boot_status_known_=false;
     pattern_save_supported_=false;pattern_source_.clear();
+    wav_supported_=false;
     list_supported_=list_queued_=list_pending_=list_ready_=false;std::strcpy(list_status_,"Disconnected; refresh pattern list after recovery");
     initial_sync_ready_=false;session_save_succeeded_=false;
     if(file_action_!=FileAction::None) {
@@ -523,7 +525,7 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");if(file_action_!=FileAction::Session)startup_ready_sent_=true;
     }
     if(command==Command::List) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 LIST 1 %" PRIu32 " %" PRIu32 "\n",list_id_,list_offset_);
+        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 %s 1 %" PRIu32 " %" PRIu32 "\n",list_wav_?"WAVLIST":"LIST",list_id_,list_offset_);
         list_queued_=false;list_pending_=true;
     }
     if(command==Command::Storage) {
@@ -598,26 +600,27 @@ void BringUpSerial::OnLine(std::uint32_t now)
     Log("RX:", line_);
     if(!std::strcmp(line_,"BTSTORE1 NEWCAP 1")){if(connected_)new_pattern_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 PATTERNSAVECAP 1")){if(connected_)pattern_save_supported_=true;return;}
+    if(!std::strcmp(line_,"BTINS1 WAVCAP 1")){wav_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTSTORE1 LISTCAP 1")){if(connected_)list_supported_=true;return;}
     if(list_pending_) {
-        char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 FILE 1 %" PRIu32 " ",list_id_);
+        char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 %s 1 %" PRIu32 " ",list_wav_?"WAVFILE":"FILE",list_id_);
         if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
             const auto* name=line_+std::strlen(prefix);
-            if(list_staging_.count>=BroTracker::kPatternListPageSize || !BroTracker::CompatiblePatternName(name)) {
+            if(list_staging_.count>=BroTracker::kPatternListPageSize || !(list_wav_?BroTracker::CompatibleWavName(name):BroTracker::CompatiblePatternName(name))) {
                 list_pending_=false;pending_=Command::None;std::strcpy(list_status_,"Invalid pattern list response");return;
             }
             std::strcpy(list_staging_.names[list_staging_.count++],name);return;
         }
         std::uint32_t fields[4]{};
-        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 LISTEND ",fields,4) && fields[0]==1 && fields[1]==list_id_) {
+        if(BroTracker::SnapshotFields(line_,used_,list_wav_?"BTSTORE1 WAVEND ":"BTSTORE1 LISTEND ",fields,4) && fields[0]==1 && fields[1]==list_id_) {
             list_pending_=false;pending_=Command::None;
             if(fields[3]>1 || fields[2]%32 || (!fields[3] && fields[2]<=list_offset_)) {std::strcpy(list_status_,"Invalid pattern page cursor");return;}
             list_staging_.next=fields[2];list_staging_.done=fields[3];list_page_=list_staging_;list_ready_=true;
             std::strcpy(list_status_,list_page_.count?"Select a pattern file":"No compatible files on this page");return;
         }
-        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 LISTERROR 1 %" PRIu32 " ",list_id_);
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 %s 1 %" PRIu32 " ",list_wav_?"WAVERROR":"LISTERROR",list_id_);
         if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
-            list_pending_=false;pending_=Command::None;std::snprintf(list_status_,sizeof(list_status_),"Pattern list: %.70s",line_+std::strlen(prefix));return;
+            list_pending_=false;pending_=Command::None;std::snprintf(list_status_,sizeof(list_status_),"%s list: %.70s",list_wav_?"WAV":"Pattern",line_+std::strlen(prefix));return;
         }
     }
     if(!std::strncmp(line_,"BTSTORE1 FILE ",14) || !std::strncmp(line_,"BTSTORE1 LISTEND ",17) || !std::strncmp(line_,"BTSTORE1 LISTERROR ",19))return;
@@ -666,7 +669,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(connected_ && define_pending_ && BroTracker::ParseInstrumentDefined(line_,used_,request,result,count) && request==define_id_) {
             define_pending_=false;
             if(!result && count==define_expected_+1) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
-            else {define_success_=false;define_error_="Definition commit rejected (code "+std::to_string(result)+")";}
+            else {define_success_=false;define_error_=result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: PCM16 mono 44.1 kHz required; check file/read/source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
         }return;
     }
     if(!std::strcmp(line_,"BTINS1 COLLECTIONCAP 1")) {

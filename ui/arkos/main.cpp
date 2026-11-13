@@ -423,14 +423,16 @@ int main(int argc, char* argv[])
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
         panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
-        panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
+        panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
+        panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
+        if(!controls.InstrumentDraftResource().empty())panel.instrument_resource=controls.InstrumentDraftResource();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen())panel.transport_hints="Select+Left/Right: slot | X: Type | Select+Down: confirm | B: cancel";
+        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Select+Left/Right: slot | X: Type | A: Load WAV | Select+Down: confirm | B: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";

@@ -30,7 +30,10 @@ public:
         size=static_cast<std::size_t>(length); return PatternFileResult::Ok;
     }
     bool NextPatternName(std::uint32_t& offset,char* name,std::size_t capacity,bool& end) {
-        auto dir=SD.sdfs.open("/BroTracker/development",O_RDONLY);
+        return NextDirectoryName("/BroTracker/development",offset,name,capacity,end);
+    }
+    bool NextDirectoryName(const char* directory,std::uint32_t& offset,char* name,std::size_t capacity,bool& end) {
+        auto dir=SD.sdfs.open(directory,O_RDONLY);
         if(!dir || !dir.isDirectory() || !dir.seekSet(offset)) {if(dir)dir.close();return false;}
         FsFile file;end=!file.openNext(&dir,O_RDONLY);
         if(end) {const bool ok=!dir.getError();return dir.close() && ok;}

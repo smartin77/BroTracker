@@ -539,3 +539,17 @@ original source cell intact. Escape/unmodified B discards local draft changes
 without assignment; an already transmitted commit may finish, but cannot assign the cancelled cell.
 Save is reserved for future file operations, separate from confirmed return.
 Behavior changes require explicit owner agreement and a documentation update.
+
+## New Sample instrument: Load WAV
+
+In the single trailing undefined slot, choose Sample (Windows 1 / handheld X),
+then activate **Load WAV** with Enter / A. This is the only enabled Instrument
+Load action; defined-slot replacement remains unavailable. In the shared WAV
+picker, Up/Down selects a Teensy SD `/BroTracker/Samples/` filename and Enter/A
+returns it to the draft. Escape/Backspace/B cancels the picker to the previous
+Instrument draft. Escape/B in Instrument cancels the draft without defining or
+assigning anything. Ctrl+Down / Select+Down prepares and commits on Teensy before
+assignment; errors retain the original source cell and show the reason. No next
+slot appears until acknowledgement. No audition or automatic START occurs.
+Enter outside the enabled Sample Load action retains STOP. Save/exit uses the
+existing session workflow; saved WAV paths are prepared again on Teensy restart.

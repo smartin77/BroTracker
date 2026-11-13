@@ -9,20 +9,23 @@ public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
     void Request(BringUpAction action, const char* source, std::uint32_t now);
     void ObserveEditor(LocalPatternEditor& editor) { editor_=&editor; }
-    bool InstrumentCancellationAvailable()const{return instrument_screen_ || (ScreenPending() && instrument_destination_);}
+    bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
     std::string InstrumentDraftType()const;
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);
     void SetConfirmLoadReplace(bool value){confirm_load_replace_=value;}
-    bool BrowserInputAvailable()const{return load_save_screen_ && !browser_loading_ && !browser_saving_;}
+    bool WavPicker()const{return wav_picker_;}
+    bool InstrumentLoadAvailable()const;
+    std::string InstrumentDraftResource()const{return instrument_number_==draft_slot_ && definition_draft_.type==1?sample_path_:std::string{};}
+    bool BrowserInputAvailable()const{return (wav_picker_ || InstrumentLoadAvailable() || load_save_screen_) && !browser_loading_ && !browser_saving_;}
     bool RecoveryScreen()const{return recovery_screen_;}
     bool BrowserConfirming()const{return browser_confirm_ || recovery_confirm_;}
     bool BrowserLoading()const{return browser_loading_ || browser_saving_;}
     std::string BrowserText()const;
     FileListView BrowserList()const;
-    bool LoadSaveScreen() const {return load_save_screen_;}
+    bool LoadSaveScreen() const {return load_save_screen_ || wav_picker_;}
     bool ScreenPending() const {return screen_phase_!=ScreenPhase::Idle;}
     bool PatternInputBlocked() const {return ScreenPending() || load_save_screen_ || instrument_screen_;}
     const char* ScreenStatus() const {return screen_status_.c_str();}
@@ -45,6 +48,7 @@ private:
     InstrumentEntry instrument_entry_{};
     bool instrument_destination_=false,instrument_screen_=false;
     unsigned instrument_number_=1,draft_slot_=0;BroTracker::InstrumentDefinitionDraft definition_draft_{};bool definition_return_=false;
+    bool wav_picker_=false;std::string sample_path_;
     bool load_save_screen_=false;
     std::string screen_status_;
     std::uint32_t screen_started_=0;

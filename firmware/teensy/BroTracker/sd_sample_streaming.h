@@ -5,6 +5,7 @@
 #include "sd_wav_preparation.h"
 #include "core/audio/streamed_sample.h"
 #include <algorithm>
+#include "bringup/instrument_definition.h"
 namespace BroTracker {
 // Preserve nesting and provide compiler barriers for all ISR/main publications.
 // These scopes cover only bounded metadata work, never file I/O or PCM copies.
@@ -27,15 +28,17 @@ private:
 // The only writers are existing pattern/session writers, never these WAV paths.
 class SdSampleStreaming {
 public:
+    static constexpr unsigned kSourceCapacity=16;
     struct Storage {
         std::int16_t rings[8][kStreamRingFrames];
-        std::int16_t starts[3][kStreamStartFrames];
+        std::int16_t starts[kSourceCapacity][kStreamStartFrames];
         std::int16_t staging[kStreamReadFrames];
     };
     void Prepare(bool sd_ready,Storage& memory,const DevelopmentWavInspection& inspection) {
-        memory_=&memory;
+        memory_=&memory;sd_ready_=sd_ready;
         for(unsigned i=0;i<8;++i) buffers_[i].ring=memory.rings[i];
         for(unsigned i=0;i<3;++i) {
+            std::strcpy(paths_[i],kDevelopmentWavPaths[i]);
             const auto& found=inspection.files[i];
             auto& source=sources_[i]; auto& report=reports[i];
             report.attempted=true; report.sd_ready=sd_ready; report.capacity=kStreamStartFrames;
@@ -52,6 +55,45 @@ public:
             report.view={source.start,source.frames,44100,&source};
         }
     }
+    // Stopped foreground only. New immutable sources never replace published PCM.
+    InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
+        if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
+        if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
+        for(unsigned i=0;i<count_;++i)if(!std::strcmp(paths_[i],path) && reports[i].view.data) {
+            output=reports[i].view;return InstrumentAvailability::Ready;
+        }
+        if(count_==kSourceCapacity)return InstrumentAvailability::PreparationFailed;
+        const auto index=count_;
+        SdReadScope ownership;if(!ownership)return InstrumentAvailability::NotPrepared;
+        auto& file=files_[index];
+        if(!file.open(path,O_RDONLY))return InstrumentAvailability::ResourceUnavailable;
+        class Reader final:public WavBufferReader {
+            FsFile& file_;
+        public:
+            explicit Reader(FsFile& f):file_(f){}
+            bool Size(std::uint64_t& bytes)noexcept override {bytes=file_.size();return !file_.isDirectory();}
+            bool Seek(std::uint64_t offset)noexcept override{return offset<=UINT32_MAX && file_.seekSet(offset);}
+            std::size_t Read(std::uint8_t* data,std::size_t size)noexcept override {const auto n=file_.read(data,size);return n<0?0:n;}
+        } reader(file);
+        WavMetadata metadata;
+        if(InspectWavMetadata(reader,metadata)!=WavBufferStatus::Success || !metadata.frames || metadata.frames>UINT32_MAX || metadata.data_offset>UINT32_MAX) {
+            file.close();return InstrumentAvailability::PreparationFailed;
+        }
+        const auto frames=std::min<std::uint64_t>(kStreamStartFrames,metadata.frames);
+        if(!file.seekSet(metadata.data_offset) || file.read(memory_->starts[index],frames*2)!=int(frames*2)) {
+            file.close();return InstrumentAvailability::PreparationFailed;
+        }
+        offsets_[index]=metadata.data_offset;
+        sources_[index]={memory_->starts[index],static_cast<std::uint32_t>(metadata.frames),buffers_};
+        auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
+        report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
+        report.view={sources_[index].start,sources_[index].frames,44100,&sources_[index]};
+        std::strcpy(paths_[index],path);++count_;output=report.view;return InstrumentAvailability::Ready;
+    }
+    void DiscardLast(const char* path) {
+        if(count_>3 && !std::strcmp(paths_[count_-1],path)) {--count_;files_[count_].close();paths_[count_][0]=0;reports[count_]={};}
+    }
+    unsigned SourceCount()const{return count_;}
     // Audio owner only, after the transactional render commits. No filesystem
     // side effects from validation/probe copies or discarded tentative renders.
     template<class Player> void Publish(const Player& player) noexcept {
@@ -79,8 +121,8 @@ public:
         }
         if(best<0) return;
         unsigned source=0;
-        while(source<3 && &sources_[source]!=selected.sample) ++source;
-        if(source==3) return;
+        while(source<count_ && &sources_[source]!=selected.sample) ++source;
+        if(source==count_) return;
         const auto at=std::max(span.end,std::max(selected.position,kStreamStartFrames));
         if(at>=selected.sample->frames) return;
         const auto count=std::min(kStreamReadFrames,selected.sample->frames-at);
@@ -112,13 +154,14 @@ public:
         StreamInterruptGuard guard; return states_[i];
     }
     unsigned P99() const { unsigned n=0; for(unsigned i=0;i<128;++i) { n+=histogram[i]; if(reads && n>=(reads*99+99)/100) return i==127?max_read_us:(i+1)*100; } return 0; }
-    SdWavPreparation reports[3];
+    SdWavPreparation reports[kSourceCapacity];
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
     Storage* memory_=nullptr;
-    FsFile files_[3]; std::uint32_t offsets_[3]{};
-    StreamedSample sources_[3]; StreamedVoiceBuffer buffers_[8];
+    bool sd_ready_=false;unsigned count_=3;char paths_[kSourceCapacity][64]{};
+    FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
+    StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[8];
     StreamedVoiceSnapshot states_[8]; std::uint64_t failed_generation_[8]{};
 };
 }

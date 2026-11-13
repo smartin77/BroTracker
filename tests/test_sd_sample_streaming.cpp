@@ -3,6 +3,9 @@
 #include "core/audio/variable_rate_sample_voice.h"
 #include "bringup/pattern_fixture.h"
 #include "bringup/instrument_identity.h"
+#include "bringup/instrument_commit.h"
+#include "bringup/working_session.h"
+#include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include <array>
 #include <algorithm>
 #include <vector>
@@ -262,5 +265,155 @@ TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailure
         const auto facts=DevelopmentInstrumentFacts(0,availability);CHECK_EQ(facts.type,1u);CHECK_EQ(std::string(facts.resource),std::string("Samples/test2.wav"));
         const auto playable=SelectDevelopmentFixture(producer.reports[1].view).bindings;
         CHECK_EQ(playable.count,mode==0?3u:2u);CHECK_EQ(InstrumentBindingIdentity(playable,0),mode==0?1u:0u);
+    }
+}
+
+namespace {
+std::vector<std::uint8_t> PickerWav(unsigned frames=10000,unsigned rate=44100) {
+    std::vector<std::uint8_t> bytes(44+frames*2);
+    std::memcpy(bytes.data(),"RIFF",4);PatternFilePut32(bytes.data()+4,bytes.size()-8);
+    std::memcpy(bytes.data()+8,"WAVEfmt ",8);PatternFilePut32(bytes.data()+16,16);
+    bytes[20]=1;bytes[22]=1;PatternFilePut32(bytes.data()+24,rate);PatternFilePut32(bytes.data()+28,rate*2);
+    bytes[32]=2;bytes[34]=16;std::memcpy(bytes.data()+36,"data",4);PatternFilePut32(bytes.data()+40,frames*2);
+    for(unsigned i=0;i<frames;++i) {const auto word=static_cast<std::uint16_t>(Fixture::Pcm(0,i));bytes[44+i*2]=word;bytes[45+i*2]=word>>8;}
+    return bytes;
+}
+}
+TEST_CASE(SelectedNonDevelopmentWavUsesRealValidationAndStreamingRefills) {
+    Fixture fixture;
+    const char* path="BroTracker/Samples/selected.wav";
+    FakePatternSd::files[path].bytes=PickerWav();Pcm16MonoView view;
+    CHECK_EQ(fixture.producer.PreparePath(path,view),InstrumentAvailability::Ready);
+    CHECK_EQ(view.frame_count,10000u);CHECK_EQ(fixture.producer.SourceCount(),4u);
+    CHECK_EQ(fixture.player.voices[0].Trigger(view,kSourceFrameStepUnity),VariableVoiceStatus::Success);
+    fixture.producer.Publish(fixture.player);fixture.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.back().path,std::string(path));
+    CHECK_EQ(FakePatternSd::reads.back().offset,44u+kStreamStartFrames*2);
+    std::int16_t pcm[128];
+    for(unsigned block=0;block<48;++block) {
+        const auto position=fixture.player.voices[0].GetFramePosition();
+        CHECK_EQ(fixture.player.voices[0].Render(pcm,128),VariableVoiceStatus::Success);
+        for(unsigned i=0;i<128;++i)CHECK_EQ(pcm[i],Fixture::Pcm(0,position+i));
+        fixture.producer.Publish(fixture.player);fixture.producer.Service();
+    }
+    CHECK_EQ(fixture.player.voices[0].StreamSnapshot().underruns,0u);
+    Pcm16MonoView cached;CHECK_EQ(fixture.producer.PreparePath(path,cached),InstrumentAvailability::Ready);
+    CHECK_EQ(cached.streaming,view.streaming);CHECK_EQ(fixture.producer.SourceCount(),4u);
+}
+TEST_CASE(FailedWavPreparationAndBindingAppendDoNotDefineTheSlot) {
+    Fixture fixture;InstrumentDefinitions definitions;auto bindings=SelectDevelopmentFixture({}).bindings;
+    const char* path="BroTracker/Samples/invalid.wav";FakePatternSd::files[path].bytes=PickerWav(4096,22050);
+    Pcm16MonoView view;
+    CHECK_EQ(fixture.producer.PreparePath(path,view),InstrumentAvailability::PreparationFailed);
+    CHECK_EQ(definitions.Count(),5u);CHECK_EQ(fixture.producer.SourceCount(),3u);CHECK(!view.data);
+    FakePatternSd::files[path].bytes=PickerWav();FakePatternSd::short_read_path=path;
+    CHECK_EQ(fixture.producer.PreparePath(path,view),InstrumentAvailability::PreparationFailed);
+    CHECK_EQ(fixture.producer.SourceCount(),3u);FakePatternSd::short_read_path.clear();
+    CHECK_EQ(fixture.producer.PreparePath(path,view),InstrumentAvailability::Ready);
+    InstrumentDefineRequest request;request.expected=5;request.type=1;std::strcpy(request.resource,path);
+    VariableRateSampleBinding prepared;prepared.sample=view;prepared.reference_note=60;
+    CHECK_EQ(CommitInstrumentDefinition(definitions,bindings,request,true,[](const auto&){return false;},&prepared),5u);
+    CHECK_EQ(definitions.Count(),5u);CHECK_EQ(bindings.count,2u);
+}
+TEST_CASE(RestoredMissingSelectedWavKeepsDefinitionSlotAndPatternReferences) {
+    Fixture fixture;SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession source;source.working=MakeDevelopmentPattern();source.working.cells[0][0]={64,5};source.working_tempo=13725;
+    const char* path="BroTracker/Samples/removed.wav";CHECK(source.definitions.Append(5,1,path));
+    CHECK_EQ(store.Save(backend,source),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    InstrumentAvailability availability=InstrumentAvailability::Undefined;
+    const auto bindings=PrepareSessionBindings(restored.definitions,[&](unsigned id,const char* resource,Pcm16MonoView& sample) {
+        const auto status=fixture.producer.PreparePath(resource,sample);if(id==5)availability=status;return status;
+    });
+    CHECK_EQ(availability,InstrumentAvailability::ResourceUnavailable);CHECK_EQ(restored.definitions.Count(),6u);
+    CHECK_EQ(std::string(restored.definitions.At(5)->resource),std::string(path));CHECK_EQ(restored.working.cells[0][0].instrument,5u);
+    CHECK_EQ(restored.working_tempo,13725u);CHECK_EQ(InstrumentBindingIdentity(bindings,5),0u);
+}
+
+TEST_CASE(RestoredSelectedWavIsPreparedBySavedPathOutsideDevelopmentAssets) {
+    Fixture fixture;const char* path="BroTracker/Samples/restored.wav";FakePatternSd::files[path].bytes=PickerWav();
+    SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession source;source.working={};source.working.active_rows=16;source.working.active_channels=1;source.working.cells[0][0]={60,5};
+    source.working_tempo=13725;CHECK(source.definitions.Append(5,1,path));CHECK_EQ(store.Save(backend,source),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    SdSampleStreaming::Storage reboot_memory{};SdSampleStreaming rebooted;DevelopmentWavInspection no_assets;
+    rebooted.Prepare(true,reboot_memory,no_assets);InstrumentAvailability selected=InstrumentAvailability::Undefined;
+    const auto bindings=PrepareSessionBindings(restored.definitions,[&](unsigned id,const char* resource,Pcm16MonoView& sample) {
+        const auto result=rebooted.PreparePath(resource,sample);if(id==5)selected=result;return result;
+    });
+    CHECK_EQ(selected,InstrumentAvailability::Ready);CHECK_EQ(InstrumentBindingIdentity(bindings,5),1u);
+    CHECK_EQ(restored.working_tempo,13725u);CHECK_EQ(restored.working.cells[0][0].instrument,5u);
+    const auto& sample=bindings.bindings[bindings.count-1].sample;
+    CHECK(sample.streaming!=nullptr);CHECK_EQ(sample.frame_count,10000u);
+    for(unsigned i=0;i<kStreamStartFrames;++i)CHECK_EQ(sample.data[i],Fixture::Pcm(0,i));
+}
+
+TEST_CASE(BtmRoundtripPreservesProductionDevelopmentSampleSettingsAndRoutingByWavIdentity) {
+    for(bool reordered:{false,true}) {
+        Fixture fixture;
+        const auto production=SelectDevelopmentFixture(fixture.producer.reports[1].view,
+            fixture.producer.reports[2].view,fixture.producer.reports[0].view).bindings;
+        CHECK_EQ(production.count,5u);
+        WorkingSession session;session.working={};session.working.active_rows=16;session.working.active_channels=8;
+        session.working_tempo=13725;
+        // Compare ordinary slots 01/04/05, and repeat with the same WAVs in other
+        // slots. Binding-table order and channel number must not determine routing.
+        constexpr unsigned reordered_ids[]={4,2,0,1,3};
+        if(reordered) {
+            session.definitions.Reset(false);
+            for(unsigned original:reordered_ids) {
+                const auto* definition=DevelopmentInstrumentDefinition(original);
+                CHECK(session.definitions.Append(session.definitions.Count(),InstrumentTypeCode(definition->type),definition->resource));
+            }
+        }
+        constexpr unsigned channels[]={5,1,4,2,7};
+        constexpr Note notes[]={60,62,64,72,48};
+        for(unsigned slot=0;slot<session.definitions.Count();++slot)
+            session.working.cells[0][channels[slot]]={notes[slot],static_cast<std::uint8_t>(slot)};
+        SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+        CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+        WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(restored.working_tempo,session.working_tempo);
+        unsigned prepared=0;
+        const auto bindings=PrepareSessionBindings(restored.definitions,[&](unsigned,const char* path,Pcm16MonoView& sample) {
+            ++prepared;return fixture.producer.PreparePath(path,sample);
+        });
+        CHECK_EQ(prepared,3u);CHECK_EQ(bindings.count,production.count);
+        VariableRateSampleCommandPreparer original_player,restored_player;
+        CHECK_EQ(original_player.Configure(44100,production),VariableSampleCommandStatus::Success);
+        CHECK_EQ(restored_player.Configure(44100,bindings),VariableSampleCommandStatus::Success);
+        for(unsigned slot=0;slot<restored.definitions.Count();++slot) {
+            const auto original_id=reordered?reordered_ids[slot]:slot;
+            const auto* definition=restored.definitions.At(slot);
+            const auto* original_definition=DevelopmentInstrumentDefinition(original_id);
+            CHECK_EQ(definition->type,original_definition->type);
+            if(definition->resource)CHECK(std::strcmp(definition->resource,original_definition->resource)==0);
+            const VariableRateSampleBinding* expected=nullptr;const VariableRateSampleBinding* actual=nullptr;
+            for(unsigned i=0;i<production.count;++i)if(production.bindings[i].instrument==original_id)expected=&production.bindings[i];
+            for(unsigned i=0;i<bindings.count;++i)if(bindings.bindings[i].instrument==slot)actual=&bindings.bindings[i];
+            CHECK(expected!=nullptr);CHECK(actual!=nullptr);if(!expected || !actual)continue;
+            CHECK_EQ(actual->instrument,slot);CHECK_EQ(actual->reference_note,expected->reference_note);
+            CHECK_EQ(actual->sample_level_percent,expected->sample_level_percent);CHECK_EQ(actual->type,expected->type);
+            CHECK_EQ(actual->sample.data,expected->sample.data);CHECK_EQ(actual->sample.frame_count,expected->sample.frame_count);
+            CHECK_EQ(actual->sample.sample_rate_hz,expected->sample.sample_rate_hz);CHECK_EQ(actual->sample.streaming,expected->sample.streaming);
+
+            const auto channel=channels[slot];const auto cell=restored.working.cells[0][channel];
+            CHECK_EQ(cell.instrument,slot);CHECK_EQ(cell.note,notes[slot]);
+            RowEventBatch events{};events.count=1;
+            events.events[0]={static_cast<std::uint8_t>(channel),0,0,0,0,7+slot*5,cell.note,static_cast<std::uint8_t>(original_id)};
+            VariableRateVoiceCommandBatch before{},after{};
+            CHECK_EQ(original_player.Prepare(events,before),VariableSampleCommandStatus::Success);
+            events.events[0].instrument=cell.instrument;
+            CHECK_EQ(restored_player.Prepare(events,after),VariableSampleCommandStatus::Success);
+            CHECK_EQ(before.count,1u);CHECK_EQ(after.count,1u);
+            const auto& a=after.commands[0];const auto& b=before.commands[0];
+            CHECK_EQ(a.channel,channel);CHECK_EQ(a.channel,b.channel);CHECK_EQ(a.sample_offset,b.sample_offset);
+            CHECK_EQ(a.action,b.action);CHECK_EQ(a.synth_note,b.synth_note);CHECK_EQ(a.step_q32_32,b.step_q32_32);
+            CHECK_EQ(a.sample_level_percent,b.sample_level_percent);CHECK_EQ(a.sample.data,b.sample.data);
+            CHECK_EQ(a.sample.frame_count,b.sample.frame_count);CHECK_EQ(a.sample.sample_rate_hz,b.sample.sample_rate_hz);
+            CHECK_EQ(a.sample.streaming,b.sample.streaming);
+            CHECK_EQ(a.action,definition->type==InstrumentType::Sample?VariableRateVoiceAction::Trigger:
+                definition->type==InstrumentType::MIDI?VariableRateVoiceAction::TriggerMidi:VariableRateVoiceAction::TriggerSynth);
+        }
     }
 }

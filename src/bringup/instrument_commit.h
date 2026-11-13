@@ -20,12 +20,26 @@ inline VariableRateSampleBindings RestoreInstrumentBindings(const InstrumentDefi
     }
     return restored;
 }
+// Restoring a structurally valid session never deletes failed Sample definitions.
+template<class Prepare> VariableRateSampleBindings PrepareSessionBindings(const InstrumentDefinitions& definitions,Prepare prepare) {
+    VariableRateSampleBindings result;
+    for(unsigned id=0;id<definitions.Count();++id) {
+        const auto* d=definitions.At(id);VariableRateSampleBinding binding;
+        binding.instrument=id;binding.type=d->type;
+        if(d->type==InstrumentType::Sample) {
+            if(prepare(id,d->resource,binding.sample)!=InstrumentAvailability::Ready)continue;
+            binding.reference_note=60;binding.sample_level_percent=80;
+        }
+        result.bindings[result.count++]=binding;
+    }
+    return result;
+}
 // Main owner, with audio excluded by the caller. One append, no allocation/I/O.
-// Resource references alias existing immutable prepared assets; unavailable assets
-// retain their definition without inventing a playable binding.
+// The stopped foreground prepares new WAVs before supplying a binding here.
+// The no-prepared overload retains legacy asset-alias compatibility.
 template<class AppendBinding>
 unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,
-    const InstrumentDefineRequest& request,bool ready,AppendBinding append) noexcept {
+    const InstrumentDefineRequest& request,bool ready,AppendBinding append,const VariableRateSampleBinding* prepared=nullptr) noexcept {
     if(request.expected!=definitions.Count() || definitions.Count()>=99)return 2;
     if(!ready)return 3;
     const char* resource=nullptr;bool playable=request.type!=1;VariableRateSampleBinding binding;
@@ -36,6 +50,10 @@ unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableR
             resource=definition->resource;
             for(unsigned j=0;j<bindings.count;++j)if(bindings.bindings[j].instrument==i && bindings.bindings[j].type==InstrumentType::Sample) {binding=bindings.bindings[j];binding.instrument=request.expected;playable=true;}
         }
+    }
+    if(request.type==1 && prepared) {
+        if(prepared->type!=InstrumentType::Sample || !prepared->sample.data || !prepared->sample.frame_count)return 4;
+        binding=*prepared;binding.instrument=request.expected;resource=request.resource;playable=true;
     }
     if(!definitions.CanAppend(request.expected,request.type,resource))return 4;
     if(playable && (bindings.count>=kVariableRateSampleBindingCapacity || !append(binding)))return 5;

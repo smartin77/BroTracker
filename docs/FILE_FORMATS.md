@@ -231,8 +231,11 @@ Exact length, version, reserved bytes, CRC, Pattern and every definition validat
 before destination mutation. Malformed definitions invalidate the whole session.
 Missing/unprepared WAVs do not invalidate definitions: retain slots, references and
 notes, omit unavailable playback bindings, and never substitute another instrument.
-Prepared development assets are matched by WAV reference rather than saved slot.
-Other valid WAV references remain unavailable with the current bounded preparer.
+Sample assets are prepared by their saved SD-relative WAV path rather than saved
+slot, using the shared streamed-source owner. This includes picker paths under
+`BroTracker/Samples/` as well as legacy development paths under `Samples/`. Missing,
+unsupported or source-capacity-exhausted WAVs retain definitions but no playable
+binding. No BTM layout/version change is needed.
 The one trailing undefined slot remains selectable and can remain referenced in a
 session; persistence does not create a definition for it or clear its reference.
 
@@ -474,3 +477,24 @@ block application/STATE acknowledgment, with no START. HELLO/reconnect never app
 a saved mute or overwrites the running device; existing uncertain mute readback and
 retained working-draft recovery remain authoritative. Browsing instruments neither
 saves nor changes mutes or musical data. Physical validation remains pending.
+
+## Sample WAV picker protocol
+
+`BTINS1 WAVCAP 1` advertises stopped-only Sample Load and path preparation.
+`BTSTORE1 WAVLIST 1 request offset` pages the fixed `/BroTracker/Samples/` SD
+directory, returning up to eight `BTSTORE1 WAVFILE 1 request filename` lines and
+`BTSTORE1 WAVEND 1 request next_offset done`, or `BTSTORE1 WAVERROR 1 request reason`.
+The existing read lease, 64-entry scan limit, aligned opaque directory offsets,
+matching request IDs, complete-page acceptance and timeouts apply. Listing filters
+bounded regular-file names, not WAV contents; content validation and prefix read
+occur at confirmed definition commit so a failed selection can report its error.
+No directories/files are created by listing or preparation.
+
+The path stays in the host Instrument draft until normal `BTINS1 DEFINE` is
+confirmed. New Sample definitions require a supported, prepared WAV. The stopped
+foreground uses the existing RIFF validator and streaming engine; only the bounded
+binding/definition append runs with audio excluded. Temporary BTM persists the
+same path and re-prepares it at boot. Valid saved definitions survive missing or
+unsupported WAVs without renumbering or fallback playback. The current bounded
+source cache has 16 entries including the three development sources; capacity or
+read/format failures reject new definitions, but never delete saved ones.

@@ -93,7 +93,7 @@ Definitions start with the five firmware development instruments when no session
 is restored. Temporary BTM session persistence now stores the entire authoritative
 table, including unused and appended definitions; restore preserves slot numbers.
 Legacy sessions without a table use the original five. Deletion, renumbering,
-existing-Type mutation and sample-selection UI remain deferred.
+existing-Type mutation and replacement in defined slots remain deferred.
 
 A valid definition is structurally complete: Sample requires a valid SD-relative
 WAV reference; current MIDI and Sine Synth require only their explicit Type.
@@ -101,18 +101,21 @@ Definition validation does not open or prepare WAVs. An unavailable Sample remai
 a defined instrument, contributes to N, and retains its WAV reference and Pattern
 references. It stops/produces no Sample voice rather than substituting another
 instrument. A malformed definition rejects the entire session before activation.
-The current bounded boot preparer can reuse development WAV assets by reference;
-other valid WAV paths remain unavailable. See the temporary BTM and standalone
+The stopped foreground and boot restorer now prepare selected SD WAVs by saved
+path through the shared streaming engine, including non-development assets. Up to
+16 immutable sources (including the three development sources) are retained per
+boot. Exceeding source capacity rejects a new commit; saved definitions whose
+resources cannot be prepared remain defined and unavailable. See the temporary BTM and standalone
 Pattern rules in [FILE_FORMATS.md](FILE_FORMATS.md#temporary-btm-session-version-1).
 
 ## Text presentation and deferred work
 
 The production shared renderer uses existing Terminus 14 bitmap text and the
 existing translation catalog, with stable Type, Name, Load, Save and Fine Tune
-rows. Name, Load, Save and Fine Tune remain unavailable, with no hit targets or
-editing handlers. Instrument Load and Save will eventually be separate screens.
+rows. Load is enabled only for a Sample draft in the trailing undefined slot.
+Name, Save and Fine Tune remain unavailable. Instrument file Save is deferred.
 Transpose remains undecided. Sample waveform/parameters together, graphical
-Synth controls, browser, presets, audition and engine editing are deferred.
+Synth controls, presets, audition and engine editing are deferred.
 
 ## Session snapshot
 
@@ -180,8 +183,8 @@ metadata for inspection/repair; normal pitch/timing/shape validation remains.
 Browsing changes selection only. An untouched undefined draft stays undefined.
 A Sample draft qualifies only with an assigned sample reference; choosing Sample
 or changing volume/pan without a sample does not qualify. Resource preparation
-success is separate from definition identity. There is currently no sample picker
-or volume/pan editor in this UI.
+success is separate from definition identity. Sample Load opens the Teensy WAV
+picker described below; volume/pan editing remains deferred.
 
 **Temporary development exceptions:** explicitly choosing MIDI or Sine Synth
 qualifies even with default parameters. An implicit default type never qualifies.
@@ -219,13 +222,43 @@ inspection/numbered selection, with unavailable commit reported honestly. The ho
 sends `BTINS1 DEFINE 1 request expected_count type reference` (63-character bounded
 ASCII resource token, or `-`). Teensy requires stopped/storage-ready coordination,
 exact expected count, available capacity and a qualifying definition. MIDI/Synth
-append their existing binding types; Sample references alias existing immutable
-asset ownership, retaining a definition even if its resource is unavailable. No
-file I/O, allocation or DSP changes occur in the commit.
+append their existing binding types. New Sample commits require successful
+foreground preparation before the bounded binding/definition append; SD I/O is
+never performed under the interrupt guard or in the audio callback. Failed
+preparation leaves N and the originating cell unchanged. Boot restore separately
+retains valid unavailable definitions. Existing prepared paths share immutable
+source ownership.
 
 Reply: `BTINS1 DEFINED 1 request result count`. Result 0 succeeds; 1 malformed,
 2 stale/full collection, 3 not ready, 4 invalid definition/resource, 5 binding
-installation rejected. Identical retries of the last request replay its result;
+installation rejected, 6 WAV preparation/format/read/source-capacity failure. Identical retries of the last request replay its result;
 expected-count checking prevents duplicate creation. The host does not advance N
 on rejection/timeout, nor automatically retry an uncertain commit. Reconnect
 reacquires authoritative facts. Identity CAP1/CAP2 formats remain unchanged.
+
+## Sample Load for the trailing slot
+
+Choose Sample with Windows 1 or handheld X, then activate **Load WAV** with
+Windows Enter or handheld A. The shared picker lists regular `.wav`/`.WAV` files
+in `/BroTracker/Samples/` on Teensy SD, using the existing bordered list and paging
+controls. Hosts never browse their local filesystem. Up/Down selects a filename;
+Enter/A chooses it and returns to Instrument, setting only the draft SD-relative
+path (for example `BroTracker/Samples/kick.wav`). Escape, Backspace or B in the
+picker returns to Instrument with the previous draft intact. Escape/B in Instrument
+discards the draft and returns to Pattern with its source cell unchanged.
+
+Ctrl+Down / Select+Down confirms return. Teensy validates and prepares the WAV while
+stopped, then acknowledges the definition before the host assigns its slot and
+exposes the next trailing slot. Unsupported/missing/read-failed WAVs or rejected
+binding installation retain Instrument, the draft, old N and the original cell;
+the reason is shown. Choosing a filename is not a definition commit or audition.
+Enter on other Instrument Types/defined slots retains STOP behavior; Load is disabled.
+
+Supported files use the existing RIFF validator: PCM16, mono, 44100 Hz, nonempty
+sample data and bounded metadata/chunk traversal. Filenames use 1..40 ASCII letters,
+digits, underscore or hyphen plus `.wav` or `.WAV` (44 bytes maximum); paths fit the
+existing 63-byte definition resource field. There is no recursive folder browser,
+replacement, waveform, audition or sample editing. Temporary BTM stores the path
+unchanged. Boot prepares it again by path; missing or failed resources keep their
+slot, definition and Pattern references, report unavailable, and never substitute
+another sound. Development resources at `Samples/test*.wav` remain compatible.

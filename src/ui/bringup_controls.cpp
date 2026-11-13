@@ -5,11 +5,13 @@ void BringUpControls::Log(const char* message) {
     BroTracker::HostLog(log_,BroTracker::ClassifyHostDiagnostic("Controls",message),"Controls",message);
 }
 FileListView BringUpControls::BrowserList()const {
+    if(wav_picker_)return browser_ready_?browser_list_:FileListView{};
     if(recovery_screen_) {FileListView view;view.names={"Recover retained host work"};return view;}
     if(browser_menu_) {FileListView menu;menu.names={"Load",serial_.PatternSaveAvailable()?"Save":"Save (unavailable)"};menu.selected=browser_action_;return menu;}
     return browser_ready_?browser_list_:FileListView{};
 }
 std::string BringUpControls::BrowserText()const {
+    if(wav_picker_)return browser_collecting_?"Reading /BroTracker/Samples/...":browser_ready_?(browser_list_.names.empty()?"No WAV files":"Select a WAV; preparation occurs on confirmed return"):serial_.PatternListStatus();
     if(recovery_screen_)return recovery_confirm_?"Confirm recovery: replace device RAM with retained host work? Confirm again, or Cancel to keep both unchanged.":"Host work retained. Select recovery to review before replacing device RAM. No pattern file is overwritten.";
     if(browser_saving_)return "Saving pattern to its original file; waiting for confirmed result...";
     if(browser_menu_) {
@@ -33,10 +35,16 @@ std::string BringUpControls::InstrumentDraftType()const {
     if(instrument_number_!=draft_slot_ || !definition_draft_.explicit_type || !serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1)return {};
     return definition_draft_.type==1?"Sample":definition_draft_.type==2?"MIDI":"Sine Synth";
 }
+bool BringUpControls::InstrumentLoadAvailable()const {
+    return instrument_screen_ && !wav_picker_ && !definition_return_ && serial_.InstrumentCollectionKnown() &&
+        instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_<=99 &&
+        definition_draft_.type==1 && serial_.WavPickerAvailable() && !serial_.UserActionsBlocked();
+}
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
+    if(instrument_screen_ && !wav_picker_ && (action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack))action=BringUpAction::InstrumentCancel;
     if(action==BringUpAction::InstrumentCancel && !exit_after_stop_ && InstrumentCancellationAvailable()) {
-        definition_return_=false;definition_draft_={};draft_slot_=0;
+        definition_return_=false;definition_draft_={};sample_path_.clear();draft_slot_=0;
         if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;instrument_screen_=false;
         if(editor_)editor_->RestoreCursor(instrument_entry_.source);
         screen_status_="Instrument cancelled; cell unchanged";return;
@@ -75,11 +83,36 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         if(action!=BringUpAction::ResetStop)return;
     }
+    if(wav_picker_) {
+        if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenLeft) {
+            wav_picker_=false;screen_status_="WAV selection cancelled; previous draft retained";return;
+        }
+        if(!serial_.UserActionsBlocked() && browser_ready_) {
+            if(action==BringUpAction::BrowserUp)browser_list_.Move(-1);
+            if(action==BringUpAction::BrowserDown)browser_list_.Move(1);
+            if(action==BringUpAction::BrowserConfirm && !browser_list_.names.empty()) {
+                char path[64];
+                if(BroTracker::BuildWavResource(browser_list_.names[browser_list_.selected],path,sizeof(path))) {
+                    sample_path_=path;definition_draft_.sample=sample_path_.c_str();definition_draft_.explicit_type=true;draft_slot_=instrument_number_;
+                    wav_picker_=false;screen_status_="WAV selected; confirm return to prepare and define, or cancel";
+                }
+            }
+        }
+        if(action!=BringUpAction::ResetStop)return;
+    }
     if(instrument_screen_) {
+        if(action==BringUpAction::BrowserConfirm) {
+            if(InstrumentLoadAvailable() && !serial_.PatternListBusy()) {
+                wav_picker_=true;browser_list_={};browser_ready_=false;
+                browser_collecting_=serial_.RequestPatternList(0,now,true);screen_status_="Sample Load";
+            } else screen_status_="Sample Load unavailable: select Sample in the trailing slot and synchronize";
+            return;
+        }
         if(action==BringUpAction::InstrumentSample || action==BringUpAction::InstrumentMidi || action==BringUpAction::InstrumentSynth || action==BringUpAction::InstrumentTypeNext) {
             if(!serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1 || instrument_number_>99 || definition_return_)return;
             draft_slot_=instrument_number_;
             definition_draft_.type=action==BringUpAction::InstrumentSample?1:action==BringUpAction::InstrumentMidi?2:action==BringUpAction::InstrumentSynth?3:definition_draft_.type%3+1;
+            definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
             definition_draft_.explicit_type=true;screen_status_="Definition draft changed; confirm return to commit, or cancel";return;
         }
         if(definition_return_ && action!=BringUpAction::ResetStop)return;
@@ -95,6 +128,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 !editor_ || editor_->Locked()) {
                 screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
             }
+            if(!sample_path_.empty() && definition_draft_.type!=1)definition_draft_.sample=nullptr;
             if(serial_.InstrumentCollectionSupported() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_==draft_slot_ && definition_draft_.Qualifies()) {
                 if(serial_.CommitInstrument(definition_draft_.type,definition_draft_.sample,now)) {definition_return_=true;screen_status_="Committing definition on Teensy...";}
                 else screen_status_=serial_.InstrumentCommitError();
@@ -231,26 +265,27 @@ void BringUpControls::Tick(std::uint32_t now) {
             const bool entered=serial_.SessionSaveSucceeded() && serial_.MidiRecoveryStopped();
             load_save_screen_=entered && !instrument_destination_;
             instrument_screen_=entered && instrument_destination_;
-            if(instrument_screen_) {instrument_number_=instrument_entry_.number;definition_draft_={};draft_slot_=0;definition_return_=false;}
+            if(instrument_screen_) {instrument_number_=instrument_entry_.number;definition_draft_={};sample_path_.clear();draft_slot_=0;definition_return_=false;}
             screen_phase_=ScreenPhase::Idle;
             screen_status_=instrument_screen_?"Session saved | Instrument":load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Screen entry: session save failed; current work retained";
         }
     }
-    if(load_save_screen_ && !recovery_screen_) {
+    if((load_save_screen_ || wav_picker_) && !recovery_screen_) {
         if(browser_collecting_ && !serial_.PatternListBusy()) {
             if(!serial_.PatternListReady()) {browser_collecting_=false;browser_list_={};}
             else {
                 const auto& page=serial_.PatternFiles();
                 for(unsigned i=0;i<page.count;++i)browser_list_.names.emplace_back(page.names[i]);
                 if(!page.done) {
-                    if(!serial_.RequestPatternList(page.next,now)) {browser_collecting_=false;browser_list_={};}
+                    if(!serial_.RequestPatternList(page.next,now,wav_picker_)) {browser_collecting_=false;browser_list_={};}
                 } else {
                     std::sort(browser_list_.names.begin(),browser_list_.names.end());
                     browser_collecting_=false;browser_ready_=true;
                 }
             }
         }
-        if(browser_saving_) {
+        if(wav_picker_) {}
+        else if(browser_saving_) {
             if(!serial_.FilePending()) {
                 browser_saving_=false;
                 if(serial_.PatternSaveSucceeded()) {load_save_screen_=false;screen_status_=std::string("Pattern saved: ")+serial_.PatternSource();}
