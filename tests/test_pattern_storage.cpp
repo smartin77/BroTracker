@@ -612,3 +612,41 @@ TEST_CASE(WavPickerListsOnlyBoundedSdFilenamesWithoutChangingFiles) {
     char resource[64];CHECK(BuildWavResource("other.wav",resource,sizeof(resource)));CHECK_EQ(std::string(resource),std::string("BroTracker/Samples/other.wav"));
     for(const char* invalid:{"../bad.wav","a/b.wav","with space.wav",".wav","other.wav.candidate"})CHECK(!BuildWavResource(invalid,resource,sizeof(resource)));
 }
+
+TEST_CASE(SampleRelinkPreparesBeforeAtomicDefinitionAndBindingReplacement) {
+    for(bool unavailable:{false,true}) {
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+        const std::int16_t old_pcm[32]={100,200,300},new_pcm[32]={400,500,600};
+        const auto old_view=unavailable?Pcm16MonoView{}:Pcm16MonoView{old_pcm,32,44100};
+        InstrumentDefinitions definitions;auto bindings=SelectDevelopmentFixture(old_view,old_view,old_view).bindings;
+        if(!unavailable)for(unsigned i=0;i<bindings.count;++i)if(bindings.bindings[i].instrument==0) {bindings.bindings[i].reference_note=72;bindings.bindings[i].sample_level_percent=37;}
+        const auto count=bindings.count;const auto before=bindings;
+        RealtimePattern pattern;pattern.active_rows=16;pattern.active_channels=1;pattern.cells[0][0]={60,0};
+        VariableRateBringUpPlayer player;CHECK_EQ(player.Configure(13725,44100,pattern,bindings),PatternPlayerStatus::Success);
+        InstrumentDefineRequest request;const char* line="BTINS1 RELINK 1 23 0 1 BroTracker/Samples/located.wav";
+        CHECK(ParseInstrumentRelink(line,std::strlen(line),request));
+        VariableRateSampleBinding candidate;candidate.sample={new_pcm,32,44100};candidate.reference_note=60;candidate.sample_level_percent=80;
+        const auto install=[&](const auto& binding){return player.MidiPlayer().ReplaceSampleBinding(binding);};
+        CHECK_EQ(RelinkSampleDefinition(definitions,bindings,request,candidate,false,install),3u);
+        CHECK_EQ(RelinkSampleDefinition(definitions,bindings,request,candidate,true,[](const auto&){return false;}),5u);
+        auto invalid=candidate;invalid.sample.sample_rate_hz=22050;
+        CHECK_EQ(RelinkSampleDefinition(definitions,bindings,request,invalid,true,install),5u);
+        CHECK_EQ(std::string(definitions.At(0)->resource),std::string("Samples/test2.wav"));CHECK_EQ(definitions.Count(),5u);CHECK_EQ(bindings.count,count);
+        for(unsigned i=0;i<count;++i) {CHECK_EQ(bindings.bindings[i].sample.data,before.bindings[i].sample.data);CHECK_EQ(bindings.bindings[i].reference_note,before.bindings[i].reference_note);CHECK_EQ(bindings.bindings[i].sample_level_percent,before.bindings[i].sample_level_percent);}
+        auto other=request;other.expected=1;CHECK_EQ(RelinkSampleDefinition(definitions,bindings,other,candidate,true,install),2u);
+        other.expected=5;CHECK_EQ(RelinkSampleDefinition(definitions,bindings,other,candidate,true,install),2u);
+        CHECK_EQ(RelinkSampleDefinition(definitions,bindings,request,candidate,true,install),0u);
+        CHECK_EQ(definitions.Count(),5u);CHECK_EQ(std::string(definitions.At(0)->resource),std::string(request.resource));
+        CHECK_EQ(bindings.count,count+(unavailable?1:0));
+        for(unsigned i=0;i<bindings.count;++i) {
+            const auto& binding=bindings.bindings[i];if(binding.instrument!=0)continue;
+            CHECK_EQ(binding.type,InstrumentType::Sample);CHECK_EQ(binding.sample.data,new_pcm);
+            CHECK_EQ(binding.reference_note,unavailable?60u:72u);CHECK_EQ(binding.sample_level_percent,unavailable?80u:37u);
+        }
+        WorkingSession saved;saved.definitions=definitions;saved.working=pattern;saved.working_tempo=13725;
+        CHECK_EQ(store.Save(backend,saved),PatternFileResult::Ok);WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(restored.definitions.Count(),5u);CHECK_EQ(std::string(restored.definitions.At(0)->resource),std::string(request.resource));
+        Same(restored.working,pattern);CHECK_EQ(restored.working_tempo,13725u);
+    }
+    for(const char* line:{"BTINS1 RELINK 1 0 0 1 a.wav","BTINS1 RELINK 1 1 99 1 a.wav","BTINS1 RELINK 1 1 0 2 -","BTINS1 RELINK 1 1 0 1 -"}) {InstrumentDefineRequest request;CHECK(!ParseInstrumentRelink(line,std::strlen(line),request));}
+}

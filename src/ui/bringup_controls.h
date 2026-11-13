@@ -3,7 +3,7 @@
 #include "file_list.h"
 #include "instrument_navigation.h"
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext, InstrumentPreviousField, InstrumentNextField, InstrumentIncrease, InstrumentDecrease, InstrumentActivate };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
@@ -13,6 +13,12 @@ public:
     bool InstrumentScreen()const{return instrument_screen_;}
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
     std::string InstrumentDraftType()const;
+    bool InstrumentTypeEditable()const;
+    unsigned InstrumentField()const{return instrument_field_;}
+    int InstrumentFocus()const{return InstrumentTypeEditable()?int(instrument_field_):serial_.InspectedSample(instrument_number_)?1:-1;}
+    bool ReplacementConfirming()const{return replace_prompt_;}
+    std::string InstrumentLoadWarning()const;
+    std::string SavedInstrumentPath()const;
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);
     void SetConfirmLoadReplace(bool value){confirm_load_replace_=value;}
@@ -48,6 +54,7 @@ private:
     InstrumentEntry instrument_entry_{};
     bool instrument_destination_=false,instrument_screen_=false;
     unsigned instrument_number_=1,draft_slot_=0;BroTracker::InstrumentDefinitionDraft definition_draft_{};bool definition_return_=false;
+    unsigned instrument_field_=0;bool replacement_return_=false,replace_prompt_=false;std::string replacement_candidate_;
     bool wav_picker_=false;std::string sample_path_;
     bool load_save_screen_=false;
     std::string screen_status_;

@@ -103,7 +103,7 @@ that captured cell, retaining its note/timing and original field. Empty cells
 become instrument-only events. Unchanged assignments create no extra history or
 preview. Existing undo/history and preview apply. Return while blocked retains
 Instrument and selection with a reason until safely accepted; it never triggers
-automatic recovery. Enter remains STOP; closing BTX is not assignment confirmation.
+automatic recovery. Enter activates the focused Instrument field (STOP on Pattern); closing BTX is not assignment confirmation.
 
 Instrument selector cancellation: Windows **Escape** / handheld **unmodified B**
 returns to Pattern without assignment and restores the captured source cursor.
@@ -112,7 +112,7 @@ retained musical work is preserved. Then enter recovery explicitly from Pattern
 (Ctrl+Left / Select+Left), review and confirm or cancel using the existing recovery
 menu. Cancellation never recovers work automatically or starts playback.
 Ctrl+Down / Select+Down confirms assignment and remains blocked when unsafe.
-Modified B keeps its existing STOP combinations; Enter remains STOP.
+Modified B keeps its existing STOP combinations; Enter activates the focused Instrument field; on Pattern it remains STOP.
 Closing BTX does not confirm assignment.
 
 
@@ -543,13 +543,52 @@ Behavior changes require explicit owner agreement and a documentation update.
 ## New Sample instrument: Load WAV
 
 In the single trailing undefined slot, choose Sample (Windows 1 / handheld X),
-then activate **Load WAV** with Enter / A. This is the only enabled Instrument
-Load action; defined-slot replacement remains unavailable. In the shared WAV
+then focus **Load WAV** with Down and activate it with Enter / A. Defined Samples
+also permit transactional path relinking, with explicit old/new-path confirmation. In the shared WAV
 picker, Up/Down selects a Teensy SD `/BroTracker/Samples/` filename and Enter/A
 returns it to the draft. Escape/Backspace/B cancels the picker to the previous
 Instrument draft. Escape/B in Instrument cancels the draft without defining or
 assigning anything. Ctrl+Down / Select+Down prepares and commits on Teensy before
 assignment; errors retain the original source cell and show the reason. No next
 slot appears until acknowledgement. No audition or automatic START occurs.
-Enter outside the enabled Sample Load action retains STOP. Save/exit uses the
+Enter activates the focused Instrument field; Pattern Enter retains STOP. Save/exit uses the
 existing session workflow; saved WAV paths are prepared again on Teensy restart.
+
+## Instrument field cursor and Sample relinking
+
+Instrument has a visible orange edit frame. A synchronized trailing undefined
+slot opens with **Type: Sample**, **Status: Not defined yet**, and Load WAV enabled;
+opening or browsing it never defines it or exposes another slot. Type is editable
+only in that trailing slot. Load is also actionable on every defined Sample,
+including a Sample whose saved path is unavailable. Defined MIDI/Synth Types stay
+read-only. Navigation skips unavailable fields and clamps at the first/last field.
+
+| Action | Windows | Handheld |
+|---|---|---|
+| Previous/next actionable field | Up/Down or Left/Right; Shift+Tab/Tab | Unmodified D-pad |
+| Change focused Type value | Page Up/Page Down, honoring configured value-step direction | L1+Up/Down, honoring configured value-step direction |
+| Activate focused Type (cycle) or Load WAV | Enter | A |
+| Optional direct Type shortcuts, on Type only | 1/2/3 = Sample/MIDI/Sine Synth | X cycles |
+| Previous/next numbered instrument | Ctrl+Left/Right | Select+Left/Right |
+| Confirm return and staged definition/relink | Ctrl+Down | Select+Down |
+| Cancel Instrument | Escape (Backspace also returns) | Unmodified B |
+
+The field keys do not edit the originating Pattern cell. Modified screen-navigation
+chords retain their earlier roles; Enter/A activates the field and is not confirmed
+return. STOP remains available through existing modified transport controls.
+
+Load WAV opens the Teensy `/BroTracker/Samples/` picker. Selecting a different file
+for a Sample with a saved path opens an explicit confirmation showing both old and
+new paths. Enter/A stages that replacement; Escape/Backspace/B declines it and
+retains the saved path. A staged path is shown separately from the saved Resource.
+The picker and confirmation do not load audio, change definitions or audition.
+
+Confirmed return prepares the candidate on Teensy while stopped. A new definition
+is acknowledged before assignment and count advance. An existing Sample relink
+keeps its slot, every Pattern reference and defined count unchanged; preparation
+and binding replacement must succeed before its saved path changes. Failure keeps
+the old path and binding (or unavailable state), leaves Instrument open and reports
+the error. A defined Sample with a missing/failed WAV shows its saved Resource and
+an orange load warning and remains eligible for manual Load/relink. Successful
+changes use the normal BTM save workflow. Already transmitted changes cannot be
+undone by cancellation; uncertain replies require reconnect/readback before retry.

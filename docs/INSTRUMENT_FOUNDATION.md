@@ -30,7 +30,7 @@ even if inherited/default selection was never changed. The note, timing metadata
 and original Note/Instrument field are preserved; an empty cell becomes an
 instrument-only event. Assignment uses the existing editor capture/history and
 preview synchronization. A byte-identical assignment creates no history/preview
-work. Undo restores the prior cell. Enter remains STOP; closing BTX does not
+work. Undo restores the prior cell. Enter activates the focused Instrument field (STOP on Pattern); closing BTX does not
 confirm selection. No playback start/resume or audition is added.
 
 Disconnected, recovery-held, locked/busy or invalid source contexts keep Instrument
@@ -47,7 +47,7 @@ retained musical work is preserved. Then enter recovery explicitly from Pattern
 (Ctrl+Left / Select+Left), review and confirm or cancel using the existing recovery
 menu. Cancellation never recovers work automatically or starts playback.
 Ctrl+Down / Select+Down confirms assignment and remains blocked when unsafe.
-Modified B keeps its existing STOP combinations; Enter remains STOP.
+Modified B keeps its existing STOP combinations; Enter activates the focused Instrument field; on Pattern it remains STOP.
 Closing BTX does not confirm assignment.
 
 
@@ -93,7 +93,8 @@ Definitions start with the five firmware development instruments when no session
 is restored. Temporary BTM session persistence now stores the entire authoritative
 table, including unused and appended definitions; restore preserves slot numbers.
 Legacy sessions without a table use the original five. Deletion, renumbering,
-existing-Type mutation and replacement in defined slots remain deferred.
+existing-Type mutation remains deferred. Sample paths can now be manually relinked
+through the transactional workflow below.
 
 A valid definition is structurally complete: Sample requires a valid SD-relative
 WAV reference; current MIDI and Sine Synth require only their explicit Type.
@@ -103,8 +104,8 @@ references. It stops/produces no Sample voice rather than substituting another
 instrument. A malformed definition rejects the entire session before activation.
 The stopped foreground and boot restorer now prepare selected SD WAVs by saved
 path through the shared streaming engine, including non-development assets. Up to
-16 immutable sources (including the three development sources) are retained per
-boot. Exceeding source capacity rejects a new commit; saved definitions whose
+16 cached sources (including three reserved development sources) can be retained
+at once; unreferenced dynamic entries are reusable after stopped replacement. Exceeding source capacity rejects a new commit; saved definitions whose
 resources cannot be prepared remain defined and unavailable. See the temporary BTM and standalone
 Pattern rules in [FILE_FORMATS.md](FILE_FORMATS.md#temporary-btm-session-version-1).
 
@@ -112,7 +113,8 @@ Pattern rules in [FILE_FORMATS.md](FILE_FORMATS.md#temporary-btm-session-version
 
 The production shared renderer uses existing Terminus 14 bitmap text and the
 existing translation catalog, with stable Type, Name, Load, Save and Fine Tune
-rows. Load is enabled only for a Sample draft in the trailing undefined slot.
+rows. Load is enabled for the default Sample draft in the trailing undefined slot and
+for defined Samples, including unavailable resources.
 Name, Save and Fine Tune remain unavailable. Instrument file Save is deferred.
 Transpose remains undecided. Sample waveform/parameters together, graphical
 Synth controls, presets, audition and engine editing are deferred.
@@ -209,7 +211,7 @@ or playback. An already transmitted definition commit still finishes acknowledge
 coordination, but cannot assign the cancelled source or reopen Instrument. Cancellation
 cannot undo a definition that Teensy has already accepted after confirmed return.
 Late entry-save replies cannot reopen a cancelled screen. Closing BTX is never
-assignment/definition confirmation. Enter and modified handheld STOP chords stay STOP.
+assignment/definition confirmation. Enter activates the focused Instrument field; modified handheld STOP chords retain STOP.
 
 The separate **Save** command is reserved for future file operations and is outside
 this workflow. Existing screen-entry STOP/session snapshot safety is retained;
@@ -252,13 +254,49 @@ stopped, then acknowledges the definition before the host assigns its slot and
 exposes the next trailing slot. Unsupported/missing/read-failed WAVs or rejected
 binding installation retain Instrument, the draft, old N and the original cell;
 the reason is shown. Choosing a filename is not a definition commit or audition.
-Enter on other Instrument Types/defined slots retains STOP behavior; Load is disabled.
+Enter/A activates the focused actionable field. Defined MIDI/Synth Types remain read-only.
 
 Supported files use the existing RIFF validator: PCM16, mono, 44100 Hz, nonempty
 sample data and bounded metadata/chunk traversal. Filenames use 1..40 ASCII letters,
 digits, underscore or hyphen plus `.wav` or `.WAV` (44 bytes maximum); paths fit the
-existing 63-byte definition resource field. There is no recursive folder browser,
-replacement, waveform, audition or sample editing. Temporary BTM stores the path
+existing 63-byte definition resource field. There is no recursive folder browser, waveform, audition or sample editing.
+Replacing a saved Sample path requires the explicit confirmation below. Temporary BTM stores the path
 unchanged. Boot prepares it again by path; missing or failed resources keep their
 slot, definition and Pattern references, report unavailable, and never substitute
 another sound. Development resources at `Samples/test*.wav` remain compatible.
+
+## Focused fields and transactional Sample relink
+
+See the exact Windows/handheld [field controls](BTX_CONTROLS.md#instrument-field-cursor-and-sample-relinking).
+The trailing slot presents Sample by default while retaining Not defined yet as
+status; no explicit Type choice is needed before navigating to Load WAV. An orange
+edit frame identifies the focused Type or Load field. Ordinary editor navigation
+moves between actionable fields, and editor value controls edit the focused Type.
+Existing MIDI/Sine Synth qualification exceptions remain unchanged.
+
+A defined Sample always retains its saved path and displays an orange load warning
+if preparation failed. Its Load WAV field allows manual location/relinking. Choosing
+a different path requires confirmation displaying saved and candidate paths. Decline
+retains the saved path; accept only stages a candidate, shown separately. Confirmed
+return prepares it on Teensy outside the audio interrupt guard. Only then does a
+bounded stopped transaction replace that Sample's binding and resource. Failed
+preparation or installation preserves the old resource, binding/unavailable state,
+slot, Pattern references and count. Successful relink also preserves these identities
+and existing playable binding reference-note/level settings, replacing only its PCM
+source. A previously unavailable Sample uses the established Sample defaults.
+Successful relinks schedule normal BTM persistence; boot prepares the new saved path.
+
+`BTINS1 RELINKCAP 1` advertises `BTINS1 RELINK 1 request raw_slot 1 resource` and
+`BTINS1 RELINKED 1 request result count`. The resource uses the existing bounded
+63-byte SD-relative token. Only existing Sample slots are eligible; Type cannot
+change. Result codes and uncertain-commit/reconnect rules match DEFINE. Repeated
+identical last requests replay their recorded outcome, including whether the command
+was DEFINE or RELINK. New preparation must succeed before the definition or actual
+player binding is mutated. Source-cache capacity remains bounded; an unsuccessful
+installation discards a newly prepared unused source. Old sources remain intact until candidate preparation and binding installation
+succeed. Stopped foreground reclamation then releases only dynamic entries with
+no current binding or retained voice snapshot/span. Shared sources stay pinned,
+and live descriptors/start buffers never move. Reused vacant slots avoid exhaustion
+from historical replacements; a cache of entirely retained sources still requires
+a spare entry before replacement can proceed. File closes and reads remain
+foreground SD operations, outside the audio interrupt guard.

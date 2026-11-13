@@ -61,3 +61,26 @@ unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableR
     (void)definitions.Append(request.expected,request.type,resource);return 0;
 }
 }
+
+namespace BroTracker {
+// Caller has prepared the candidate in foreground and excludes audio for this
+// bounded transaction. Rejection leaves definition, old binding and count intact.
+template<class Install> unsigned RelinkSampleDefinition(InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,
+    const InstrumentDefineRequest& request,const VariableRateSampleBinding& prepared,bool ready,Install install) noexcept {
+    const auto* definition=definitions.At(request.expected);
+    if(!definition || definition->type!=InstrumentType::Sample || request.type!=1)return 2;
+    if(!ready)return 3;
+    if(!InstrumentDefinitions::ValidResource(request.resource) || prepared.type!=InstrumentType::Sample || !prepared.sample.data || !prepared.sample.frame_count)return 4;
+    auto candidate=prepared;candidate.instrument=request.expected;
+    unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=request.expected)++index;
+    if(index<bindings.count) {
+        if(bindings.bindings[index].type!=InstrumentType::Sample)return 4;
+        candidate.reference_note=bindings.bindings[index].reference_note;
+        candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
+    } else if(bindings.count>=kVariableRateSampleBindingCapacity)return 5;
+    if(!install(candidate))return 5;
+    (void)definitions.ReplaceSample(request.expected,request.resource);
+    if(index==bindings.count)++bindings.count;
+    bindings.bindings[index]=candidate;return 0;
+}
+}

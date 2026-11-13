@@ -143,6 +143,7 @@ void BringUpSerial::Disconnect(const char* reason)
     opened_ = false;
     connected_ = false;
     define_reconcile_required_=define_reconcile_required_ || define_pending_;
+    relink_supported_=false;
     define_supported_=define_pending_=define_queued_=define_success_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
@@ -664,11 +665,18 @@ void BringUpSerial::OnLine(std::uint32_t now)
         return;
     }
     if(!std::strcmp(line_,"BTINS1 DEFINECAP 1")) {define_supported_=connected_;return;}
-    if(!std::strncmp(line_,"BTINS1 DEFINED ",14)) {
-        unsigned request=0,result=0,count=0;
-        if(connected_ && define_pending_ && BroTracker::ParseInstrumentDefined(line_,used_,request,result,count) && request==define_id_) {
+    if(!std::strcmp(line_,"BTINS1 RELINKCAP 1")){relink_supported_=connected_;return;}
+    const bool relink_reply=!std::strncmp(line_,"BTINS1 RELINKED ",15);
+    if(relink_reply || !std::strncmp(line_,"BTINS1 DEFINED ",14)) {
+        unsigned request=0,result=0,count=0;bool parsed=false;
+        if(relink_reply) {
+            std::uint32_t fields[4]{};
+            parsed=BroTracker::SnapshotFields(line_,used_,"BTINS1 RELINKED ",fields,4) && fields[0]==1 && fields[1] && fields[2]<=6 && fields[3]<=99;
+            request=fields[1];result=fields[2];count=fields[3];
+        } else parsed=BroTracker::ParseInstrumentDefined(line_,used_,request,result,count);
+        if(connected_ && define_pending_ && define_relink_==relink_reply && parsed && request==define_id_) {
             define_pending_=false;
-            if(!result && count==define_expected_+1) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
+            if(!result && count==define_expected_+(relink_reply?0:1)) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
             else {define_success_=false;define_error_=result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: PCM16 mono 44.1 kHz required; check file/read/source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
         }return;
     }
@@ -1213,7 +1221,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             }
         }
         else if(connected_ && define_queued_ && !pattern_assembler_.Active()) {
-            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 DEFINE 1 %u %u %u %s\n",define_id_,define_expected_,define_type_,define_resource_);tx_offset_=0;define_queued_=false;
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 %s 1 %u %u %u %s\n",define_relink_?"RELINK":"DEFINE",define_id_,define_relink_?define_slot_:define_expected_,define_type_,define_resource_);tx_offset_=0;define_queued_=false;
         }
         else if(connected_ && collection_supported_ && collection_request_ && !pattern_assembler_.Active()) {
             std::strcpy(tx_,"BTINS1 COLLECTION GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;collection_request_=false;

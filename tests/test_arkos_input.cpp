@@ -652,3 +652,29 @@ TEST_CASE(HandheldUndefinedDraftTypeUsesOnlyUnmodifiedX) {
         CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
     }
 }
+
+TEST_CASE(ArkOSInstrumentFocusedFieldsUseNormalAndVerifiedRawControlsWithoutPatternEdits) {
+    for(auto direction:{ValueStepDirection::Normal,ValueStepDirection::Reversed})for(bool raw:{false,true}) {
+        InputFixture f(direction);SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+        for(unsigned b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b){bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b;}
+        f.input.Select(7,raw?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);
+        f.input.SetActionBarrier(true,true,false,false,true,true,true);f.input.SetInstrumentFields(true);
+        const auto before=*f.editor.Draft();
+        const auto edge=[&](unsigned button,bool down) {
+            SDL_Event e{};
+            if(raw){e.type=down?SDL_JOYBUTTONDOWN:SDL_JOYBUTTONUP;e.jbutton.which=7;e.jbutton.button=button;}
+            else{e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=button;}
+            return f.input.Handle(e,f.now,true,f.editor).transport;
+        };
+        const auto tap=[&](unsigned b){const auto action=edge(b,true);CHECK(edge(b,true)==BringUpAction::None);edge(b,false);return action;};
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::InstrumentNextField);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::InstrumentPreviousField);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::InstrumentActivate);
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==(direction==ValueStepDirection::Normal?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==(direction==ValueStepDirection::Normal?BringUpAction::InstrumentDecrease:BringUpAction::InstrumentIncrease));
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        edge(SDL_CONTROLLER_BUTTON_BACK,true);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);edge(SDL_CONTROLLER_BUTTON_BACK,false);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::InstrumentCancel);CHECK(SamePattern(before,*f.editor.Draft()));
+    }
+}

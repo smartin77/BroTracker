@@ -115,6 +115,17 @@ namespace BroTracker
             if(binding.type!=InstrumentType::MIDI && binding.type!=InstrumentType::Synth && binding.type!=InstrumentType::Sample)return false;
             bindings_.bindings[bindings_.count++]=binding;return true;
         }
+        bool ReplaceSampleBinding(const VariableRateSampleBinding& binding) noexcept {
+            if(binding.type!=InstrumentType::Sample || binding.instrument>=99)return false;
+            VariableRateSampleBindings candidate;candidate.count=1;candidate.bindings[0]=binding;
+            VariableRateSampleCommandPreparer validator;
+            if(validator.Configure(sample_rate_hz_,candidate)!=VariableSampleCommandStatus::Success)return false;
+            for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument) {
+                if(bindings_.bindings[i].type!=InstrumentType::Sample)return false;
+                bindings_.bindings[i]=binding;return true;
+            }
+            return AppendBinding(binding); // A valid unavailable Sample had no playable binding.
+        }
         // Reject decreasing offsets; renderer validates block bounds/ownership.
         // Work bounded by eight events, eight channel-state entries and 8*99 lookups.
         // No silent truncation; no measured Teensy execution budget is claimed.

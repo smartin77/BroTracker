@@ -53,6 +53,10 @@ public:
         if(resource)std::strcpy(resources_[count_],resource);
         definitions_[count_]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resource?resources_[count_]:nullptr};++count_;return true;
     }
+    bool ReplaceSample(unsigned slot,const char* resource) noexcept {
+        if(slot>=count_ || definitions_[slot].type!=InstrumentType::Sample || !ValidResource(resource))return false;
+        std::strcpy(resources_[slot],resource);definitions_[slot].resource=resources_[slot];return true;
+    }
 private:
     char resources_[99][64]{};InstrumentDefinition definitions_[99]{};unsigned count_=0;
 };

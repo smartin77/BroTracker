@@ -38,6 +38,7 @@ public:
         memory_=&memory;sd_ready_=sd_ready;
         for(unsigned i=0;i<8;++i) buffers_[i].ring=memory.rings[i];
         for(unsigned i=0;i<3;++i) {
+            occupied_[i]=true;
             std::strcpy(paths_[i],kDevelopmentWavPaths[i]);
             const auto& found=inspection.files[i];
             auto& source=sources_[i]; auto& report=reports[i];
@@ -59,11 +60,11 @@ public:
     InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
         if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
         if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
-        for(unsigned i=0;i<count_;++i)if(!std::strcmp(paths_[i],path) && reports[i].view.data) {
+        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i],path) && reports[i].view.data) {
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
-        if(count_==kSourceCapacity)return InstrumentAvailability::PreparationFailed;
-        const auto index=count_;
+        unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
+        if(index==kSourceCapacity)return InstrumentAvailability::PreparationFailed;
         SdReadScope ownership;if(!ownership)return InstrumentAvailability::NotPrepared;
         auto& file=files_[index];
         if(!file.open(path,O_RDONLY))return InstrumentAvailability::ResourceUnavailable;
@@ -88,10 +89,27 @@ public:
         auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
         report.view={sources_[index].start,sources_[index].frames,44100,&sources_[index]};
-        std::strcpy(paths_[index],path);++count_;output=report.view;return InstrumentAvailability::Ready;
+        std::strcpy(paths_[index],path);occupied_[index]=true;last_prepared_=index;++count_;output=report.view;return InstrumentAvailability::Ready;
     }
+    // Only the just-prepared, uninstalled candidate is discardable on rejection.
     void DiscardLast(const char* path) {
-        if(count_>3 && !std::strcmp(paths_[count_-1],path)) {--count_;files_[count_].close();paths_[count_][0]=0;reports[count_]={};}
+        if(last_prepared_>=kSourceCapacity || !occupied_[last_prepared_] || std::strcmp(paths_[last_prepared_],path))return;
+        SdReadScope ownership;if(ownership)ReleaseSource(last_prepared_);
+    }
+    // Stopped foreground only, after successful binding publication. Never compact
+    // the table: all descriptors and start buffers used by other slots stay fixed.
+    // Voice snapshots/spans conservatively pin a source until Publish clears them.
+    template<class Bindings> void ReleaseUnused(const Bindings& bindings,bool stopped) {
+        if(!stopped || bindings.count>sizeof(bindings.bindings)/sizeof(bindings.bindings[0]))return;
+        bool retained[kSourceCapacity]{};
+        for(unsigned i=3;i<kSourceCapacity;++i)for(unsigned j=0;j<bindings.count;++j)
+            if(bindings.bindings[j].sample.streaming==&sources_[i])retained[i]=true;
+        { StreamInterruptGuard guard;
+          for(unsigned i=3;i<kSourceCapacity;++i)for(unsigned channel=0;channel<8;++channel)
+              if(states_[channel].sample==&sources_[i] || buffers_[channel].sample==&sources_[i])retained[i]=true;
+        }
+        SdReadScope ownership;if(!ownership)return;
+        for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !retained[i])ReleaseSource(i);
     }
     unsigned SourceCount()const{return count_;}
     // Audio owner only, after the transactional render commits. No filesystem
@@ -121,8 +139,8 @@ public:
         }
         if(best<0) return;
         unsigned source=0;
-        while(source<count_ && &sources_[source]!=selected.sample) ++source;
-        if(source==count_) return;
+        while(source<kSourceCapacity && (!occupied_[source] || &sources_[source]!=selected.sample)) ++source;
+        if(source==kSourceCapacity) return;
         const auto at=std::max(span.end,std::max(selected.position,kStreamStartFrames));
         if(at>=selected.sample->frames) return;
         const auto count=std::min(kStreamReadFrames,selected.sample->frames-at);
@@ -158,7 +176,14 @@ public:
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
+    // Caller holds foreground SD ownership and has proved this slot unretained.
+    void ReleaseSource(unsigned index) {
+        if(!files_[index].close()) {reports[index].view={};return;} // uncertain close: do not reuse
+        occupied_[index]=false;paths_[index][0]=0;reports[index]={};sources_[index]={};offsets_[index]=0;--count_;
+        if(last_prepared_==index)last_prepared_=kSourceCapacity;
+    }
     Storage* memory_=nullptr;
+    bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
     bool sd_ready_=false;unsigned count_=3;char paths_[kSourceCapacity][64]{};
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
     StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[8];

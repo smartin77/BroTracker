@@ -496,5 +496,21 @@ foreground uses the existing RIFF validator and streaming engine; only the bound
 binding/definition append runs with audio excluded. Temporary BTM persists the
 same path and re-prepares it at boot. Valid saved definitions survive missing or
 unsupported WAVs without renumbering or fallback playback. The current bounded
-source cache has 16 entries including the three development sources; capacity or
-read/format failures reject new definitions, but never delete saved ones.
+source cache has 16 entries including the three reserved development sources.
+Successful stopped replacements release unused dynamic entries, retaining any
+source referenced by another binding or a retained voice snapshot. Live source
+addresses never move. Candidates require a spare entry until installation succeeds;
+a cache whose entries are all retained can still report capacity exhaustion.
+Read/format/capacity failures never delete saved definitions or the old binding.
+
+### Existing Sample path relinking
+
+The Instrument UI can now relink a saved Sample path using a stopped Teensy
+transaction advertised by `BTINS1 RELINKCAP 1`. An explicit old/new-path prompt
+precedes staging a different resource. `BTINS1 RELINK 1 request slot 1 resource`
+prepares the candidate before replacing the existing Sample definition and binding;
+`BTINS1 RELINKED 1 request result count` confirms the outcome without changing count.
+Failed candidates preserve the old saved path and playable binding/unavailable
+state. Pattern slot references never change as part of relinking. Successful
+changes schedule the existing temporary BTM writer. The BTM layout and version
+are unchanged: only the resource bytes in that same definition record differ.

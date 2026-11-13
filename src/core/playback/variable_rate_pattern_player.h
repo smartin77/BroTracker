@@ -248,6 +248,9 @@ namespace BroTracker
         bool AppendInstrumentBinding(const VariableRateSampleBinding& binding) noexcept {
             return configured_ && transport_==VariableRatePatternTransportState::Stopped && !preview_pending_ && !pending_tempo_ && preparer_.AppendBinding(binding);
         }
+        bool ReplaceSampleBinding(const VariableRateSampleBinding& binding) noexcept {
+            return configured_ && transport_==VariableRatePatternTransportState::Stopped && !preview_pending_ && !pending_tempo_ && preparer_.ReplaceSampleBinding(binding);
+        }
         bool HasPendingWorkingPattern() const noexcept { return preview_pending_; }
 
         // Always restart at tick/sample zero, including repeated Start.

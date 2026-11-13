@@ -9,7 +9,7 @@
 inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& serial,const BringUpControls& controls) {
     return action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
         (action==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) ||
-        (controls.InstrumentScreen() && action>=BringUpAction::InstrumentSample && action<=BringUpAction::InstrumentTypeNext) ||
+        (controls.InstrumentScreen() && action>=BringUpAction::InstrumentSample && action<=BringUpAction::InstrumentActivate) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenUp || action==BringUpAction::ScreenDown));
 }
@@ -21,6 +21,20 @@ inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
     case SDLK_BACKSPACE:return BringUpAction::BrowserBack;
     case SDLK_ESCAPE:return BringUpAction::BrowserCancel;default:return BringUpAction::None;
     }
+}
+inline BringUpAction MapWindowsInstrumentAction(const SDL_Event& event,BroTracker::ValueStepDirection direction=BroTracker::ValueStepDirection::Normal) {
+    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
+    const auto key=event.key.keysym.sym;
+    if(key==SDLK_TAB)return event.key.keysym.mod&KMOD_SHIFT?BringUpAction::InstrumentPreviousField:BringUpAction::InstrumentNextField;
+    if(event.key.keysym.mod&KMOD_SHIFT)return BringUpAction::None;
+    if(key==SDLK_UP || key==SDLK_LEFT)return BringUpAction::InstrumentPreviousField;
+    if(key==SDLK_DOWN || key==SDLK_RIGHT)return BringUpAction::InstrumentNextField;
+    if(key==SDLK_RETURN || key==SDLK_KP_ENTER)return BringUpAction::InstrumentActivate;
+    if(key==SDLK_PAGEUP || key==SDLK_PAGEDOWN) {
+        const bool increase=(key==SDLK_PAGEUP)!=(direction==BroTracker::ValueStepDirection::Reversed);
+        return increase?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease;
+    }
+    return BringUpAction::None;
 }
 // Retired legacy file/publication shortcuts deliberately map to no action.
 inline bool MapWindowsPublish(const SDL_Event&) {return false;}

@@ -32,6 +32,7 @@ struct HostPanelInformation
     unsigned instrument_number=0,instrument_original_number=0;
     std::string instrument_identity="Unknown (identity unavailable)";
     std::string instrument_availability="Unknown",instrument_resource="Unknown";
+    int instrument_focus=-1;std::string instrument_load_warning,instrument_candidate;
     bool load_save_screen=false,sample_picker=false,instrument_load_available=false;
     std::string pattern_browser_text{};
     FileListView pattern_browser_list{};

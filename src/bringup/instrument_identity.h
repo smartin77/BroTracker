@@ -97,6 +97,14 @@ inline bool ParseInstrumentDefine(const char* line,std::size_t length,Instrument
     if(std::strlen(facts.resource)!=length-split || !ValidInstrumentFacts(facts))return false;
     InstrumentDefineRequest value;value.request=f[1];value.expected=f[2];value.type=f[3];std::memcpy(value.resource,facts.resource,64);output=value;return true;
 }
+inline bool ParseInstrumentRelink(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
+    if(!line || length>=kPatternSnapshotLineCapacity || length<14 || std::memcmp(line,"BTINS1 RELINK ",14))return false;
+    char normalized[kPatternSnapshotLineCapacity];std::memcpy(normalized,line,length);
+    std::memcpy(normalized,"BTINS1 DEFINE ",14);
+    InstrumentDefineRequest request;
+    if(!ParseInstrumentDefine(normalized,length,request) || request.type!=1)return false;
+    out=request;return true;
+}
 inline bool ParseInstrumentDefined(const char* line,std::size_t length,unsigned& request,unsigned& result,unsigned& count) noexcept {
     std::uint32_t f[4]{};if(!SnapshotFields(line,length,"BTINS1 DEFINED ",f,4) || std::memcmp(line,"BTINS1 DEFINED 1 ",16) || f[0]!=1 || !f[1] || f[2]>6 || f[3]>99)return false;
     request=f[1];result=f[2];count=f[3];return true;

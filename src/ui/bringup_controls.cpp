@@ -5,12 +5,14 @@ void BringUpControls::Log(const char* message) {
     BroTracker::HostLog(log_,BroTracker::ClassifyHostDiagnostic("Controls",message),"Controls",message);
 }
 FileListView BringUpControls::BrowserList()const {
+    if(replace_prompt_)return FileListView{};
     if(wav_picker_)return browser_ready_?browser_list_:FileListView{};
     if(recovery_screen_) {FileListView view;view.names={"Recover retained host work"};return view;}
     if(browser_menu_) {FileListView menu;menu.names={"Load",serial_.PatternSaveAvailable()?"Save":"Save (unavailable)"};menu.selected=browser_action_;return menu;}
     return browser_ready_?browser_list_:FileListView{};
 }
 std::string BringUpControls::BrowserText()const {
+    if(replace_prompt_)return "Replace saved Sample WAV?\nOld: "+SavedInstrumentPath()+"\nNew: "+replacement_candidate_+"\n\nEnter / A: stage replacement\nEscape / B: keep saved path";
     if(wav_picker_)return browser_collecting_?"Reading /BroTracker/Samples/...":browser_ready_?(browser_list_.names.empty()?"No WAV files":"Select a WAV; preparation occurs on confirmed return"):serial_.PatternListStatus();
     if(recovery_screen_)return recovery_confirm_?"Confirm recovery: replace device RAM with retained host work? Confirm again, or Cancel to keep both unchanged.":"Host work retained. Select recovery to review before replacing device RAM. No pattern file is overwritten.";
     if(browser_saving_)return "Saving pattern to its original file; waiting for confirmed result...";
@@ -31,20 +33,32 @@ void BringUpControls::LoadSelected(std::uint32_t now) {
         browser_loading_=true;screen_status_="Loading pattern; please wait";
     } else screen_status_="Pattern Load unavailable: STOP and synchronize first";
 }
+bool BringUpControls::InstrumentTypeEditable()const {
+    return instrument_screen_ && serial_.InstrumentCollectionKnown() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_<=99;
+}
 std::string BringUpControls::InstrumentDraftType()const {
-    if(instrument_number_!=draft_slot_ || !definition_draft_.explicit_type || !serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1)return {};
-    return definition_draft_.type==1?"Sample":definition_draft_.type==2?"MIDI":"Sine Synth";
+    if(!InstrumentTypeEditable())return {};
+    const auto type=instrument_number_==draft_slot_?definition_draft_.type:1;
+    return type==1?"Sample":type==2?"MIDI":"Sine Synth";
+}
+std::string BringUpControls::SavedInstrumentPath()const {
+    return serial_.InspectedSample(instrument_number_)?serial_.InstrumentResource():std::string{};
+}
+std::string BringUpControls::InstrumentLoadWarning()const {
+    if(!serial_.InspectedSample(instrument_number_))return {};
+    const auto status=serial_.InstrumentAvailabilityText();
+    return status=="Prepared"?std::string{}:"Load warning: "+status+"; locate WAV with Load";
 }
 bool BringUpControls::InstrumentLoadAvailable()const {
-    return instrument_screen_ && !wav_picker_ && !definition_return_ && serial_.InstrumentCollectionKnown() &&
-        instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_<=99 &&
-        definition_draft_.type==1 && serial_.WavPickerAvailable() && !serial_.UserActionsBlocked();
+    const bool sample=InstrumentTypeEditable()?InstrumentDraftType()=="Sample":serial_.InspectedSample(instrument_number_) && serial_.RelinkSupported();
+    return instrument_screen_ && !wav_picker_ && !definition_return_ && sample && serial_.WavPickerAvailable() &&
+        !serial_.UserActionsBlocked() && !serial_.FilePending() && !serial_.TransportPending() && !serial_.PublicationBusy();
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
     if(instrument_screen_ && !wav_picker_ && (action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack))action=BringUpAction::InstrumentCancel;
     if(action==BringUpAction::InstrumentCancel && !exit_after_stop_ && InstrumentCancellationAvailable()) {
-        definition_return_=false;definition_draft_={};sample_path_.clear();draft_slot_=0;
+        definition_return_=replacement_return_=replace_prompt_=false;definition_draft_={};sample_path_.clear();draft_slot_=0;
         if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;instrument_screen_=false;
         if(editor_)editor_->RestoreCursor(instrument_entry_.source);
         screen_status_="Instrument cancelled; cell unchanged";return;
@@ -83,6 +97,17 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         if(action!=BringUpAction::ResetStop)return;
     }
+    if(wav_picker_ && replace_prompt_) {
+        if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack || action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight) {
+            replace_prompt_=wav_picker_=false;replacement_candidate_.clear();sample_path_.clear();definition_draft_.sample=nullptr;
+            screen_status_="Replacement declined; saved WAV path retained";return;
+        }
+        if(action==BringUpAction::BrowserConfirm && !serial_.UserActionsBlocked()) {
+            sample_path_=replacement_candidate_;definition_draft_.sample=sample_path_.c_str();definition_draft_.explicit_type=true;draft_slot_=instrument_number_;
+            replace_prompt_=wav_picker_=false;screen_status_="Replacement staged; confirm return to prepare before replacing";return;
+        }
+        if(action!=BringUpAction::ResetStop)return;
+    }
     if(wav_picker_) {
         if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenLeft) {
             wav_picker_=false;screen_status_="WAV selection cancelled; previous draft retained";return;
@@ -93,6 +118,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(action==BringUpAction::BrowserConfirm && !browser_list_.names.empty()) {
                 char path[64];
                 if(BroTracker::BuildWavResource(browser_list_.names[browser_list_.selected],path,sizeof(path))) {
+                    const auto saved=SavedInstrumentPath();
+                    if(!saved.empty() && saved!=path) {replacement_candidate_=path;replace_prompt_=true;screen_status_="Confirm Sample WAV replacement";return;}
                     sample_path_=path;definition_draft_.sample=sample_path_.c_str();definition_draft_.explicit_type=true;draft_slot_=instrument_number_;
                     wav_picker_=false;screen_status_="WAV selected; confirm return to prepare and define, or cancel";
                 }
@@ -101,6 +128,22 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(action!=BringUpAction::ResetStop)return;
     }
     if(instrument_screen_) {
+        if(action==BringUpAction::InstrumentPreviousField || action==BringUpAction::InstrumentNextField) {
+            if(!definition_return_ && InstrumentTypeEditable())instrument_field_=InstrumentLoadAvailable()?(action==BringUpAction::InstrumentPreviousField?0:1):0;
+            return;
+        }
+        if(action==BringUpAction::InstrumentActivate) {
+            if(InstrumentFocus()==0)action=BringUpAction::InstrumentTypeNext;
+            else if(InstrumentFocus()==1)action=BringUpAction::BrowserConfirm;
+            else return;
+        }
+        if(action==BringUpAction::InstrumentIncrease || action==BringUpAction::InstrumentDecrease) {
+            if(InstrumentFocus()!=0 || !InstrumentTypeEditable() || definition_return_)return;
+            draft_slot_=instrument_number_;definition_draft_.type=action==BringUpAction::InstrumentIncrease?definition_draft_.type%3+1:(definition_draft_.type+1)%3+1;
+            definition_draft_.explicit_type=true;definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
+            screen_status_="Type draft changed; confirm return or cancel";return;
+        }
+
         if(action==BringUpAction::BrowserConfirm) {
             if(InstrumentLoadAvailable() && !serial_.PatternListBusy()) {
                 wav_picker_=true;browser_list_={};browser_ready_=false;
@@ -109,7 +152,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             return;
         }
         if(action==BringUpAction::InstrumentSample || action==BringUpAction::InstrumentMidi || action==BringUpAction::InstrumentSynth || action==BringUpAction::InstrumentTypeNext) {
-            if(!serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1 || instrument_number_>99 || definition_return_)return;
+            if(!InstrumentTypeEditable() || InstrumentFocus()!=0 || definition_return_)return;
             draft_slot_=instrument_number_;
             definition_draft_.type=action==BringUpAction::InstrumentSample?1:action==BringUpAction::InstrumentMidi?2:action==BringUpAction::InstrumentSynth?3:definition_draft_.type%3+1;
             definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
@@ -128,6 +171,10 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 !editor_ || editor_->Locked()) {
                 screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
             }
+            if(!InstrumentTypeEditable() && serial_.InspectedSample(instrument_number_) && draft_slot_==instrument_number_ && !sample_path_.empty()) {
+                if(serial_.RelinkInstrument(instrument_number_,sample_path_.c_str(),now)) {definition_return_=replacement_return_=true;screen_status_="Preparing candidate WAV before relinking Sample...";}
+                else screen_status_=serial_.InstrumentCommitError();return;
+            }
             if(!sample_path_.empty() && definition_draft_.type!=1)definition_draft_.sample=nullptr;
             if(serial_.InstrumentCollectionSupported() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_==draft_slot_ && definition_draft_.Qualifies()) {
                 if(serial_.CommitInstrument(definition_draft_.type,definition_draft_.sample,now)) {definition_return_=true;screen_status_="Committing definition on Teensy...";}
@@ -143,6 +190,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(action==BringUpAction::ScreenLeft)instrument_number_=instrument_number_>limit?limit:instrument_number_==1?(serial_.InstrumentCollectionSupported()?limit:1):instrument_number_-1;
             else if(instrument_number_>limit)instrument_number_=1;
             else if(instrument_number_<limit)++instrument_number_;
+            instrument_field_=0;
             screen_status_.clear();
         }
         if(action!=BringUpAction::ResetStop)return;
@@ -245,7 +293,8 @@ void BringUpControls::Tick(std::uint32_t now) {
         screen_status_="Return unavailable: synchronize/recover before instrument assignment";
     if(definition_return_ && !serial_.InstrumentCommitPending()) {
         definition_return_=false;
-        if(!serial_.InstrumentCommitSucceeded())screen_status_=serial_.InstrumentCommitError();
+        if(!serial_.InstrumentCommitSucceeded()) {screen_status_=serial_.InstrumentCommitError();replacement_return_=false;}
+        else if(replacement_return_) {replacement_return_=false;instrument_screen_=false;if(editor_)editor_->RestoreCursor(instrument_entry_.source);sample_path_.clear();definition_draft_={};draft_slot_=0;screen_status_="Sample WAV relinked; Pattern references unchanged";}
         else if(editor_ && editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {serial_.SyncEditor(*editor_,now);instrument_screen_=false;definition_draft_={};draft_slot_=0;screen_status_.clear();}
         else screen_status_="Definition committed; assignment blocked. Retry return or cancel";
     }
@@ -265,7 +314,7 @@ void BringUpControls::Tick(std::uint32_t now) {
             const bool entered=serial_.SessionSaveSucceeded() && serial_.MidiRecoveryStopped();
             load_save_screen_=entered && !instrument_destination_;
             instrument_screen_=entered && instrument_destination_;
-            if(instrument_screen_) {instrument_number_=instrument_entry_.number;definition_draft_={};sample_path_.clear();draft_slot_=0;definition_return_=false;}
+            if(instrument_screen_) {instrument_field_=0;replacement_return_=false;instrument_number_=instrument_entry_.number;definition_draft_={};sample_path_.clear();draft_slot_=0;definition_return_=false;}
             screen_phase_=ScreenPhase::Idle;
             screen_status_=instrument_screen_?"Session saved | Instrument":load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Screen entry: session save failed; current work retained";
         }
