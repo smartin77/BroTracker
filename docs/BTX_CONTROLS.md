@@ -542,11 +542,11 @@ Behavior changes require explicit owner agreement and a documentation update.
 
 ## New Sample instrument: Load WAV
 
-In the single trailing undefined slot, choose Sample (Windows 1 / handheld X),
-then focus **Load WAV** with Down and activate it with Enter / A. Defined Samples
+The single trailing undefined slot defaults to Sample. Focus **Load WAV** with Down and activate it with Enter / A. Defined Samples
 also permit transactional path relinking, with explicit old/new-path confirmation. In the shared WAV
-picker, Up/Down selects a Teensy SD `/BroTracker/Samples/` filename and Enter/A
-returns it to the draft. Escape/Backspace/B cancels the picker to the previous
+picker, Up/Down selects a folder or eligible WAV on Teensy SD. Enter/A opens a
+folder or returns the complete WAV path to the draft. The preferred folder is
+`/BroTracker/Samples/`, with readable-parent fallback when needed. Escape/Backspace/B cancels the picker to the previous
 Instrument draft. Escape/B in Instrument cancels the draft without defining or
 assigning anything. Ctrl+Down / Select+Down prepares and commits on Teensy before
 assignment; errors retain the original source cell and show the reason. No next
@@ -592,3 +592,37 @@ the error. A defined Sample with a missing/failed WAV shows its saved Resource a
 an orange load warning and remains eligible for manual Load/relink. Successful
 changes use the normal BTM save workflow. Already transmitted changes cannot be
 undone by cancellation; uncertain replies require reconnect/readback before retry.
+
+
+## Teensy SD WAV browser
+
+Instrument Load WAV opens Teensy's `/BroTracker/Samples` if readable; otherwise a
+message explains the nearest readable parent that Teensy actually opened. The
+heading shows the confirmed current directory. Use unmodified Up/Down on Windows
+or D-pad Up/Down on handheld to move the orange selection. Enter on Windows or A
+on handheld opens a folder or selects a WAV. Select the visible `..` entry and
+press Enter/A to open the parent; `..` is absent at the SD root. Escape on Windows
+or B on handheld cancels to Instrument and preserves its previous draft, including
+any already staged path. Ctrl+Left/Right (Windows) and Select+D-pad Left/Right
+(handheld) retain their existing screen-navigation cancellation behavior.
+
+Selecting a file stages its full SD-relative path. A different path for a saved
+Sample still requires the old/new path confirmation; confirmed return to Pattern
+performs preparation and the safe definition/replacement transaction. Files with
+paths over 63 bytes remain visible but show why selection is unavailable. Empty,
+no compatible WAV, missing folder, and SD read error messages are distinct. Failed
+navigation retains the last confirmed folder and list and names the failed path.
+
+
+### Full-screen Sample Browser
+
+The browser fills 640x480 with the confirmed SD directory at the top, a scrollable
+24-row list, and exactly one status line at the bottom. Diagnostics and repeated
+control hints are hidden here. Controls, folder fallback, `..`, cancellation and
+replacement confirmation are unchanged. All WAV files remain visible, including
+invalid/unsupported WAVs; unrelated files are excluded. Highlighting a supported
+WAV shows actual format, bit depth and rate. A rejected WAV shows its specific
+validation reason. Enter/A on a rejected WAV keeps the browser open and preserves
+the Instrument draft. Ordinary directory rows leave the footer blank; empty and
+navigation-error states share that same line. Stereo conversion/import remains
+future work; see INSTRUMENT_FOUNDATION.md.

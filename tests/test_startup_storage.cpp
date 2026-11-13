@@ -56,7 +56,7 @@ struct StoragePeer:SerialTransport {
     std::uint32_t simulated_revision=0;
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
     bool relink_cap=false;
-    bool wav_cap=false,reject_wav=false;
+    bool wav_cap=false,reject_wav=false,browser_stereo=false;
     bool list_cap=false,hold_list=false;std::string list_reply;
     std::vector<std::string> files={"patern1.btdev","patern2.btdev","patern3.btdev","patern4.btdev","other.btdev"};
     std::string boot_sd,boot_session;unsigned configured_rows=0;bool recovery_publication=false;
@@ -84,7 +84,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
-            if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\n";
+            if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
             if(line=="BTTEST1 HELLO" && list_cap)rx+="BTSTORE1 LISTCAP 1\n";
             if(line=="BTTEST1 HELLO" && !boot_sd.empty())rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 "+boot_sd+"\n";
             if(volume_cap) {if(line=="BTTEST1 HELLO")rx+="BTVOL1 CAP 1\n";rx+=VolumeState();}
@@ -100,6 +100,12 @@ struct StoragePeer:SerialTransport {
             MasterVolumeMessage m;CHECK(ParseMasterVolume(line.data(),line.size(),m));volume=m.percent;volume_id=m.id;
             const auto reply="BTVOL1 SUBMITTED 1 "+std::to_string(m.id)+"\nBTVOL1 APPLIED 1 "+std::to_string(m.id)+"\n"+VolumeState();
             if(hold_volume)volume_reply+=reply;else rx+=reply;
+        }
+        else if(line.rfind("BTSTORE1 WAVOPEN ",0)==0) {
+            WavOpenRequest request;CHECK(ParseWavOpen(line.data(),line.size(),request));const auto id=std::to_string(request.request);
+            std::string reply="BTSTORE1 WAVDIR 3 "+id+" "+request.directory+"\nBTSTORE1 WAVINFO 3 "+id+" 0\nBTSTORE1 WAVITEM 3 "+id+" F selected.wav\nBTSTORE1 WAVMETA 3 "+id+" 0 0 1 1 16 44100\nBTSTORE1 WAVEND 3 "+id+" 32 1 1\n";
+            if(browser_stereo)reply="BTSTORE1 WAVDIR 3 "+id+" "+request.directory+"\nBTSTORE1 WAVINFO 3 "+id+" 0\nBTSTORE1 WAVITEM 3 "+id+" F selected.wav\nBTSTORE1 WAVMETA 3 "+id+" 0 0 1 1 16 44100\nBTSTORE1 WAVITEM 3 "+id+" F stereo.wav\nBTSTORE1 WAVMETA 3 "+id+" 1 10 1 2 16 44100\nBTSTORE1 WAVEND 3 "+id+" 64 1 2\n";
+            if(hold_list)list_reply=reply;else rx+=reply;
         }
         else if(line.rfind("BTSTORE1 WAVLIST ",0)==0) {
             std::uint32_t fields[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTSTORE1 WAVLIST ",fields,3));
@@ -801,7 +807,7 @@ TEST_CASE(PatternLoadConfigOptOutAndStoppedGateAndListTimeout) {
         for(unsigned i=91;i<110;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
         controls.Request(BringUpAction::BrowserConfirm,"open Load",2201);
         for(unsigned i=111;i<120;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
-        controls.Request(BringUpAction::BrowserConfirm,"select",2401);
+        controls.Request(BringUpAction::BrowserDown,"skip parent",0);controls.Request(BringUpAction::BrowserConfirm,"select",2401);
         for(unsigned i=121;i<170;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}
         CHECK_EQ(wire->Loads(),confirm?0u:1u);
     }
@@ -1556,10 +1562,10 @@ TEST_CASE(SamplePickerCancellationRetainsPreviousDraftAndInstrumentCancellationK
     for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
     controls.Request(BringUpAction::InstrumentSample,"Sample",3605);CHECK(controls.InstrumentLoadAvailable());
     controls.Request(BringUpAction::BrowserConfirm,"Load",3606);drive(181,200);CHECK(controls.WavPicker());
-    CHECK_EQ(controls.BrowserList().names.size(),1u);controls.Request(BringUpAction::BrowserCancel,"cancel picker",4001);
+    CHECK_EQ(controls.BrowserList().names.size(),2u);controls.Request(BringUpAction::BrowserCancel,"cancel picker",4001);
     CHECK(controls.InstrumentScreen());CHECK(!controls.WavPicker());CHECK(controls.InstrumentDraftResource().empty());
     controls.Request(BringUpAction::BrowserConfirm,"Load",4002);drive(201,220);
-    controls.Request(BringUpAction::BrowserConfirm,"choose WAV",4401);CHECK(!controls.WavPicker());
+    controls.Request(BringUpAction::BrowserDown,"skip parent",0);controls.Request(BringUpAction::BrowserConfirm,"choose WAV",4401);CHECK(!controls.WavPicker());
     CHECK_EQ(controls.InstrumentDraftResource(),std::string("BroTracker/Samples/selected.wav"));
     controls.Request(BringUpAction::BrowserConfirm,"Load again",4402);drive(221,240);
     controls.Request(BringUpAction::BrowserBack,"B picker back",4801);CHECK(!controls.WavPicker());
@@ -1579,7 +1585,7 @@ TEST_CASE(SelectedSampleAssignsOnlyAfterSuccessfulDefinitionAcknowledgement) {
         controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
         for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
         controls.Request(BringUpAction::InstrumentSample,"Sample",3605);controls.Request(BringUpAction::BrowserConfirm,"Load",3606);drive(181,200);
-        controls.Request(BringUpAction::BrowserConfirm,"select",4001);controls.Request(BringUpAction::ScreenDown,"confirm definition",4002);drive(201,220);
+        controls.Request(BringUpAction::BrowserDown,"skip parent",0);controls.Request(BringUpAction::BrowserConfirm,"select",4001);controls.Request(BringUpAction::ScreenDown,"confirm definition",4002);drive(201,220);
         CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
         CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.find("5 1 BroTracker/Samples/selected.wav")!=std::string::npos;}));
         wire->rx+=wire->define_reply;wire->define_reply.clear();drive(221,240);
@@ -1620,10 +1626,10 @@ TEST_CASE(DefinedUnavailableSampleRelinkConfirmationFailureAndAcknowledgementKee
     const auto before=*editor.Draft();controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
     serial.InspectInstrument(1);drive(181,200);CHECK_EQ(controls.InstrumentFocus(),1);CHECK(controls.InstrumentLoadAvailable());
     CHECK_EQ(controls.SavedInstrumentPath(),std::string("Samples/test2.wav"));CHECK(!controls.InstrumentLoadWarning().empty());
-    controls.Request(BringUpAction::InstrumentActivate,"Load",4001);drive(201,220);controls.Request(BringUpAction::BrowserConfirm,"choose",4401);
+    controls.Request(BringUpAction::InstrumentActivate,"Load",4001);drive(201,220);controls.Request(BringUpAction::BrowserDown,"skip parent",0);controls.Request(BringUpAction::BrowserConfirm,"choose",4401);
     CHECK(controls.ReplacementConfirming());CHECK(controls.BrowserText().find("Samples/test2.wav")!=std::string::npos);CHECK(controls.BrowserText().find("BroTracker/Samples/selected.wav")!=std::string::npos);
     controls.Request(BringUpAction::BrowserCancel,"decline",4402);CHECK(controls.InstrumentDraftResource().empty());CHECK_EQ(controls.SavedInstrumentPath(),std::string("Samples/test2.wav"));
-    controls.Request(BringUpAction::InstrumentActivate,"Load",4403);drive(221,240);controls.Request(BringUpAction::BrowserConfirm,"choose",4801);controls.Request(BringUpAction::BrowserConfirm,"accept",4802);
+    controls.Request(BringUpAction::InstrumentActivate,"Load",4403);drive(221,240);controls.Request(BringUpAction::BrowserDown,"skip parent",0);controls.Request(BringUpAction::BrowserConfirm,"choose",4801);controls.Request(BringUpAction::BrowserConfirm,"accept",4802);
     CHECK(!controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),std::string("BroTracker/Samples/selected.wav"));
     wire->reject_wav=true;controls.Request(BringUpAction::ScreenDown,"failed relink",4803);drive(241,260);
     CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);CHECK_EQ(controls.SavedInstrumentPath(),std::string("Samples/test2.wav"));
@@ -1632,4 +1638,67 @@ TEST_CASE(DefinedUnavailableSampleRelinkConfirmationFailureAndAcknowledgementKee
     wire->rx+=wire->define_reply;wire->define_reply.clear();drive(281,300);
     CHECK(!controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
     CHECK_EQ(std::string(wire->definitions.At(0)->resource),std::string("BroTracker/Samples/selected.wav"));
+}
+
+TEST_CASE(SharedWavBrowserCommitsOnlyCompleteDirectoriesAndExplainsEmptyMissingAndLongPaths) {
+    WavBrowser browser;WavBrowsePage page;std::strcpy(page.directory,"/BroTracker");page.fallback=1;page.done=true;page.scanned=1;page.count=1;
+    page.entries[0].kind=WavEntryKind::Directory;std::strcpy(page.entries[0].name,"Nested");browser.Begin(kWavDirectory);CHECK(browser.Directory().empty());CHECK(browser.Accept(page));
+    CHECK_EQ(browser.Directory(),std::string("/BroTracker"));CHECK(browser.Message().find("Folder not found")!=std::string::npos);CHECK_EQ(browser.View().names[0],std::string(".."));
+    std::string path;CHECK_EQ(browser.Select(path),1u);CHECK_EQ(path,std::string("/"));browser.Move(1);CHECK_EQ(browser.Select(path),1u);CHECK_EQ(path,std::string("/BroTracker/Nested"));
+    browser.Begin(path);page={};std::strcpy(page.directory,path.c_str());page.done=true;CHECK(browser.Accept(page));CHECK(browser.Message().find("No supported samples")!=std::string::npos);
+    browser.Begin(path);page.scanned=2;CHECK(browser.Accept(page));CHECK(browser.Message().find("No supported samples")!=std::string::npos);
+    browser.Begin("/gone");browser.Fail(WavDirectoryResult::Missing);CHECK_EQ(browser.Directory(),path);CHECK(browser.Message().find("Folder not found")!=std::string::npos);CHECK_EQ(browser.View().names[0],std::string(".."));
+    browser.Begin("/unreadable");browser.Fail(WavDirectoryResult::ReadError);CHECK(browser.Message().find("Unable to read folder")!=std::string::npos);CHECK_EQ(browser.Directory(),path);
+    page={};std::strcpy(page.directory,"/BroTracker/New");page.count=1;page.scanned=1;std::strcpy(page.entries[0].name,"tone.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin(page.directory);CHECK(browser.Accept(page));CHECK_EQ(browser.Directory(),path); // incomplete page never changes visible CWD
+    page.done=true;CHECK(browser.Accept(page));browser.Move(1);CHECK_EQ(browser.Select(path),2u);CHECK_EQ(path,std::string("BroTracker/New/tone.wav"));
+    page={};const auto longdir="/"+std::string(55,'a');std::strcpy(page.directory,longdir.c_str());page.done=true;page.scanned=1;page.count=1;std::strcpy(page.entries[0].name,"test.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin(longdir);CHECK(browser.Accept(page));browser.Move(1);CHECK_EQ(browser.Select(path),0u);CHECK(browser.Message().find("63-byte limit")!=std::string::npos);
+    page={};std::strcpy(page.directory,"/");page.done=true;browser.Begin("/");CHECK(browser.Accept(page));CHECK(browser.View().names.empty());
+}
+
+TEST_CASE(WavDirectorySerialCorrelatesPagesAndRetainsLastPageOnReadFailure) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->wav_cap=wire->hold_list=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    CHECK(serial.WavPickerAvailable());CHECK(serial.RequestWavDirectory(kWavDirectory,0,true,2001));Pump(serial,101,110,&editor);
+    CHECK(serial.PatternListBusy());wire->rx+="BTSTORE1 WAVDIR 3 99 /wrong\nBTSTORE1 WAVEND 3 99 0 1 0\n";Pump(serial,111,115,&editor);CHECK(serial.PatternListBusy());
+    wire->rx+="BTSTORE1 WAVDIR 3 1 /BroTracker\nBTSTORE1 WAVINFO 3 1 1\nBTSTORE1 WAVITEM 3 1 D Nested\nBTSTORE1 WAVITEM 3 1 F test.wav\nBTSTORE1 WAVMETA 3 1 1 0 1 1 16 44100\nBTSTORE1 WAVEND 3 1 64 1 2\n";Pump(serial,116,125,&editor);
+    CHECK(serial.PatternListReady());CHECK_EQ(std::string(serial.WavDirectoryPage().directory),std::string("/BroTracker"));CHECK_EQ(serial.WavDirectoryPage().fallback,1u);CHECK_EQ(serial.WavDirectoryPage().count,2u);
+    CHECK(serial.RequestWavDirectory("/gone",0,false,2501));Pump(serial,126,135,&editor);wire->rx+="BTSTORE1 WAVERROR 3 2 1\n";Pump(serial,136,140,&editor);
+    CHECK(!serial.PatternListReady());CHECK(serial.WavDirectoryError()==WavDirectoryResult::Missing);CHECK_EQ(std::string(serial.WavDirectoryPage().directory),std::string("/BroTracker"));
+    const auto longest="/"+std::string(62,'a');CHECK(serial.RequestWavDirectory(longest,4294967264u,false,2801));Pump(serial,141,150,&editor);
+    CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[&](const auto& c){return c=="BTSTORE1 WAVOPEN 3 3 4294967264 0 "+longest;}));
+    wire->rx+="BTSTORE1 WAVDIR 3 3 /\nBTSTORE1 WAVINFO 3 3 0\nBTSTORE1 WAVITEM 3 3 F ../bad.wav\n";Pump(serial,151,155,&editor);
+    CHECK(!serial.PatternListBusy());CHECK(!serial.PatternListReady());CHECK_EQ(std::string(serial.WavDirectoryPage().directory),std::string("/BroTracker"));
+}
+
+TEST_CASE(RejectedStereoSelectionKeepsBrowserOpenAndPreviousInstrumentDraftUnchanged) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=wire->define_cap=wire->wav_cap=wire->browser_stereo=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto before=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
+    for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
+    controls.Request(BringUpAction::BrowserConfirm,"Load",3606);drive(181,200);
+    controls.Request(BringUpAction::BrowserDown,"mono",4001);CHECK(controls.BrowserText().find("PCM")!=std::string::npos);controls.Request(BringUpAction::BrowserConfirm,"stage",4002);
+    const auto previous=controls.InstrumentDraftResource();CHECK_EQ(previous,std::string("BroTracker/Samples/selected.wav"));
+    controls.Request(BringUpAction::BrowserConfirm,"Load again",4003);drive(201,220);
+    controls.Request(BringUpAction::BrowserDown,"mono",4401);controls.Request(BringUpAction::BrowserDown,"stereo",4402);
+    CHECK_EQ(controls.BrowserText(),std::string("Stereo WAV not supported"));controls.Request(BringUpAction::BrowserConfirm,"reject",4403);
+    CHECK(controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),previous);CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTINS1 DEFINE ",0)==0 || line.rfind("BTINS1 RELINK ",0)==0;}));
+    controls.Request(BringUpAction::BrowserCancel,"cancel",4404);CHECK(!controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),previous);
+}
+
+TEST_CASE(WavMetadataMustBeCorrelatedCompleteAndConsistentBeforePageAcceptance) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->wav_cap=wire->hold_list=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    CHECK(serial.RequestWavDirectory("/Samples",0,false,2001));Pump(serial,101,110,&editor);
+    wire->rx+="BTSTORE1 WAVDIR 3 1 /Samples\nBTSTORE1 WAVINFO 3 1 0\nBTSTORE1 WAVITEM 3 1 F tone.wav\nBTSTORE1 WAVEND 3 1 32 1 1\n";Pump(serial,111,120,&editor);
+    CHECK(!serial.PatternListReady());CHECK(!serial.PatternListBusy()); // Missing metadata cannot enable selection.
+    CHECK(serial.RequestWavDirectory("/Samples",0,false,2401));Pump(serial,121,130,&editor);
+    wire->rx+="BTSTORE1 WAVDIR 3 2 /Samples\nBTSTORE1 WAVINFO 3 2 0\nBTSTORE1 WAVITEM 3 2 F stereo.wav\nBTSTORE1 WAVMETA 3 2 0 0 1 2 16 44100\nBTSTORE1 WAVEND 3 2 32 1 1\n";Pump(serial,131,140,&editor);
+    CHECK(!serial.PatternListReady());CHECK(!serial.PatternListBusy()); // Success must match firmware's supported layout.
+    const auto long_name=std::string(230,'x')+".wav";
+    CHECK(serial.RequestWavDirectory("/Samples",0,false,2801));Pump(serial,141,150,&editor);
+    wire->rx+="BTSTORE1 WAVDIR 3 3 /Samples\nBTSTORE1 WAVINFO 3 3 0\nBTSTORE1 WAVITEM 3 3 F "+long_name+"\nBTSTORE1 WAVMETA 3 99 0 10 1 2 16 44100\nBTSTORE1 WAVMETA 3 3 0 0 1 1 16 44100\nBTSTORE1 WAVEND 3 3 32 1 1\n";Pump(serial,151,165,&editor);
+    CHECK(serial.PatternListReady());CHECK_EQ(std::string(serial.WavDirectoryPage().entries[0].name),long_name);CHECK(serial.WavDirectoryPage().entries[0].facts.status==WavBufferStatus::Success);
 }

@@ -167,7 +167,10 @@ public:
     bool RequestPatternLoad(std::string_view name,std::uint32_t now);
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
     bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
-    bool WavPickerAvailable()const{return connected_ && wav_supported_;}
+    bool WavPickerAvailable()const{return connected_ && wav_browser_supported_;}
+    bool RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now);
+    const BroTracker::WavBrowsePage& WavDirectoryPage()const{return wav_page_;}
+    BroTracker::WavDirectoryResult WavDirectoryError()const{return wav_error_;}
     bool PatternListBusy()const{return list_queued_ || list_pending_;}
     bool PatternListReady()const{return list_ready_;}
     const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
@@ -273,6 +276,10 @@ private:
     BroTracker::DevelopmentPattern file_pattern_;
     PatternLoadState pattern_load_state_=PatternLoadState::Idle;
     BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool wav_browser_supported_=false,list_browser_=false;std::string wav_request_path_;
+    bool wav_fallback_=false,wav_dir_received_=false,wav_info_received_=false;
+    BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
+    BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
     bool wav_supported_=false,list_wav_=false;
     bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
     std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
@@ -382,9 +389,9 @@ private:
     bool tx_publication_ = false;
     // Zero reported bytes may still mean the asynchronous worker owns the line.
     bool tx_write_attempted_=false;
-    char tx_[BroTracker::kPatternSnapshotLineCapacity]{};
+    char tx_[128]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
-    char line_[256]{};
+    char line_[512]{};
     unsigned int used_ = 0;
     bool overflow_ = false;
     char state_[16] = "UNKNOWN";

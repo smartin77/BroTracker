@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "ui/arkos/input.h"
+#include "ui/wav_browser.h"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -676,5 +677,27 @@ TEST_CASE(ArkOSInstrumentFocusedFieldsUseNormalAndVerifiedRawControlsWithoutPatt
         edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
         edge(SDL_CONTROLLER_BUTTON_BACK,true);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);edge(SDL_CONTROLLER_BUTTON_BACK,false);
         CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::InstrumentCancel);CHECK(SamePattern(before,*f.editor.Draft()));
+    }
+}
+
+TEST_CASE(HandheldWavBrowserAOpensParentAndNestedFileBCancelsWithoutPatternEdits) {
+    for(bool raw:{false,true}) {
+        InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+        for(unsigned b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b){bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b;}
+        f.input.Select(7,raw?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);f.input.SetActionBarrier(true,true,false,false,true,true);
+        const auto before=*f.editor.Draft();WavBrowser browser;WavBrowsePage page;std::strcpy(page.directory,"/Nested");page.count=1;page.scanned=1;page.done=true;std::strcpy(page.entries[0].name,"tone.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin("/Nested");CHECK(browser.Accept(page));
+        const auto tap=[&](unsigned b){
+            SDL_Event e{};e.type=raw?SDL_JOYBUTTONDOWN:SDL_CONTROLLERBUTTONDOWN;
+            if(raw){e.jbutton.which=7;e.jbutton.button=b;}else{e.cbutton.which=7;e.cbutton.button=b;}
+            const auto action=f.input.Handle(e,0,true,f.editor).transport;CHECK(f.input.Handle(e,0,true,f.editor).transport==BringUpAction::None);
+            e.type=raw?SDL_JOYBUTTONUP:SDL_CONTROLLERBUTTONUP;f.input.Handle(e,0,true,f.editor);return action;
+        };
+        std::string path;CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::BrowserConfirm);CHECK_EQ(browser.Select(path),1u);CHECK_EQ(path,std::string("/"));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::BrowserDown);browser.Move(1);CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::BrowserConfirm);CHECK_EQ(browser.Select(path),2u);CHECK_EQ(path,std::string("Nested/tone.wav"));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::BrowserBack);CHECK(SamePattern(before,*f.editor.Draft()));
+        SDL_Event modifier{};modifier.type=raw?SDL_JOYBUTTONDOWN:SDL_CONTROLLERBUTTONDOWN;
+        if(raw){modifier.jbutton.which=7;modifier.jbutton.button=SDL_CONTROLLER_BUTTON_BACK;}else{modifier.cbutton.which=7;modifier.cbutton.button=SDL_CONTROLLER_BUTTON_BACK;}
+        f.input.Handle(modifier,0,true,f.editor);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);
+        modifier.type=raw?SDL_JOYBUTTONUP:SDL_CONTROLLERBUTTONUP;f.input.Handle(modifier,0,true,f.editor);
     }
 }

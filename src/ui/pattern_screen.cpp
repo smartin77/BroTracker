@@ -806,6 +806,12 @@ static void RenderPatternScreen(
     const HostPanelInformation& host)
 {
     framebuffer.Clear(background);
+    if(host.sample_picker) {
+        DrawSampleBrowser(framebuffer,host.pattern_browser_list,host.browser_directory,host.sample_browser_confirmation?std::string{}:host.pattern_browser_text);
+        if(host.sample_browser_confirmation)DrawWrappedFixedText(framebuffer,8,kSampleBrowserLineHeight+8,framebuffer.Width()-16,framebuffer.Height()-2*kSampleBrowserLineHeight-16,host.pattern_browser_text,header_name);
+        return;
+    }
+
     const auto display = ResolvePatternDisplay(live, !live);
     // Never show a draft against unrelated or unavailable device dimensions.
     if (editor && (!display.device_pattern || !editor->Ready() ||
@@ -850,7 +856,7 @@ static void RenderPatternScreen(
         static const auto heading=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
         static const auto filename=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
         DrawFileList(framebuffer,host.pattern_browser_list,layout.pattern_x+8,layout.pattern_y+8,
-            layout.pattern_width-16,heading,filename,host.sample_picker?"Sample Load /BroTracker/Samples/":"Pattern Load/Save");
+            layout.pattern_width-16,heading,filename,"Pattern Load/Save");
         DrawWrappedFixedText(framebuffer,layout.pattern_x+8,layout.pattern_y+164,
             layout.pattern_width-16,static_cast<int>(::SCREEN_HEIGHT)-layout.pattern_y-172,host.pattern_browser_text,header_name);
     } else DrawPattern(

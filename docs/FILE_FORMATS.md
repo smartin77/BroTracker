@@ -481,7 +481,7 @@ saves nor changes mutes or musical data. Physical validation remains pending.
 ## Sample WAV picker protocol
 
 `BTINS1 WAVCAP 1` advertises stopped-only Sample Load and path preparation.
-`BTSTORE1 WAVLIST 1 request offset` pages the fixed `/BroTracker/Samples/` SD
+Legacy `BTSTORE1 WAVLIST 1 request offset` pages the fixed `/BroTracker/Samples/` SD
 directory, returning up to eight `BTSTORE1 WAVFILE 1 request filename` lines and
 `BTSTORE1 WAVEND 1 request next_offset done`, or `BTSTORE1 WAVERROR 1 request reason`.
 The existing read lease, 64-entry scan limit, aligned opaque directory offsets,
@@ -514,3 +514,56 @@ Failed candidates preserve the old saved path and playable binding/unavailable
 state. Pattern slot references never change as part of relinking. Successful
 changes schedule the existing temporary BTM writer. The BTM layout and version
 are unchanged: only the resource bytes in that same definition record differ.
+
+
+### Hierarchical Sample WAV browser (temporary protocol v2)
+
+`BTINS1 WAVBROWSECAP 1` adds `BTSTORE1 WAVOPEN 2 request offset fallback directory`.
+The directory is an absolute SD path (root `/`), at most 63 bytes, using existing
+resource path characters. Requests have a nonzero monotonically increasing identity
+and a FAT cursor aligned to 32 bytes. Only the initial offset zero may request
+fallback. Teensy tests the requested directory and readable parents through root;
+manual navigation never silently falls back. Browsing creates no files/directories.
+
+A successful page returns `BTSTORE1 WAVDIR 2 request confirmed_directory`,
+`BTSTORE1 WAVINFO 2 request fallback_reason` (0 none, 1 preferred directory missing,
+2 preferred directory unreadable), up to eight `BTSTORE1 WAVITEM 2 request D name`
+or `... F name`, and `BTSTORE1 WAVEND 2 request next_offset done scanned_entries`.
+Each page inspects at most 64 physical entries under the existing SD read guard.
+Directories and eligible regular WAV filenames are included. The host accumulates
+all correlated pages before replacing the visible confirmed directory/list; it
+adds `..` below root. Failed navigation preserves that prior list and selection.
+
+`BTSTORE1 WAVERROR 2 request result` distinguishes missing (1), SD read error (2),
+not a directory (3), busy (4), and invalid path (5). An empty successful directory
+has zero scanned entries; a nonempty directory without eligible WAV files has a
+separate UI message. Filename eligibility does not imply supported WAV contents.
+Selection joins the confirmed directory and filename into a full SD-relative
+resource, enforcing the existing 63-byte limit before staging. Content validation,
+replacement confirmation and transactional definition installation are unchanged.
+Legacy WAVLIST v1 remains available to old hosts; new hosts require WAVBROWSECAP
+for directory navigation. BTM storage and saved path semantics are unchanged.
+
+
+### Sample Browser metadata listing (temporary protocol v3)
+
+`BTINS1 WAVBROWSECAP 2` advertises `BTSTORE1 WAVOPEN 3` with the same directory,
+request identity, FAT cursor and fallback rules as v2. Replies use version 3.
+Each WAV `WAVITEM` is followed by `BTSTORE1 WAVMETA 3 request page_index status
+format channels bits sample_rate`. `status` is the existing `WavBufferStatus`
+ordinal from the playback validator; other fields are the actual metadata read
+before success/rejection. The host requires one matching metadata record per WAV
+before accepting the page. Unsupported and invalid WAVs stay in the list. All
+case variants of `.wav` are listed; unrelated files are omitted. Directory entries
+and WAV names can contain up to 255 filename bytes. Selecting a supported WAV
+still enforces the existing filename and 63-byte resource-path validation.
+
+Teensy inspects at most one WAV and scans at most 64 directory entries per page.
+It uses the existing bounded header/chunk validator under the shared SD read lease,
+never reading PCM for browser metadata. Highlight changes use the listing's cached
+metadata and perform no SD I/O. Missing/read-failed WAVs receive a rejected result;
+folder failures retain the previous confirmed directory/list. Only validated
+success can stage a selection; definition commit still prepares again. The same
+single footer line shows metadata, the approved rejection reason, or an empty/
+navigation status. Legacy v1/v2 requests and replies remain supported by firmware;
+new metadata-aware hosts require WAVBROWSECAP 2. BTM storage is unchanged.

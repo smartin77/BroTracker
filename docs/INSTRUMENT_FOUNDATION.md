@@ -240,11 +240,11 @@ reacquires authoritative facts. Identity CAP1/CAP2 formats remain unchanged.
 
 ## Sample Load for the trailing slot
 
-Choose Sample with Windows 1 or handheld X, then activate **Load WAV** with
+The trailing slot defaults to Sample. Focus **Load WAV**, then activate it with
 Windows Enter or handheld A. The shared picker lists regular `.wav`/`.WAV` files
-in `/BroTracker/Samples/` on Teensy SD, using the existing bordered list and paging
-controls. Hosts never browse their local filesystem. Up/Down selects a filename;
-Enter/A chooses it and returns to Instrument, setting only the draft SD-relative
+and folders on Teensy SD, starting in `/BroTracker/Samples/` when readable or
+its nearest readable parent. It uses the existing bordered list and paging controls. Hosts never browse their local filesystem. Up/Down selects an entry;
+Enter/A opens a folder or chooses a WAV and returns to Instrument, setting only the draft SD-relative
 path (for example `BroTracker/Samples/kick.wav`). Escape, Backspace or B in the
 picker returns to Instrument with the previous draft intact. Escape/B in Instrument
 discards the draft and returns to Pattern with its source cell unchanged.
@@ -259,7 +259,7 @@ Enter/A activates the focused actionable field. Defined MIDI/Synth Types remain 
 Supported files use the existing RIFF validator: PCM16, mono, 44100 Hz, nonempty
 sample data and bounded metadata/chunk traversal. Filenames use 1..40 ASCII letters,
 digits, underscore or hyphen plus `.wav` or `.WAV` (44 bytes maximum); paths fit the
-existing 63-byte definition resource field. There is no recursive folder browser, waveform, audition or sample editing.
+existing 63-byte definition resource field. The Teensy browser supports directory navigation; waveform, audition and sample editing remain deferred.
 Replacing a saved Sample path requires the explicit confirmation below. Temporary BTM stores the path
 unchanged. Boot prepares it again by path; missing or failed resources keep their
 slot, definition and Pattern references, report unavailable, and never substitute
@@ -300,3 +300,52 @@ and live descriptors/start buffers never move. Reused vacant slots avoid exhaust
 from historical replacements; a cache of entirely retained sources still requires
 a spare entry before replacement can proceed. File closes and reads remain
 foreground SD operations, outside the audio interrupt guard.
+
+
+## Teensy SD directory browser
+
+Load WAV starts at `/BroTracker/Samples` only after Teensy has opened and listed
+it. If missing or unreadable, Teensy tries the nearest readable parent, up to `/`.
+The UI names the fallback reason and confirmed directory; it never presents the
+requested path as though it had been opened. No folders are created by browsing.
+Subdirectories and all WAV filenames appear together, folders first. Below
+the SD root a visible `..` opens the parent. Enter/A opens the selected folder or
+stages the selected file's complete SD-relative path. Escape/B cancels to
+Instrument, preserving the previous draft. Modified screen chords retain their
+existing meaning. See [exact controls](BTX_CONTROLS.md#teensy-sd-wav-browser).
+
+Empty listings show `No supported samples`. Missing-directory and SD read errors
+use the approved single-line folder messages and preserve the last fully listed
+directory and selection. WAV metadata and rejection reasons come from the actual
+firmware validator; confirmed return still prepares again. A file whose full
+SD-relative path exceeds 63 bytes stays visible but cannot be selected. Directory paths must also fit 63 bytes and the existing path
+character rules. Browser paging, file opens and directory reads run on Teensy in
+stopped foreground code using the existing shared SD read guard. Windows and
+ArkOS render the same confirmed listings and never enumerate their own disks.
+
+
+## Sample Browser validation and stereo import follow-up
+
+The Sample Browser uses the complete host viewport: confirmed SD path at the top,
+a scrollable list through the remaining middle area, and exactly one status line
+at the bottom. Diagnostics and repeated control hints are hidden. Directory rows
+(including `..` below root) normally leave the status line blank. Empty listings
+show `No supported samples`; navigation failures use `Folder not found` or
+`Unable to read folder`, while retaining the last confirmed directory/list.
+
+All WAV filenames remain visible, including invalid and unsupported files;
+unrelated files are excluded. Teensy reads actual metadata with the same bounded
+`InspectWavMetadata` validator as streaming preparation, without reading PCM.
+Each listing page inspects at most one WAV and at most 64 directory entries;
+the existing per-file chunk limit applies. Metadata/results travel with the
+correlated listing, so moving the highlight does not issue SD reads. A supported
+file displays its actual PCM format, bit depth and sample rate. Rejected files
+display the corresponding approved reason on that single line. Enter/A on a
+rejected WAV leaves the browser and Instrument draft unchanged. Confirmed return
+still revalidates/prepares supported candidates before defining or replacing a
+binding; listing metadata is not a preparation acknowledgement.
+
+Current streaming supports PCM16 mono at 44100 Hz, not stereo WAV, IFF or 8-bit
+samples. Future stereo import may either downmix to one mono sample or split the
+left and right channels into two separate mono samples. Both import options and
+their controls are deferred; this change does not implement conversion or splitting.

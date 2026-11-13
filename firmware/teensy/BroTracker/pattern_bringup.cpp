@@ -259,12 +259,12 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 43 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 43;
-    constexpr std::size_t kTxCapacity = 44;
+    // Reserve all 45 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 45;
+    constexpr std::size_t kTxCapacity = 46;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
-    struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
+    struct TxLine { char data[320]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
@@ -365,7 +365,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -506,6 +506,27 @@ namespace
         (void)QueueLine(reply);
     }
     void StorageCommand(const char* line,std::uint32_t now) {
+        if(!std::strncmp(line,"BTSTORE1 WAVOPEN ",16)) {
+            WavOpenRequest request;WavBrowsePage page;char reply[320];
+            if(!ParseWavOpen(line,std::strlen(line),request))return;
+            const auto version=request.version;auto result=WavDirectoryResult::Busy;
+            if(g_protocol_connected && !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped && g_tx_count+2*kPatternListPageSize+3<=kTxCapacity)
+                result=ReadWavBrowsePage(g_storage_backend,request,page);
+            if(result!=WavDirectoryResult::Ok) {
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVERROR %u %" PRIu32 " %u\n",version,request.request,unsigned(result));(void)QueueLine(reply);return;
+            }
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVDIR %u %" PRIu32 " %s\n",version,request.request,page.directory);(void)QueueLine(reply);
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVINFO %u %" PRIu32 " %u\n",version,request.request,page.fallback);(void)QueueLine(reply);
+            for(unsigned i=0;i<page.count;++i) {
+                const auto& entry=page.entries[i];
+                std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVITEM %u %" PRIu32 " %c %s\n",version,request.request,entry.kind==WavEntryKind::Directory?'D':'F',entry.name);(void)QueueLine(reply);
+                if(version>=3 && entry.kind==WavEntryKind::File) {
+                    const auto& f=entry.facts;
+                    std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVMETA 3 %" PRIu32 " %u %u %u %u %u %" PRIu32 "\n",request.request,i,unsigned(f.status),unsigned(f.format),unsigned(f.channels),unsigned(f.bits),f.sample_rate);(void)QueueLine(reply);
+                }
+            }
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVEND %u %" PRIu32 " %" PRIu32 " %u %u\n",version,request.request,page.next,unsigned(page.done),page.scanned);(void)QueueLine(reply);return;
+        }
         std::uint32_t list[3]{};
         const bool wav=SnapshotFields(line,std::strlen(line),"BTSTORE1 WAVLIST ",list,3) && list[0]==1 && list[1];
         if(wav || (SnapshotFields(line,std::strlen(line),"BTSTORE1 LIST ",list,3) && list[0]==1 && list[1])) {
@@ -603,7 +624,7 @@ namespace
 #endif
     void ServiceSerial()
     {
-        static char line[kPatternSnapshotLineCapacity]; static std::size_t used = 0;
+        static char line[128]; static std::size_t used = 0;
         static bool overflow = false;
         static std::uint32_t reported_failures = 0;
         if (!Serial)

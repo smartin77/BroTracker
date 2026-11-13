@@ -74,9 +74,16 @@ bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now,bo
         std::strcpy(list_status_,wav?"WAV list unavailable: stopped, synchronized WAVCAP firmware required":"Pattern list unavailable: stopped, synchronized LISTCAP firmware required");return false;
     }
     if(list_id_==UINT32_MAX){std::strcpy(list_status_,"Reconnect to refresh pattern listing");return false;}
-    list_wav_=wav;
+    list_browser_=false;list_wav_=wav;
     ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_staging_={};
     std::strcpy(list_status_,wav?"Reading WAV files...":"Reading pattern files...");return true;
+}
+bool BringUpSerial::RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now) {
+    if(!WavPickerAvailable() || UserActionsBlocked() || !MidiRecoveryStopped() || PatternListBusy() || FilePending() ||
+        !BroTracker::ValidWavDirectory(path) || offset%32 || (fallback && offset) || list_id_==UINT32_MAX)return false;
+    ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_wav_=list_browser_=true;
+    wav_request_path_=path;wav_fallback_=fallback;wav_staging_={};wav_dir_received_=wav_info_received_=false;
+    wav_error_=BroTracker::WavDirectoryResult::ReadError;return true;
 }
 bool BringUpSerial::RequestPatternLoad(std::string_view name,std::uint32_t now) {
     if(FilePending() || PatternLoadResult()==PatternLoadState::Pending || !BroTracker::CompatiblePatternName(name) || !MidiRecoveryStopped() || PatternListBusy() || !file_pattern_.Assign(name))return false;
@@ -101,6 +108,7 @@ void BringUpSerial::Disconnect(const char* reason)
     if(pattern_load_state_==PatternLoadState::Pending)pattern_load_state_=PatternLoadState::Failed;
     new_pattern_supported_=false;if(!startup_decided_)boot_status_known_=false;
     pattern_save_supported_=false;pattern_source_.clear();
+    wav_browser_supported_=false;
     wav_supported_=false;
     list_supported_=list_queued_=list_pending_=list_ready_=false;std::strcpy(list_status_,"Disconnected; refresh pattern list after recovery");
     initial_sync_ready_=false;session_save_succeeded_=false;
@@ -526,7 +534,8 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 READY 1\n");if(file_action_!=FileAction::Session)startup_ready_sent_=true;
     }
     if(command==Command::List) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 %s 1 %" PRIu32 " %" PRIu32 "\n",list_wav_?"WAVLIST":"LIST",list_id_,list_offset_);
+        if(list_browser_)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 WAVOPEN 3 %" PRIu32 " %" PRIu32 " %u %s\n",list_id_,list_offset_,unsigned(wav_fallback_),wav_request_path_.c_str());
+        else tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 %s 1 %" PRIu32 " %" PRIu32 "\n",list_wav_?"WAVLIST":"LIST",list_id_,list_offset_);
         list_queued_=false;list_pending_=true;
     }
     if(command==Command::Storage) {
@@ -601,9 +610,48 @@ void BringUpSerial::OnLine(std::uint32_t now)
     Log("RX:", line_);
     if(!std::strcmp(line_,"BTSTORE1 NEWCAP 1")){if(connected_)new_pattern_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 PATTERNSAVECAP 1")){if(connected_)pattern_save_supported_=true;return;}
+    if(!std::strcmp(line_,"BTINS1 WAVBROWSECAP 2")){wav_browser_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 WAVCAP 1")){wav_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTSTORE1 LISTCAP 1")){if(connected_)list_supported_=true;return;}
-    if(list_pending_) {
+    if(list_pending_ && list_browser_) {
+        char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 WAVDIR 3 %" PRIu32 " ",list_id_);
+        if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
+            const auto path=std::string_view(line_+std::strlen(prefix));
+            if(!wav_dir_received_ && BroTracker::ValidWavDirectory(path)){std::strcpy(wav_staging_.directory,path.data());wav_dir_received_=true;return;}
+            list_pending_=false;pending_=Command::None;return;
+        }
+        std::snprintf(prefix,sizeof(prefix),"BTSTORE1 WAVITEM 3 %" PRIu32 " ",list_id_);
+        if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
+            const auto* item=line_+std::strlen(prefix);const auto length=std::strlen(item);
+            const bool directory=length>=3 && item[0]=='D';
+            if(wav_staging_.count<BroTracker::kPatternListPageSize && length>=3 && item[1]==' ' && (directory || item[0]=='F') && BroTracker::WavEntryName(item+2) && (directory || BroTracker::WavFilename(item+2))) {
+                auto& entry=wav_staging_.entries[wav_staging_.count++];entry.kind=directory?BroTracker::WavEntryKind::Directory:BroTracker::WavEntryKind::File;std::strcpy(entry.name,item+2);return;
+            }
+            list_pending_=false;pending_=Command::None;return;
+        }
+        std::uint32_t meta[8]{};
+        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 WAVMETA ",meta,8) && meta[0]==3 && meta[1]==list_id_) {
+            if(meta[2]>=wav_staging_.count || wav_staging_.entries[meta[2]].kind!=BroTracker::WavEntryKind::File || wav_staging_.entries[meta[2]].facts.known || meta[3]>unsigned(BroTracker::WavBufferStatus::ChunkLimit) || meta[4]>65535 || meta[5]>65535 || meta[6]>65535) {list_pending_=false;pending_=Command::None;return;}
+            auto& f=wav_staging_.entries[meta[2]].facts;f.known=true;f.status=static_cast<BroTracker::WavBufferStatus>(meta[3]);f.format=meta[4];f.channels=meta[5];f.bits=meta[6];f.sample_rate=meta[7];
+            if(f.status==BroTracker::WavBufferStatus::Success && (f.format!=1 || f.channels!=1 || f.bits!=16 || f.sample_rate!=44100)){list_pending_=false;pending_=Command::None;}
+            return;
+        }
+        std::uint32_t fields[5]{};
+        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 WAVINFO ",fields,3) && fields[0]==3 && fields[1]==list_id_) {
+            if(!wav_info_received_ && fields[2]<=2){wav_staging_.fallback=fields[2];wav_info_received_=true;return;}
+            list_pending_=false;pending_=Command::None;return;
+        }
+        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 WAVEND ",fields,5) && fields[0]==3 && fields[1]==list_id_) {
+            list_pending_=false;pending_=Command::None;
+            if(!wav_dir_received_ || !wav_info_received_ || fields[3]>1 || fields[2]%32 || (!fields[3] && fields[2]<=list_offset_) || fields[4]>64)return;
+            for(unsigned i=0;i<wav_staging_.count;++i)if(wav_staging_.entries[i].kind==BroTracker::WavEntryKind::File && !wav_staging_.entries[i].facts.known)return;
+            wav_staging_.next=fields[2];wav_staging_.done=fields[3];wav_staging_.scanned=fields[4];wav_page_=wav_staging_;list_ready_=true;return;
+        }
+        if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 WAVERROR ",fields,3) && fields[0]==3 && fields[1]==list_id_) {
+            list_pending_=false;pending_=Command::None;if(fields[2]>0 && fields[2]<=5)wav_error_=static_cast<BroTracker::WavDirectoryResult>(fields[2]);return;
+        }
+    }
+    if(list_pending_ && !list_browser_) {
         char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 %s 1 %" PRIu32 " ",list_wav_?"WAVFILE":"FILE",list_id_);
         if(!std::strncmp(line_,prefix,std::strlen(prefix))) {
             const auto* name=line_+std::strlen(prefix);
@@ -1079,6 +1127,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             // Permit CRLF, but preserve embedded CR for strict field rejection.
             if (used_ && line_[used_ - 1] == '\r') --used_;
             line_[used_] = '\0';
+            // Only correlated WAV items may exceed the established 255-byte RX
+            // limit. Preserve malformed snapshot/preview handling for every other line.
+            if(used_>=256) {
+                char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 WAVITEM 3 %" PRIu32 " ",list_id_);
+                if(!list_pending_ || !list_browser_ || std::strncmp(line_,prefix,std::strlen(prefix)))overflow_=true;
+            }
             if (overflow_)
             {
                 Log("RX error: overlong line discarded");

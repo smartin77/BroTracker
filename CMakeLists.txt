@@ -374,3 +374,17 @@ foreach(mode Default SynthLeft)
     endif()
     add_test(NAME BroTrackerDiagnosticStereo${mode}Tests COMMAND BroTrackerDiagnosticStereo${mode}Tests)
 endforeach()
+
+
+# Shared Sample Browser layout + real firmware metadata adapter, on isolated fake SD.
+if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL OR BROTRACKER_BUILD_FONT_PREVIEW)
+    add_executable(BroTrackerSampleBrowserTests tests/test_main.cpp tests/test_sample_browser.cpp
+        src/ui/pattern_screen.cpp src/ui/font.cpp src/ui/text_renderer.cpp src/renderer/framebuffer.cpp
+        libraries/sd_access/src/sd_access.cpp)
+    target_link_libraries(BroTrackerSampleBrowserTests PRIVATE BroTrackerCore BroTrackerHostSvg)
+    target_include_directories(BroTrackerSampleBrowserTests PRIVATE tests/stubs/sd tests src
+        libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(BroTrackerSampleBrowserTests PRIVATE BROTRACKER_BROWSER_SCREENSHOTS="${CMAKE_BINARY_DIR}/sample-browser-screenshots")
+    add_test(NAME BroTrackerSampleBrowserTests COMMAND BroTrackerSampleBrowserTests)
+    set_tests_properties(BroTrackerSampleBrowserTests PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()

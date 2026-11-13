@@ -63,6 +63,7 @@ public:
     bool close(){entry_=nullptr;return !FakePatternSd::fail_close;}
 };
 struct FakePatternFs {
+    unsigned sdErrorCode()const{return FakePatternSd::fail_open?1:0;}
     bool exists(const char* p){return FakePatternSd::files.count(p)!=0;}
     FsFile open(const char* p,int flags){
         if(FakePatternSd::fail_open)return {};

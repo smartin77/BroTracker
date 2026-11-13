@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) try {
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
-        panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
+        panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
         if(!controls.InstrumentDraftResource().empty()) {
             if(controls.SavedInstrumentPath().empty())panel.instrument_resource=controls.InstrumentDraftResource();
             else panel.instrument_candidate=controls.InstrumentDraftResource();

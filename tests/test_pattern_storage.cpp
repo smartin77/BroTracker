@@ -650,3 +650,30 @@ TEST_CASE(SampleRelinkPreparesBeforeAtomicDefinitionAndBindingReplacement) {
     }
     for(const char* line:{"BTINS1 RELINK 1 0 0 1 a.wav","BTINS1 RELINK 1 1 99 1 a.wav","BTINS1 RELINK 1 1 0 2 -","BTINS1 RELINK 1 1 0 1 -"}) {InstrumentDefineRequest request;CHECK(!ParseInstrumentRelink(line,std::strlen(line),request));}
 }
+
+TEST_CASE(HierarchicalWavBrowserConfirmsReadableFallbackAndDirectoriesWithoutWriting) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
+    FakePatternSd::files["/"].directory=true;FakePatternSd::files["/BroTracker"].directory=true;
+    FakePatternSd::files["/BroTracker/Nested"].directory=true;
+    FakePatternSd::files["/BroTracker/Nested/tone.wav"].bytes={1};
+    FakePatternSd::files["/BroTracker/readme.txt"].bytes={1};
+    WavOpenRequest request;std::strcpy(request.directory,kWavDirectory);request.fallback=true;WavBrowsePage page;
+    CHECK_EQ(ReadWavBrowsePage(backend,request,page),WavDirectoryResult::Ok);
+    CHECK_EQ(std::string(page.directory),std::string("/BroTracker"));CHECK_EQ(page.fallback,1u);CHECK_EQ(page.count,1u);CHECK_EQ(page.scanned,2u);CHECK(page.entries[0].kind==WavEntryKind::Directory);
+    request.fallback=false;std::strcpy(request.directory,"/BroTracker/Nested");
+    CHECK_EQ(ReadWavBrowsePage(backend,request,page),WavDirectoryResult::Ok);CHECK_EQ(page.count,1u);CHECK_EQ(std::string(page.entries[0].name),std::string("tone.wav"));
+    char path[64];CHECK(BuildWavResourceAt(page.directory,page.entries[0].name,path,sizeof(path)));CHECK_EQ(std::string(path),std::string("BroTracker/Nested/tone.wav"));
+    const auto previous=page;std::strcpy(request.directory,"/gone");CHECK_EQ(ReadWavBrowsePage(backend,request,page),WavDirectoryResult::Missing);CHECK_EQ(std::memcmp(&previous,&page,sizeof(page)),0);
+    FakePatternSd::fail_open=true;CHECK_EQ(ReadWavBrowsePage(backend,request,page),WavDirectoryResult::ReadError);CHECK_EQ(std::memcmp(&previous,&page,sizeof(page)),0);
+    FakePatternSd::fail_open=false;FakePatternSd::files.erase("/BroTracker");request.fallback=true;std::strcpy(request.directory,kWavDirectory);
+    CHECK_EQ(ReadWavBrowsePage(backend,request,page),WavDirectoryResult::Ok);CHECK_EQ(std::string(page.directory),std::string("/"));CHECK_EQ(FakePatternSd::rename_calls,0u);
+}
+TEST_CASE(WavBrowserDirectoryRequestAndResourceBoundsAreTransactional) {
+    WavOpenRequest request;const auto valid=std::string("BTSTORE1 WAVOPEN 2 4294967295 0 1 /BroTracker/Samples");
+    CHECK(ParseWavOpen(valid.data(),valid.size(),request));CHECK_EQ(request.request,UINT32_MAX);
+    for(const auto line:{"BTSTORE1 WAVOPEN 2 1 0 0 /../bad","BTSTORE1 WAVOPEN 2 1 1 0 /","BTSTORE1 WAVOPEN 2 1 32 1 /","BTSTORE1 WAVOPEN 2 0 0 1 /"}) {
+        CHECK(!ParseWavOpen(line,std::strlen(line),request));CHECK_EQ(request.request,UINT32_MAX);
+    }
+    char output[64];const std::string directory="/"+std::string(54,'a');CHECK(BuildWavResourceAt(directory,"test.wav",output,sizeof(output)));CHECK_EQ(std::strlen(output),63u);
+    CHECK(!BuildWavResourceAt(directory,"tests.wav",output,sizeof(output)));CHECK(!BuildWavResourceAt("/","../test.wav",output,sizeof(output)));
+}

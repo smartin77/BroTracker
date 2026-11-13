@@ -1,6 +1,7 @@
 #pragma once
 #include <sd_access.h>
 #include "bringup/pattern_file_store.h"
+#include "bringup/wav_directory.h"
 namespace BroTracker {
 // Same initialized SD/SdFat device and D0046 guard as WAV preparation/probes.
 // FsFile avoids the heap-allocated SDFile wrapper in SD.open(). Main context only.
@@ -32,17 +33,45 @@ public:
     bool NextPatternName(std::uint32_t& offset,char* name,std::size_t capacity,bool& end) {
         return NextDirectoryName("/BroTracker/development",offset,name,capacity,end);
     }
+    WavFileFacts ReadWavFacts(const char* directory,const char* name) {
+        char path[322];std::snprintf(path,sizeof(path),"%s%s%s",directory,std::strcmp(directory,"/")?"/":"",name);
+        WavFileFacts facts;facts.known=true;
+        // The caller owns the shared read lease. FsFile keeps the existing
+        // allocation-free directory adapter; validation is the playback validator.
+        class Reader final:public WavBufferReader {
+        public:
+            FsFile file;
+            bool Size(std::uint64_t& n)noexcept override {n=file.size();return true;}
+            bool Seek(std::uint64_t n)noexcept override{return n<=UINT32_MAX && file.seekSet(n);}
+            std::size_t Read(std::uint8_t* data,std::size_t n)noexcept override {const int read=file.read(data,n);return read<0?0:static_cast<std::size_t>(read);}
+        } reader;
+        if(!reader.file.open(path,O_RDONLY))return facts;
+        if(reader.file.isDirectory()){reader.file.close();return facts;}
+        WavMetadata metadata;facts.status=InspectWavMetadata(reader,metadata);
+        facts.format=metadata.format;facts.channels=metadata.channels;facts.bits=metadata.bits;facts.sample_rate=metadata.sample_rate;
+        if(!reader.file.close())facts.status=WavBufferStatus::IoError;
+        return facts;
+    }
+    WavDirectoryResult ReadDirectoryStatus(const char* path) {
+        auto f=SD.sdfs.open(path,O_RDONLY);
+        if(!f)return SD.sdfs.sdErrorCode()?WavDirectoryResult::ReadError:Exists(path)?WavDirectoryResult::ReadError:WavDirectoryResult::Missing;
+        const bool directory=f.isDirectory();const bool closed=f.close();
+        return !closed?WavDirectoryResult::ReadError:directory?WavDirectoryResult::Ok:WavDirectoryResult::NotDirectory;
+    }
     bool NextDirectoryName(const char* directory,std::uint32_t& offset,char* name,std::size_t capacity,bool& end) {
+        bool is_directory=false;const bool ok=NextDirectoryEntry(directory,offset,name,capacity,end,is_directory);
+        if(is_directory)name[0]=0;return ok;
+    }
+    bool NextDirectoryEntry(const char* directory,std::uint32_t& offset,char* name,std::size_t capacity,bool& end,bool& is_directory) {
         auto dir=SD.sdfs.open(directory,O_RDONLY);
         if(!dir || !dir.isDirectory() || !dir.seekSet(offset)) {if(dir)dir.close();return false;}
         FsFile file;end=!file.openNext(&dir,O_RDONLY);
         if(end) {const bool ok=!dir.getError();return dir.close() && ok;}
         const auto position=dir.curPosition();
         name[0]=0;
-        if(!file.isDirectory()) {
-            const auto n=file.getName(name,capacity);
-            if(!n || n>=capacity-1)name[0]=0;
-        }
+        is_directory=file.isDirectory();
+        const auto n=file.getName(name,capacity);
+        if(!n || n>=capacity-1)name[0]=0;
         const bool closed=file.close();const bool dir_closed=dir.close();
         if(position>UINT32_MAX || position<=offset)return false;
         offset=static_cast<std::uint32_t>(position);return closed && dir_closed;
