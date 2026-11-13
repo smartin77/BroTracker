@@ -136,7 +136,7 @@ TEST_CASE(VariableBringUp_PublicationAudioStateAndResolutionRejectionPreserveOld
         if(mode==1) candidate.active_rows=1;
         if(mode==2) candidate.cells[0][0].instrument=255;
         if(mode==3) candidate.cells[0][0].instrument=99;
-        if(mode==4) candidate.cells[0][0].instrument=98;
+        if(mode==4) candidate.cells[0][0].instrument=254;
         Stage(p,candidate,1); CHECK_EQ(c.SubmitPattern(*p.Frozen(),1),PatternRequestStatus::Accepted);
         const auto state=c.Snapshot(); c.AudioBlock(out,1,true); CHECK(c.TakeApplied(ack));
         CHECK_EQ(ack.result,mode==0 ? PatternPlayerStatus::InvalidTransportState : mode==1 ? PatternPlayerStatus::InvalidDimensions :
@@ -524,4 +524,16 @@ TEST_CASE(VariableBringUpStoppedDraftRetainsUnavailableWavWithoutPlaybackSubstit
     CHECK_EQ(bad.cells[0][2].note,60); CHECK_EQ(bad.cells[0][2].instrument,0); CHECK_EQ(out,777);
     CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
     control.AudioBlock(&out,1,true); PatternAppliedRequest ack; CHECK(control.TakeApplied(ack)); CHECK_EQ(out,0);
+}
+
+TEST_CASE(VariableBringUp_PublicationAcceptsNumberedUndefinedSlotWithoutFallback) {
+    auto active=Pattern(); PatternPublication publication; SelectedPatternBringUpControl control;
+    CHECK_EQ(control.InitializeAudio(12753,100,active,Bindings()),PatternPlayerStatus::Success);
+    auto candidate=active; candidate.cells[0][0].instrument=5;
+    Stage(publication,candidate,1); CHECK_EQ(control.SubmitPattern(*publication.Frozen(),1),PatternRequestStatus::Accepted);
+    std::int16_t out[1]; PatternAppliedRequest ack;
+    control.AudioBlock(out,1,true); CHECK(control.TakeApplied(ack)); CHECK_EQ(ack.result,PatternPlayerStatus::Success);
+    CHECK(publication.Complete(ack.publication_id,true,active)); Same(active,candidate);
+    CHECK_EQ(control.Submit(PatternRequest::Start),PatternRequestStatus::Accepted);
+    control.AudioBlock(out,1,true); CHECK_EQ(out[0],0); CHECK(control.TakeApplied(ack)); CHECK_EQ(ack.result,PatternPlayerStatus::Success);
 }

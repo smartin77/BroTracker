@@ -140,6 +140,8 @@ void BringUpSerial::Disconnect(const char* reason)
     transport_->Close();
     opened_ = false;
     connected_ = false;
+    define_reconcile_required_=define_reconcile_required_ || define_pending_;
+    define_supported_=define_pending_=define_queued_=define_success_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
     identity_request_=identity_number_!=0 && identity_number_<=99;restore_view_pending_=false;
@@ -658,13 +660,22 @@ void BringUpSerial::OnLine(std::uint32_t now)
             std::snprintf(file_status_,sizeof(file_status_),"Session recovery/storage: %.115s",line_+18);
         return;
     }
+    if(!std::strcmp(line_,"BTINS1 DEFINECAP 1")) {define_supported_=connected_;return;}
+    if(!std::strncmp(line_,"BTINS1 DEFINED ",14)) {
+        unsigned request=0,result=0,count=0;
+        if(connected_ && define_pending_ && BroTracker::ParseInstrumentDefined(line_,used_,request,result,count) && request==define_id_) {
+            define_pending_=false;
+            if(!result && count==define_expected_+1) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
+            else {define_success_=false;define_error_="Definition commit rejected (code "+std::to_string(result)+")";}
+        }return;
+    }
     if(!std::strcmp(line_,"BTINS1 COLLECTIONCAP 1")) {
         if(connected_ && !collection_supported_) {collection_supported_=true;collection_ready_=false;collection_count_=0;collection_request_=true;}
         return;
     }
     if(!std::strncmp(line_,"BTINS1 COLLECTION STATE ",24)) {
         unsigned count=0;if(connected_ && collection_supported_ && !collection_ready_ &&
-            BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;}
+            BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;define_reconcile_required_=false;}
         return;
     }
     if(!std::strcmp(line_,"BTINS1 CAP 2")) {
@@ -946,6 +957,13 @@ void BringUpSerial::OnLine(std::uint32_t now)
 void BringUpSerial::Tick(std::uint32_t now)
 {
     diagnostic_now_=now;
+    // Run before reads: silence and replies arriving at/after the deadline cannot
+    // keep a commit pending or confirm an automatic assignment. Keep the cached
+    // count ready so only Disconnect + fresh collection readback clears the guard.
+    if(define_pending_ && now-define_started_>=6000) {
+        define_pending_=define_queued_=define_success_=false;define_reconcile_required_=true;
+        define_error_="Definition commit unconfirmed; reconnect to reconcile before retry";
+    }
     // Fixed burst: ready transfers do not pay one UI/render interval per cell.
     // Each pass rechecks transport priority and retains partial-line ownership.
     // No waiting for I/O completion; asynchronous/backpressured writes stay pending.
@@ -1190,6 +1208,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 else tx_size_ = static_cast<unsigned>(written);
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
+        }
+        else if(connected_ && define_queued_ && !pattern_assembler_.Active()) {
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 DEFINE 1 %u %u %u %s\n",define_id_,define_expected_,define_type_,define_resource_);tx_offset_=0;define_queued_=false;
         }
         else if(connected_ && collection_supported_ && collection_request_ && !pattern_assembler_.Active()) {
             std::strcpy(tx_,"BTINS1 COLLECTION GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;collection_request_=false;

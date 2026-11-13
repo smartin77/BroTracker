@@ -14,13 +14,14 @@
 #include "bringup/master_volume_protocol.h"
 #include "bringup/pattern_preview.h"
 #include "bringup/instrument_identity.h"
+#include "bringup/instrument_commit.h"
 #include <string>
 #include <vector>
 #include <algorithm>
 using namespace BroTracker;
 namespace {
 struct StoragePeer:SerialTransport {
-    std::string rx,tx;std::vector<std::string> commands;bool healthy=true,cap=true,respond=true;unsigned pattern=1,draft_pattern=3;std::string result="ok",state="IDLE";
+    std::string rx,tx;std::vector<std::string> commands;bool healthy=true,cap=true,respond=true,silent=false;unsigned pattern=1,draft_pattern=3;std::string result="ok",state="IDLE";
     using Control=BasicPatternBringUpControl<VariableRateBringUpPlayer,VariableRateSampleBindings>;
     Control control;StorageReadyWait readiness;
     bool real_control=false,initialized=false,cleanup_busy=false,transfer_busy=false,readiness_cap=true;
@@ -40,6 +41,7 @@ struct StoragePeer:SerialTransport {
         const auto p=MakeDevelopmentPattern();const auto bindings=SelectDevelopmentFixture({}).bindings;
         CHECK_EQ(control.InitializeAudio(15500,44100,p,bindings),PatternPlayerStatus::Success);initialized=true;
     }
+    bool define_cap=false,reject_define=false,hold_define=false;std::string define_reply;InstrumentDefinitions definitions;VariableRateSampleBindings definition_bindings=SelectDevelopmentFixture({}).bindings;
     bool collection_cap=false,hold_collection=false;unsigned collection_count=DevelopmentInstrumentCount();
     bool hold_identity=false;std::string identity_reply;
     bool facts_cap=false;BroTracker::InstrumentAvailability facts_availability=BroTracker::InstrumentAvailability::Ready;
@@ -66,6 +68,7 @@ struct StoragePeer:SerialTransport {
     int Write(const char* p,unsigned n) override {
         tx.append(p,n);auto end=tx.find('\n');if(end==std::string::npos)return n;
         const auto line=tx.substr(0,end);tx.erase(0,end+1);commands.push_back(line);
+        if(silent)return n; // No incoming bytes, including periodic STATUS replies.
         if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") {
             rx+="BTTEST1 STATE "+state+"\n";
             rx+=std::string("BTPATTERN1 POS 2 ")+(state=="PLAYING"?"1":"0")+(configured_rows?" 0 0 0 0 "+std::to_string(configured_rows)+" 8\n":pattern==5?" 0 0 0 0 16 3\n":" 0 0 0 0 32 8\n");
@@ -74,6 +77,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && identity_cap)rx+="BTINS1 CAP 1\n";
             if(line=="BTTEST1 HELLO" && facts_cap)rx+="BTINS1 CAP 2\n";
             if(line=="BTTEST1 HELLO" && collection_cap)rx+="BTINS1 COLLECTIONCAP 1\n";
+            if(line=="BTTEST1 HELLO" && define_cap)rx+="BTINS1 DEFINECAP 1\n";
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
             if(line=="BTTEST1 HELLO" && !boot_session.empty())rx+="BTSTORE1 NEWCAP 1\nBTSTORE1 RESULT 1 session-boot "+boot_session+" 0\n";
             if(line=="BTTEST1 HELLO" && pattern_save_cap)rx+="BTSTORE1 PATTERNSAVECAP 1\n";
@@ -119,13 +123,21 @@ struct StoragePeer:SerialTransport {
             const auto reply="BTSTORE1 RESULT 1 pattern-save-"+line.substr(sizeof("BTSTORE1 PATTERNSAVE 1 ")-1)+" "+pattern_save_result+" 0\n";
             if(hold_pattern_save)pattern_save_reply=reply;else rx+=reply;
         }
+        else if(line.rfind("BTINS1 DEFINE ",0)==0) {
+            InstrumentDefineRequest request;CHECK(ParseInstrumentDefine(line.data(),line.size(),request));
+            const auto result=CommitInstrumentDefinition(definitions,definition_bindings,request,!reject_define,[](const auto&){return true;});
+            if(!result)collection_count=definitions.Count();
+            const auto reply="BTINS1 DEFINED 1 "+std::to_string(request.request)+" "+std::to_string(result)+" "+std::to_string(definitions.Count())+"\n";
+            if(hold_define)define_reply=reply;else rx+=reply;
+        }
         else if(line=="BTINS1 COLLECTION GET 1") {
             if(!hold_collection)rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(collection_count)+"\n";
         }
         else if(line.rfind("BTINS1 GET 2 ",0)==0) {
             unsigned id=0;if(ParseInstrumentFactsRequest(line.data(),line.size(),id)) {
-                auto availability=id==1?InstrumentAvailability::ExternalUnknown:id==2?InstrumentAvailability::Ready:facts_availability;
-                char reply[96];if(FormatInstrumentFacts(DevelopmentInstrumentFacts(id,availability),reply,sizeof(reply))) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
+                const auto* definition=define_cap?definitions.At(id):DevelopmentInstrumentDefinition(id);
+                auto availability=definition && definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:definition && definition->type==InstrumentType::Synth?InstrumentAvailability::Ready:facts_availability;
+                char reply[96];if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,definition,availability),reply,sizeof(reply))) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -1254,7 +1266,7 @@ TEST_CASE(InstrumentDefinitionsAvailabilityAndLegacyReconnectAreIndependentFacts
         CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample")); // Late legacy/invalid v2 cannot overwrite negotiated facts.
         serial.InspectInstrument(2);CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));Pump(serial,110,120,&editor);
         CHECK_EQ(serial.InstrumentIdentity(),std::string("MIDI"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("External MIDI device unknown"));
-        serial.InspectInstrument(99);Pump(serial,120,130,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Undefined"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Undefined"));
+        serial.InspectInstrument(99);Pump(serial,120,130,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Not defined yet"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Not defined yet"));
         wire->healthy=false;serial.Tick(2601);CHECK_EQ(serial.InstrumentResource(),std::string("Unknown"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Unknown (device unavailable)"));
         wire->facts_cap=false;wire->healthy=true;Pump(serial,160,260,&editor);
         serial.InspectInstrument(1);Pump(serial,260,270,&editor);CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));
@@ -1307,15 +1319,15 @@ TEST_CASE(InstrumentCollectionNavigationUsesConfirmedDefinitionsAndKeepsSource) 
         const auto initial=controls.InstrumentNumber();CHECK_EQ(initial,source+1);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
         controls.Request(BringUpAction::ScreenRight,"held until count",3601);CHECK_EQ(controls.InstrumentNumber(),initial);
         controls.Request(BringUpAction::ScreenDown,"held confirmation",3602);CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
-        wire->rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(count)+"\n";drive(181,190);CHECK_EQ(serial.InstrumentCollectionLimit(),count);
+        wire->rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(count)+"\n";drive(181,190);CHECK_EQ(serial.InstrumentCollectionLimit(),BroTracker::InstrumentSelectionMaximum(count));
         serial.InspectInstrument(initial);drive(190,200);
-        if(source) {CHECK_EQ(serial.InstrumentIdentity(),std::string("Undefined"));controls.Request(BringUpAction::ScreenDown,"undefined cannot confirm",4001);CHECK(controls.InstrumentScreen());}
+        if(source) {CHECK_EQ(serial.InstrumentIdentity(),std::string("Not defined yet"));controls.Request(BringUpAction::ScreenDown,"undefined cannot confirm",4001);CHECK(controls.InstrumentScreen());}
         else {CHECK_EQ(serial.InstrumentIdentity(),std::string("Sample"));CHECK_EQ(serial.InstrumentAvailabilityText(),std::string("Resource unavailable"));}
-        controls.Request(BringUpAction::ScreenLeft,"wrap or recover undefined",4002);CHECK_EQ(controls.InstrumentNumber(),count);
-        controls.Request(BringUpAction::ScreenRight,"clamp",4003);CHECK_EQ(controls.InstrumentNumber(),count);
-        if(count>1) {controls.Request(BringUpAction::ScreenLeft,"previous",4004);CHECK_EQ(controls.InstrumentNumber(),count-1);}
+        controls.Request(BringUpAction::ScreenLeft,"wrap or recover undefined",4002);CHECK_EQ(controls.InstrumentNumber(),BroTracker::InstrumentSelectionMaximum(count));
+        controls.Request(BringUpAction::ScreenRight,"clamp",4003);CHECK_EQ(controls.InstrumentNumber(),BroTracker::InstrumentSelectionMaximum(count));
+        if(count>1) {controls.Request(BringUpAction::ScreenLeft,"previous",4004);CHECK_EQ(controls.InstrumentNumber(),count);}
         controls.Request(BringUpAction::ScreenDown,"defined confirmation",4005);CHECK(!controls.InstrumentScreen());
-        CHECK_EQ(editor.Draft()->cells[2][1].instrument,count>1?count-2:0);CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==EditField::Note);
+        CHECK_EQ(editor.Draft()->cells[2][1].instrument,count>1?count-1:1);CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==EditField::Note);
         CHECK_EQ(editor.Draft()->cells[2][1].note,before.cells[2][1].note);
     }
 }
@@ -1323,15 +1335,15 @@ TEST_CASE(InstrumentCollectionInvalidatesReacquiresAndPreservesLegacyBrowsing) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=true;
     BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
     auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
-    drive(0,100);CHECK_EQ(serial.InstrumentCollectionLimit(),5u);editor.RestoreCursor({0,0,EditField::Note,false});
+    drive(0,100);CHECK_EQ(serial.InstrumentCollectionLimit(),6u);editor.RestoreCursor({0,0,EditField::Note,false});
     controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());const auto initial=controls.InstrumentNumber();
     wire->healthy=false;controls.Tick(3601);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);controls.Request(BringUpAction::ScreenLeft,"disconnected hold",3602);CHECK_EQ(controls.InstrumentNumber(),initial);
     wire->hold_collection=true;wire->healthy=true;drive(200,300);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
     controls.Request(BringUpAction::ScreenRight,"reconnect hold",6001);CHECK_EQ(controls.InstrumentNumber(),initial);
     wire->rx+="BTINS1 COLLECTION STATE 1 -1\nBTINS1 COLLECTION STATE 1 100\n";drive(301,310);CHECK_EQ(serial.InstrumentCollectionLimit(),0u);
-    wire->rx+="BTINS1 COLLECTION STATE 1 1\nBTINS1 COLLECTIONCAP 1\n";drive(310,320);CHECK_EQ(serial.InstrumentCollectionLimit(),1u);
+    wire->rx+="BTINS1 COLLECTION STATE 1 1\nBTINS1 COLLECTIONCAP 1\n";drive(310,320);CHECK_EQ(serial.InstrumentCollectionLimit(),2u);
     CHECK_EQ(std::count(wire->commands.begin(),wire->commands.end(),"BTINS1 COLLECTION GET 1"),2);
-    controls.Request(BringUpAction::ScreenLeft,"one collection",6401);CHECK_EQ(controls.InstrumentNumber(),1u);
+    controls.Request(BringUpAction::ScreenLeft,"one collection",6401);CHECK_EQ(controls.InstrumentNumber(),2u);
     controls.Request(BringUpAction::InstrumentCancel,"cancel",6402);CHECK(!controls.InstrumentScreen());
     wire->healthy=false;controls.Tick(6403);wire->collection_cap=false;wire->healthy=true;drive(350,450);CHECK_EQ(serial.InstrumentCollectionLimit(),99u);
     controls.Request(BringUpAction::ScreenUp,"legacy entry",9001);drive(451,530);CHECK(controls.InstrumentScreen());
@@ -1367,7 +1379,7 @@ TEST_CASE(InstrumentCollectionBoundsReachWindowsAndHandheldThroughBlockedFilters
             }
         };
         arrow(BringUpAction::ScreenLeft);arrow(BringUpAction::ScreenLeft);arrow(BringUpAction::ScreenLeft);
-        CHECK_EQ(controls.InstrumentNumber(),count);arrow(BringUpAction::ScreenRight);CHECK_EQ(controls.InstrumentNumber(),count);
+        CHECK_EQ(controls.InstrumentNumber(),BroTracker::InstrumentSelectionMaximum(count));arrow(BringUpAction::ScreenRight);CHECK_EQ(controls.InstrumentNumber(),BroTracker::InstrumentSelectionMaximum(count));
         CHECK(SamePattern(before,*editor.Draft()));
     }
 }
@@ -1395,7 +1407,7 @@ TEST_CASE(ConfirmedEmptyInstrumentPoolIsDifferentFromPendingCount) {
     BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
     editor.RestoreCursor({0,0,EditField::Instrument,false});CHECK(!serial.InstrumentCollectionKnown());CHECK(!editor.Apply(EditorAction::SetValue,0));
     wire->rx+="BTINS1 COLLECTION STATE 1 0\n";Pump(serial,100,110,&editor);CHECK(serial.InstrumentCollectionKnown());CHECK_EQ(serial.InstrumentCollectionSize(),0u);
-    editor.RestoreCursor({0,0,EditField::Instrument,false});const auto before=*editor.Draft();CHECK(editor.Apply(EditorAction::SetValue,0));CHECK(editor.NewInstrumentSelected());CHECK_EQ(editor.NewInstrumentNumber(),1u);CHECK(SamePattern(before,*editor.Draft()));
+    editor.RestoreCursor({0,0,EditField::Instrument,false});const auto before=*editor.Draft();CHECK(editor.Apply(EditorAction::SetValue,0));CHECK_EQ(editor.Draft()->cells[0][0].instrument,0u);
 }
 
 TEST_CASE(RejectedPreviewEntryCancelsBeforeSaveAndRetainsUndefinedWork) {
@@ -1416,4 +1428,108 @@ TEST_CASE(RejectedPreviewEntryCancelsBeforeSaveAndRetainsUndefinedWork) {
     drive(201,210);CHECK(!controls.ScreenPending());CHECK(!serial.FilePending());CHECK(!editor.Locked());CHECK(SamePattern(project,*editor.Draft()));
     wire->reject_preview=false;CHECK(editor.AssignInstrumentAt(editor.Cursor(),4));drive(210,260);CHECK_EQ(wire->simulated_working.cells[0][0].instrument,4u);
     CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c=="BTTEST1 START" || c.rfind("BTSTORE1 SAVE",0)==0;}));
+}
+
+TEST_CASE(InstrumentTrailingDraftReturnCommitsOnlyEligibleExplicitTypesAfterAck) {
+    for(unsigned type:{0u,1u,2u,3u})for(bool reject:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->identity_cap=wire->facts_cap=wire->collection_cap=wire->define_cap=true;wire->reject_define=reject;wire->hold_define=true;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);editor.RestoreCursor({0,0,EditField::Instrument,false});CHECK(editor.Apply(EditorAction::SetValue,4));const auto original=*editor.Draft();
+        controls.Request(BringUpAction::ScreenUp,"open05",2001);drive(101,180);CHECK(controls.InstrumentScreen());CHECK_EQ(controls.InstrumentNumber(),5u);
+        controls.Request(BringUpAction::ScreenRight,"browse06",3600);CHECK_EQ(controls.InstrumentNumber(),6u);
+        if(type) {
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+            WindowsScreenInput input;SDL_Event event{};event.type=SDL_KEYDOWN;
+            event.key.keysym.sym=type==1?SDLK_1:type==2?SDLK_2:SDLK_3;event.key.keysym.mod=SDL_Keymod(KMOD_NUM|KMOD_CAPS);
+            const auto action=input.Handle(event);CHECK(AllowWindowsBlockedAction(action,serial,controls));
+            controls.Request(action,"filtered explicit Type with lock flags",3601);
+#else
+            controls.Request(type==1?BringUpAction::InstrumentSample:type==2?BringUpAction::InstrumentMidi:BringUpAction::InstrumentSynth,"explicit Type",3601);
+#endif
+        }
+        controls.Request(BringUpAction::ScreenDown,"confirmed return",3602);drive(181,190);
+        if(type<2) {CHECK(!controls.InstrumentScreen());CHECK_EQ(serial.InstrumentCollectionSize(),5u);CHECK(wire->define_reply.empty());CHECK_EQ(editor.Draft()->cells[0][0].instrument,5u);CHECK(editor.Undo());CHECK(SamePattern(original,*editor.Draft()));}
+        else {
+            CHECK(controls.InstrumentScreen());CHECK_EQ(serial.InstrumentCollectionSize(),5u);CHECK(SamePattern(original,*editor.Draft()));CHECK(serial.InstrumentCommitPending());
+            wire->rx+=wire->define_reply;drive(190,200);
+            CHECK_EQ(serial.InstrumentCollectionSize(),reject?5u:6u);CHECK_EQ(controls.InstrumentScreen(),reject);
+            if(reject)CHECK(SamePattern(original,*editor.Draft()));
+            else {auto expected=original;expected.cells[0][0].instrument=5;CHECK(SamePattern(expected,*editor.Draft()));CHECK(editor.Undo());CHECK(SamePattern(original,*editor.Draft()));}
+            if(reject) {CHECK(std::string(controls.ScreenStatus()).find("rejected")!=std::string::npos);controls.Request(BringUpAction::InstrumentCancel,"discard",4001);CHECK(!controls.InstrumentScreen());}
+        }
+    }
+}
+TEST_CASE(InstrumentTrailingDraftCancellationDiscardsExplicitTypeWithoutCommit) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=wire->define_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    Pump(serial,0,100,&editor);editor.RestoreCursor({0,0,EditField::Note,false});const auto before=*editor.Draft();controls.Request(BringUpAction::ScreenUp,"open",2001);
+    for(unsigned i=101;i<180;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}controls.Request(BringUpAction::ScreenRight,"04",3601);controls.Request(BringUpAction::ScreenRight,"05",3602);controls.Request(BringUpAction::ScreenRight,"06",3603);
+    controls.Request(BringUpAction::InstrumentMidi,"draft",3604);controls.Request(BringUpAction::InstrumentCancel,"discard",3605);CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTINS1 DEFINE ",0)==0;}));
+}
+
+TEST_CASE(InstrumentCancelDuringCommitNeverAssignsAfterLateAcknowledgement) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->metadata_cap=wire->collection_cap=wire->define_cap=true;wire->hold_define=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto original=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);
+    for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"06",3601+i);
+    controls.Request(BringUpAction::InstrumentMidi,"explicit",3605);controls.Request(BringUpAction::ScreenDown,"commit",3606);drive(181,190);
+    CHECK(serial.InstrumentCommitPending());CHECK(controls.InstrumentScreen());
+    controls.Request(BringUpAction::InstrumentCancel,"cancel in flight",3801);CHECK(!controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    wire->rx+=wire->define_reply;drive(191,210);CHECK_EQ(serial.InstrumentCollectionSize(),6u);CHECK(!controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));CHECK(editor.Cursor().field==EditField::Note);
+}
+
+TEST_CASE(InstrumentDefineSilentTimeoutRequiresReconnectCountAndExplicitReturn) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->define_cap=true;wire->hold_define=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    const auto defines=[&]{return std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTINS1 DEFINE ",0)==0;});};
+    drive(0,100);editor.RestoreCursor({0,0,EditField::Note,false});const auto source=editor.Cursor();const auto original=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"open03",2001);drive(101,180);
+    CHECK(controls.InstrumentScreen());for(unsigned i=0;i<3;++i)controls.Request(BringUpAction::ScreenRight,"browse06",3601+i);
+    CHECK_EQ(controls.InstrumentNumber(),6u);controls.Request(BringUpAction::InstrumentMidi,"explicit MIDI",3605);
+    controls.Request(BringUpAction::ScreenDown,"confirm",3606);drive(181,190);
+    CHECK_EQ(defines(),1);CHECK_EQ(wire->definitions.Count(),6u);CHECK(serial.InstrumentCommitPending());
+    const auto late_reply=wire->define_reply;CHECK(!late_reply.empty());
+    wire->rx.clear();wire->silent=true;drive(190,480);CHECK(wire->rx.empty());
+    controls.Tick(9605);CHECK(serial.InstrumentCommitPending());
+    controls.Tick(9606);CHECK(!serial.InstrumentCommitPending());CHECK(!serial.InstrumentCommitSucceeded());
+    CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
+    CHECK(std::string(controls.ScreenStatus()).find("unconfirmed")!=std::string::npos);
+    controls.Request(BringUpAction::ScreenDown,"retry before reconciliation",9607);drive(481,490);
+    CHECK_EQ(defines(),1);CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    // Neither a late success nor an unsolicited count on the old connection reconciles.
+    wire->rx+=late_reply+"BTINS1 COLLECTION STATE 1 6\n";drive(490,500);
+    CHECK_EQ(serial.InstrumentCollectionSize(),5u);CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    controls.Request(BringUpAction::ScreenDown,"retry after late reply",10001);drive(501,510);CHECK_EQ(defines(),1);
+    wire->healthy=false;controls.Tick(10201);wire->silent=false;wire->hold_collection=true;wire->healthy=true;drive(520,630);
+    CHECK(serial.Connected());CHECK(!serial.InstrumentCollectionKnown());CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    CHECK(!serial.CommitInstrument(2,nullptr,12601));CHECK_EQ(defines(),1);
+    wire->rx+="BTINS1 COLLECTION STATE 1 100\n";drive(631,635);CHECK(!serial.InstrumentCollectionKnown());
+    wire->rx+="BTINS1 COLLECTION STATE 1 6\n";drive(635,650);
+    CHECK_EQ(serial.InstrumentCollectionSize(),6u);CHECK(serial.InstrumentCollectionKnown());CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    CHECK(!serial.UserActionsBlocked());wire->rx+=late_reply;drive(650,660);CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
+    controls.Request(BringUpAction::ScreenDown,"explicit reconciled return",13201);CHECK(!controls.InstrumentScreen());
+    auto expected=original;expected.cells[source.row][source.channel].instrument=5;CHECK(SamePattern(expected,*editor.Draft()));CHECK_EQ(defines(),1);
+    CHECK_EQ(editor.Cursor().row,source.row);CHECK_EQ(editor.Cursor().channel,source.channel);CHECK(editor.Cursor().field==source.field);
+    CHECK(editor.Undo());CHECK(SamePattern(original,*editor.Draft()));
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c=="BTTEST1 START" || c=="BTTEST1 CONTINUE";}));
+}
+
+TEST_CASE(InstrumentDefineUncommittedTimeoutAllowsRetryOnlyAfterFreshReconnectCount) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->collection_cap=wire->define_cap=wire->reject_define=wire->hold_define=true;
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);
+    CHECK(serial.CommitInstrument(2,nullptr,2001));Pump(serial,101,110,&editor);CHECK_EQ(wire->definitions.Count(),5u);
+    wire->rx.clear();wire->silent=true;serial.Tick(8001);CHECK(!serial.InstrumentCommitPending());CHECK(!serial.CommitInstrument(2,nullptr,8002));
+    wire->healthy=false;serial.Tick(8003);wire->silent=false;wire->hold_collection=true;wire->healthy=true;Pump(serial,450,550,&editor);
+    CHECK(!serial.CommitInstrument(2,nullptr,11001));CHECK(!serial.InstrumentCollectionKnown());
+    wire->rx+="BTINS1 COLLECTION STATE 1 5\n";Pump(serial,551,560,&editor);CHECK(serial.InstrumentCollectionKnown());
+    wire->reject_define=wire->hold_define=false;CHECK(serial.CommitInstrument(2,nullptr,11201));Pump(serial,561,570,&editor);
+    CHECK(serial.InstrumentCommitSucceeded());CHECK_EQ(serial.InstrumentCollectionSize(),6u);
+    CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTINS1 DEFINE ",0)==0;}),2);
 }

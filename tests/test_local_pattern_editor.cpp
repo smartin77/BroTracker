@@ -5,6 +5,8 @@
 #include "ui/pattern_screen.h"
 #include "ui/text_renderer.h"
 #include "ui/instrument_formatter.h"
+#include "bringup/instrument_commit.h"
+#include "core/playback/variable_rate_pattern_player.h"
 #include "ui/handheld_control_hints.h"
 #include <cstring>
 
@@ -993,37 +995,30 @@ TEST_CASE(InstrumentCollectionCountProtocolIsBoundedAndDefinitionDerived) {
     for(const char* line:{"BTINS1 COLLECTION STATE 1 100","BTINS1 COLLECTION STATE 01 5","BTINS1 COLLECTION STATE 2 5","BTINS1 COLLECTION STATE 1 -1","BTINS1 COLLECTION STATE 1 5 extra","BTINS1 COLLECTION STATE 1 5 ","BTINS1 COLLECTION STATE 1 4294967296"}) {unsigned count=77;CHECK(!BroTracker::ParseInstrumentCollectionCount(line,std::strlen(line),count));CHECK_EQ(count,77u);}
 }
 
-TEST_CASE(PatternInstrumentCollectionSeparatesNewActionFromMusicalData) {
-    for(unsigned count:{0u,1u,5u,99u})for(bool populated:{false,true}) {
-        auto view=ConnectedDraft();if(!populated) {for(auto& row:view->device_pattern->pattern.cells)for(auto& cell:row)cell={NOTE_EMPTY,255};}
-        LocalPatternEditor e;e.Sync(view);e.RestoreCursor({0,0,EditField::Instrument,false});e.SetInstrumentCollection(true,true,count);
-        const auto before=*e.Draft();
-        if(count<99) {
-            CHECK(e.Apply(EditorAction::SetValue,count));CHECK(e.NewInstrumentSelected());CHECK_EQ(e.NewInstrumentNumber(),count+1);
-            CHECK(BroTracker::SamePattern(before,*e.Draft()));CHECK(!e.CanUndo());
-            CHECK(e.Apply(EditorAction::Increment));CHECK(e.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*e.Draft()));
-            CHECK(!e.Apply(EditorAction::SetValue,count+1));CHECK(BroTracker::SamePattern(before,*e.Draft()));
-            CHECK(!e.AssignInstrumentAt(e.Cursor(),count));CHECK(e.Apply(EditorAction::CancelInstrumentSelection));CHECK(!e.NewInstrumentSelected());
-        } else {CHECK(!e.Apply(EditorAction::SetValue,99));CHECK(!e.NewInstrumentSelected());}
-        if(count) {CHECK(e.Apply(EditorAction::SetValue,count-1));CHECK_EQ(e.Draft()->cells[0][0].instrument,count-1);CHECK(!e.NewInstrumentSelected());}
-        else {CHECK(e.Apply(EditorAction::Increment));CHECK(e.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*e.Draft()));}
-        e.SetInstrumentCollection(true,false,0);const auto pending=*e.Draft();
-        for(auto action:{EditorAction::Increment,EditorAction::Decrement,EditorAction::SetValue})CHECK(!e.Apply(action,0));
-        CHECK(BroTracker::SamePattern(pending,*e.Draft()));
-        e.SetInstrumentCollection(false,false,0);CHECK(e.Apply(EditorAction::SetValue,18));CHECK_EQ(e.Draft()->cells[0][0].instrument,18u);
+TEST_CASE(PatternTrailingSlotIsAnOrdinaryBoundedReference) {
+    for(unsigned count:{0u,5u,98u,99u})for(bool populated:{false,true}) {
+        auto view=ConnectedDraft();if(!populated)for(auto& row:view->device_pattern->pattern.cells)for(auto& cell:row)cell={NOTE_EMPTY,255};
+        LocalPatternEditor editor;editor.Sync(view);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,count);
+        const auto maximum=BroTracker::InstrumentSelectionMaximum(count);CHECK(editor.Apply(EditorAction::SetValue,maximum-1));CHECK_EQ(editor.Draft()->cells[0][0].instrument,maximum-1);
+        CHECK(editor.Apply(EditorAction::Increment));CHECK_EQ(editor.Draft()->cells[0][0].instrument,maximum-1);CHECK(!editor.Apply(EditorAction::SetValue,maximum));CHECK(!editor.AssignInstrumentAt(editor.Cursor(),maximum));
+        editor.SetInstrumentCollection(true,false,0);const auto before=*editor.Draft();for(auto action:{EditorAction::Increment,EditorAction::Decrement,EditorAction::SetValue})CHECK(!editor.Apply(action,0));CHECK(BroTracker::SamePattern(before,*editor.Draft()));
+        editor.SetInstrumentCollection(false,false,0);CHECK(editor.Apply(EditorAction::SetValue,18));CHECK_EQ(editor.Draft()->cells[0][0].instrument,18u);
     }
 }
-
-TEST_CASE(NewInstrumentRendererChoiceDoesNotChangeEmptyPatternData) {
-    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-new-action");
+TEST_CASE(TrailingSlotRendererShowsStoredNumberWithoutNewAction) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/trailing-instrument");
     for(unsigned count:{0u,5u}) {
         auto view=ConnectedDraft();for(auto& row:view->device_pattern->pattern.cells)for(auto& cell:row)cell={NOTE_EMPTY,255};
-        LocalPatternEditor editor;editor.Sync(view);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,count);const auto before=*editor.Draft();
-        CHECK(editor.Apply(EditorAction::SetValue,count));CHECK(BroTracker::SamePattern(before,*editor.Draft()));CHECK(!editor.CanUndo());
-        BroTracker::SparsePreviewCell captured;CHECK(!editor.TakeCapturedCell(0,captured));
-        HostPanelInformation panel;panel.publication_status=editor.InstrumentSelectionStatus();Framebuffer fb(640,480);Tune tune;Pattern pattern;
-        RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(fb.SaveBMP(count?"diagnostics/instrument-new-action/06-New.bmp":"diagnostics/instrument-new-action/01-New-empty-pool.bmp"));
+        LocalPatternEditor editor;editor.Sync(view);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,count);CHECK(editor.Apply(EditorAction::SetValue,count));CHECK_EQ(editor.Draft()->cells[0][0].instrument,count);
+        BroTracker::SparsePreviewCell captured;CHECK(editor.TakeCapturedCell(0,captured));CHECK_EQ(captured.instrument,count);
+        HostPanelInformation panel;Framebuffer fb(640,480);Tune tune;Pattern pattern;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(fb.SaveBMP(count?"diagnostics/trailing-instrument/06-numbered.bmp":"diagnostics/trailing-instrument/01-empty-pool.bmp"));
     }
+}
+TEST_CASE(DefinitionDraftQualificationAndRuntimeCollectionAreExplicit) {
+    BroTracker::InstrumentDefinitionDraft draft;CHECK(!draft.Qualifies());draft.explicit_type=true;CHECK(!draft.Qualifies());draft.sample="Samples/test2.wav";CHECK(draft.Qualifies());draft.sample=nullptr;
+    for(unsigned type:{2u,3u}) {draft.type=type;draft.explicit_type=false;CHECK(!draft.Qualifies());draft.explicit_type=true;CHECK(draft.Qualifies());}
+    BroTracker::InstrumentDefinitions definitions;CHECK_EQ(definitions.Count(),5u);CHECK(!definitions.Append(4,2,nullptr));CHECK_EQ(definitions.Count(),5u);CHECK(definitions.Append(5,2,nullptr));CHECK_EQ(definitions.Count(),6u);CHECK(definitions.At(5)->type==BroTracker::InstrumentType::MIDI);
+    CHECK(!definitions.Append(6,1,nullptr));CHECK(definitions.Append(6,3,nullptr));CHECK(definitions.At(6)->type==BroTracker::InstrumentType::Synth);
 }
 
 TEST_CASE(PendingInstrumentCollectionStillAllowsClearWithCaptureAndUndo) {
@@ -1046,4 +1041,23 @@ TEST_CASE(PendingInstrumentCollectionStillAllowsClearWithCaptureAndUndo) {
     auto off=*editor.Draft();off.cells[3][1].note=NOTE_OFF;CHECK(editor.RecoverDraft(off));
     CHECK(editor.Apply(EditorAction::Clear));CHECK_EQ(editor.Draft()->cells[3][1].instrument,18u);CHECK_EQ(editor.Draft()->cells[3][1].note,NOTE_OFF);
     CHECK(editor.Draft()->note_off_timing[3][1]==LocalNoteOffTiming::Arrival);
+}
+
+TEST_CASE(DefinitionCommitUsesProductionParserAndAtomicBindingAppend) {
+    for(unsigned type:{2u,3u})for(bool development:{false,true}) {
+        BroTracker::InstrumentDefinitions definitions(development);auto bindings=development?BroTracker::SelectDevelopmentFixture({}).bindings:BroTracker::VariableRateSampleBindings{};
+        const auto initial=definitions.Count();const auto text="BTINS1 DEFINE 1 1 "+std::to_string(initial)+" "+std::to_string(type)+" -";
+        BroTracker::InstrumentDefineRequest request;CHECK(BroTracker::ParseInstrumentDefine(text.data(),text.size(),request));
+        auto p=BroTracker::MakeDevelopmentPattern();BroTracker::VariableRatePatternPlayer player;CHECK(player.Configure(15500,44100,p,bindings)==BroTracker::VariableRatePatternPlayerStatus::Success);
+        const auto append=[&](const auto& binding){return player.AppendInstrumentBinding(binding);};
+        CHECK_EQ(BroTracker::CommitInstrumentDefinition(definitions,bindings,request,false,append),3u);CHECK_EQ(definitions.Count(),initial);
+        CHECK_EQ(BroTracker::CommitInstrumentDefinition(definitions,bindings,request,true,[](const auto&){return false;}),5u);CHECK_EQ(definitions.Count(),initial);
+        CHECK_EQ(BroTracker::CommitInstrumentDefinition(definitions,bindings,request,true,append),0u);CHECK_EQ(definitions.Count(),initial+1);CHECK_EQ(BroTracker::InstrumentBindingIdentity(bindings,initial),type);
+        CHECK_EQ(BroTracker::CommitInstrumentDefinition(definitions,bindings,request,true,append),2u);CHECK_EQ(definitions.Count(),initial+1);
+    }
+    BroTracker::InstrumentDefinitions definitions;auto bindings=BroTracker::SelectDevelopmentFixture({}).bindings;
+    BroTracker::InstrumentDefineRequest sample;sample.request=1;sample.expected=5;sample.type=1;std::strcpy(sample.resource,"Samples/test2.wav");
+    CHECK_EQ(BroTracker::CommitInstrumentDefinition(definitions,bindings,sample,true,[](const auto&){return true;}),0u);CHECK_EQ(definitions.Count(),6u);CHECK_EQ(BroTracker::InstrumentBindingIdentity(bindings,5),0u);CHECK(definitions.At(5)->type==BroTracker::InstrumentType::Sample);
+    for(const char* line:{"BTINS1 DEFINE 1 0 5 2 -","BTINS1 DEFINE 1 1 99 2 -","BTINS1 DEFINE 1 1 5 4 -","BTINS1 DEFINE 1 1 5 1 -","BTINS1 DEFINE 01 1 5 2 -","BTINS1 DEFINE 1 1 5 2 - extra"}) {BroTracker::InstrumentDefineRequest r;CHECK(!BroTracker::ParseInstrumentDefine(line,std::strlen(line),r));}
+    while(definitions.Count()<99)CHECK(definitions.Append(definitions.Count(),2,nullptr));CHECK(!definitions.Append(99,2,nullptr));
 }

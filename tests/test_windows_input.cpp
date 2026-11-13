@@ -190,9 +190,9 @@ static int CollectionChoiceRegression() {
         editor.Sync(live);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,5);
         WindowsEditorInput input(direction);const auto key=direction==BroTracker::ValueStepDirection::Normal?SDLK_PAGEUP:SDLK_PAGEDOWN;
         SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;input.Handle(e,0,editor);e.type=SDL_KEYUP;input.Handle(e,1,editor);
-        CHECK(editor.NewInstrumentSelected());CHECK(editor.NewInstrumentNumber()==6);CHECK(editor.Draft()->cells[0][0].instrument==4);
-        e.type=SDL_KEYDOWN;input.Handle(e,2,editor);e.type=SDL_KEYUP;input.Handle(e,3,editor);CHECK(editor.NewInstrumentNumber()==6);CHECK(editor.Draft()->cells[0][0].instrument==4);
-        e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(input.Handle(e,4,editor));CHECK(!editor.NewInstrumentSelected());CHECK(editor.Draft()->cells[0][0].instrument==4);
+        CHECK(editor.Draft()->cells[0][0].instrument==5);
+        e.type=SDL_KEYDOWN;input.Handle(e,2,editor);e.type=SDL_KEYUP;input.Handle(e,3,editor);CHECK(editor.Draft()->cells[0][0].instrument==5);
+        e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(!input.Handle(e,4,editor));CHECK(editor.Draft()->cells[0][0].instrument==5);
     }return 0;
 }
 int main() {
@@ -437,6 +437,14 @@ int main() {
         e.key.keysym.mod=KMOD_NONE;e.type=SDL_KEYUP;CHECK(input.Handle(e)==BringUpAction::None);
         e.type=SDL_WINDOWEVENT;e.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(e);
         e={};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(input.Handle(e)==BringUpAction::None);
+    }
+    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_1,BringUpAction::InstrumentSample},
+        {SDLK_2,BringUpAction::InstrumentMidi},{SDLK_3,BringUpAction::InstrumentSynth}}) {
+        for(auto locks:{KMOD_NONE,KMOD_NUM,KMOD_CAPS,SDL_Keymod(KMOD_NUM|KMOD_CAPS)}) {
+            WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;e.key.keysym.mod=locks;
+            CHECK(input.Handle(e)==pair.second);e.key.repeat=1;CHECK(input.Handle(e)==BringUpAction::None);e.key.repeat=0;
+            for(auto modifier:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}) {e.key.keysym.mod=SDL_Keymod(locks|modifier);CHECK(input.Handle(e)==BringUpAction::None);}
+        }
     }
     std::puts("Windows keyboard mapping and Teensy identity checks passed");
 }

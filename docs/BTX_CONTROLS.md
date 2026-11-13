@@ -116,18 +116,19 @@ Modified B keeps its existing STOP combinations; Enter remains STOP.
 Closing BTX does not confirm assignment.
 
 
-Provisional owner-validation bindings inside Instrument:
+Bindings inside Instrument (qualification rules: [Instrument foundation](INSTRUMENT_FOUNDATION.md#draft-qualification-and-confirmed-return)):
 
 | Action | Windows | Handheld |
 |---|---|---|
 | Previous / next (collection bounds; legacy 01-99) | Ctrl+Left / Right | Select+Left / Right |
-| Assign selection to source cell and return in its original field | Ctrl+Down | Select+Down |
+| Confirm eligible definition, assign selection and return in its original field | Ctrl+Down | Select+Down |
+| Explicit draft Type: Sample / MIDI / Sine Synth (trailing undefined slot only) | Unmodified 1 / 2 / 3 | Unmodified X cycles |
 | Cancel selection and return without assignment, including recovery hold | Escape | Unmodified B |
 
 Select precedes D-pad; L1 value-edit and R1 beat/tempo precedence remain.
 Chords consume once per physical arrow/direction press, suppress held repeat and
 retain focus-loss/controller-removal handling. Browsing performs no session save,
-assignment or automatic playback resume. Type is read-only device definition identity on capable firmware, with separate
+assignment or automatic playback resume. Existing Type is device-authoritative; trailing undefined slots permit explicit draft Type selection, with separate
 Availability and Resource lines. Missing/failed Sample preparation retains its
 Type/reference. MIDI definition does not prove an external device is present.
 Older firmware retains binding-only Type with honestly unknown availability.
@@ -233,9 +234,10 @@ Windows shows authoritative volume but has no new volume keyboard shortcut.
   Note entry reuses the nearest preceding pitched note in that channel, otherwise
   C-3, in either direction; it does not insert an instrument. Increase cycles
   G-8 -> OFF -> C-0; decrease cycles C-0 -> OFF -> G-8. Entering/leaving OFF sets
-  Arrival. Instruments cycle displayed 01..99 (raw 0..98) through empty `--`:
+  Arrival. Instrument numeric choices use the confirmed collection bounds described in
+  [Instrument foundation](INSTRUMENT_FOUNDATION.md#numbered-collection-and-trailing-undefined-slot); legacy firmware uses 01..99 (raw 0..98) through empty `--`:
   99 -> -- -> 01 or 01 -> -- -> 99. Fresh empty entry starts at 01 in either
-  direction. Higher received IDs remain intact but cannot be stepped. Empty
+  direction. On legacy firmware, higher received IDs remain intact but cannot be stepped. Empty
   notes retain an ordinary instrument field; instrument-only events are valid.
   In an OFF cell, `?` means Arrival (row start), `_` means EndOfPosition (next
   row boundary); either timing-step direction toggles them.
@@ -517,58 +519,23 @@ Only a matching acknowledged successful Save returns to Pattern and shows
 unchanged. Pending, stale replies and failures never show this success message;
 existing failure/recovery behavior is preserved.
 
-## Contiguous collection browsing
+## Collection bounds and undefined drafts
 
-Capable Teensy firmware advertises `BTINS1 COLLECTIONCAP 1`. BTX requests exactly
-`BTINS1 COLLECTION GET 1`, receiving `BTINS1 COLLECTION STATE 1 N` (0-99). N is
-computed from the firmware definition table, including Samples with unavailable
-resources. This read-only extension neither creates nor changes definitions.
-The bounded count is invalidated on disconnect and requested again on reconnect;
-repeated capability lines do not repeat queries. Navigation/confirmation wait for
-a valid count on supported firmware; cancellation remains available. Legacy
-firmware without this capability retains clamped 01-99 navigation after snapshot
-readback, including its recovery rules.
+The agreed rules are in [Instrument foundation](INSTRUMENT_FOUNDATION.md#numbered-collection-and-trailing-undefined-slot).
+With confirmed count N (0-99), Pattern selection and Instrument browsing offer
+01 through min(N+1,99). The last slot is undefined when N<99, displayed as its
+ordinary number in Pattern and **Not defined yet** in Instrument. Pending count
+holds numeric selection/assignment; Clear remains available when otherwise editable.
+Existing out-of-range references remain inspectable and cancellable.
 
-With N confirmed, Left from01 wraps to N, Left from02-N decrements, Right advances
-up to N and stays there. An existing out-of-collection source reference is shown
-as Undefined and retained as the original reference. It cannot be confirmed;
-Left selects N and Right selects01, or cancel preserves the source. References
-beyond99 can be reviewed/cancelled on capable firmware without sending invalid
-identity requests. Only a selection inside the confirmed collection can replace
-the source; resource unavailability does not make a defined Sample undefined.
-Entry STOP/session-save, original cursor restoration and assignment/history paths
-remain unchanged. No creation, deletion or Type editing. New is exposed only as a noncommitting Pattern editor action.
-
-When selected number equals the captured explicit original, only a turquoise
-asterisk is appended directly to the number. Otherwise the existing [*NN] marker
-shows that original. No explicit source ID means neither marker, even for inherited
-or default selection. The original ID never follows browsing or playback.
-
-## Pattern instrument choices and safe undefined drafts
-
-Pattern instrument value input uses the confirmed Teensy collection, independently
-of whether the Pattern is empty. For N1-98, choices are01-N plus exactly N+1 New
-Instrument. For N0, only01 New is offered; confirmed zero has a separate readiness
-flag from pending/unknown count. N99 offers01-99 without New. Supported/pending
-count holds instrument selection. Older firmware keeps legacy01-99 editing.
-These bounds apply centrally to steps, held repeats, reversed steps, direct values
-and instrument assignment. Existing project/history references are not sanitized.
-
-New is transient editor state: its number is shown in the field with a New
-Instrument status, while the cell byte remains unchanged. It creates no undo,
-preview or persistence data. Further increment cannot select N+2. Escape cancels
-the choice; handheld B retains STOP and clears the transient choice. Creation is
-not implemented, so no New number can be committed without a future successful
-Teensy creation acknowledgement. Ctrl+Up on New does not save/open an undefined ID.
-
-Stopped working-draft preview now accepts syntactically valid unbound references
-as metadata, retaining their bytes so Instrument inspection/session save can
-complete. Live rendering and publication validation remain strict; this does not
-make an undefined reference playable or substitute another binding. Normal note,
-pitch, dimensions, gain and timing validation remains. Instrument browsing keeps
-the original reference until explicit defined replacement; cancellation keeps it.
-
-Escape/unmodified B can also cancel pending Instrument entry, including preview
-rejection/session-save wait. Unsent entry saves are cancelled; already transmitted
-operations retain their normal acknowledgement/readiness barriers. Late save ACKs
-cannot reopen Instrument. Closing still does not confirm assignment.
+Ctrl+Up / Select+Up opens the trailing slot; Right browsing reaches it from N.
+Ctrl+Down / Select+Down confirms: an untouched or unassigned Sample draft returns
+with the numbered undefined reference. An eligible draft commits on Teensy first;
+only its success acknowledgement advances the count and permits assignment/return.
+Windows unmodified 1/2/3 selects Sample/MIDI/Sine Synth for this undefined draft;
+handheld unmodified X cycles these Types. Explicit MIDI/Sine Synth qualification
+is a temporary development exception. Failure keeps the editor open with the
+original source cell intact. Escape/unmodified B discards local draft changes
+without assignment; an already transmitted commit may finish, but cannot assign the cancelled cell.
+Save is reserved for future file operations, separate from confirmed return.
+Behavior changes require explicit owner agreement and a documentation update.

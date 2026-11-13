@@ -225,9 +225,9 @@ TEST_CASE(DevelopmentDistinctWavCommandsReplacementRetriggerAndSimultaneousPcm) 
         for(unsigned i=0;i<12;++i) CHECK_EQ(all[i],expected[i]);
         RowEventBatch bad; bad.count=1; bad.events[0]={0,0,0,0,0,0,60,4};
         VariableRateVoiceCommandBatch unchanged; unchanged.count=7;
-        CHECK_EQ(prepare.Prepare(bad,unchanged),VariableSampleCommandStatus::UnknownInstrument);
-        CHECK_EQ(unchanged.count,7); LogicalChannelState state;
-        CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,0);
+        CHECK_EQ(prepare.Prepare(bad,unchanged),VariableSampleCommandStatus::Success);
+        CHECK_EQ(unchanged.count,1);CHECK(unchanged.commands[0].action==VariableRateVoiceAction::Stop); LogicalChannelState state;
+        CHECK_EQ(prepare.GetChannel(0,state),ChannelStateStatus::Success); CHECK_EQ(state.instrument,4);
     }
 }
 

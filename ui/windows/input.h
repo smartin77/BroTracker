@@ -9,6 +9,7 @@
 inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& serial,const BringUpControls& controls) {
     return action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
         (action==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) ||
+        (controls.InstrumentScreen() && action>=BringUpAction::InstrumentSample && action<=BringUpAction::InstrumentTypeNext) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenUp || action==BringUpAction::ScreenDown));
 }
@@ -56,10 +57,6 @@ public:
     }
     bool Handle(const SDL_Event& event, std::uint32_t now, LocalPatternEditor& editor) noexcept {
         if(!editor.Ready() || (editor.Locked() && !navigation_.Active()) || MapWindowsPublish(event)) Cancel();
-        if(event.type==SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym==SDLK_ESCAPE &&
-           !(event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)) && editor.NewInstrumentSelected()) {
-            Cancel();editor.CancelInstrumentChoice();return true;
-        }
         if(event.type==SDL_QUIT) { Cancel(); return false; }
         if(event.type==SDL_WINDOWEVENT) {
             if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) { focused_=false; Cancel(); }
@@ -128,6 +125,7 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
         if(key==SDLK_RIGHT)return BringUpAction::ScreenRight;
     }
     if (modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) return BringUpAction::None;
+    if(!(modifiers & (KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI))) {if(key==SDLK_1)return BringUpAction::InstrumentSample;if(key==SDLK_2)return BringUpAction::InstrumentMidi;if(key==SDLK_3)return BringUpAction::InstrumentSynth;}
     if (key == SDLK_SPACE) return BringUpAction::PatternToggle;
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return BringUpAction::ResetStop;
     return BringUpAction::None;

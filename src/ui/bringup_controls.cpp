@@ -29,9 +29,14 @@ void BringUpControls::LoadSelected(std::uint32_t now) {
         browser_loading_=true;screen_status_="Loading pattern; please wait";
     } else screen_status_="Pattern Load unavailable: STOP and synchronize first";
 }
+std::string BringUpControls::InstrumentDraftType()const {
+    if(instrument_number_!=draft_slot_ || !definition_draft_.explicit_type || !serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1)return {};
+    return definition_draft_.type==1?"Sample":definition_draft_.type==2?"MIDI":"Sine Synth";
+}
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
     if(action==BringUpAction::InstrumentCancel && !exit_after_stop_ && InstrumentCancellationAvailable()) {
+        definition_return_=false;definition_draft_={};draft_slot_=0;
         if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;instrument_screen_=false;
         if(editor_)editor_->RestoreCursor(instrument_entry_.source);
         screen_status_="Instrument cancelled; cell unchanged";return;
@@ -71,23 +76,36 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(action!=BringUpAction::ResetStop)return;
     }
     if(instrument_screen_) {
+        if(action==BringUpAction::InstrumentSample || action==BringUpAction::InstrumentMidi || action==BringUpAction::InstrumentSynth || action==BringUpAction::InstrumentTypeNext) {
+            if(!serial_.InstrumentCollectionKnown() || instrument_number_!=serial_.InstrumentCollectionSize()+1 || instrument_number_>99 || definition_return_)return;
+            draft_slot_=instrument_number_;
+            definition_draft_.type=action==BringUpAction::InstrumentSample?1:action==BringUpAction::InstrumentMidi?2:action==BringUpAction::InstrumentSynth?3:definition_draft_.type%3+1;
+            definition_draft_.explicit_type=true;screen_status_="Definition draft changed; confirm return to commit, or cancel";return;
+        }
+        if(definition_return_ && action!=BringUpAction::ResetStop)return;
+
         if(action==BringUpAction::ScreenDown) {
             const auto limit=serial_.InstrumentCollectionLimit();
             if(!limit || instrument_number_>limit) {
-                screen_status_=serial_.InstrumentCollectionKnown() && !limit?"Return unavailable: no defined instruments; cancel to Pattern (01 New)":
-                    !limit?"Return unavailable: waiting for instrument collection; cancel is available":"Return unavailable: select a defined instrument or cancel";
+                screen_status_=!limit?"Return unavailable: waiting for instrument collection; cancel is available":"Return unavailable: select a numbered slot or cancel";
                 return;
             }
 
             if(serial_.UserActionsBlocked() || serial_.FilePending() || serial_.PublicationBusy() || serial_.TransportPending() ||
-                !editor_ || !editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {
+                !editor_ || editor_->Locked()) {
                 screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
             }
+            if(serial_.InstrumentCollectionSupported() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_==draft_slot_ && definition_draft_.Qualifies()) {
+                if(serial_.CommitInstrument(definition_draft_.type,definition_draft_.sample,now)) {definition_return_=true;screen_status_="Committing definition on Teensy...";}
+                else screen_status_=serial_.InstrumentCommitError();
+                return;
+            }
+            if(!editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {screen_status_="Assignment blocked; cancel or synchronize";return;}
             serial_.SyncEditor(*editor_,now);
             instrument_screen_=false;screen_status_.clear();
         } else if(action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight) {
             const auto limit=serial_.InstrumentCollectionLimit();
-            if(!limit) {screen_status_=serial_.InstrumentCollectionKnown()?"No defined instruments; cancel remains available":"Waiting for instrument collection; cancel remains available";return;}
+            if(!limit) {screen_status_="Waiting for instrument collection; cancel remains available";return;}
             if(action==BringUpAction::ScreenLeft)instrument_number_=instrument_number_>limit?limit:instrument_number_==1?(serial_.InstrumentCollectionSupported()?limit:1):instrument_number_-1;
             else if(instrument_number_>limit)instrument_number_=1;
             else if(instrument_number_<limit)++instrument_number_;
@@ -132,7 +150,6 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(PatternInputBlocked())return;
         instrument_destination_=action==BringUpAction::ScreenUp;
         if(instrument_destination_) {
-            if(editor_ && editor_->NewInstrumentSelected()) {screen_status_.clear();return;}
             instrument_entry_=editor_?CaptureInstrumentEntry(*editor_,serial_.InstrumentCollectionSupported()):InstrumentEntry{};
             if(!instrument_entry_) {screen_status_=instrument_entry_.reason;return;}
             if(!serial_.SessionSnapshotAvailable()) {screen_status_="Instrument unavailable: update session-snapshot firmware";return;}
@@ -192,6 +209,12 @@ void BringUpControls::Tick(std::uint32_t now) {
     serial_.Tick(now);
     if(instrument_screen_ && serial_.UserActionsBlocked())
         screen_status_="Return unavailable: synchronize/recover before instrument assignment";
+    if(definition_return_ && !serial_.InstrumentCommitPending()) {
+        definition_return_=false;
+        if(!serial_.InstrumentCommitSucceeded())screen_status_=serial_.InstrumentCommitError();
+        else if(editor_ && editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {serial_.SyncEditor(*editor_,now);instrument_screen_=false;definition_draft_={};draft_slot_=0;screen_status_.clear();}
+        else screen_status_="Definition committed; assignment blocked. Retry return or cancel";
+    }
     if(exit_after_stop_ && serial_.ExitReady()) {quit_=true;return;}
     if(ScreenPending()) {
         if(serial_.UserActionsBlocked()) {
@@ -208,7 +231,7 @@ void BringUpControls::Tick(std::uint32_t now) {
             const bool entered=serial_.SessionSaveSucceeded() && serial_.MidiRecoveryStopped();
             load_save_screen_=entered && !instrument_destination_;
             instrument_screen_=entered && instrument_destination_;
-            if(instrument_screen_)instrument_number_=instrument_entry_.number;
+            if(instrument_screen_) {instrument_number_=instrument_entry_.number;definition_draft_={};draft_slot_=0;definition_return_=false;}
             screen_phase_=ScreenPhase::Idle;
             screen_status_=instrument_screen_?"Session saved | Instrument":load_save_screen_?"Session saved | Pattern Load/Save < Pattern":"Screen entry: session save failed; current work retained";
         }

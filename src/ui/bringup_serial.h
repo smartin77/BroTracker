@@ -36,19 +36,19 @@ public:
     }
     std::string InstrumentIdentity() const {
         if(!connected_)return "Unknown (identity unavailable)";
-        if(collection_ready_ && identity_number_>collection_count_)return "Undefined";
+        if(collection_ready_ && identity_number_>collection_count_)return "Not defined yet";
         if(!identity_supported_)return "Unknown (identity unavailable)";
         if(!identity_ready_)return "Unknown (awaiting device)";
-        return identity_type_==0?(identity_facts_ready_?"Undefined":"Unbound (legacy binding only)"):identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
+        return identity_type_==0?(identity_facts_ready_?"Not defined yet":"Unbound (legacy binding only)"):identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
     }
     std::string InstrumentAvailabilityText() const {
         if(!connected_)return "Unknown (device unavailable)";
-        if(collection_ready_ && identity_number_>collection_count_)return "Undefined";
+        if(collection_ready_ && identity_number_>collection_count_)return "Not defined yet";
         if(!identity_supported_)return "Unknown (device unavailable)";
         if(!identity_ready_)return "Unknown (awaiting device)";
         if(!identity_facts_ready_)return "Unknown (legacy firmware)";
         switch(identity_availability_) {
-        case 0:return "Undefined";case 1:return identity_type_==1?"Prepared":"Ready";
+        case 0:return "Not defined yet";case 1:return identity_type_==1?"Prepared":"Ready";
         case 2:return "No sample selected";case 3:return "Resource unavailable";
         case 4:return "Preparation failed";case 5:return "Not prepared";
         case 6:return "SD unavailable";case 7:return "External MIDI device unknown";
@@ -65,8 +65,23 @@ public:
     bool InstrumentCollectionKnown() const {return connected_ && collection_supported_ && collection_ready_;}
     unsigned InstrumentCollectionSize() const {return collection_count_;}
     unsigned InstrumentCollectionLimit() const {
-        return !connected_?0:collection_supported_?(collection_ready_?collection_count_:0):pattern_assembler_.Snapshot()?99:0;
+        return !connected_?0:collection_supported_?(collection_ready_?BroTracker::InstrumentSelectionMaximum(collection_count_):0):pattern_assembler_.Snapshot()?99:0;
     }
+    bool CommitInstrument(unsigned type,const char* resource,std::uint32_t now) {
+        if(define_reconcile_required_) {
+            define_error_="Definition commit unconfirmed; reconnect for a fresh collection count before retry";return false;
+        }
+        if(!define_supported_ || !InstrumentCollectionKnown() || collection_count_>=99 || UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_) {
+            define_error_="Definition commit unavailable: STOP, synchronize and use capable firmware";return false;
+        }
+        if(define_id_==UINT32_MAX){define_error_="Reconnect before definition commit";return false;}
+        ++define_id_;define_expected_=collection_count_;define_type_=type;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource?resource:"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    bool InstrumentCommitPending() const {return define_pending_;}
+    bool InstrumentCommitSucceeded() const {return define_success_;}
+    const std::string& InstrumentCommitError() const {return define_error_;}
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
@@ -330,6 +345,9 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
+    bool define_supported_=false,define_pending_=false,define_queued_=false,define_success_=false;
+    bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
+    unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[64]{};std::string define_error_;
     bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;
     bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
     unsigned identity_availability_=0;char identity_resource_[64]{};

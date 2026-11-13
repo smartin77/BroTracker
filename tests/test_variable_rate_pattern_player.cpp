@@ -1,3 +1,4 @@
+#include "bringup/pattern_fixture.h"
 #include "test_framework.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include <algorithm>
@@ -266,7 +267,7 @@ TEST_CASE(VariableRate_PatternPlayer_TransactionalConfigurationAndMetadataCopies
         invalid=pattern; invalid.cells[15][1].note=static_cast<Note>(note);
         reject(12753,44100,invalid,bindings,VariableRatePatternPlayerStatus::InvalidNote);
     }
-    auto bad=bindings; bad.count=17;
+    auto bad=bindings; bad.count=kVariableRateSampleBindingCapacity+1;
     reject(12753,44100,pattern,bad,VariableRatePatternPlayerStatus::InvalidBindingCount);
     bad=bindings; bad.count=2; bad.bindings[1]=bad.bindings[0];
     reject(12753,44100,pattern,bad,VariableRatePatternPlayerStatus::DuplicateInstrument);
@@ -704,7 +705,7 @@ TEST_CASE(VariableRate_StoppedPatternReplacementRejectionsPreserveAllPlayback) {
         case 3: candidate.note_off_timing[0][0]=static_cast<NoteOffTiming>(2); expected=VariableRatePatternPlayerStatus::InvalidNoteOffTiming; break;
         case 4: candidate.cells[0][0].instrument=0xFF; expected=VariableRatePatternPlayerStatus::MissingInstrument; break;
         case 5: candidate.cells[0][0].instrument=99; expected=VariableRatePatternPlayerStatus::UnknownInstrument; break;
-        default: candidate.cells[0][0].instrument=98; expected=VariableRatePatternPlayerStatus::UnknownInstrument; break;
+        default: candidate.cells[0][0].instrument=254; expected=VariableRatePatternPlayerStatus::UnknownInstrument; break;
         }
         CHECK_EQ(player.ReplacePattern(candidate),expected); CheckPlayback(player,baseline);
         auto probe=player; auto reference=baseline; std::int16_t actual[12], wanted[12];
@@ -812,7 +813,7 @@ TEST_CASE(VariableRate_PausedReplacementValidationAndRollback) {
         if(mode==3) { bad.note_off_timing[1][0]=static_cast<NoteOffTiming>(9); status=VariableRatePatternPlayerStatus::InvalidNoteOffTiming; }
         if(mode==4) { bad.cells[0][0].instrument=255; status=VariableRatePatternPlayerStatus::MissingInstrument; }
         if(mode==5) { bad.cells[0][0].instrument=99; status=VariableRatePatternPlayerStatus::UnknownInstrument; }
-        if(mode==6) { bad.cells[0][0].instrument=98; status=VariableRatePatternPlayerStatus::UnknownInstrument; }
+        if(mode==6) { bad.cells[0][0].instrument=254; status=VariableRatePatternPlayerStatus::UnknownInstrument; }
         CHECK_EQ(player.ReplacePausedPattern(bad),status); CheckPlayback(player,saved);
         auto retry=player, reference=saved;
         CHECK_EQ(retry.Continue(),VariableRatePatternPlayerStatus::Success); CHECK_EQ(reference.Continue(),VariableRatePatternPlayerStatus::Success);
@@ -1202,7 +1203,7 @@ TEST_CASE(VariableRate_FractionalVoiceLateFailureRollbackAndSmallerRetry) {
     CHECK_EQ(output[0],999); CheckPlayback(player,boundary);
 }
 
-TEST_CASE(StoppedWorkingPreviewPreservesUndefinedReferencesWithoutGrantingPlayback) {
+TEST_CASE(StoppedWorkingPreviewAndPublicationPreserveSilentUndefinedReferences) {
     const std::int16_t pcm[]={100,200};BroTracker::VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]={0,60,{pcm,2,44100}};
     for(auto note:{Note(60),NOTE_EMPTY}) {
         BroTracker::RealtimePattern pattern;pattern.active_rows=4;pattern.active_channels=1;pattern.cells[0][0]={60,0};
@@ -1210,8 +1211,23 @@ TEST_CASE(StoppedWorkingPreviewPreservesUndefinedReferencesWithoutGrantingPlayba
         auto unknown=pattern;unknown.cells[0][0]={note,18};
         CHECK(player.ReplaceWorkingPattern(unknown)==BroTracker::VariableRatePatternPlayerStatus::Success);
         std::int16_t out[8];CHECK(player.Render(out,8)==BroTracker::VariableRatePatternPlayerStatus::Success);for(auto sample:out)CHECK_EQ(sample,0);
-        // Publication remains strict, and no unknown ID is replaced with a binding.
-        if(note!=NOTE_EMPTY)CHECK(player.ReplacePattern(unknown)==BroTracker::VariableRatePatternPlayerStatus::UnknownInstrument);
+        // Valid numbered undefined references also publish silently, without substitution.
+        CHECK(player.ReplacePattern(unknown)==BroTracker::VariableRatePatternPlayerStatus::Success);
+        CHECK(player.Start()==BroTracker::VariableRatePatternPlayerStatus::Success);CHECK(player.Render(out,8)==BroTracker::VariableRatePatternPlayerStatus::Success);for(auto sample:out)CHECK_EQ(sample,0);player.Stop();
         CHECK(player.ReplaceWorkingPattern(pattern)==BroTracker::VariableRatePatternPlayerStatus::Success);
     }
+}
+
+TEST_CASE(TrailingUndefinedSlotMatchesNoteOffWithoutFallbackOrMutingOtherChannels) {
+    std::array<std::int16_t,4096> pcm;pcm.fill(500);const auto bindings=BroTracker::SelectDevelopmentFixture({pcm.data(),pcm.size(),44100}).bindings;
+    BroTracker::RealtimePattern pattern;pattern.active_rows=2;pattern.active_channels=2;pattern.cells[0][0]={60,0};pattern.cells[0][1]={64,2};pattern.cells[1][0]={72,5};
+    auto stopped=pattern;stopped.cells[1][0]={NOTE_OFF,255};
+    BroTracker::VariableRatePatternPlayer unknown,reference;CHECK(unknown.Configure(30000,44100,pattern,bindings)==BroTracker::VariableRatePatternPlayerStatus::Success);CHECK(reference.Configure(30000,44100,stopped,bindings)==BroTracker::VariableRatePatternPlayerStatus::Success);
+    CHECK(unknown.Start()==BroTracker::VariableRatePatternPlayerStatus::Success);CHECK(reference.Start()==BroTracker::VariableRatePatternPlayerStatus::Success);
+    bool other_channel_audible=false;
+    for(unsigned block=0;block<20;++block) {
+        std::int16_t a[128],b[128];CHECK(unknown.Render(a,128)==BroTracker::VariableRatePatternPlayerStatus::Success);CHECK(reference.Render(b,128)==BroTracker::VariableRatePatternPlayerStatus::Success);
+        for(unsigned i=0;i<128;++i){CHECK_EQ(a[i],b[i]);if(block>=18 && a[i])other_channel_audible=true;}
+    }
+    CHECK(other_channel_audible);
 }

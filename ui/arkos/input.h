@@ -10,7 +10,7 @@
 // Raw fallback requires bindings obtained from the selected SDL GameController.
 enum class ArkOSInputStream { Controller, VerifiedRaw };
 inline bool AllowArkOSBlockedTransport(BringUpAction transport,const BringUpSerial& serial,const BringUpControls& controls) {
-    return (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
+    return (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || transport==BringUpAction::ScreenUp || transport==BringUpAction::ScreenDown ||
           (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp)));
@@ -129,6 +129,7 @@ private:
                 return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT?BringUpAction::ScreenRight:b==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown,false};
             return {};
         }
+        if(instrument_cancel_available_ && b==SDL_CONTROLLER_BUTTON_X && down && focused_ && !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {Cancel();return {BringUpAction::InstrumentTypeNext,false};}
         if(instrument_cancel_available_ && b==SDL_CONTROLLER_BUTTON_B && down && focused_ &&
            !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] &&
            !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
@@ -229,7 +230,7 @@ private:
             }
             return {};
         }
-        if(b==SDL_CONTROLLER_BUTTON_B) { Cancel();editor.CancelInstrumentChoice(); return {BringUpAction::ResetStop,false}; }
+        if(b==SDL_CONTROLLER_BUTTON_B) { Cancel(); return {BringUpAction::ResetStop,false}; }
         if(b==SDL_CONTROLLER_BUTTON_A && editor.Ready() && editor.Cursor().header) {Cancel();return {BringUpAction::None,false,false,int(editor.Cursor().channel)};}
         if(b==SDL_CONTROLLER_BUTTON_A) {Cancel();return {};}
         if(modifier && (b==SDL_CONTROLLER_BUTTON_X || b==SDL_CONTROLLER_BUTTON_Y)) {Cancel();return {};}

@@ -421,7 +421,7 @@ int main(int argc, char* argv[])
         if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
         panel.text=warning_text;
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
-        panel.instrument_identity=serial.InstrumentIdentity();
+        panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
         panel.instrument_number=controls.InstrumentScreen()?controls.InstrumentNumber():0;
         panel.load_save_screen=controls.LoadSaveScreen();
@@ -430,8 +430,7 @@ int main(int argc, char* argv[])
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen())panel.transport_hints="Select+Left/Right: select | Select+Down: assign | B: cancel";
-        if(editor.NewInstrumentSelected())panel.publication_status=editor.InstrumentSelectionStatus();
+        if(controls.InstrumentScreen())panel.transport_hints="Select+Left/Right: slot | X: Type | Select+Down: confirm | B: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";

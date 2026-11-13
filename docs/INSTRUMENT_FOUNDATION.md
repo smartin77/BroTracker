@@ -1,6 +1,8 @@
 # Instrument foundation
 
-Implemented on feature/instrument-screen; owner and physical approval pending.
+Agreed Instrument behavior on feature/instrument-screen. Changes to these rules
+require explicit agreement with the project owner and a corresponding documentation
+update. Physical verification is recorded separately from automated tests.
 Pattern opens one specific instrument directly (no Inventory) through the shared
 STOP/acknowledged IDLE/edit synchronization/session-save transaction. Failed or
 uncertain STOP/save retains Pattern. MIX's future playback exception is unchanged.
@@ -36,7 +38,7 @@ visible with a return-unavailable reason; there is no blind replacement or queue
 automatic assignment. Retry normal return only when the existing editor/serial
 coordination safely accepts it. Recovery rules and retained/live data authority
 are unchanged. Entry still uses the existing STOP/session-save workflow;
-playback-preserving navigation, live assignment and Type editing remain deferred.
+playback-preserving navigation and live assignment remain deferred.
 
 Instrument selector cancellation: Windows **Escape** / handheld **unmodified B**
 returns to Pattern without assignment and restores the captured source cursor.
@@ -51,8 +53,8 @@ Closing BTX does not confirm assignment.
 
 ## Definitions and read-only availability
 
-Teensy is authoritative. `kDevelopmentInstrumentDefinitions` is the single
-firmware-initialized definition table: raw0/display01 Sample `Samples/test2.wav`,
+Teensy is authoritative. `kDevelopmentInstrumentDefinitions` initializes the single runtime
+`InstrumentDefinitions` authority: raw0/display01 Sample `Samples/test2.wav`,
 02 MIDI, 03 Sine Synth, 04 Sample `Samples/test3.wav`, 05 Sample `Samples/test.wav`.
 IDs identify instances, not Types. Definitions carry only Type and an optional
 resource reference. The existing playable binding table is derived boot output,
@@ -87,11 +89,12 @@ Selection changes and disconnect clear all cached extension facts. Only negotiat
 valid, matching-ID replies are accepted; late legacy replies cannot replace v2 facts.
 The Instrument screen shows Type, Availability and Resource separately.
 
-Definitions remain firmware-initialized and immutable in this step. User creation,
-contiguous collection navigation, rotation, Type editing and durable instrument
-persistence are deferred. No new instrument parameter set or file format exists.
-The development five definitions happen to be contiguous; maximum future collection
-size remains 99. Creation, renumbering and sample-loading UI remain deferred.
+Definitions start with the five firmware-initialized development instruments on
+boot. Runtime append extends this same authoritative fixed-capacity table; there
+is no second definition registry. Definitions are RAM-only in this step: reboot
+restores the initial five. Durable definition persistence, deletion, renumbering,
+existing-Type mutation and sample-selection UI remain deferred. Session snapshots
+retain Pattern references, not runtime instrument definitions.
 
 ## Text presentation and deferred work
 
@@ -123,58 +126,96 @@ Cursor restoration validates the full stored pattern dimensions, including valid
 rows beyond the existing 32-row viewport. It does not resize a pattern or implement
 paging; the separate 64-row paging/layout policy remains deferred.
 
-## Contiguous collection browsing
+## Numbered collection and trailing undefined slot
 
-Capable Teensy firmware advertises `BTINS1 COLLECTIONCAP 1`. BTX requests exactly
-`BTINS1 COLLECTION GET 1`, receiving `BTINS1 COLLECTION STATE 1 N` (0-99). N is
-computed from the firmware definition table, including Samples with unavailable
-resources. This read-only extension neither creates nor changes definitions.
-The bounded count is invalidated on disconnect and requested again on reconnect;
-repeated capability lines do not repeat queries. Navigation/confirmation wait for
-a valid count on supported firmware; cancellation remains available. Legacy
-firmware without this capability retains clamped 01-99 navigation after snapshot
-readback, including its recovery rules.
+Instrument numbers are 01-99 (wire/raw IDs 0-98). Defined instruments occupy
+consecutive slots 01 through N. Teensy reports N through `BTINS1 COLLECTIONCAP 1`,
+`BTINS1 COLLECTION GET 1` and `BTINS1 COLLECTION STATE 1 N`. Valid counts are
+0-99 inclusive, derived from the definition table, including unavailable Samples.
+Pending/unknown is distinct from confirmed zero. Disconnect invalidates the count;
+reconnect reacquires it. Repeated capability lines do not repeat queries.
 
-With N confirmed, Left from01 wraps to N, Left from02-N decrements, Right advances
-up to N and stays there. An existing out-of-collection source reference is shown
-as Undefined and retained as the original reference. It cannot be confirmed;
-Left selects N and Right selects01, or cancel preserves the source. References
-beyond99 can be reviewed/cancelled on capable firmware without sending invalid
-identity requests. Only a selection inside the confirmed collection can replace
-the source; resource unavailability does not make a defined Sample undefined.
-Entry STOP/session-save, original cursor restoration and assignment/history paths
-remain unchanged. No creation, deletion or Type editing. New is exposed only as a noncommitting Pattern editor action.
+Both Pattern value selection and Instrument browsing use **01 through
+min(N + 1, 99)**, inclusive:
 
-When selected number equals the captured explicit original, only a turquoise
-asterisk is appended directly to the number. Otherwise the existing [*NN] marker
-shows that original. No explicit source ID means neither marker, even for inherited
-or default selection. The original ID never follows browsing or playback.
+| Confirmed N | Defined | Sole trailing undefined slot | Selectable |
+|---|---|---|---|
+| 0 | None | 01 | 01 |
+| 5 | 01-05 | 06 | 01-06 |
+| 98 | 01-98 | 99 | 01-99 |
+| 99 | 01-99 | None | 01-99 |
 
-## Pattern instrument choices and safe undefined drafts
+This is an ordinary numbered slot, not a transient New Instrument action.
+Pattern displays and may store its actual reference through normal history/preview.
+An empty Pattern uses the same pool bounds. Numeric editing and assignment wait
+while a capable device's count is pending; Clear remains available on otherwise
+editable Instrument fields, preserving the note/timing and existing lock/OFF rules.
+Legacy firmware retains its 01-99 behavior after snapshot readback.
 
-Pattern instrument value input uses the confirmed Teensy collection, independently
-of whether the Pattern is empty. For N1-98, choices are01-N plus exactly N+1 New
-Instrument. For N0, only01 New is offered; confirmed zero has a separate readiness
-flag from pending/unknown count. N99 offers01-99 without New. Supported/pending
-count holds instrument selection. Older firmware keeps legacy01-99 editing.
-These bounds apply centrally to steps, held repeats, reversed steps, direct values
-and instrument assignment. Existing project/history references are not sanitized.
+Ctrl+Up / Select+Up opens the trailing slot from Pattern. Instrument Right from
+the last defined slot reaches it and stops at the inclusive maximum; Left from01
+wraps to that maximum, otherwise decrements. Its device identity reads **Not
+defined yet**. Existing out-of-range references are preserved on load/history and
+may be inspected or cancelled; Left selects the maximum and Right selects01.
+Only a selection inside the current bounds may replace the source reference.
 
-New is transient editor state: its number is shown in the field with a New
-Instrument status, while the cell byte remains unchanged. It creates no undo,
-preview or persistence data. Further increment cannot select N+2. Escape cancels
-the choice; handheld B retains STOP and clears the transient choice. Creation is
-not implemented, so no New number can be committed without a future successful
-Teensy creation acknowledgement. Ctrl+Up on New does not save/open an undefined ID.
+Notes using undefined valid references (01-99) stop that channel's voice, retain
+the logical reference and never fall back to a prior/other instrument. An
+instrument-only event updates the logical reference without triggering a note. They are safe in preview,
+publication and rendering. Invalid legacy bytes can still be retained in stopped
+metadata for inspection/repair; normal pitch/timing/shape validation remains.
 
-Stopped working-draft preview now accepts syntactically valid unbound references
-as metadata, retaining their bytes so Instrument inspection/session save can
-complete. Live rendering and publication validation remain strict; this does not
-make an undefined reference playable or substitute another binding. Normal note,
-pitch, dimensions, gain and timing validation remains. Instrument browsing keeps
-the original reference until explicit defined replacement; cancellation keeps it.
+## Draft qualification and confirmed return
 
-Escape/unmodified B can also cancel pending Instrument entry, including preview
-rejection/session-save wait. Unsent entry saves are cancelled; already transmitted
-operations retain their normal acknowledgement/readiness barriers. Late save ACKs
-cannot reopen Instrument. Closing still does not confirm assignment.
+Browsing changes selection only. An untouched undefined draft stays undefined.
+A Sample draft qualifies only with an assigned sample reference; choosing Sample
+or changing volume/pan without a sample does not qualify. Resource preparation
+success is separate from definition identity. There is currently no sample picker
+or volume/pan editor in this UI.
+
+**Temporary development exceptions:** explicitly choosing MIDI or Sine Synth
+qualifies even with default parameters. An implicit default type never qualifies.
+For the selected trailing slot, Windows unmodified **1 / 2 / 3** explicitly selects
+Sample / MIDI / Sine Synth; handheld unmodified **X** cycles these draft Types.
+Existing defined instruments' Types cannot be changed by these controls.
+
+Ctrl+Down / Select+Down confirms the draft. If ineligible, return normally and
+assign the numbered undefined reference; N stays unchanged and N+2 remains
+unavailable. If eligible, confirmed return **commits the definition on Teensy**
+first. The host advances its confirmed N and exposes the next slot only after
+successful acknowledgement, then assigns through the existing Pattern history,
+preview and source-cursor restoration paths. Failure retains Instrument, its draft,
+the original source cell and the old confirmed count, with an error. Disconnect,
+editor and retained-work recovery barriers still apply. A byte-identical Pattern
+assignment creates no unnecessary history/transport work.
+
+Escape / unmodified B discards the local draft and returns without a new assignment,
+restoring the captured cursor and preserving an already stored reference. This also
+works during disconnect/recovery and pending screen entry. It never starts recovery
+or playback. An already transmitted definition commit still finishes acknowledgement
+coordination, but cannot assign the cancelled source or reopen Instrument. Cancellation
+cannot undo a definition that Teensy has already accepted after confirmed return.
+Late entry-save replies cannot reopen a cancelled screen. Closing BTX is never
+assignment/definition confirmation. Enter and modified handheld STOP chords stay STOP.
+
+The separate **Save** command is reserved for future file operations and is outside
+this workflow. Existing screen-entry STOP/session snapshot safety is retained;
+this is not durable instrument persistence.
+
+## Bounded definition commit extension
+
+New firmware advertises `BTINS1 DEFINECAP 1`; older firmware remains usable for
+inspection/numbered selection, with unavailable commit reported honestly. The host
+sends `BTINS1 DEFINE 1 request expected_count type reference` (63-character bounded
+ASCII resource token, or `-`). Teensy requires stopped/storage-ready coordination,
+exact expected count, available capacity and a qualifying definition. MIDI/Synth
+append their existing binding types; Sample references alias existing immutable
+asset ownership, retaining a definition even if its resource is unavailable. No
+file I/O, allocation or DSP changes occur in the commit.
+
+Reply: `BTINS1 DEFINED 1 request result count`. Result 0 succeeds; 1 malformed,
+2 stale/full collection, 3 not ready, 4 invalid definition/resource, 5 binding
+installation rejected. Identical retries of the last request replay its result;
+expected-count checking prevents duplicate creation. The host does not advance N
+on rejection/timeout, nor automatically retry an uncertain commit. Reconnect
+reacquires authoritative facts. Identity CAP1/CAP2 formats remain unchanged.

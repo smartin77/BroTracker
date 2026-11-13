@@ -382,8 +382,7 @@ namespace
                         const auto* draft = editor && editor->Ready() ? editor->Draft() : nullptr;
                         const auto& cell = (draft ? *draft : display.device_pattern->pattern).cells[row][channel];
                         note_value = cell.note;
-                        instrument_value = editor && editor->NewInstrumentSelected() && editor->Cursor().row==unsigned(row) && editor->Cursor().channel==channel?
-                            static_cast<std::uint8_t>(editor->NewInstrumentNumber()-1):cell.instrument;
+                        instrument_value = cell.instrument;
                     }
                 }
 

@@ -1,6 +1,7 @@
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
 #include "bringup/instrument_identity.h"
+#include "bringup/instrument_commit.h"
 #endif
 #ifdef BROTRACKER_PATTERN_BRINGUP
 #include "bringup/master_volume_protocol.h"
@@ -101,6 +102,10 @@ namespace
     WavInspectionReport g_wav_inspection_report;
 #endif
     RealtimePattern g_active_pattern = kPattern; // Main readback source; updated after audio acknowledgement.
+    #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+    InstrumentDefinitions g_instrument_definitions;
+    InstrumentDefineRequest g_last_define{};unsigned g_last_define_result=0,g_last_define_count=0;
+    #endif
     SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
     PatternPreviewReadback g_working;
     std::uint32_t g_boot_tempo=kTempoHundredths,g_published_tempo=kTempoHundredths;
@@ -252,9 +257,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 40 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 40;
-    constexpr std::size_t kTxCapacity = 41;
+    // Reserve all 41 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 41;
+    constexpr std::size_t kTxCapacity = 42;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[96]{}; std::size_t length = 0, offset = 0; };
@@ -358,7 +363,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -824,15 +829,27 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
                 unsigned id=0;
-                if(g_protocol_connected && !std::strcmp(line,"BTINS1 COLLECTION GET 1")) {
-                    char reply[48];std::snprintf(reply,sizeof(reply),"BTINS1 COLLECTION STATE 1 %u\n",DevelopmentInstrumentCount());(void)QueueLine(reply);
+                if(g_protocol_connected && !std::strncmp(line,"BTINS1 DEFINE ",13)) {
+                    InstrumentDefineRequest request;unsigned result=1;
+                    if(ParseInstrumentDefine(line,used,request)) {
+                        if(request.request==g_last_define.request && request.expected==g_last_define.expected && request.type==g_last_define.type && !std::strcmp(request.resource,g_last_define.resource))result=g_last_define_result;
+                        else {
+                            InterruptGuard guard;
+                            result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,g_audio_ready && g_control.StorageReady(),
+                                [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);});
+                            g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
+                        }
+                    }
+                    char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 DEFINED 1 %u %u %u\n",request.request,result,result==0?g_last_define_count:g_instrument_definitions.Count());(void)QueueLine(reply);
+                } else if(g_protocol_connected && !std::strcmp(line,"BTINS1 COLLECTION GET 1")) {
+                    char reply[48];std::snprintf(reply,sizeof(reply),"BTINS1 COLLECTION STATE 1 %u\n",g_instrument_definitions.Count());(void)QueueLine(reply);
                 } else if(g_protocol_connected && ParseInstrumentFactsRequest(line,used,id)) {
                     auto availability=InstrumentAvailability::Undefined;
-                    if(const auto* definition=DevelopmentInstrumentDefinition(id)) {
+                    if(const auto* definition=g_instrument_definitions.At(id)) {
                         availability=definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
                         if(definition->type==InstrumentType::Sample) {
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-                            const unsigned source=id==0?1:id==3?2:0;
+                            unsigned source=0;for(unsigned i=0;i<3;++i)if(definition->resource && !std::strcmp(definition->resource,kDevelopmentWavPaths[i]))source=i;
                             availability=SamplePreparationAvailability(*definition,g_streaming.reports[source],g_wav_inspection.files[source]);
                             if(availability==InstrumentAvailability::Ready && !InstrumentBindingIdentity(g_selected_bindings,id))availability=InstrumentAvailability::PreparationFailed;
 #else
@@ -841,7 +858,7 @@ namespace
                         }
                     }
                     char reply[96];
-                    if(FormatInstrumentFacts(DevelopmentInstrumentFacts(id,availability),reply,sizeof(reply)))(void)QueueLine(reply);
+                    if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability),reply,sizeof(reply)))(void)QueueLine(reply);
                 } else if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);

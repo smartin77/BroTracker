@@ -3,7 +3,7 @@
 #include "file_list.h"
 #include "instrument_navigation.h"
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
@@ -12,6 +12,7 @@ public:
     bool InstrumentCancellationAvailable()const{return instrument_screen_ || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
+    std::string InstrumentDraftType()const;
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);
     void SetConfirmLoadReplace(bool value){confirm_load_replace_=value;}
@@ -43,7 +44,7 @@ private:
     LocalPatternEditor* editor_=nullptr;
     InstrumentEntry instrument_entry_{};
     bool instrument_destination_=false,instrument_screen_=false;
-    unsigned instrument_number_=1;
+    unsigned instrument_number_=1,draft_slot_=0;BroTracker::InstrumentDefinitionDraft definition_draft_{};bool definition_return_=false;
     bool load_save_screen_=false;
     std::string screen_status_;
     std::uint32_t screen_started_=0;

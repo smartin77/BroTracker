@@ -7,8 +7,8 @@
 
 namespace BroTracker
 {
-    // Initial adapter capacity, not a permanent instrument/format limit.
-    constexpr std::size_t kVariableRateSampleBindingCapacity = 16;
+    // Fixed capacity for all 99 numbered instrument instances.
+    constexpr std::size_t kVariableRateSampleBindingCapacity = 99;
     struct VariableRateSampleBinding
     {
         std::uint8_t instrument = kNoInstrumentUpdate;
@@ -55,7 +55,7 @@ namespace BroTracker
         // Zero bindings is valid (NOTE_OFF still works). Success copies metadata
         // and clears logical state; failure preserves bindings, rate and state.
         // Validation reuses VariableRateSampleVoice::Trigger at unity, without reading sample data.
-        // At most 16 sample validations and 120 duplicate comparisons.
+        // At most 99 sample validations and 4851 duplicate comparisons.
         [[nodiscard]] VariableSampleCommandStatus Configure(std::uint32_t sample_rate_hz,
             const VariableRateSampleBindings& bindings) noexcept
         {
@@ -109,8 +109,14 @@ namespace BroTracker
         // for Arrival. EndOfPosition updates logical state but emits no immediate
         // command; the pattern player owns the deferred absolute-boundary Stop. Empty fields continue state and never imply new triggers.
         // Preserve channel, uint64_t offset and input order (including ties).
+        bool AppendBinding(const VariableRateSampleBinding& binding) noexcept {
+            if(bindings_.count>=kVariableRateSampleBindingCapacity || binding.instrument>=99)return false;
+            for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument)return false;
+            if(binding.type!=InstrumentType::MIDI && binding.type!=InstrumentType::Synth && binding.type!=InstrumentType::Sample)return false;
+            bindings_.bindings[bindings_.count++]=binding;return true;
+        }
         // Reject decreasing offsets; renderer validates block bounds/ownership.
-        // Work bounded by eight events, eight channel-state entries and 8*16 lookups.
+        // Work bounded by eight events, eight channel-state entries and 8*99 lookups.
         // No silent truncation; no measured Teensy execution budget is claimed.
         [[nodiscard]] VariableSampleCommandStatus Prepare(const RowEventBatch& events,
             VariableRateVoiceCommandBatch& output,bool metadata_only=false) noexcept
@@ -146,7 +152,15 @@ namespace BroTracker
                             selected = &bindings_.bindings[j];
                             break;
                         }
-                    if (selected == nullptr) {if(metadata_only) {result.commands[result.count++]=command;continue;}return VariableSampleCommandStatus::UnknownInstrument;}
+                    if (selected == nullptr) {
+                        // A valid numbered undefined slot stops its voice; never fall back.
+                        // Stopped metadata also retains legacy invalid bytes for repair.
+                        if (metadata_only || applied.after.instrument < 99) {
+                            result.commands[result.count++] = command;
+                            continue;
+                        }
+                        return VariableSampleCommandStatus::UnknownInstrument;
+                    }
                     if(selected->type == InstrumentType::MIDI) {
                         command.action=VariableRateVoiceAction::TriggerMidi; command.synth_note=event.note;
                         result.commands[result.count++]=command; continue;

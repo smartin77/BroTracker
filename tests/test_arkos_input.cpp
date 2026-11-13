@@ -636,10 +636,19 @@ TEST_CASE(InstrumentCancelUsesOnlyUnmodifiedBAndPreservesStopCombinations) {
     }
 }
 
-TEST_CASE(HandheldPatternCollectionNewIsNonCommittingAndCannotAdvanceToSeven) {
+TEST_CASE(HandheldPatternTrailingSlotStoresSixAndCannotAdvanceToSeven) {
     InputFixture f;f.editor.SetInstrumentCollection(true,true,5);f.editor.RestoreCursor({0,0,EditField::Instrument,false});
     CHECK(f.editor.Apply(EditorAction::SetValue,4));const auto before=*f.editor.Draft();f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK(f.editor.NewInstrumentSelected());CHECK_EQ(f.editor.NewInstrumentNumber(),6u);
-    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK(f.editor.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*f.editor.Draft()));
-    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);CHECK(!f.editor.NewInstrumentSelected());CHECK(BroTracker::SamePattern(before,*f.editor.Draft()));
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+}
+
+TEST_CASE(HandheldUndefinedDraftTypeUsesOnlyUnmodifiedX) {
+    for(int modifier:{-1,int(SDL_CONTROLLER_BUTTON_BACK),int(SDL_CONTROLLER_BUTTON_START),int(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),int(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)}) {
+        InputFixture f;f.input.SetActionBarrier(true,true,false,false,false,false,true);
+        if(modifier>=0)f.Edge(modifier);
+        CHECK((f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::InstrumentTypeNext)==(modifier<0));
+        CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
+    }
 }
