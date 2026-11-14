@@ -205,14 +205,11 @@ TEST_CASE(SparsePreviewStrictOrderingChecksumBaseAndFrozenOwnership) {
     CHECK_EQ(f.metadata.working_id,0);CHECK_EQ(f.metadata.working.cells[1][0].note,NOTE_EMPTY);
 }
 
-TEST_CASE(SparsePreviewMissingInstrumentDraftCanBeCompletedWithoutResendingRejectedRevision) {
+TEST_CASE(SparsePreviewPreservesPitchedNoteWithoutInstrument) {
     SparseFixture f;auto draft=f.baseline.pattern;draft.cells[2][7]={60,255};
     f.host.Observe(draft,1);f.now=76;CHECK(f.host.TryBegin(f.baseline,76));f.Transfer();f.Audio(0);
-    CHECK_EQ(f.host.Phase(),HostPreviewPhase::Rejected);CHECK(std::strstr(f.host.Status(),"missing-instrument"));
-    CHECK_EQ(f.metadata.working.cells[2][7].note,NOTE_EMPTY);f.Discover();CHECK(!f.host.TryBegin(f.baseline,1000));
-    draft.cells[2][7].instrument=8;f.host.Observe(draft,1001);f.now=1076;CHECK(f.host.TryBegin(f.baseline,1076));
-    f.Transfer();f.Audio(0);CHECK_EQ(f.host.Phase(),HostPreviewPhase::Synchronized);
-    CHECK_EQ(f.metadata.working.cells[2][7].instrument,8);CHECK_EQ(f.metadata.working.cells[0][0].instrument,7);
+    CHECK_EQ(f.host.Phase(),HostPreviewPhase::Synchronized);
+    CHECK_EQ(f.metadata.working.cells[2][7].note,60);CHECK_EQ(f.metadata.working.cells[2][7].instrument,255);
 }
 
 TEST_CASE(SparseReviewUnexpectedStateCannotRelabelCachedCellsAsANewBase) {

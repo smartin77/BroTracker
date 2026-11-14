@@ -119,8 +119,11 @@ namespace BroTracker
                 RamVoiceCommand command{event.channel, event.sample_offset, RamVoiceAction::Stop, {}};
                 if (event.note != NOTE_OFF)
                 {
-                    if (applied.after.instrument == kNoInstrumentUpdate)
-                        return SampleCommandStatus::MissingInstrument;
+                    if (applied.after.instrument == kNoInstrumentUpdate) {
+                        // Preserve an unassigned note as silent Pattern data.
+                        result.commands[result.count++] = command;
+                        continue;
+                    }
                     const NativeRateSampleBinding* selected = nullptr;
                     for (std::size_t j = 0; j < bindings_.count; ++j)
                         if (bindings_.bindings[j].instrument == applied.after.instrument)

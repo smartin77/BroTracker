@@ -19,6 +19,7 @@ Release and press again after changing screens or losing focus.
 | Reset OFF timing to Arrival | Delete on OFF timing | Y on OFF timing |
 | Enter channel headers / return to row one | Up from first row / Down | D-pad Up from first row / Down |
 | Select a header and mute/unmute its channel | Click channel-number header | Move to header; A |
+| Toggle selected header mute once per press | PgUp or PgDn on channel-number header | A on header |
 | Start / pause / continue | Space | Start |
 | Stop and reset | Enter / keypad Enter | B (also L1+B) |
 | Decrease / increase BPM | Keypad ? / + | R1+D-pad Left / Right |
@@ -46,7 +47,7 @@ undefined slot, when available, opens with Sample as its default Type.
 | Open Sample Browser | Enter on Load | A on Load |
 | Confirm draft and return to Pattern | Ctrl+Down | Select+D-pad Down |
 | Discard draft and return to Pattern | Escape (also Backspace) | B |
-| Exit without confirming Instrument draft | Close window | L1+Start |
+| Exit without confirming Instrument draft | Ctrl+X or close window | L1+Start |
 
 The orange frame marks the focused field. Type cycles Sample, MIDI and Sine Synth
 for existing and new slots, including built-in slots. Sample exposes Load. A new
@@ -57,8 +58,8 @@ Pattern references and defined count; failed preparation keeps the editor open
 and the original instrument intact. Confirmation waits for Teensy acknowledgement.
 
 PgUp/PgDn, L1 value stepping, 1/2/3 and X do not change Instrument Type. Ctrl/Select
-is used only for confirmed return in this editor; modified Left/Right does not
-change slots. Enter/A on Type does not change it.
+is used only for confirmed return within this editor (Ctrl+X remains global exit).
+Modified Left/Right does not change slots. Enter/A on Type does not change it.
 
 ## Sample Browser
 
@@ -116,6 +117,11 @@ without a known source. Load stays stopped and returns to Pattern after success.
 
 Recovery never starts playback automatically. Physical volume keys remain OS
 controls when BTX shows `OS keys`.
+
+Exit stops active or paused playback, waits for confirmed STOP and storage readiness,
+synchronizes the latest edits, and closes only after session SAVE acknowledgement.
+If STOP or session SAVE fails, BTX logs the specific failure and closes automatically.
+Pattern Save remains a manual action.
 
 Details: [Instrument editing](INSTRUMENT_FOUNDATION.md),
 [session and file rules](FILE_FORMATS.md), [reconnect recovery](RECONNECT_CONTINUITY.md),

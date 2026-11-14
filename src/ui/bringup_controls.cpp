@@ -72,7 +72,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
     }
     if(action==BringUpAction::Exit) {
         screen_phase_=ScreenPhase::Idle;
-        if(!exit_after_stop_) {exit_after_stop_=true;serial_.BeginExit(now);}
+        if(!exit_after_stop_) {exit_after_stop_=true;stop_pending_=restart_pending_=false;serial_.BeginExit(now);}
         quit_=serial_.ExitReady();return;
     }
     if(exit_after_stop_)return;

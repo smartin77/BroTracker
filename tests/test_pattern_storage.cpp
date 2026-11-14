@@ -707,3 +707,14 @@ TEST_CASE(ExistingInstrumentTypeReplacementIsTransactionalAndSurvivesBtmRoundtri
     InstrumentDefineRequest maximum_request;CHECK(ParseInstrumentReplace(maximum.data(),maximum.size(),maximum_request));CHECK_EQ(std::strlen(maximum_request.resource),63u);CHECK_EQ(maximum_request.request,UINT32_MAX);
     for(const char* bad:{"BTINS1 REPLACE 1 0 0 3 -","BTINS1 REPLACE 1 1 99 3 -","BTINS1 REPLACE 1 1 0 0 -","BTINS1 REPLACE 1 1 0 1 ../bad.wav","BTINS1 REPLACE 1 1 0 2 sample.wav"}){InstrumentDefineRequest r;CHECK(!ParseInstrumentReplace(bad,std::strlen(bad),r));}
 }
+
+TEST_CASE(TemporaryBtmPreservesNoteWithoutInstrumentThroughSessionSaveRestore) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession original;original.working.active_rows=16;original.working.active_channels=8;
+    original.working.cells[0][7]={64,kNoInstrumentUpdate};original.working_tempo=13725;
+    CHECK_EQ(store.Save(backend,original),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    CHECK_EQ(restored.working.cells[0][7].note,64);CHECK_EQ(restored.working.cells[0][7].instrument,kNoInstrumentUpdate);
+    CHECK_EQ(restored.published.cells[0][7].note,64);CHECK_EQ(restored.published.cells[0][7].instrument,kNoInstrumentUpdate);
+    CHECK_EQ(restored.working_tempo,13725u);
+}

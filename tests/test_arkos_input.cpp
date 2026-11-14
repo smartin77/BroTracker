@@ -144,7 +144,7 @@ TEST_CASE(ArkOSPublicationUsesExistingCapabilityGatesAndTransportStopExit) {
     CHECK(transport->tx.find("BTTEST1 STOP\n")!=std::string::npos);
     transport->rx="BTTEST1 STOPPED\n"; controls.Tick(5); CHECK(!controls.Quit());
     f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); const auto exit=f.Tap(SDL_CONTROLLER_BUTTON_START);
-    CHECK(!exit.publish); controls.Request(exit.transport,"L1+Start",6); CHECK(controls.Quit());
+    CHECK(!exit.publish); controls.Request(exit.transport,"L1+Start",6);controls.Tick(7);CHECK(controls.Quit());
 }
 
 TEST_CASE(ArkOSAUsesStoppedPausedCapabilityGatesWithoutChangingDraft) {
@@ -178,10 +178,10 @@ TEST_CASE(ArkOSActiveCleanExitWaitsForStopAndPreservesDraft) {
     f.Tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN); f.Tap(SDL_CONTROLLER_BUTTON_X);
     const auto draft=*f.editor.Draft();
     f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER); const auto result=f.Tap(SDL_CONTROLLER_BUTTON_START);
-    controls.Request(result.transport,"L1+Start",2); CHECK(controls.Exiting()); CHECK(!controls.StopPending()); CHECK(controls.Quit());
-    controls.Tick(3); CHECK(port->tx.find("BTTEST1 STOP\n")==std::string::npos);
+    controls.Request(result.transport,"L1+Start",2); CHECK(controls.Exiting()); CHECK(!controls.StopPending());CHECK(!controls.Quit());
+    controls.Tick(3);CHECK(port->tx.find("BTTEST1 STOP\n")!=std::string::npos);
     CHECK(port->tx.find("BTTEST1 START\n")==std::string::npos); CHECK(SamePattern(draft,*f.editor.Draft()));
-    port->rx="BTTEST1 STOPPED\n"; controls.Tick(4); CHECK(controls.Quit());
+    port->rx="BTTEST1 STOPPED\n";controls.Tick(4);CHECK(controls.Quit());
 }
 
 TEST_CASE(ArkOSRawHatMixedBindingTypesAndIndices) {

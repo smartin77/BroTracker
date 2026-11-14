@@ -143,6 +143,25 @@ static int HeaderMouseRegression() {
     e.type=SDL_MOUSEBUTTONDOWN;CHECK(input.Handle(e,56,42,false)==-1);
     return 0;
 }
+static int HeaderKeyboardMuteRegression() {
+    LocalPatternEditor editor;std::optional<LivePlaybackView> view=LivePlaybackView{};BroTracker::DevicePatternSnapshot snapshot;snapshot.version=2;snapshot.transfer_id=1;snapshot.tempo_hundredths=12500;snapshot.pattern.active_rows=16;snapshot.pattern.active_channels=3;view->device_pattern=snapshot;view->telemetry_available=true;view->position.rows=16;view->position.channels=3;editor.Sync(view);CHECK(editor.SelectHeader(1));const auto before=*editor.Draft();
+    WindowsHeaderInput input;
+    const auto key=[&](SDL_Keycode code,unsigned type=SDL_KEYDOWN,unsigned repeat=0,SDL_Keymod mod=KMOD_NONE,const LocalPatternEditor* target=nullptr){SDL_Event e{};e.type=type;e.key.keysym.sym=code;e.key.repeat=repeat;e.key.keysym.mod=mod;return input.Handle(e,0,0,false,target);};
+    for(auto code:{SDLK_PAGEUP,SDLK_PAGEDOWN}) {
+        CHECK(key(code,SDL_KEYDOWN,0,KMOD_NONE,&editor)==1);CHECK(key(code,SDL_KEYDOWN,0,KMOD_NONE,&editor)==-1);CHECK(key(code,SDL_KEYDOWN,1,KMOD_NONE,&editor)==-1);key(code,SDL_KEYUP);
+        for(auto mod:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}){CHECK(key(code,SDL_KEYDOWN,0,mod,&editor)==-1);key(code,SDL_KEYUP);}
+        CHECK(key(code)==-1);CHECK(key(code,SDL_KEYDOWN,1,KMOD_NONE,&editor)==-1);key(code,SDL_KEYUP);
+        CHECK(key(code,SDL_KEYDOWN,0,KMOD_NONE,&editor)==1);key(code,SDL_KEYUP);
+    }
+    CHECK(key(SDLK_PAGEUP,SDL_KEYDOWN,0,KMOD_NONE,&editor)==1);
+    SDL_Event focus{};focus.type=SDL_WINDOWEVENT;focus.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(focus,0,0,false);
+    focus.window.event=SDL_WINDOWEVENT_FOCUS_GAINED;input.Handle(focus,0,0,false);
+    CHECK(key(SDLK_PAGEUP,SDL_KEYDOWN,1,KMOD_NONE,&editor)==-1);key(SDLK_PAGEUP,SDL_KEYUP);
+    CHECK(key(SDLK_PAGEUP,SDL_KEYDOWN,0,KMOD_NONE,&editor)==1);key(SDLK_PAGEUP,SDL_KEYUP);
+    CHECK(BroTracker::SamePattern(before,*editor.Draft()));editor.RestoreCursor({0,1,EditField::Note,false});
+    for(auto code:{SDLK_PAGEUP,SDLK_PAGEDOWN}){CHECK(key(code,SDL_KEYDOWN,0,KMOD_NONE,&editor)==-1);key(code,SDL_KEYUP);SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=code;CHECK(MapWindowsEditorAction(e)==(code==SDLK_PAGEUP?EditorAction::Increment:EditorAction::Decrement));}
+    return 0;
+}
 static int ScreenFocusRegression() {
     const SDL_Keycode keys[]={SDLK_UP,SDLK_DOWN,SDLK_LEFT,SDLK_RIGHT};
     const BringUpAction actions[]={BringUpAction::ScreenUp,BringUpAction::ScreenDown,BringUpAction::ScreenLeft,BringUpAction::ScreenRight};
@@ -211,7 +230,7 @@ int main() {
         CHECK(mapped==BringUpAction::Exit);
     }
     CHECK(ScreenFocusRegression()==0);
-    CHECK(HeaderMouseRegression()==0);
+    CHECK(HeaderMouseRegression()==0);CHECK(HeaderKeyboardMuteRegression()==0);
     CHECK(CollectionChoiceRegression()==0);
     CHECK(NavigationRegression()==0);
     CHECK(BeatNavigationRegression()==0);

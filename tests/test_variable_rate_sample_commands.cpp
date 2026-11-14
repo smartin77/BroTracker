@@ -141,8 +141,8 @@ TEST_CASE(VariableSampleCommands_TransactionalPreparationFailures)
     input.count=255;
     CHECK_EQ(preparer.Prepare(input,output),VariableSampleCommandStatus::InvalidEventCount); unchanged();
     preparer.Reset(); input.count=1; input.events[0]=EventAt(0,60,kNoInstrumentUpdate);
-    CHECK_EQ(preparer.Prepare(input,output),VariableSampleCommandStatus::MissingInstrument);
-    CheckBatch(output,sentinel); CheckState(preparer,0,NOTE_EMPTY,kNoInstrumentUpdate);
+    CHECK_EQ(preparer.Prepare(input,output),VariableSampleCommandStatus::Success);CHECK_EQ(output.commands[0].action,VariableRateVoiceAction::Stop);
+    CHECK_EQ(output.count,1); CheckState(preparer,0,60,kNoInstrumentUpdate);
     input.count=8;
     for (std::uint8_t c=0;c<8;++c) input.events[c]=EventAt(c,60,0);
     CHECK_EQ(preparer.Prepare(input,output),VariableSampleCommandStatus::Success);

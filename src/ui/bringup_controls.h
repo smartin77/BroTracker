@@ -36,8 +36,9 @@ public:
     FileListView BrowserList()const;
     bool LoadSaveScreen() const {return load_save_screen_ || wav_picker_;}
     bool ScreenPending() const {return screen_phase_!=ScreenPhase::Idle;}
-    bool PatternInputBlocked() const {return ScreenPending() || load_save_screen_ || instrument_screen_;}
+    bool PatternInputBlocked() const {return exit_after_stop_ || ScreenPending() || load_save_screen_ || instrument_screen_;}
     const char* ScreenStatus() const {return screen_status_.c_str();}
+    const std::string& ExitStatus()const{return serial_.ExitStatus();}
     bool Quit() const { return quit_; }
     bool StopPending() const { return stop_pending_; }
     bool Exiting() const { return exit_after_stop_; }

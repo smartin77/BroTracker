@@ -325,8 +325,8 @@ TEST_CASE(VariableRate_PatternPlayer_LateUnsupportedEventRollbackAndRetry)
     CHECK_EQ(missing.Configure(12000,44100,pattern,Bindings()),VariableRatePatternPlayerStatus::Success);
     CHECK_EQ(missing.Start(),VariableRatePatternPlayerStatus::Success);
     std::int16_t output=777;
-    CHECK_EQ(missing.Render(&output,1),VariableRatePatternPlayerStatus::MissingInstrument);
-    CHECK_EQ(output,777); CheckCleared(missing); CHECK(missing.IsRunning());
+    CHECK_EQ(missing.Render(&output,1),VariableRatePatternPlayerStatus::Success);
+    CHECK_EQ(missing.GetNextSamplePosition(),1u); CHECK(missing.IsRunning());
 }
 
 TEST_CASE(VariableRate_PatternPlayer_SeparateCommandAndTickBudgetsAndArithmeticErrors)
@@ -683,9 +683,9 @@ TEST_CASE(VariableRate_StoppedPatternReplacementValidatesContinuationAndPlaysRet
     player.Stop();
     // A later instrument selection cannot retroactively resolve the first note;
     // validation must begin from cleared state, not assume a prior loop.
-    replacement.active_rows=2; replacement.cells[0][0]={60,7}; replacement.cells[1][0]={NOTE_EMPTY,99};
+    replacement.active_rows=2; replacement.cells[0][0]={60,7}; replacement.cells[1][0]={NOTE_EMPTY,7};
     replacement.cells[0][0].instrument=0xFF;
-    CHECK_EQ(player.ReplacePattern(replacement),VariableRatePatternPlayerStatus::MissingInstrument);
+    CHECK_EQ(player.ReplacePattern(replacement),VariableRatePatternPlayerStatus::Success);
     replacement.active_rows=3; replacement.cells[0][0]={NOTE_EMPTY,7};
     replacement.cells[1][0]={60,0xFF}; replacement.cells[2][0]={NOTE_EMPTY,99};
     // Selection at row zero repairs unknown last-loop selection: valid semantics.
@@ -703,7 +703,7 @@ TEST_CASE(VariableRate_StoppedPatternReplacementRejectionsPreserveAllPlayback) {
         case 1: candidate.active_channels=9; expected=VariableRatePatternPlayerStatus::InvalidDimensions; break;
         case 2: candidate.cells[0][0].note=23; expected=VariableRatePatternPlayerStatus::InvalidNote; break;
         case 3: candidate.note_off_timing[0][0]=static_cast<NoteOffTiming>(2); expected=VariableRatePatternPlayerStatus::InvalidNoteOffTiming; break;
-        case 4: candidate.cells[0][0].instrument=0xFF; expected=VariableRatePatternPlayerStatus::MissingInstrument; break;
+        case 4: candidate.cells[0][0].note=23; expected=VariableRatePatternPlayerStatus::InvalidNote; break;
         case 5: candidate.cells[0][0].instrument=99; expected=VariableRatePatternPlayerStatus::UnknownInstrument; break;
         default: candidate.cells[0][0].instrument=254; expected=VariableRatePatternPlayerStatus::UnknownInstrument; break;
         }
@@ -811,7 +811,7 @@ TEST_CASE(VariableRate_PausedReplacementValidationAndRollback) {
         if(mode==1) bad.active_channels=2;
         if(mode==2) { bad.cells[0][0].note=23; status=VariableRatePatternPlayerStatus::InvalidNote; }
         if(mode==3) { bad.note_off_timing[1][0]=static_cast<NoteOffTiming>(9); status=VariableRatePatternPlayerStatus::InvalidNoteOffTiming; }
-        if(mode==4) { bad.cells[0][0].instrument=255; status=VariableRatePatternPlayerStatus::MissingInstrument; }
+        if(mode==4) { bad.cells[0][0].note=23; status=VariableRatePatternPlayerStatus::InvalidNote; }
         if(mode==5) { bad.cells[0][0].instrument=99; status=VariableRatePatternPlayerStatus::UnknownInstrument; }
         if(mode==6) { bad.cells[0][0].instrument=254; status=VariableRatePatternPlayerStatus::UnknownInstrument; }
         CHECK_EQ(player.ReplacePausedPattern(bad),status); CheckPlayback(player,saved);
@@ -915,8 +915,8 @@ TEST_CASE(VariableRate_WorkingPreviewDeletionArrivalPauseStopAndPublicationRestr
     CHECK_EQ(player.ReplaceWorkingPattern(bad),VariableRatePatternPlayerStatus::InvalidDimensions); CheckPlayback(player,reference);
     bad=original; bad.cells[0][0]={60,99};
     CHECK_EQ(player.ReplaceWorkingPattern(bad),VariableRatePatternPlayerStatus::UnknownInstrument); CheckPlayback(player,reference);
-    bad=original; bad.cells[0][0]={60,kNoInstrumentUpdate};
-    CHECK_EQ(player.ReplaceWorkingPattern(bad),VariableRatePatternPlayerStatus::MissingInstrument); CheckPlayback(player,reference);
+    bad=original; bad.cells[0][0]={23,kNoInstrumentUpdate};
+    CHECK_EQ(player.ReplaceWorkingPattern(bad),VariableRatePatternPlayerStatus::InvalidNote); CheckPlayback(player,reference);
     bad=original; bad.cells[0][0]={23,7};
     CHECK_EQ(player.ReplaceWorkingPattern(bad),VariableRatePatternPlayerStatus::InvalidNote); CheckPlayback(player,reference);
     bad=original; bad.note_off_timing[0][0]=static_cast<NoteOffTiming>(9);

@@ -156,8 +156,12 @@ namespace BroTracker
                 VariableRateVoiceCommand command{event.channel, event.sample_offset, VariableRateVoiceAction::Stop, {}};
                 if (event.note != NOTE_OFF)
                 {
-                    if (applied.after.instrument == kNoInstrumentUpdate)
-                        return VariableSampleCommandStatus::MissingInstrument;
+                    if (applied.after.instrument == kNoInstrumentUpdate) {
+                        // A note may have no assigned/inherited instrument. Keep its
+                        // Pattern data intact and stop this voice without fallback.
+                        result.commands[result.count++] = command;
+                        continue;
+                    }
                     const VariableRateSampleBinding* selected = nullptr;
                     for (std::size_t j = 0; j < bindings_.count; ++j)
                         if (bindings_.bindings[j].instrument == applied.after.instrument)

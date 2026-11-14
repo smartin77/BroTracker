@@ -198,6 +198,7 @@ public:
     bool SessionSaveSucceeded() const {return session_save_succeeded_;}
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
+    const std::string& ExitStatus()const{return exit_status_;}
     BroTracker::HostMidiHealth MidiHealth(std::uint32_t now) const {
         BroTracker::HostMidiHealth h;h.connected=connected_;h.supported=midi_supported_;
         if(midi_output_state_!=UINT32_MAX) {
@@ -301,8 +302,13 @@ private:
     bool pattern_save_supported_=false,pattern_save_succeeded_=false;
     bool session_save_succeeded_=false,session_storage_ready_=false,session_ready_required_=false;
     char file_status_[160]{};
+    enum class ExitPhase { Idle, Stopping, Readiness, Synchronizing, Saving, Saved, Failed };
+    void ServiceExit(std::uint32_t now);
+    void FailExit(const std::string& reason);
+    ExitPhase exit_phase_=ExitPhase::Idle;std::string exit_status_;
+    std::uint32_t exit_stage_at_=0,exit_tempo_=0;bool exit_tempo_pending_=false,exit_tempo_uncertain_=false,session_save_uncertain_=false;
     bool exit_requested_=false,exit_done_=false;
-    std::uint32_t exit_started_=0,file_requested_at_=0;
+    std::uint32_t file_requested_at_=0;
     bool FileIdle() const;
     const char* LoadLabel() const;
     char load_label_[40]{};

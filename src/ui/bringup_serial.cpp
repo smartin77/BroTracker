@@ -90,16 +90,81 @@ bool BringUpSerial::RequestPatternLoad(std::string_view name,std::uint32_t now) 
     if(!RequestFile(FileAction::Pattern,now))return false;
     pattern_load_state_=PatternLoadState::Pending;return true;
 }
+void BringUpSerial::FailExit(const std::string& reason) {
+    if(!exit_requested_ || exit_done_)return;
+    exit_status_=reason;exit_phase_=ExitPhase::Failed;exit_done_=true;
+    if(file_action_==FileAction::Session && pending_!=Command::File && pending_!=Command::StorageReady)file_action_=FileAction::None;
+    BroTracker::HostLog(log_,BroTracker::HostLogLevel::Basic,"Session exit",(std::string("Latest edits NOT saved: ")+reason).c_str());
+}
 void BringUpSerial::BeginExit(std::uint32_t now) {
-    exit_requested_=true;exit_started_=now;
-    if(UserActionsBlocked()) {exit_done_=true;return;}
-    if(!RequestFile(FileAction::Session,now)) {
-        Log("EXIT: session save unavailable; latest host-only edits may not be persisted");exit_done_=true;
+    if(exit_requested_)return;
+    exit_requested_=true;exit_done_=false;exit_stage_at_=now;
+    if(file_action_==FileAction::PatternSave) {
+        // A zero Write result may already own bytes in the Windows worker.
+        // Cancel only before the first write attempt, never an uncertain prefix.
+        if(pending_!=Command::File || (tx_offset_==0 && !tx_write_attempted_)) {
+            if(pending_==Command::File){pending_=Command::None;tx_size_=tx_offset_=0;}
+            file_action_=FileAction::None;
+            std::strcpy(file_status_,"Queued Pattern Save cancelled on exit before transmission");
+            BroTracker::HostLog(log_,BroTracker::HostLogLevel::Basic,"Session exit",file_status_);
+        } else BroTracker::HostLog(log_,BroTracker::HostLogLevel::Basic,"Session exit",
+            "Pattern Save transmission started; preserving framing and waiting for its result");
+    }
+    exit_tempo_=tempo_.Desired();exit_tempo_pending_=tempo_.Supported();exit_tempo_uncertain_=tempo_.Phase()==BroTracker::HostTempoPhase::Uncertain;
+    start_queued_=false;transport_queued_=Command::None; // Whole unsent transport intent only; never abort a partially written line.
+    exit_phase_=ExitPhase::Stopping;exit_status_="Stopping Teensy before saving latest edits...";
+    if(!connected_){FailExit("Teensy is disconnected; latest edits cannot be saved.");return;}
+    if(!MidiRecoveryStopped() && !stop_queued_ && pending_!=Command::Stop && !Stop())FailExit("STOP is unavailable; latest edits cannot be saved.");
+}
+void BringUpSerial::ServiceExit(std::uint32_t now) {
+    if(!exit_requested_ || exit_done_)return;
+    if(!connected_){FailExit("Teensy disconnected; save outcome is unconfirmed.");return;}
+    // Let a transmitted manual save use its own acknowledgement/timeout budget.
+    // Its wait must not consume the subsequent STOP acknowledgement budget.
+    if(file_action_==FileAction::PatternSave && pending_==Command::File){exit_stage_at_=now;return;}
+    if(exit_phase_==ExitPhase::Stopping) {
+        if(!MidiRecoveryStopped()) {
+            if(now-exit_stage_at_>=6500)FailExit("STOP was not acknowledged; SAVE was not sent.");
+            return;
+        }
+        exit_phase_=ExitPhase::Readiness;exit_stage_at_=now;exit_status_="STOP confirmed; waiting for storage readiness...";
+    }
+    if(exit_phase_==ExitPhase::Readiness) {
+        if(SdStatus()==SdAvailability::Unavailable){FailExit("Teensy SD is unavailable; SAVE was not sent.");return;}
+        if(session_save_uncertain_){FailExit("Previous session SAVE outcome is uncertain; reconnect and verify before retrying.");return;}
+        if(UserActionsBlocked()){FailExit("Device/session recovery is required before latest edits can be saved.");return;}
+        if(!editor_seen_ || !StartupPatternReady()){FailExit("The working Pattern is not synchronized with Teensy.");return;}
+        if(!storage_supported_ || !working_storage_supported_ || !storage_ready_supported_){FailExit("Firmware does not support confirmed working-session storage readiness.");return;}
+        if(file_action_==FileAction::None) {
+            if(!RequestFile(FileAction::Session,now,true)){FailExit(file_status_);return;}
+        }
+        if(file_action_!=FileAction::Session) {
+            if(now-exit_stage_at_>=15000)FailExit("Another file operation has not completed; latest session SAVE was not sent.");
+            return;
+        }
+        if(pending_!=Command::File)session_ready_required_=true;
+        if(!session_storage_ready_)return;
+        exit_phase_=ExitPhase::Synchronizing;exit_stage_at_=file_requested_at_=now;exit_status_="Storage ready; synchronizing latest edits...";
+    }
+    if(exit_phase_==ExitPhase::Synchronizing) {
+        if(exit_tempo_uncertain_){FailExit("Tempo outcome is uncertain; session SAVE was not sent.");return;}
+        if(exit_tempo_pending_ && tempo_.Available() && tempo_.Synchronized()) {
+            exit_tempo_pending_=false;if(exit_tempo_ && exit_tempo_!=tempo_.State().tempo)(void)tempo_.Request(exit_tempo_);
+        }
+        const auto* remote=preview_.VerifiedWorking();
+        const bool matching=editor_seen_ && (preview_.Supported()?remote && BroTracker::SamePattern(observed_editor_,*remote):
+            pattern_assembler_.Snapshot() && BroTracker::SamePattern(observed_editor_,pattern_assembler_.Snapshot()->pattern));
+        if(!matching) {
+            if(!preview_.Supported())FailExit("Firmware cannot synchronize the latest working edits.");
+            else if(preview_.Phase()==BroTracker::HostPreviewPhase::Rejected || preview_.IdentitiesExhausted())FailExit(preview_.Status());
+            else if(now-exit_stage_at_>=15000)FailExit(std::string("Working edits could not be verified: ")+preview_.Status());
+        }
     }
 }
 
 void BringUpSerial::Disconnect(const char* reason)
 {
+    if(file_action_==FileAction::Session && pending_==Command::File)session_save_uncertain_=true;
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
         if(!continuity_pending_) continuity_frozen_=false;
@@ -116,7 +181,9 @@ void BringUpSerial::Disconnect(const char* reason)
         std::strcpy(file_status_,"File outcome uncertain after disconnect; no automatic retry");
         file_action_=FileAction::None;
     }
-    if(exit_requested_)exit_done_=true;
+    if(exit_requested_)FailExit(std::string(exit_phase_==ExitPhase::Stopping?
+        "STOP was not acknowledged: ":exit_phase_==ExitPhase::Saving?
+        "Session SAVE acknowledgement lost: ":"Teensy disconnected before session SAVE confirmation: ")+reason);
     sd_status_supported_=false;sd_status_=SdAvailability::Unknown;
     storage_supported_=false;working_storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
@@ -307,7 +374,7 @@ void BringUpSerial::SyncEditor(LocalPatternEditor& editor, std::uint32_t now)
     }
     if(!startup_selection_enabled_ && connected_ && editor.Ready() && pattern_assembler_.Snapshot() &&
         (!preview_.Supported() || preview_.VerifiedWorking())) initial_sync_ready_=true;
-    if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(false);
+    if(StartupPatternReady() && !publish_queued_ && !publication_.Blocking()) preview_.Suspend(exit_requested_ && (exit_phase_==ExitPhase::Stopping || exit_phase_==ExitPhase::Readiness));
     if(editor.Ready()) {
         if(restore_view_pending_ && !host_view_seen_ && !continuity_pending_) {
             editor.RestoreCursor(restored_view_);restore_view_pending_=false;
@@ -545,6 +612,7 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
         startup_attempted_=true;
     }
     if(command==Command::File) {
+        if(exit_requested_ && exit_phase_==ExitPhase::Synchronizing){exit_phase_=ExitPhase::Saving;exit_status_="SAVE sent; waiting for acknowledgement...";}
         if(file_action_==FileAction::PatternSave)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 PATTERNSAVE 1 %s\n",pattern_source_.c_str());
         else if(file_action_==FileAction::Session && snapshot_metadata_supported_)
             tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSTORE1 SAVE 2 %u %u %u %u\n",save_view_.row,save_view_.channel,unsigned(save_view_.field),unsigned(save_view_.header));
@@ -698,7 +766,12 @@ void BringUpSerial::OnLine(std::uint32_t now)
             if(pattern_save_result)pattern_save_succeeded_=!std::strncmp(result,"ok ",3);
             if(session_result)session_save_succeeded_=!std::strncmp(result,"ok ",3);
             pending_=Command::None;file_action_=FileAction::None;
-            if(exit_requested_)exit_done_=true;
+            if(exit_requested_ && session_result && exit_phase_==ExitPhase::Saving) {
+                if(session_save_succeeded_) {
+                    exit_phase_=ExitPhase::Saved;exit_done_=true;exit_status_="Latest edits saved; closing.";
+                    BroTracker::HostLog(log_,BroTracker::HostLogLevel::Basic,"Session exit",exit_status_.c_str());
+                } else FailExit(std::string("Session SAVE was not confirmed: ")+result);
+            }
         }
         return;
     }
@@ -776,7 +849,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(pending_==Command::StorageReady && !std::strncmp(line_,"BTSTORE1 NOTREADY 1 ",19)) {
         if(file_action_==FileAction::Session) {
             std::snprintf(file_status_,sizeof(file_status_),"Session save readiness failed: %.105s",line_+19);
-            pending_=Command::None;file_action_=FileAction::None;return;
+            pending_=Command::None;file_action_=FileAction::None;if(exit_requested_)FailExit(file_status_);return;
         }
         // READY rejection confirms that no file load was submitted. Retain the
         // existing editor/session and release the Load barrier; this is not an
@@ -966,6 +1039,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if (pending_ == Command::Hello || pending_ == Command::Status)
         {
             if (!connected_) Log("connected: BTTEST1 handshake accepted");
+            if(!connected_)session_save_uncertain_=false;
             connected_ = true;
             pending_ = Command::None;
         }
@@ -1154,6 +1228,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
         else overflow_ = true;
     }
+    ServiceExit(now);
     // Transport outranks informational STATUS. Finish its line, but do not wait
     // for its reply. STATE received during transport is ignored above; ACKs differ.
     if (pending_ == Command::Status && (transport_queued_ != Command::None || stop_queued_ || start_queued_) && tx_offset_ == tx_size_)
@@ -1167,25 +1242,33 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     }
     if((pending_==Command::Storage || pending_==Command::StorageReady) && now-sent_at_>=15000) {
         if(pending_==Command::StorageReady)load_rejected_=editor_seen_;
-        startup_failed_=true;file_action_=FileAction::None;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
+        if(exit_requested_)FailExit("Storage readiness timed out; SAVE was not sent.");
+        else startup_failed_=true;
+        file_action_=FileAction::None;pending_=Command::None;Log("SD startup pattern ERROR: timeout; not retrying");
         if(tx_offset_!=tx_size_) {Disconnect("partial storage command; outcome unknown");return;}
     }
     if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && pending_!=Command::File && now-file_requested_at_>=15000) {
-        std::strcpy(file_status_,"Save not sent: working edits/tempo could not be verified; current work retained");
+        const char* reason="Save not sent: working edits/tempo could not be verified; current work retained";
+        if(exit_requested_) {
+            if(tempo_.Supported() && !tempo_.Synchronized())reason="SAVE not sent: latest tempo was not acknowledged.";
+            else if(mute_.Supported() && !mute_.Synchronized())reason="SAVE not sent: channel mute state was not acknowledged.";
+            else reason=preview_.Supported()?preview_.Status():"SAVE not sent: working Pattern could not be verified.";
+        }
+        std::snprintf(file_status_,sizeof(file_status_),"%s",reason);
         if(pending_==Command::StorageReady) {
             if(tx_offset_!=tx_size_) {Disconnect("partial session readiness command; save not confirmed");return;}
             pending_=Command::None;
         }
         Log("File ERROR:",file_status_);file_action_=FileAction::None;
-        if(exit_requested_)exit_done_=true;
+        if(exit_requested_)FailExit(file_status_);
     }
     if(pending_==Command::File && now-sent_at_>=15000) {
-        std::strcpy(file_status_,"Save outcome uncertain: timed out; inspect device files before retry");
+        if(file_action_==FileAction::Session)session_save_uncertain_=true;
+        std::strcpy(file_status_,file_action_==FileAction::PatternSave?
+            "Pattern Save outcome uncertain: timed out; inspect device files before retry":
+            "Save outcome uncertain: timed out; inspect device files before retry");
         Log("File ERROR:",file_status_);file_action_=FileAction::None;pending_=Command::None;
-        if(exit_requested_)exit_done_=true;
-    }
-    if(exit_requested_ && !exit_done_ && now-exit_started_>=16000) {
-        Log("EXIT: session save unconfirmed; host-only edits may be lost; playback left running");exit_done_=true;
+        if(exit_requested_)FailExit(file_status_);
     }
     if(PatternListBusy() && now-list_started_>=10000) {
         list_queued_=list_pending_=false;list_ready_=false;std::strcpy(list_status_,"Pattern list timed out; refresh to retry");
@@ -1221,8 +1304,9 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             } else if(!startup_ready_sent_) Send(Command::StorageReady,now);
             else if(startup_storage_ready_) Send(Command::Storage,now);
         }
+        else if(exit_requested_ && exit_phase_==ExitPhase::Readiness && file_action_==FileAction::Session && session_ready_required_ && !session_storage_ready_ && FileIdle() && MidiRecoveryStopped())Send(Command::StorageReady,now);
         else if((file_action_==FileAction::Save || file_action_==FileAction::Session || file_action_==FileAction::PatternSave) && FileIdle() &&
-            editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
+            (!exit_requested_ || exit_phase_==ExitPhase::Synchronizing) && editor_seen_ && (!preview_.Supported() || (preview_.VerifiedWorking() &&
                 BroTracker::SamePattern(observed_editor_,*preview_.VerifiedWorking()))) &&
             (!tempo_.Supported() || tempo_.Synchronized()) && (!mute_.Supported() || mute_.Synchronized())) {
             // STOPPED does not imply MIDI/SD readiness. Keep this Session request
