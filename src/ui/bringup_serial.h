@@ -60,6 +60,8 @@ public:
         if(!connected_ || !identity_facts_ready_)return "Unknown";
         return !std::strcmp(identity_resource_,"-")?"None":identity_resource_;
     }
+    unsigned InspectedType(unsigned number)const{return connected_ && identity_number_==number && identity_facts_ready_?identity_type_:0;}
+    bool ReplaceSupported()const{return connected_ && replace_supported_;}
     bool InspectedSample(unsigned number)const{return connected_ && identity_number_==number && identity_facts_ready_ && identity_type_==1;}
     bool RelinkSupported()const{return connected_ && relink_supported_;}
     bool RelinkInstrument(unsigned number,const char* resource,std::uint32_t now) {
@@ -67,7 +69,7 @@ public:
            UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
             define_error_="Sample relink unavailable: synchronize/reconnect and STOP before retry";return false;
         }
-        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;
+        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;define_replace_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource);
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -87,8 +89,18 @@ public:
             define_error_="Definition commit unavailable: STOP, synchronize and use capable firmware";return false;
         }
         if(define_id_==UINT32_MAX){define_error_="Reconnect before definition commit";return false;}
-        ++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;
+        ++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;define_replace_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource?resource:"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    bool ReplaceInstrument(unsigned number,unsigned type,const char* resource,std::uint32_t now) {
+        if(define_reconcile_required_ || !ReplaceSupported() || !InspectedType(number) || !InstrumentCollectionKnown() || number>collection_count_ ||
+           UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
+            define_error_="Instrument update unavailable: synchronize/reconnect and STOP before retry";return false;
+        }
+        if(type<1 || type>3 || (type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {define_error_="WAV reference unavailable or invalid";return false;}
+        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;define_relink_=false;define_replace_=true;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
     bool InstrumentCommitPending() const {return define_pending_;}
@@ -366,7 +378,7 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
-    bool relink_supported_=false,define_relink_=false;unsigned define_slot_=0;
+    bool replace_supported_=false,define_replace_=false,relink_supported_=false,define_relink_=false;unsigned define_slot_=0;
     bool define_supported_=false,define_pending_=false,define_queued_=false,define_success_=false;
     bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
     unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[64]{};std::string define_error_;

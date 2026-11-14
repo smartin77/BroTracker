@@ -127,23 +127,21 @@ private:
             if(!down)blocked_ &= ~(1u<<b);
             if(down && !was_blocked && !pressed_[opposite] && focused_ &&
                (screen_navigation_available_ || (!action_barrier_ && connected && editor.Ready())))
-                return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT?BringUpAction::ScreenRight:b==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown,false};
+                if(instrument_fields_ && b!=SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {};
+                else return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT?BringUpAction::ScreenRight:b==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown,false};
             return {};
         }
-        if(instrument_fields_ && down && focused_ && !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
-            const bool value=pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];
+        if(instrument_fields_ && pressed_[SDL_CONTROLLER_BUTTON_BACK]) {Cancel();start_pending_=false;return {};}
+        if(instrument_fields_ && down && focused_ && !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
             if(b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT) {
-                const bool previous=b==SDL_CONTROLLER_BUTTON_DPAD_UP || b==SDL_CONTROLLER_BUTTON_DPAD_LEFT;
                 Cancel();
-                if(value && (b==SDL_CONTROLLER_BUTTON_DPAD_UP || b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)) {
-                    const bool increase=previous!=(value_direction_==BroTracker::ValueStepDirection::Reversed);
-                    return {increase?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease,false};
-                }
-                if(!value)return {previous?BringUpAction::InstrumentPreviousField:BringUpAction::InstrumentNextField,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::InstrumentPreviousField,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::InstrumentNextField,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_LEFT)return {BringUpAction::InstrumentDecrease,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)return {BringUpAction::InstrumentIncrease,false};
             }
-            if(!value && b==SDL_CONTROLLER_BUTTON_A){Cancel();return {BringUpAction::InstrumentActivate,false};}
+            if(b==SDL_CONTROLLER_BUTTON_A){Cancel();return {BringUpAction::InstrumentActivate,false};}
         }
-        if(instrument_cancel_available_ && b==SDL_CONTROLLER_BUTTON_X && down && focused_ && !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {Cancel();return {BringUpAction::InstrumentTypeNext,false};}
         if(instrument_cancel_available_ && b==SDL_CONTROLLER_BUTTON_B && down && focused_ &&
            !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] &&
            !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {

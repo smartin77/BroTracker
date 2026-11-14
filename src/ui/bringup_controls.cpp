@@ -38,12 +38,15 @@ void BringUpControls::LoadSelected(std::uint32_t now) {
     } else screen_status_="Pattern Load unavailable: STOP and synchronize first";
 }
 bool BringUpControls::InstrumentTypeEditable()const {
-    return instrument_screen_ && serial_.InstrumentCollectionKnown() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_<=99;
+    return instrument_screen_ && serial_.InstrumentCollectionKnown() && instrument_number_<=serial_.InstrumentCollectionLimit() &&
+        (instrument_number_==serial_.InstrumentCollectionSize()+1 || (serial_.ReplaceSupported() && serial_.InspectedType(instrument_number_)));
+}
+unsigned BringUpControls::InstrumentDraftTypeCode()const {
+    return instrument_number_==draft_slot_?definition_draft_.type:serial_.InspectedType(instrument_number_)?serial_.InspectedType(instrument_number_):1;
 }
 std::string BringUpControls::InstrumentDraftType()const {
     if(!InstrumentTypeEditable())return {};
-    const auto type=instrument_number_==draft_slot_?definition_draft_.type:1;
-    return type==1?"Sample":type==2?"MIDI":"Sine Synth";
+    const auto type=InstrumentDraftTypeCode();return type==1?"Sample":type==2?"MIDI":"Sine Synth";
 }
 std::string BringUpControls::SavedInstrumentPath()const {
     return serial_.InspectedSample(instrument_number_)?serial_.InstrumentResource():std::string{};
@@ -138,13 +141,12 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             return;
         }
         if(action==BringUpAction::InstrumentActivate) {
-            if(InstrumentFocus()==0)action=BringUpAction::InstrumentTypeNext;
-            else if(InstrumentFocus()==1)action=BringUpAction::BrowserConfirm;
+            if(InstrumentFocus()==1)action=BringUpAction::BrowserConfirm;
             else return;
         }
         if(action==BringUpAction::InstrumentIncrease || action==BringUpAction::InstrumentDecrease) {
             if(InstrumentFocus()!=0 || !InstrumentTypeEditable() || definition_return_)return;
-            draft_slot_=instrument_number_;definition_draft_.type=action==BringUpAction::InstrumentIncrease?definition_draft_.type%3+1:(definition_draft_.type+1)%3+1;
+            const auto type=InstrumentDraftTypeCode();draft_slot_=instrument_number_;definition_draft_.type=action==BringUpAction::InstrumentIncrease?type%3+1:(type+1)%3+1;
             definition_draft_.explicit_type=true;definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
             screen_status_="Type draft changed; confirm return or cancel";return;
         }
@@ -154,13 +156,6 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 wav_picker_=true;wav_browser_.Reset();OpenWavDirectory(BroTracker::kWavDirectory,true,now);screen_status_="Sample Load";
             } else screen_status_="Sample Load unavailable: select Sample in the trailing slot and synchronize";
             return;
-        }
-        if(action==BringUpAction::InstrumentSample || action==BringUpAction::InstrumentMidi || action==BringUpAction::InstrumentSynth || action==BringUpAction::InstrumentTypeNext) {
-            if(!InstrumentTypeEditable() || InstrumentFocus()!=0 || definition_return_)return;
-            draft_slot_=instrument_number_;
-            definition_draft_.type=action==BringUpAction::InstrumentSample?1:action==BringUpAction::InstrumentMidi?2:action==BringUpAction::InstrumentSynth?3:definition_draft_.type%3+1;
-            definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
-            definition_draft_.explicit_type=true;screen_status_="Definition draft changed; confirm return to commit, or cancel";return;
         }
         if(definition_return_ && action!=BringUpAction::ResetStop)return;
 
@@ -175,27 +170,26 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 !editor_ || editor_->Locked()) {
                 screen_status_="Return unavailable: synchronize/recover before instrument assignment";return;
             }
-            if(!InstrumentTypeEditable() && serial_.InspectedSample(instrument_number_) && draft_slot_==instrument_number_ && !sample_path_.empty()) {
-                if(serial_.RelinkInstrument(instrument_number_,sample_path_.c_str(),now)) {definition_return_=replacement_return_=true;screen_status_="Preparing candidate WAV before relinking Sample...";}
+            const bool existing=!serial_.InstrumentCollectionSupported() || instrument_number_<=serial_.InstrumentCollectionSize();
+            const auto type=InstrumentDraftTypeCode();
+            const auto path=!sample_path_.empty()?sample_path_:type==1 && serial_.InspectedSample(instrument_number_)?SavedInstrumentPath():std::string{};
+            const bool changed=draft_slot_==instrument_number_ && ((definition_draft_.explicit_type && type!=serial_.InspectedType(instrument_number_)) || !sample_path_.empty());
+            if(existing && changed && type==1 && path.empty()) {screen_status_="No sample selected; use Load WAV before confirming";return;}
+            if(existing && changed) {
+                const bool accepted=serial_.ReplaceSupported()?serial_.ReplaceInstrument(instrument_number_,type,type==1?path.c_str():nullptr,now):
+                    type==1 && serial_.RelinkInstrument(instrument_number_,path.c_str(),now);
+                if(accepted) {definition_return_=replacement_return_=true;screen_status_="Preparing instrument update on Teensy...";}
                 else screen_status_=serial_.InstrumentCommitError();return;
             }
-            if(!sample_path_.empty() && definition_draft_.type!=1)definition_draft_.sample=nullptr;
-            if(serial_.InstrumentCollectionSupported() && instrument_number_==serial_.InstrumentCollectionSize()+1 && instrument_number_==draft_slot_ && definition_draft_.Qualifies()) {
-                if(serial_.CommitInstrument(definition_draft_.type,definition_draft_.sample,now)) {definition_return_=true;screen_status_="Committing definition on Teensy...";}
-                else screen_status_=serial_.InstrumentCommitError();
-                return;
+            if(!existing && !(type==1 && path.empty())) {
+                definition_draft_.sample=type==1?sample_path_.c_str():nullptr;
+                if(!definition_draft_.Qualifies()){screen_status_="Choose a Type before confirming";return;}
+                if(serial_.CommitInstrument(type,definition_draft_.sample,now)){definition_return_=true;screen_status_="Committing definition on Teensy...";}
+                else screen_status_=serial_.InstrumentCommitError();return;
             }
             if(!editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {screen_status_="Assignment blocked; cancel or synchronize";return;}
             serial_.SyncEditor(*editor_,now);
             instrument_screen_=false;screen_status_.clear();
-        } else if(action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight) {
-            const auto limit=serial_.InstrumentCollectionLimit();
-            if(!limit) {screen_status_="Waiting for instrument collection; cancel remains available";return;}
-            if(action==BringUpAction::ScreenLeft)instrument_number_=instrument_number_>limit?limit:instrument_number_==1?(serial_.InstrumentCollectionSupported()?limit:1):instrument_number_-1;
-            else if(instrument_number_>limit)instrument_number_=1;
-            else if(instrument_number_<limit)++instrument_number_;
-            instrument_field_=0;
-            screen_status_.clear();
         }
         if(action!=BringUpAction::ResetStop)return;
     }
@@ -293,12 +287,14 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 }
 void BringUpControls::Tick(std::uint32_t now) {
     serial_.Tick(now);
+    if(instrument_screen_)serial_.InspectInstrument(instrument_number_);
+    if(instrument_screen_ && !wav_picker_ && !InstrumentLoadAvailable())instrument_field_=0;
     if(instrument_screen_ && serial_.UserActionsBlocked())
         screen_status_="Return unavailable: synchronize/recover before instrument assignment";
     if(definition_return_ && !serial_.InstrumentCommitPending()) {
         definition_return_=false;
         if(!serial_.InstrumentCommitSucceeded()) {screen_status_=serial_.InstrumentCommitError();replacement_return_=false;}
-        else if(replacement_return_) {replacement_return_=false;instrument_screen_=false;if(editor_)editor_->RestoreCursor(instrument_entry_.source);sample_path_.clear();definition_draft_={};draft_slot_=0;screen_status_="Sample WAV relinked; Pattern references unchanged";}
+        else if(replacement_return_) {replacement_return_=false;instrument_screen_=false;if(editor_)editor_->RestoreCursor(instrument_entry_.source);sample_path_.clear();definition_draft_={};draft_slot_=0;screen_status_="Instrument updated; Pattern references unchanged";}
         else if(editor_ && editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {serial_.SyncEditor(*editor_,now);instrument_screen_=false;definition_draft_={};draft_slot_=0;screen_status_.clear();}
         else screen_status_="Definition committed; assignment blocked. Retry return or cancel";
     }

@@ -13,6 +13,7 @@ public:
     bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
+    unsigned InstrumentDraftTypeCode()const;
     std::string InstrumentDraftType()const;
     bool InstrumentTypeEditable()const;
     unsigned InstrumentField()const{return instrument_field_;}

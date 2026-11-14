@@ -645,11 +645,11 @@ TEST_CASE(HandheldPatternTrailingSlotStoresSixAndCannotAdvanceToSeven) {
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
 }
 
-TEST_CASE(HandheldUndefinedDraftTypeUsesOnlyUnmodifiedX) {
+TEST_CASE(HandheldInstrumentDirectTypeShortcutIsRetired) {
     for(int modifier:{-1,int(SDL_CONTROLLER_BUTTON_BACK),int(SDL_CONTROLLER_BUTTON_START),int(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),int(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)}) {
         InputFixture f;f.input.SetActionBarrier(true,true,false,false,false,false,true);
         if(modifier>=0)f.Edge(modifier);
-        CHECK((f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::InstrumentTypeNext)==(modifier<0));
+        CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
         CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
     }
 }
@@ -671,9 +671,15 @@ TEST_CASE(ArkOSInstrumentFocusedFieldsUseNormalAndVerifiedRawControlsWithoutPatt
         CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::InstrumentNextField);
         CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::InstrumentPreviousField);
         CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::InstrumentActivate);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT)==BringUpAction::InstrumentDecrease);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)==BringUpAction::InstrumentIncrease);
+        for(auto b:{SDL_CONTROLLER_BUTTON_X,SDL_CONTROLLER_BUTTON_Y})CHECK(tap(b)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_BACK,true);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::None);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT)==BringUpAction::None);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_BACK,false);
         edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);
-        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==(direction==ValueStepDirection::Normal?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease));
-        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==(direction==ValueStepDirection::Normal?BringUpAction::InstrumentDecrease:BringUpAction::InstrumentIncrease));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::None);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::None);
         edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
         edge(SDL_CONTROLLER_BUTTON_BACK,true);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);edge(SDL_CONTROLLER_BUTTON_BACK,false);
         CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::InstrumentCancel);CHECK(SamePattern(before,*f.editor.Draft()));

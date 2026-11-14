@@ -23,17 +23,18 @@ inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
     }
 }
 inline BringUpAction MapWindowsInstrumentAction(const SDL_Event& event,BroTracker::ValueStepDirection direction=BroTracker::ValueStepDirection::Normal) {
-    if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
-    const auto key=event.key.keysym.sym;
-    if(key==SDLK_TAB)return event.key.keysym.mod&KMOD_SHIFT?BringUpAction::InstrumentPreviousField:BringUpAction::InstrumentNextField;
-    if(event.key.keysym.mod&KMOD_SHIFT)return BringUpAction::None;
-    if(key==SDLK_UP || key==SDLK_LEFT)return BringUpAction::InstrumentPreviousField;
-    if(key==SDLK_DOWN || key==SDLK_RIGHT)return BringUpAction::InstrumentNextField;
+    (void)direction; // Pattern value-step preference does not reverse Instrument Left/Right.
+    if(event.type!=SDL_KEYDOWN || event.key.repeat)return BringUpAction::None;
+    const auto key=event.key.keysym.sym;const auto mods=event.key.keysym.mod;
+    if(mods&KMOD_CTRL)return key==SDLK_DOWN && !(mods&(KMOD_SHIFT|KMOD_ALT|KMOD_GUI))?BringUpAction::ScreenDown:BringUpAction::None;
+    if(mods&(KMOD_ALT|KMOD_GUI))return BringUpAction::None;
+    if(key==SDLK_TAB)return mods&KMOD_SHIFT?BringUpAction::InstrumentPreviousField:BringUpAction::InstrumentNextField;
+    if(mods&KMOD_SHIFT)return BringUpAction::None;
+    if(key==SDLK_UP)return BringUpAction::InstrumentPreviousField;
+    if(key==SDLK_DOWN)return BringUpAction::InstrumentNextField;
+    if(key==SDLK_LEFT)return BringUpAction::InstrumentDecrease;
+    if(key==SDLK_RIGHT)return BringUpAction::InstrumentIncrease;
     if(key==SDLK_RETURN || key==SDLK_KP_ENTER)return BringUpAction::InstrumentActivate;
-    if(key==SDLK_PAGEUP || key==SDLK_PAGEDOWN) {
-        const bool increase=(key==SDLK_PAGEUP)!=(direction==BroTracker::ValueStepDirection::Reversed);
-        return increase?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease;
-    }
     return BringUpAction::None;
 }
 // Retired legacy file/publication shortcuts deliberately map to no action.
@@ -139,7 +140,6 @@ inline BringUpAction MapWindowsAction(const SDL_Event& event) {
         if(key==SDLK_RIGHT)return BringUpAction::ScreenRight;
     }
     if (modifiers & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) return BringUpAction::None;
-    if(!(modifiers & (KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI))) {if(key==SDLK_1)return BringUpAction::InstrumentSample;if(key==SDLK_2)return BringUpAction::InstrumentMidi;if(key==SDLK_3)return BringUpAction::InstrumentSynth;}
     if (key == SDLK_SPACE) return BringUpAction::PatternToggle;
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return BringUpAction::ResetStop;
     return BringUpAction::None;

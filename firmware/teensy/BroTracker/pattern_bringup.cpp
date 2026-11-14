@@ -106,7 +106,7 @@ namespace
     #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     InstrumentDefinitions g_instrument_definitions;
     InstrumentAvailability g_sample_availability[99]{};
-    bool g_last_relink=false;InstrumentDefineRequest g_last_define{};unsigned g_last_define_result=0,g_last_define_count=0;
+    unsigned g_last_definition_operation=0;InstrumentDefineRequest g_last_define{};unsigned g_last_define_result=0,g_last_define_count=0;
     #endif
     SelectedPatternBindings g_selected_bindings = kBindings; // Frozen before audio activation.
     PatternPreviewReadback g_working;
@@ -259,9 +259,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 45 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 45;
-    constexpr std::size_t kTxCapacity = 46;
+    // Reserve all 46 discovery lines, including identity CAP and session CAP/view.
+    constexpr std::size_t kDiscoveryReserve = 46;
+    constexpr std::size_t kTxCapacity = 47;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[320]{}; std::size_t length = 0, offset = 0; };
@@ -365,7 +365,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -859,11 +859,12 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
                 unsigned id=0;
-                const bool relink=!std::strncmp(line,"BTINS1 RELINK ",14);
-                if(g_protocol_connected && (relink || !std::strncmp(line,"BTINS1 DEFINE ",13))) {
+                const bool relink=!std::strncmp(line,"BTINS1 RELINK ",14),replace=!std::strncmp(line,"BTINS1 REPLACE ",15);
+                const unsigned operation=replace?2:relink?1:0;
+                if(g_protocol_connected && (replace || relink || !std::strncmp(line,"BTINS1 DEFINE ",13))) {
                     InstrumentDefineRequest request;unsigned result=1;
-                    if(relink?ParseInstrumentRelink(line,used,request):ParseInstrumentDefine(line,used,request)) {
-                        if(relink==g_last_relink && request.request==g_last_define.request && request.expected==g_last_define.expected && request.type==g_last_define.type && !std::strcmp(request.resource,g_last_define.resource))result=g_last_define_result;
+                    if(replace?ParseInstrumentReplace(line,used,request):relink?ParseInstrumentRelink(line,used,request):ParseInstrumentDefine(line,used,request)) {
+                        if(operation==g_last_definition_operation && request.request==g_last_define.request && request.expected==g_last_define.expected && request.type==g_last_define.type && !std::strcmp(request.resource,g_last_define.resource))result=g_last_define_result;
                         else {
                             const bool ready=g_audio_ready && !StorageBlock() && g_control.StorageReady();
                             VariableRateSampleBinding prepared;prepared.type=InstrumentType::Sample;
@@ -874,9 +875,9 @@ namespace
                             }
                             const auto prior_sources=g_streaming.SourceCount();
                             const auto* existing=g_instrument_definitions.At(request.expected);
-                            result=relink?(!existing || existing->type!=InstrumentType::Sample?2:!ready?3:0):request.expected!=g_instrument_definitions.Count() || request.expected>=99?2:!ready?3:0;
+                            result=replace?(!existing?2:!ready?3:0):relink?(!existing || existing->type!=InstrumentType::Sample?2:!ready?3:0):request.expected!=g_instrument_definitions.Count() || request.expected>=99?2:!ready?3:0;
                             if(!result && request.type==1) {
-                                if(relink?!InstrumentDefinitions::ValidResource(request.resource):!g_instrument_definitions.CanAppend(request.expected,request.type,request.resource))result=4;
+                                if((relink || replace)?!InstrumentDefinitions::ValidResource(request.resource):!g_instrument_definitions.CanAppend(request.expected,request.type,request.resource))result=4;
                                 else {
                                     const auto available=g_streaming.PreparePath(request.resource,prepared.sample);
                                     if(available!=InstrumentAvailability::Ready)result=available==InstrumentAvailability::ResourceUnavailable?4:6;
@@ -884,23 +885,25 @@ namespace
                             }
                             if(!result) {
                                 InterruptGuard guard;
-                                if(relink)result=RelinkSampleDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
+                                if(replace)result=ReplaceInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
+                                    [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceInstrumentBinding(binding);});
+                                else if(relink)result=RelinkSampleDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
                                     [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceSampleBinding(binding);});
                                 else result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,true,
                                     [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);},
                                     request.type==1?&prepared:nullptr);
-                                if(!result && request.type==1) {
-                                    g_sample_availability[request.expected]=InstrumentAvailability::Ready;
+                                if(!result) {
+                                    g_sample_availability[request.expected]=request.type==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
                                     g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
                                 }
                             }
-                            if(!result && relink)g_streaming.ReleaseUnused(g_selected_bindings,true);
+                            if(!result && (relink || replace))g_streaming.ReleaseUnused(g_selected_bindings,true);
                             if(result && g_streaming.SourceCount()>prior_sources)g_streaming.DiscardLast(request.resource);
                             if(result==0)g_session_save.Changed();
-                            g_last_relink=relink;g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
+                            g_last_definition_operation=operation;g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
                         }
                     }
-                    char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 %s 1 %u %u %u\n",relink?"RELINKED":"DEFINED",request.request,result,result==0?g_last_define_count:g_instrument_definitions.Count());(void)QueueLine(reply);
+                    char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 %s 1 %u %u %u\n",replace?"REPLACED":relink?"RELINKED":"DEFINED",request.request,result,result==0?g_last_define_count:g_instrument_definitions.Count());(void)QueueLine(reply);
                 } else if(g_protocol_connected && !std::strcmp(line,"BTINS1 COLLECTION GET 1")) {
                     char reply[48];std::snprintf(reply,sizeof(reply),"BTINS1 COLLECTION STATE 1 %u\n",g_instrument_definitions.Count());(void)QueueLine(reply);
                 } else if(g_protocol_connected && ParseInstrumentFactsRequest(line,used,id)) {

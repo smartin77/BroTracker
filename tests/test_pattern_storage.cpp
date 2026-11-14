@@ -677,3 +677,33 @@ TEST_CASE(WavBrowserDirectoryRequestAndResourceBoundsAreTransactional) {
     char output[64];const std::string directory="/"+std::string(54,'a');CHECK(BuildWavResourceAt(directory,"test.wav",output,sizeof(output)));CHECK_EQ(std::strlen(output),63u);
     CHECK(!BuildWavResourceAt(directory,"tests.wav",output,sizeof(output)));CHECK(!BuildWavResourceAt("/","../test.wav",output,sizeof(output)));
 }
+
+TEST_CASE(ExistingInstrumentTypeReplacementIsTransactionalAndSurvivesBtmRoundtrip) {
+    const std::int16_t pcm[32]={1000,2000,-1000};
+    for(unsigned slot=0;slot<3;++slot)for(unsigned type=1;type<=3;++type) {
+        FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
+        InstrumentDefinitions definitions;auto bindings=SelectDevelopmentFixture({pcm,32,44100},{pcm,32,44100},{pcm,32,44100}).bindings;
+        const auto before=bindings;const auto old_type=definitions.At(slot)->type;const std::string old_path=definitions.At(slot)->resource?definitions.At(slot)->resource:"";
+        RealtimePattern pattern;pattern.active_rows=16;pattern.active_channels=1;pattern.cells[0][0]={60,static_cast<std::uint8_t>(slot)};
+        VariableRateBringUpPlayer player;CHECK_EQ(player.Configure(13725,44100,pattern,bindings),PatternPlayerStatus::Success);
+        InstrumentDefineRequest request;const auto line="BTINS1 REPLACE 1 99 "+std::to_string(slot)+" "+std::to_string(type)+" "+(type==1?"BroTracker/selected.wav":"-");
+        CHECK(ParseInstrumentReplace(line.data(),line.size(),request));
+        VariableRateSampleBinding candidate;candidate.sample={pcm,32,44100};candidate.reference_note=60;candidate.sample_level_percent=80;
+        const auto install=[&](const auto& b){return player.MidiPlayer().ReplaceInstrumentBinding(b);};
+        CHECK_EQ(ReplaceInstrumentDefinition(definitions,bindings,request,candidate,false,install),3u);
+        CHECK_EQ(ReplaceInstrumentDefinition(definitions,bindings,request,candidate,true,[](const auto&){return false;}),5u);
+        if(type==1){auto bad=candidate;bad.sample.sample_rate_hz=22050;CHECK_EQ(ReplaceInstrumentDefinition(definitions,bindings,request,bad,true,install),5u);}
+        CHECK_EQ(definitions.At(slot)->type,old_type);CHECK_EQ(std::string(definitions.At(slot)->resource?definitions.At(slot)->resource:""),old_path);CHECK_EQ(bindings.count,before.count);
+        for(unsigned i=0;i<before.count;++i){CHECK_EQ(bindings.bindings[i].type,before.bindings[i].type);CHECK_EQ(bindings.bindings[i].sample.data,before.bindings[i].sample.data);}
+        CHECK_EQ(ReplaceInstrumentDefinition(definitions,bindings,request,candidate,true,install),0u);CHECK_EQ(definitions.Count(),5u);CHECK_EQ(InstrumentTypeCode(definitions.At(slot)->type),type);
+        CHECK_EQ(InstrumentBindingIdentity(bindings,slot),type);CHECK_EQ(bindings.count,before.count);
+        WorkingSession saved;saved.definitions=definitions;saved.working=pattern;saved.working_tempo=13725;
+        WorkingSessionStore<SdPatternFiles> store;CHECK_EQ(store.Save(backend,saved),PatternFileResult::Ok);WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(restored.definitions.Count(),5u);CHECK_EQ(InstrumentTypeCode(restored.definitions.At(slot)->type),type);CHECK_EQ(restored.working.cells[0][0].instrument,slot);CHECK_EQ(restored.working_tempo,13725u);
+        const auto ready=PrepareSessionBindings(restored.definitions,[&](unsigned,const char*,Pcm16MonoView& out){out={pcm,32,44100};return InstrumentAvailability::Ready;});
+        CHECK_EQ(InstrumentBindingIdentity(ready,slot),type);
+    }
+    const auto maximum="BTINS1 REPLACE 1 4294967295 98 1 "+std::string(57,'a')+"/x.wav";
+    InstrumentDefineRequest maximum_request;CHECK(ParseInstrumentReplace(maximum.data(),maximum.size(),maximum_request));CHECK_EQ(std::strlen(maximum_request.resource),63u);CHECK_EQ(maximum_request.request,UINT32_MAX);
+    for(const char* bad:{"BTINS1 REPLACE 1 0 0 3 -","BTINS1 REPLACE 1 1 99 3 -","BTINS1 REPLACE 1 1 0 0 -","BTINS1 REPLACE 1 1 0 1 ../bad.wav","BTINS1 REPLACE 1 1 0 2 sample.wav"}){InstrumentDefineRequest r;CHECK(!ParseInstrumentReplace(bad,std::strlen(bad),r));}
+}

@@ -84,3 +84,29 @@ template<class Install> unsigned RelinkSampleDefinition(InstrumentDefinitions& d
     bindings.bindings[index]=candidate;return 0;
 }
 }
+
+namespace BroTracker {
+// Stopped transaction: candidate WAV is prepared before entry, and player
+// validation/installation must succeed before the same definition slot changes.
+template<class Install> unsigned ReplaceInstrumentDefinition(InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,
+    const InstrumentDefineRequest& request,const VariableRateSampleBinding& prepared,bool ready,Install install) noexcept {
+    const auto* previous=definitions.At(request.expected);if(!previous)return 2;
+    if(!ready)return 3;
+    const auto* resource=request.type==1?request.resource:nullptr;
+    if(!definitions.CanReplace(request.expected,request.type,resource))return 4;
+    VariableRateSampleBinding candidate;candidate.instrument=request.expected;
+    candidate.type=request.type==1?InstrumentType::Sample:request.type==2?InstrumentType::MIDI:InstrumentType::Synth;
+    if(request.type==1) {
+        if(prepared.type!=InstrumentType::Sample || !prepared.sample.data || !prepared.sample.frame_count)return 4;
+        candidate=prepared;candidate.instrument=request.expected;
+    }
+    unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=request.expected)++index;
+    if(index==bindings.count && bindings.count>=kVariableRateSampleBindingCapacity)return 5;
+    if(request.type==1 && index<bindings.count && bindings.bindings[index].type==InstrumentType::Sample) {
+        candidate.reference_note=bindings.bindings[index].reference_note;candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
+    }
+    if(!install(candidate))return 5;
+    (void)definitions.Replace(request.expected,request.type,resource);
+    if(index==bindings.count)++bindings.count;bindings.bindings[index]=candidate;return 0;
+}
+}

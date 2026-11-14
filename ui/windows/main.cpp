@@ -128,6 +128,7 @@ int main(int argc, char* argv[]) try {
                 if(controls.InstrumentScreen() && !controls.WavPicker()) {
                     const auto field=MapWindowsInstrumentAction(event,host_config.config.value_step_direction);
                     if(field!=BringUpAction::None){controls.Request(field,"Instrument field",SDL_GetTicks());continue;}
+                    if((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && (event.key.keysym.mod&KMOD_CTRL))continue;
                 }
                 if((!serial.UserActionsBlocked() || controls.RecoveryScreen() || controls.WavPicker()) && controls.BrowserInputAvailable()) {
                     const auto browser=MapWindowsBrowserAction(event);
@@ -193,7 +194,7 @@ int main(int argc, char* argv[]) try {
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Arrows / Tab: field | PgUp/PgDn: Type | Enter: activate | Ctrl+Left/Right: slot | Ctrl+Down: confirm | Esc: cancel";
+        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Up/Down: field | Left/Right: value | Enter: Load | Ctrl+Down: confirm | Esc: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;

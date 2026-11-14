@@ -436,7 +436,7 @@ int main(int argc, char* argv[])
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="D-pad: field | L1+Up/Down: Type | A: activate | Select+Left/Right: slot | Select+Down: confirm | B: cancel";
+        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Up/Down: field | Left/Right: value | A: Load | Select+Down: confirm | B: cancel";
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";

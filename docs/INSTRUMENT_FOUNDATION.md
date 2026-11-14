@@ -9,7 +9,7 @@ uncertain STOP/save retains Pattern. MIX's future playback exception is unchange
 
 ## Pattern-cell selector
 
-See [controls](BTX_CONTROLS.md#instrument-entry). Entry captures the originating
+See [controls](BTX_CONTROLS.md#instrument). Entry captures the originating
 row/channel/field and its original explicit instrument separately from selection.
 Raw IDs 0-98 display as 01-99; 0xff means no explicit update. An explicit source
 ID wins; otherwise the nearest preceding explicit ID in the same channel supplies
@@ -254,7 +254,7 @@ stopped, then acknowledges the definition before the host assigns its slot and
 exposes the next trailing slot. Unsupported/missing/read-failed WAVs or rejected
 binding installation retain Instrument, the draft, old N and the original cell;
 the reason is shown. Choosing a filename is not a definition commit or audition.
-Enter/A activates the focused actionable field. Defined MIDI/Synth Types remain read-only.
+Enter/A activates Load. Existing MIDI/Synth Types now support same-slot draft editing as described below.
 
 Supported files use the existing RIFF validator: PCM16, mono, 44100 Hz, nonempty
 sample data and bounded metadata/chunk traversal. Filenames use 1..40 ASCII letters,
@@ -267,7 +267,7 @@ another sound. Development resources at `Samples/test*.wav` remain compatible.
 
 ## Focused fields and transactional Sample relink
 
-See the exact Windows/handheld [field controls](BTX_CONTROLS.md#instrument-field-cursor-and-sample-relinking).
+See the exact Windows/handheld [field controls](BTX_CONTROLS.md#instrument).
 The trailing slot presents Sample by default while retaining Not defined yet as
 status; no explicit Type choice is needed before navigating to Load WAV. An orange
 edit frame identifies the focused Type or Load field. Ordinary editor navigation
@@ -312,7 +312,7 @@ Subdirectories and all WAV filenames appear together, folders first. Below
 the SD root a visible `..` opens the parent. Enter/A opens the selected folder or
 stages the selected file's complete SD-relative path. Escape/B cancels to
 Instrument, preserving the previous draft. Modified screen chords retain their
-existing meaning. See [exact controls](BTX_CONTROLS.md#teensy-sd-wav-browser).
+existing meaning. See [exact controls](BTX_CONTROLS.md#sample-browser).
 
 Empty listings show `No supported samples`. Missing-directory and SD read errors
 use the approved single-line folder messages and preserve the last fully listed
@@ -349,3 +349,33 @@ Current streaming supports PCM16 mono at 44100 Hz, not stereo WAV, IFF or 8-bit
 samples. Future stereo import may either downmix to one mono sample or split the
 left and right channels into two separate mono samples. Both import options and
 their controls are deferred; this change does not implement conversion or splitting.
+
+
+## Same-slot Type editing
+
+The Instrument editor now opens Type with the orange focus frame for every
+synchronized slot, including development/built-in instruments. Up/Down chooses an
+actionable field; Left/Right cycles the focused Type backward/forward through
+Sample, MIDI and Sine Synth. These directions are independent of the Pattern
+value-step preference. Enter/A activates Load only. Ctrl+Down / Select+Down
+confirms; Escape/B discards. Slot selection is performed on Pattern, with the
+existing Ctrl+Up / Select+Up entry chord. Old Instrument value and slot shortcuts
+are retired; the [quick reference](BTX_CONTROLS.md) is authoritative for controls.
+
+Type and WAV selections remain host drafts. Existing-slot confirmation uses
+`BTINS1 REPLACE 1 request raw_slot type resource`, advertised by `BTINS1 REPLACECAP 1`,
+with `BTINS1 REPLACED 1 request result count`. Existing result codes and uncertain
+commit/reconnect rules apply; successful count is unchanged. Non-Sample resource
+is `-`. A new Sample still requires a selected, successfully prepared WAV. A
+conversion to Sample exposes Load immediately and cannot commit without WAV
+preparation. MIDI and Sine Synth use their current development defaults.
+
+Teensy prepares outside the audio interrupt guard while stopped. It validates and
+installs the candidate player binding before updating the definition in the same
+slot, leaving old bindings/definitions intact on failure. Same-type Sample relinks
+preserve existing reference-note and level; conversion into Sample uses current
+Sample defaults. Successful Type changes retain slot number, every Pattern
+reference and defined count. Only then may unused dynamic Sample sources be
+reclaimed. BTM session persistence stores the updated table and saved path using
+the existing transactional save/restore workflow. Reload prepares Samples by path;
+valid missing resources remain defined and unavailable, without fallback sound.

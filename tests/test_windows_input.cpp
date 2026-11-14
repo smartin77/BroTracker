@@ -438,13 +438,21 @@ int main() {
         e.type=SDL_WINDOWEVENT;e.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(e);
         e={};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(input.Handle(e)==BringUpAction::None);
     }
-    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_1,BringUpAction::InstrumentSample},
-        {SDLK_2,BringUpAction::InstrumentMidi},{SDLK_3,BringUpAction::InstrumentSynth}}) {
+    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_1,BringUpAction::None},
+        {SDLK_2,BringUpAction::None},{SDLK_3,BringUpAction::None}}) {
         for(auto locks:{KMOD_NONE,KMOD_NUM,KMOD_CAPS,SDL_Keymod(KMOD_NUM|KMOD_CAPS)}) {
             WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;e.key.keysym.mod=locks;
             CHECK(input.Handle(e)==pair.second);e.key.repeat=1;CHECK(input.Handle(e)==BringUpAction::None);e.key.repeat=0;
             for(auto modifier:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}) {e.key.keysym.mod=SDL_Keymod(locks|modifier);CHECK(input.Handle(e)==BringUpAction::None);}
         }
+    }
+    for(auto direction:{BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
+        for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::InstrumentPreviousField},{SDLK_DOWN,BringUpAction::InstrumentNextField},
+            {SDLK_LEFT,BringUpAction::InstrumentDecrease},{SDLK_RIGHT,BringUpAction::InstrumentIncrease},{SDLK_RETURN,BringUpAction::InstrumentActivate},
+            {SDLK_PAGEUP,BringUpAction::None},{SDLK_PAGEDOWN,BringUpAction::None},{SDLK_1,BringUpAction::None},{SDLK_2,BringUpAction::None},{SDLK_3,BringUpAction::None}}) {
+            SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsInstrumentAction(e,direction)==pair.second);e.key.repeat=1;CHECK(MapWindowsInstrumentAction(e,direction)==BringUpAction::None);
+        }
+        for(auto key:{SDLK_UP,SDLK_LEFT,SDLK_RIGHT,SDLK_x,SDLK_DOWN}) {SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;e.key.keysym.mod=KMOD_CTRL;CHECK(MapWindowsInstrumentAction(e,direction)==(key==SDLK_DOWN?BringUpAction::ScreenDown:BringUpAction::None));}
     }
     std::puts("Windows keyboard mapping and Teensy identity checks passed");
 }
