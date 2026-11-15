@@ -123,6 +123,15 @@ namespace BroTracker
             for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument) {bindings_.bindings[i]=binding;return true;}
             return AppendBinding(binding);
         }
+        InstrumentType BindingType(unsigned id)const noexcept {
+            for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==id)return bindings_.bindings[i].type;
+            return static_cast<InstrumentType>(0);
+        }
+        void RemoveBinding(unsigned id)noexcept {
+            for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==id) {
+                for(auto j=i+1;j<bindings_.count;++j)bindings_.bindings[j-1]=bindings_.bindings[j];--bindings_.count;return;
+            }
+        }
         bool ReplaceSampleBinding(const VariableRateSampleBinding& binding) noexcept {
             if(binding.type!=InstrumentType::Sample)return false;
             for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument && bindings_.bindings[i].type!=InstrumentType::Sample)return false;
@@ -156,8 +165,12 @@ namespace BroTracker
                 VariableRateVoiceCommand command{event.channel, event.sample_offset, VariableRateVoiceAction::Stop, {}};
                 if (event.note != NOTE_OFF)
                 {
-                    if (applied.after.instrument == kNoInstrumentUpdate)
-                        return VariableSampleCommandStatus::MissingInstrument;
+                    if (applied.after.instrument == kNoInstrumentUpdate) {
+                        // A note may have no assigned/inherited instrument. Keep its
+                        // Pattern data intact and stop this voice without fallback.
+                        result.commands[result.count++] = command;
+                        continue;
+                    }
                     const VariableRateSampleBinding* selected = nullptr;
                     for (std::size_t j = 0; j < bindings_.count; ++j)
                         if (bindings_.bindings[j].instrument == applied.after.instrument)

@@ -3,6 +3,7 @@
 #include "variable_rate_sample_commands.h"
 #include "core/audio/pcm16_gain_mixer.h"
 #include <limits>
+#include <array>
 #include "core/tempo.h"
 
 namespace BroTracker
@@ -87,7 +88,7 @@ namespace BroTracker
             cursor_ = cursor;
             preparer_ = preparer;
             renderer_ = renderer;
-            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;sounding_instrument_.fill(kNoInstrumentUpdate);
             gains_ = {}; // Successful configuration restores exact unity.
             mute_mask_=mute_releases_=mute_history_=0;
             configured_ = true;
@@ -251,6 +252,26 @@ namespace BroTracker
         bool ReplaceInstrumentBinding(const VariableRateSampleBinding& binding) noexcept {
             return configured_ && transport_==VariableRatePatternTransportState::Stopped && !preview_pending_ && !pending_tempo_ && preparer_.ReplaceBinding(binding);
         }
+        // Foreground caller excludes the audio owner. No I/O, transport reset,
+        // or PCM replacement: only existing MIDI/Synth slots qualify.
+        bool ReplaceLiveInstrumentType(const VariableRateSampleBinding& binding) noexcept {
+            if(!configured_ || (binding.type!=InstrumentType::MIDI && binding.type!=InstrumentType::Synth))return false;
+            const auto old=preparer_.BindingType(binding.instrument);
+            if(old!=InstrumentType::MIDI && old!=InstrumentType::Synth)return false;
+            if(!preparer_.ReplaceBinding(binding))return false;
+            if(old!=binding.type)for(unsigned c=0;c<8;++c)if(sounding_instrument_[c]==binding.instrument) {
+                mute_releases_|=1u<<c;midi_cancel_mask_|=1u<<c;
+            }
+            return true;
+        }
+        bool ReplaceLiveInstrumentBinding(const VariableRateSampleBinding& binding)noexcept {
+            if(!configured_ || !preparer_.ReplaceBinding(binding))return false;
+            ReleaseInstrumentVoices(binding.instrument);return true;
+        }
+        bool RemoveLiveInstrumentBinding(unsigned id)noexcept {
+            if(!configured_ || id>=99)return false;
+            preparer_.RemoveBinding(id);ReleaseInstrumentVoices(id);return true;
+        }
         bool ReplaceSampleBinding(const VariableRateSampleBinding& binding) noexcept {
             return configured_ && transport_==VariableRatePatternTransportState::Stopped && !preview_pending_ && !pending_tempo_ && preparer_.ReplaceSampleBinding(binding);
         }
@@ -267,7 +288,7 @@ namespace BroTracker
         // Idempotent, also valid before configuration. Retain pattern/bindings.
         void Stop() noexcept
         {
-            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;sounding_instrument_.fill(kNoInstrumentUpdate);
             if (preview_pending_) pattern_ = preview_pattern_;
             preview_pending_ = false;
             pending_ = {};
@@ -292,7 +313,7 @@ namespace BroTracker
             if (transport_ != VariableRatePatternTransportState::Playing) return VariableRatePatternPlayerStatus::InvalidTransportState;
             if(pending_tempo_) { tempo_hundredths_=pending_tempo_; pending_tempo_=0; }
             pending_ = {};
-            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;
+            midi_reset_=true; midi_commands_.count=0; midi_cancel_mask_=0;sounding_instrument_.fill(kNoInstrumentUpdate);
             renderer_.Reset(); transport_ = VariableRatePatternTransportState::Paused;
             return VariableRatePatternPlayerStatus::Success;
         }
@@ -369,6 +390,7 @@ namespace BroTracker
             auto renderer = renderer_;
             auto position = position_;
             auto pending = pending_;
+            auto sounding=sounding_instrument_;
             auto working_pattern = pattern_;
             bool preview_pending = preview_pending_;
             bool consumed_tick = false;
@@ -380,7 +402,7 @@ namespace BroTracker
             if (begin != TickCursorStatus::Success) return VariableRatePatternPlayerStatus::ComponentError;
             VariableRateVoiceCommandBatch commands{};
             for(unsigned c=0;c<8;++c) if(mute_releases_ & (1u<<c))
-                commands.commands[commands.count++]={c,0,VariableRateVoiceAction::Release,{}};
+                {commands.commands[commands.count++]={c,0,VariableRateVoiceAction::Release,{}};sounding[c]=kNoInstrumentUpdate;}
             // At most eight pending entries. Emit by absolute sample, then channel;
             // consume before row commands at a tie. No backlog scan or allocation.
             const auto flush = [&](std::uint64_t limit, bool inclusive) {
@@ -397,6 +419,7 @@ namespace BroTracker
                     commands.commands[commands.count++] = {static_cast<std::uint8_t>(selected),
                         pending.entries[selected].sample - next_sample_, VariableRateVoiceAction::Stop, {}};
                     pending.entries[selected].active = false;
+                    sounding[selected]=kNoInstrumentUpdate;
                 }
                 return VariableRatePatternPlayerStatus::Success;
             };
@@ -455,8 +478,12 @@ namespace BroTracker
                 if (preparation != VariableSampleCommandStatus::Success) return SampleStatus(preparation);
                 if (prepared.count > kVariableRateVoiceCommandCapacity - commands.count)
                     return VariableRatePatternPlayerStatus::CommandCapacityExceeded;
-                for (std::size_t i = 0; i < prepared.count; ++i)
+                for (std::size_t i = 0; i < prepared.count; ++i) {
                     commands.commands[commands.count++] = prepared.commands[i];
+                    const auto& command=prepared.commands[i];LogicalChannelState logical;
+                    (void)preparer.GetChannel(command.channel,logical);
+                    sounding[command.channel]=command.action==VariableRateVoiceAction::Stop?kNoInstrumentUpdate:logical.instrument;
+                }
             }
             const auto flushed = flush(next_sample_ + frame_count, false);
             if (flushed != VariableRatePatternPlayerStatus::Success) return flushed;
@@ -495,6 +522,7 @@ namespace BroTracker
             tempo_hundredths_=tempo; pending_tempo_=next_tempo;
             preparer_ = preparer;
             renderer_ = renderer;
+            sounding_instrument_=sounding;
             midi_commands_=commands; midi_cancel_mask_|=mute_releases_; mute_releases_=0;
             position_ = position;
             // BeginBlock checked the absolute block end for uint64_t overflow.
@@ -503,6 +531,9 @@ namespace BroTracker
             return VariableRatePatternPlayerStatus::Success;
         }
     private:
+        void ReleaseInstrumentVoices(unsigned id)noexcept {
+            for(unsigned c=0;c<8;++c)if(sounding_instrument_[c]==id){mute_releases_|=1u<<c;midi_cancel_mask_|=1u<<c;}
+        }
         static void SuppressRows(RowEventBatch& rows,unsigned mask) noexcept {
             unsigned n=0;
             for(unsigned i=0;i<rows.count;++i) if(!(mask & (1u<<rows.events[i].channel))) rows.events[n++]=rows.events[i];
@@ -574,6 +605,7 @@ namespace BroTracker
         VariableRateVoiceCommandBatch midi_commands_{};
         bool midi_reset_=true;
         unsigned midi_cancel_mask_=0;
+        std::array<std::uint8_t,8> sounding_instrument_{{255,255,255,255,255,255,255,255}};
         bool configured_ = false;
         VariableRatePatternTransportState transport_ = VariableRatePatternTransportState::Stopped;
         std::uint64_t next_sample_ = 0;

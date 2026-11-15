@@ -118,6 +118,11 @@ int main(int argc, char* argv[]) try {
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
             const auto mapped_screen_action=screen_input.Handle(event);
+            if(mapped_screen_action==BringUpAction::Exit) {
+                serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
+                const char* source=event.type==SDL_QUIT?"window close":"Ctrl+X";
+                WindowsDiagnostic(log_file,"Transport input",source);controls.Request(BringUpAction::Exit,source,SDL_GetTicks());continue;
+            }
             if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {
                 editor_input.Cancel();tempo_input.Cancel();
                 // Track physical releases/presses against an unready sink; never mutate the retained editor.
@@ -127,6 +132,12 @@ int main(int argc, char* argv[]) try {
                 (void)header_input.Handle(event,0,0,false);
                 if(controls.InstrumentScreen() && !controls.WavPicker()) {
                     const auto field=MapWindowsInstrumentAction(event,host_config.config.value_step_direction);
+                    if(event.type==SDL_KEYDOWN)
+                        BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Instrument input",
+                            "key=%d scan=%d modifiers=%u repeat=%u slot=%u focus=%d draft_type=%u action=%u",
+                            int(event.key.keysym.sym),int(event.key.keysym.scancode),unsigned(event.key.keysym.mod),
+                            unsigned(event.key.repeat),controls.InstrumentNumber(),controls.InstrumentFocus(),
+                            controls.InstrumentDraftTypeCode(),unsigned(field));
                     if(field!=BringUpAction::None){controls.Request(field,"Instrument field",SDL_GetTicks());continue;}
                     if((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && (event.key.keysym.mod&KMOD_CTRL))continue;
                 }
@@ -142,7 +153,7 @@ int main(int argc, char* argv[]) try {
             int mouse_x=0,mouse_y=0;
             const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
             const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
-            const int header=header_input.Handle(event,mouse_x,mouse_y,mapped);
+            const int header=header_input.Handle(event,mouse_x,mouse_y,mapped,&editor);
             if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
                 if(const auto step=tempo_input.TakeStep()) (void)serial.StepTempo(step);
@@ -175,6 +186,7 @@ int main(int argc, char* argv[]) try {
             (controls.Exiting() ? "Saving session, then EXIT" : "STOP pending; please wait") :
             serial.SupportsPatternTransport() ? "Space: START/PAUSE/CONTINUE | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save" :
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
+        if(controls.Exiting())panel.publication_status=controls.ExitStatus();
         panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
         if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
         panel.text=warning_text;

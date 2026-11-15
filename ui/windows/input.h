@@ -172,18 +172,27 @@ private:
 
 class WindowsHeaderInput {
 public:
-    int Handle(const SDL_Event& event,int x,int y,bool mapped) noexcept {
+    int Handle(const SDL_Event& event,int x,int y,bool mapped,const LocalPatternEditor* editor=nullptr) noexcept {
         if(event.type==SDL_WINDOWEVENT) {
-            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) focused_=false;
+            if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) {focused_=false;for(auto& key:keys_)key=false;}
             if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED) focused_=true;
             return -1;
+        }
+        if(event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) {
+            const int key=event.key.keysym.sym==SDLK_PAGEUP?0:event.key.keysym.sym==SDLK_PAGEDOWN?1:-1;
+            if(key<0)return -1;
+            if(event.type==SDL_KEYUP){keys_[key]=false;return -1;}
+            const bool old=keys_[key];keys_[key]=true;
+            if(old || event.key.repeat || !focused_ || !editor || !editor->Ready() || !editor->Cursor().header ||
+               (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return -1;
+            return static_cast<int>(editor->Cursor().channel);
         }
         if(event.type==SDL_MOUSEBUTTONUP && event.button.button==SDL_BUTTON_LEFT) held_=false;
         if(event.type!=SDL_MOUSEBUTTONDOWN || event.button.button!=SDL_BUTTON_LEFT) return -1;
         const bool old=held_;held_=true;
         return !old && mapped && focused_ ? PatternGrid::HeaderAt(x,y) : -1;
     }
-private: bool held_=false,focused_=true;
+private: bool held_=false,focused_=true,keys_[2]{};
 };
 
 // Screen chords share physical arrow tracking across Pattern and other screens.

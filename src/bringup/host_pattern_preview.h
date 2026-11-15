@@ -21,6 +21,7 @@ public:
     bool Recovering() const noexcept { return phase_==HostPreviewPhase::Recovering; }
     bool Sending() const noexcept { return phase_==HostPreviewPhase::Sending; }
     bool TransferBusy() const noexcept { return Sending() || phase_==HostPreviewPhase::Waiting; }
+    bool IdentitiesExhausted()const noexcept{return supported_ && next_fresh_ && !next_;}
     bool CanPublish() const noexcept { return !TransferBusy() && !Recovering(); }
     void RetainLocal(bool dirty) noexcept { retain_local_=dirty; }
     void Disconnect() noexcept {

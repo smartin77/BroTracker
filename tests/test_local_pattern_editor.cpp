@@ -931,6 +931,10 @@ TEST_CASE(InstrumentOriginalMarkerUsesActualRendererAndIsAbsentWithoutExplicitId
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-collection");
     Framebuffer fb(640,480);Tune tune;Pattern pattern;auto view=ConnectedDraft();LocalPatternEditor editor;editor.Sync(view);
     HostPanelInformation panel;panel.instrument_number=4;panel.instrument_original_number=3;
+    // Instrument rendering and the captured original marker are independent of
+    // the running Pattern highlight; opening the panel need not stop transport.
+    view->position.running=true;view->position.valid=true;view->fresh=true;
+    CHECK(ResolvePatternDisplay(view).playback_highlight);
     RenderMainScreen(fb,tune,pattern,view,&editor,panel);
     auto turquoise=[&](){unsigned count=0;for(unsigned y=35;y<66;++y)for(unsigned x=100;x<435;++x) {auto c=fb.PixelData()[y*640+x];if(c.r==76 && c.g==195 && c.b==201)++count;}return count;};
     CHECK(turquoise()>0);

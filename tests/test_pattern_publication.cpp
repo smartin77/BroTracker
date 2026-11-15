@@ -133,13 +133,13 @@ TEST_CASE(PublicationAudioStateAndResolutionRejectionPreserveOldPattern) {
         }
         auto candidate=active;
         if(mode==1) candidate.active_rows=1;
-        if(mode==2) candidate.cells[0][0].instrument=255;
+        if(mode==2) candidate.cells[0][0].instrument=99;
         if(mode==3) candidate.cells[0][0].instrument=99;
         if(mode==4) candidate.cells[0][0].note=61;
         Stage(p,candidate,1); CHECK_EQ(c.SubmitPattern(*p.Frozen(),1),PatternRequestStatus::Accepted);
         const auto state=c.Snapshot(); c.AudioBlock(out,1,true); CHECK(c.TakeApplied(ack));
         CHECK_EQ(ack.result,mode==0 ? PatternPlayerStatus::InvalidTransportState : mode==1 ? PatternPlayerStatus::InvalidDimensions :
-            mode==2 ? PatternPlayerStatus::MissingInstrument : mode==3 ? PatternPlayerStatus::UnknownInstrument : PatternPlayerStatus::UnsupportedPitch);
+            mode==2 ? PatternPlayerStatus::UnknownInstrument : mode==3 ? PatternPlayerStatus::UnknownInstrument : PatternPlayerStatus::UnsupportedPitch);
         CHECK_EQ(c.Snapshot().transport,state.transport);
         CHECK(p.Complete(ack.publication_id,false,active)); Same(active,Pattern());
         CHECK_EQ(c.Submit(PatternRequest::Stop),PatternRequestStatus::Accepted); c.AudioBlock(out,1,true); CHECK(c.TakeApplied(ack));

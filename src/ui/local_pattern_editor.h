@@ -109,6 +109,13 @@ public:
         if(Apply(EditorAction::AssignInstrument,instrument))return true;
         cursor_=previous;return false;
     }
+    // Visit rollback restores the raw reference, including 0xff (inherit).
+    bool RestoreInstrumentAt(EditCursor target,unsigned instrument) noexcept {
+        if(!ready_ || locked_ || target.header || target.row>=draft_.active_rows || target.channel>=draft_.active_channels || instrument>255)return false;
+        const auto previous=cursor_;cursor_=target;
+        const bool restored=Apply(EditorAction::CancelInstrumentSelection,instrument);
+        cursor_=previous;return restored;
+    }
     // Record resulting data only; navigation/no-ops do not enter history.
     bool Apply(EditorAction action, unsigned value = 0) noexcept {
         if(action==EditorAction::Undo) return Undo();
@@ -181,7 +188,9 @@ private:
             if(next.header || (collection_supported_ && (!collection_known_ || value>=BroTracker::InstrumentSelectionMaximum(collection_count_))) || value>kEditableInstrumentMaximum ||
                 (next.field==EditField::Instrument && draft_.cells[next.row][next.channel].note==NOTE_OFF))return false;
             draft_.cells[next.row][next.channel].instrument=static_cast<std::uint8_t>(value);return true;
-        case EditorAction::CancelInstrumentSelection:return true;
+        case EditorAction::CancelInstrumentSelection:
+            if(next.header || value>255)return false;
+            draft_.cells[next.row][next.channel].instrument=static_cast<std::uint8_t>(value);return true;
         case EditorAction::Restore:
             draft_ = baseline_.pattern;
             return true;

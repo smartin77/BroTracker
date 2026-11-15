@@ -55,6 +55,7 @@ struct Test {
         }
         serial.SyncEditor(editor,now);CHECK(!serial.UserActionsBlocked());
     }
+    void CheckFailedExitClosed(){Tick();CHECK(controls.Quit());}
     void Send(const char* value) { Tick(); Tick(); port->Expect(value); }
 };
 void AudioReadinessRegressions() {
@@ -410,21 +411,21 @@ int main() {
           t.Reply("BTTEST1 CONTINUED\n"); CHECK(t.serial.Playing());
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 PAUSE\n");
           t.Action(BringUpAction::Exit); t.Reply("BTTEST1 PAUSED\n");
-          t.port->Expect("");CHECK(t.controls.Quit()); }
+          t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");t.CheckFailedExitClosed();t.port->Expect(""); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); // No capability: preserve legacy restart.
           t.Action(BringUpAction::PatternToggle); t.Send("BTTEST1 START\n"); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Action(BringUpAction::Exit);
-          t.Reply("BTTEST1 STATE PLAYING\n"); t.Send("BTTEST1 PAUSE\n");
-          t.Reply("BTTEST1 PAUSED\n"); t.port->Expect(""); CHECK(t.controls.Quit()); }
+          t.Reply("BTTEST1 STATE PLAYING\n");
+          t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");t.CheckFailedExitClosed();t.port->Expect(""); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n");
           t.Reply("BTPATTERN1 TRANSPORTCAP 1\n"); t.now = 1000; t.Send("BTTEST1 STATUS\n");
           t.Action(BringUpAction::PatternToggle); t.Reply("BTTEST1 STATE ERROR\n");
           t.Tick(); t.port->Expect(""); CHECK(!t.serial.TransportPending()); }
         { Test t; t.Action(BringUpAction::Start); CHECK(!t.serial.StartPending());
           t.Action(BringUpAction::Stop); CHECK(!t.controls.Quit());
-          t.Action(BringUpAction::Exit); CHECK(t.controls.Quit()); }
+          t.Action(BringUpAction::Exit);t.CheckFailedExitClosed(); }
         { Test t; t.Ready(); t.Action(BringUpAction::Stop); CHECK(!t.controls.Quit());
           t.Action(BringUpAction::Start); t.Action(BringUpAction::Start);
           t.Send("BTTEST1 START\n"); t.Reply("BTTEST1 STARTED\n");
@@ -436,20 +437,21 @@ int main() {
           t.Action(BringUpAction::Stop); CHECK(!t.controls.Quit());
           t.Action(BringUpAction::Start); t.Send("BTTEST1 START\n");
           t.Reply("BTTEST1 STARTED\nBTTEST1 DONE\n");
-          t.Action(BringUpAction::Exit); CHECK(t.controls.Quit()); t.port->Expect(""); }
-        // Closing the terminal never synthesizes STOP, even with START queued.
-        { Test t; t.Ready();t.Action(BringUpAction::Start);t.Action(BringUpAction::Exit);
-          CHECK(t.controls.Quit());t.port->Expect(""); }
+          t.Action(BringUpAction::Exit);t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");t.CheckFailedExitClosed();t.port->Expect(""); }
+        // An unsent START can be cancelled; unavailable storage requires explicit discard.
+        { Test t; t.Ready("BTTEST1 STATE IDLE\n");t.Action(BringUpAction::Start);t.Action(BringUpAction::Exit);
+          t.CheckFailedExitClosed();t.port->Expect(""); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Stop);
           t.Action(BringUpAction::Exit); t.Send("BTTEST1 STOP\n");
-          t.Reply("BTTEST1 STOPPED\n"); CHECK(t.controls.Quit()); }
+          t.Reply("BTTEST1 STOPPED\n");t.CheckFailedExitClosed(); }
         { Test t; t.Ready("BTTEST1 STATE PLAYING\n"); t.Action(BringUpAction::Exit);
-          t.port->Expect("");CHECK(t.controls.Quit() && !t.serial.Stopped()); }
+          t.Send("BTTEST1 STOP\n");t.Reply("BTTEST1 STOPPED\n");t.CheckFailedExitClosed(); }
         for (bool exiting : {false, true}) {
           Test t; t.Ready(); t.Action(BringUpAction::Start);
           if (exiting) t.Action(BringUpAction::Exit);
           t.port->online = false; t.Tick();
-          CHECK(!t.serial.Connected() && t.controls.Quit() == exiting);
+          CHECK(!t.serial.Connected());CHECK(t.controls.Quit()==exiting);
+          if(exiting){CHECK(t.serial.ExitStatus().find("STOP was not acknowledged")!=std::string::npos);CHECK(!t.serial.SessionSaveSucceeded());}
           if (!exiting) {
             t.port->online = true; t.now = 1000; t.Tick(); t.port->Expect("BTTEST1 HELLO\n");
             t.Reply("BTTEST1 STATE DONE\n"); t.Tick(); t.port->Expect("");
