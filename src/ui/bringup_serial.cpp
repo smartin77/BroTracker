@@ -79,7 +79,7 @@ bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now,bo
     std::strcpy(list_status_,wav?"Reading WAV files...":"Reading pattern files...");return true;
 }
 bool BringUpSerial::RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now) {
-    if(!WavPickerAvailable() || UserActionsBlocked() || !MidiRecoveryStopped() || PatternListBusy() || FilePending() ||
+    if(!WavPickerAvailable() || UserActionsBlocked() || (!MidiRecoveryStopped() && !InstrumentVisitReady()) || PatternListBusy() || FilePending() ||
         !BroTracker::ValidWavDirectory(path) || offset%32 || (fallback && offset) || list_id_==UINT32_MAX)return false;
     ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_wav_=list_browser_=true;
     wav_request_path_=path;wav_fallback_=fallback;wav_staging_={};wav_dir_received_=wav_info_received_=false;
@@ -219,7 +219,7 @@ void BringUpSerial::Disconnect(const char* reason)
     connected_ = false;
     define_reconcile_required_=define_reconcile_required_ || define_pending_;
     replace_supported_=relink_supported_=false;
-    define_supported_=define_pending_=define_queued_=define_success_=false;define_error_="Disconnected; definition outcome unconfirmed";
+    define_supported_=define_pending_=define_queued_=define_success_=false;live_type_supported_=live_edit_supported_=false;visit_ready_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
     identity_request_=identity_number_!=0 && identity_number_<=99;restore_view_pending_=false;
@@ -788,19 +788,26 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTINS1 DEFINECAP 1")) {define_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 RELINKCAP 1")){relink_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 REPLACECAP 1")){replace_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTINS1 LIVETYPECAP 1")){live_type_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTINS1 LIVEEDITCAP 1")){live_edit_supported_=connected_;return;}
+    {std::uint32_t v[2]{};
+        if(BroTracker::SnapshotFields(line_,used_,"BTINS1 VISIT READY ",v,2) && v[0]==1 && v[1]==visit_id_){visit_ready_=true;visit_begin_queued_=false;return;}
+        if(BroTracker::SnapshotFields(line_,used_,"BTINS1 VISIT ENDED ",v,2) && v[0]==1 && v[1]==visit_id_){visit_id_=0;visit_ready_=visit_ending_=visit_end_queued_=false;return;}
+    }
     const bool replace_reply=!std::strncmp(line_,"BTINS1 REPLACED ",15);
     const bool relink_reply=!std::strncmp(line_,"BTINS1 RELINKED ",15);
     if(replace_reply || relink_reply || !std::strncmp(line_,"BTINS1 DEFINED ",14)) {
         unsigned request=0,result=0,count=0;bool parsed=false;
         if(relink_reply || replace_reply) {
             std::uint32_t fields[4]{};
-            parsed=BroTracker::SnapshotFields(line_,used_,replace_reply?"BTINS1 REPLACED ":"BTINS1 RELINKED ",fields,4) && fields[0]==1 && fields[1] && fields[2]<=6 && fields[3]<=99;
+            parsed=BroTracker::SnapshotFields(line_,used_,replace_reply?"BTINS1 REPLACED ":"BTINS1 RELINKED ",fields,4) && fields[0]==1 && fields[1] && fields[2]<=7 && fields[3]<=99;
             request=fields[1];result=fields[2];count=fields[3];
         } else parsed=BroTracker::ParseInstrumentDefined(line_,used_,request,result,count);
         if(connected_ && define_pending_ && define_relink_==relink_reply && define_replace_==replace_reply && parsed && request==define_id_) {
-            define_pending_=false;
+            define_pending_=false;define_cancelled_=result==7;define_result_=result;
+            if(!result && define_edit_ && define_restore_)define_reconcile_required_=false;
             if(!result && count==define_expected_+((relink_reply || replace_reply)?0:1)) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
-            else {define_success_=false;define_error_=result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: PCM16 mono 44.1 kHz required; check file/read/source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
+            else {define_success_=false;define_error_=result==7?"Instrument preparation cancelled":result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: PCM16 mono 44.1 kHz required; check file/read/source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
         }return;
     }
     if(!std::strcmp(line_,"BTINS1 COLLECTIONCAP 1")) {
@@ -1095,7 +1102,11 @@ void BringUpSerial::Tick(std::uint32_t now)
     // Run before reads: silence and replies arriving at/after the deadline cannot
     // keep a commit pending or confirm an automatic assignment. Keep the cached
     // count ready so only Disconnect + fresh collection readback clears the guard.
-    if(define_pending_ && now-define_started_>=6000) {
+    if(visit_id_ && connected_ && live_edit_supported_ && now-visit_sent_at_>=1000) {
+        if(!visit_ready_)visit_begin_queued_=true;else if(visit_ending_)visit_end_queued_=true;
+    }
+    if(define_pending_ && now-define_started_>=(define_edit_?30000u:6000u)) {
+        if(define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}define_result_=8;
         define_pending_=define_queued_=define_success_=false;define_reconcile_required_=true;
         define_error_="Definition commit unconfirmed; reconnect to reconcile before retry";
     }
@@ -1360,8 +1371,19 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 tx_offset_ = 0; // Independent request: never replaces a BTTEST1 ACK wait.
             }
         }
+        else if(connected_ && visit_begin_queued_ && !pattern_assembler_.Active()) {
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 VISIT BEGIN 1 %lu\n",(unsigned long)visit_id_);tx_offset_=0;visit_begin_queued_=false;visit_sent_at_=now;
+        }
+        else if(connected_ && cancel_live_queued_ && !pattern_assembler_.Active()) {
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 CANCEL 1 %lu\n",(unsigned long)cancel_live_id_);tx_offset_=0;cancel_live_queued_=false;
+        }
+        else if(connected_ && visit_end_queued_ && visit_ready_ && !pattern_assembler_.Active()) {
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 VISIT END 1 %lu\n",(unsigned long)visit_id_);tx_offset_=0;visit_end_queued_=false;visit_sent_at_=now;
+        }
         else if(connected_ && define_queued_ && !pattern_assembler_.Active()) {
-            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 %s 1 %u %u %u %s\n",define_replace_?"REPLACE":define_relink_?"RELINK":"DEFINE",define_id_,(define_relink_ || define_replace_)?define_slot_:define_expected_,define_type_,define_resource_);tx_offset_=0;define_queued_=false;
+            if(define_restore_)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 RESTORE 1 %u %u\n",define_id_,define_slot_);
+            else tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 %s 1 %u %u %u %s\n",define_edit_?"EDIT":define_replace_?"REPLACE":define_relink_?"RELINK":"DEFINE",define_id_,(define_relink_ || define_replace_)?define_slot_:define_expected_,define_type_,define_resource_);
+            tx_offset_=0;define_queued_=false;
         }
         else if(connected_ && collection_supported_ && collection_request_ && !pattern_assembler_.Active()) {
             std::strcpy(tx_,"BTINS1 COLLECTION GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;collection_request_=false;

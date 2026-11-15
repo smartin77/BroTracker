@@ -6,6 +6,8 @@
 #include "bringup/instrument_identity.h"
 #include "bringup/instrument_commit.h"
 #include "bringup/working_session.h"
+#include "bringup/live_instrument_visit.h"
+#include "firmware/teensy/BroTracker/sd_wav_browse_job.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include <array>
 #include <algorithm>
@@ -546,4 +548,64 @@ TEST_CASE(FullyRetainedCacheRejectsCandidateWithoutEvictingTheCurrentSource) {
     CHECK_EQ(std::string(definitions.At(0)->resource),path);CHECK_EQ(bindings.bindings[0].sample.streaming,retained.sample.streaming);
     CHECK_EQ(retained.sample.data[0],Fixture::Pcm(0,0));CHECK_EQ(retained.sample.data[kStreamStartFrames-1],Fixture::Pcm(0,kStreamStartFrames-1));
     CHECK_EQ(fixture.producer.SourceCount(),SdSampleStreaming::kSourceCapacity);ReadReleased();
+}
+
+TEST_CASE(CooperativePreparationYieldsBetweenReadsAndKeepsRollbackAndVoiceSourcesPinned) {
+    Fixture f;const char* old_path="BroTracker/Samples/original.wav";const char* path="BroTracker/Samples/cooperative.wav";
+    FakePatternSd::files[old_path].bytes=PickerWav(10000,44100,7);FakePatternSd::files[path].bytes=PickerWav(10000,44100,8);
+    Pcm16MonoView original;CHECK_EQ(f.producer.PreparePath(old_path,original),InstrumentAvailability::Ready);
+    VariableRateSampleBindings originals;originals.count=1;originals.bindings[0]=CacheCandidate(original);f.producer.PinRollback(originals);
+    VariableRateSampleBindings none;CHECK(!f.producer.ReclaimOne(none));
+    CHECK(f.producer.BeginPrepareAsync(path));f.Trigger(0,0);f.Trigger(1,1);
+    unsigned steps=0;
+    while(!f.producer.PreparationDone() && steps++<200) {
+        f.producer.Service();f.producer.Service();
+        const auto count=FakePatternSd::reads.size();
+        if(f.producer.BackgroundHeadroom())f.producer.PreparationStep();
+        CHECK(FakePatternSd::reads.size()-count<=1u);
+        if(FakePatternSd::reads.size()>count)CHECK(FakePatternSd::reads.back().count<=512u);
+        f.Consume(0,0,128);f.Consume(1,1,128);ReadReleased();
+    }
+    CHECK(steps>8);CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::Ready);
+    CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);CHECK_EQ(f.player.voices[1].StreamSnapshot().underruns,0u);
+    const auto loaded=f.producer.PreparedView();CHECK(loaded.streaming!=original.streaming);
+    CHECK_EQ(original.data[0],Fixture::Pcm(7,0));
+    // Original is no longer bound, but rollback and then a live voice retain it.
+    f.producer.UnpinRollback();CHECK_EQ(f.player.voices[2].Trigger(original,kSourceFrameStepUnity),VariableVoiceStatus::Success);f.producer.Publish(f.player);
+    VariableRateSampleBindings candidate;candidate.count=1;candidate.bindings[0]=CacheCandidate(loaded);
+    CHECK(!f.producer.ReclaimOne(candidate));f.player.voices[2].Stop();f.producer.Publish(f.player);
+    CHECK(f.producer.ReclaimOne(candidate));CHECK_EQ(f.producer.SourceCount(),4u);
+}
+
+TEST_CASE(CooperativePreparationCancellationFailureAndFullPinnedCacheNeverEvictTheCurrentBinding) {
+    Fixture f;const char* path="BroTracker/Samples/cancel.wav";FakePatternSd::files[path].bytes=PickerWav();
+    const auto original=f.producer.reports[0].view;
+    CHECK(f.producer.BeginPrepareAsync(path));
+    for(unsigned i=0;i<5;++i)f.producer.PreparationStep();
+    f.producer.CancelPreparation();f.producer.PreparationStep();CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.SourceCount(),3u);
+    FakePatternSd::files[path].bytes=PickerWav(10000,22050);CHECK(f.producer.BeginPrepareAsync(path));
+    for(unsigned i=0;i<30 && !f.producer.PreparationDone();++i)f.producer.PreparationStep();
+    CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);CHECK_EQ(f.producer.SourceCount(),3u);
+    VariableRateSampleBindings pins;
+    for(unsigned i=3;i<SdSampleStreaming::kSourceCapacity;++i) {
+        const auto p="BroTracker/Samples/pin_"+std::to_string(i)+".wav";FakePatternSd::files[p].bytes=PickerWav();Pcm16MonoView v;
+        CHECK_EQ(f.producer.PreparePath(p.c_str(),v),InstrumentAvailability::Ready);auto b=CacheCandidate(v);b.instrument=i;pins.bindings[pins.count++]=b;
+    }
+    f.producer.PinRollback(pins);VariableRateSampleBindings none;CHECK(!f.producer.ReclaimOne(none));
+    CHECK(f.producer.BeginPrepareAsync(path));CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);
+    CHECK_EQ(f.producer.reports[0].view.data,original.data);CHECK_EQ(f.producer.SourceCount(),16u);ReadReleased();
+}
+
+TEST_CASE(CooperativeBrowserInspectsChunksOneReadPerTurnAndRetainsCompletePageSemantics) {
+    Fixture f;FakePatternSd::files["/BroTracker/Samples"].directory=true;
+    FakePatternSd::files["/BroTracker/Samples/tone.wav"].bytes=PickerWav();
+    SdWavBrowseJob job;WavOpenRequest request;request.version=3;request.request=1;std::strcpy(request.directory,"/BroTracker/Samples");
+    CHECK(job.Begin(request));CHECK(!job.Begin(request));unsigned steps=0;
+    while(!job.Done() && steps++<100) {
+        const auto reads=FakePatternSd::reads.size();job.Step();CHECK(FakePatternSd::reads.size()-reads<=1u);
+        if(FakePatternSd::reads.size()>reads)CHECK(FakePatternSd::reads.back().count<=18u);
+        ReadReleased();
+    }
+    CHECK(job.Done());CHECK_EQ(job.Result(),WavDirectoryResult::Ok);CHECK_EQ(job.Page().count,1u);
+    CHECK_EQ(job.Page().entries[0].facts.status,WavBufferStatus::Success);CHECK_EQ(job.Page().entries[0].facts.sample_rate,44100u);
 }

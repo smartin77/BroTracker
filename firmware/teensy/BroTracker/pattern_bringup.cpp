@@ -41,6 +41,8 @@ extern volatile uint8_t usb_configuration;
 #include "sd_wav_inspection.h"
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "sd_sample_streaming.h"
+#include "sd_wav_browse_job.h"
+#include "bringup/live_instrument_visit.h"
 #endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
@@ -260,8 +262,8 @@ namespace
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
     // Reserve all 46 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 46;
-    constexpr std::size_t kTxCapacity = 47;
+    constexpr std::size_t kDiscoveryReserve = 48;
+    constexpr std::size_t kTxCapacity = 49;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[320]{}; std::size_t length = 0, offset = 0; };
@@ -286,6 +288,13 @@ namespace
     std::uint32_t g_storage_restore_id=0;
     StorageReadyWait g_storage_ready_wait;
     char g_storage_restore_operation[40]="invalid";
+#endif
+#if defined(BROTRACKER_PATTERN_VARIABLE_RATE) && defined(BROTRACKER_PATTERN_SD_PREPARE)
+    LiveInstrumentVisit g_live_visit;SdWavBrowseJob g_live_browser;
+    InstrumentAvailability g_visit_availability[99]{};
+    InstrumentDefineRequest g_live_request{},g_last_live_request{};
+    bool g_live_pending=false,g_live_preparing=false;unsigned g_last_live_result=1;
+    std::uint32_t g_live_steps=0,g_live_max_us=0;
 #endif
     std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
@@ -365,7 +374,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -505,10 +514,109 @@ namespace
             operation,result,revision);
         (void)QueueLine(reply);
     }
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+    void LiveReply(unsigned request,unsigned result) {
+        char reply[80];std::snprintf(reply,sizeof(reply),"BTINS1 REPLACED 1 %u %u %u\n",request,result,g_instrument_definitions.Count());(void)QueueLine(reply);
+    }
+    unsigned InstallLive(const InstrumentDefineRequest& request,const VariableRateSampleBinding& prepared) {
+        InterruptGuard guard;
+        const auto result=ReplaceInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
+            [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceLiveInstrumentBinding(binding);});
+        if(!result) {
+            g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());
+            g_sample_availability[request.expected]=request.type==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
+            g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
+        }
+        return result;
+    }
+    bool LiveCommand(const char* line,unsigned length) {
+        std::uint32_t fields[3]{};char reply[96];
+        if(SnapshotFields(line,length,"BTINS1 VISIT BEGIN ",fields,2) && fields[0]==1 && fields[1]) {
+            const bool fresh=!g_live_visit.Active();
+            const bool ok=g_protocol_connected && !g_live_pending && g_live_visit.Begin(fields[1],g_instrument_definitions,g_selected_bindings);
+            if(ok && fresh){g_streaming.PinRollback(g_live_visit.OriginalBindings());std::copy_n(g_sample_availability,99,g_visit_availability);g_last_live_request={};}
+            std::snprintf(reply,sizeof(reply),"BTINS1 VISIT %s 1 %lu\n",ok?"READY":"BUSY",(unsigned long)fields[1]);(void)QueueLine(reply);return true;
+        }
+        if(SnapshotFields(line,length,"BTINS1 VISIT END ",fields,2) && fields[0]==1 && fields[1]) {
+            const bool ok=!g_live_pending && (g_live_visit.Identity()==fields[1] || !g_live_visit.Active());
+            if(ok){(void)g_live_visit.End(fields[1]);g_streaming.UnpinRollback();}
+            std::snprintf(reply,sizeof(reply),"BTINS1 VISIT %s 1 %lu\n",ok?"ENDED":"BUSY",(unsigned long)fields[1]);(void)QueueLine(reply);return true;
+        }
+        if(SnapshotFields(line,length,"BTINS1 CANCEL ",fields,2) && fields[0]==1 && fields[1]) {
+            g_live_visit.Cancel(fields[1]);if(g_live_pending && g_live_visit.Cancelled(g_live_request.request)) {
+                if(g_live_preparing)g_streaming.CancelPreparation();
+                else {g_last_live_request=g_live_request;g_last_live_result=7;g_live_pending=false;LiveReply(g_live_request.request,7);}
+            }return true;
+        }
+        if(SnapshotFields(line,length,"BTINS1 RESTORE ",fields,3) && fields[0]==1 && fields[1]) {
+            if(g_live_pending){
+                g_live_visit.Cancel(g_live_request.request);
+                if(g_live_preparing)g_streaming.CancelPreparation();
+                else {g_last_live_request=g_live_request;g_last_live_result=7;g_live_pending=false;LiveReply(g_live_request.request,7);}
+            }
+            unsigned result;
+            {InterruptGuard guard;result=g_live_visit.Restore(fields[2],g_instrument_definitions,g_selected_bindings,
+                [&](unsigned slot,const VariableRateSampleBinding* binding){auto& player=g_control.OutputPlayer().MidiPlayer();return binding?player.ReplaceLiveInstrumentBinding(*binding):player.RemoveLiveInstrumentBinding(slot);});
+                if(!result){g_sample_availability[fields[2]]=g_visit_availability[fields[2]];g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());}}
+            LiveReply(fields[1],result);return true;
+        }
+        if(std::strncmp(line,"BTINS1 EDIT ",12))return false;
+        InstrumentDefineRequest request;
+        if(!ParseInstrumentEdit(line,length,request)){LiveReply(0,1);return true;}
+        if(!g_protocol_connected || !g_live_visit.Active() || !g_instrument_definitions.At(request.expected)){LiveReply(request.request,2);return true;}
+        if(g_live_visit.Cancelled(request.request)){LiveReply(request.request,7);return true;}
+        if(request.request==g_last_live_request.request && request.expected==g_last_live_request.expected && request.type==g_last_live_request.type && !std::strcmp(request.resource,g_last_live_request.resource)) {
+            LiveReply(request.request,g_last_live_result);return true;
+        }
+        if(g_live_pending){if(request.request!=g_live_request.request)LiveReply(request.request,3);return true;}
+        if(!g_audio_ready || Snapshot().fault!=PatternFault::None){LiveReply(request.request,3);return true;}
+        if(request.type==1){g_live_request=request;g_live_pending=true;g_live_preparing=false;return true;}
+        VariableRateSampleBinding unused;
+        g_last_live_request=request;g_last_live_result=InstallLive(request,unused);LiveReply(request.request,g_last_live_result);return true;
+    }
+    void ServiceLiveJobs() {
+        const auto reserve=std::max<std::uint32_t>(1024,(std::uint64_t(g_live_max_us)*44100+999999)/1000000+256);
+        if(g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(reserve) || g_tx_count+2*kPatternListPageSize+3>kTxCapacity)return;
+        const auto began=micros();
+        if(g_live_pending) {
+            if(!g_live_preparing) {
+                if(!g_streaming.ReclaimOne(g_selected_bindings)){(void)g_streaming.BeginPrepareAsync(g_live_request.resource);g_live_preparing=true;}
+            } else g_streaming.PreparationStep();
+            if(g_live_preparing && g_streaming.PreparationDone()) {
+                unsigned result=7;
+                if(!g_live_visit.Cancelled(g_live_request.request)) {
+                    const auto prepared=g_streaming.PreparationResult();
+                    if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedView();result=InstallLive(g_live_request,binding);}
+                    else result=prepared==InstrumentAvailability::ResourceUnavailable?4:6;
+                }
+                g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result);
+            }
+        } else if(g_live_browser.Busy())g_live_browser.Step();
+        else g_streaming.ReclaimOne(g_selected_bindings);
+        const auto elapsed=micros()-began;++g_live_steps;g_live_max_us=std::max(g_live_max_us,elapsed);
+        if(g_live_browser.Done()) {
+            const auto& request=g_live_browser.Request();const auto& page=g_live_browser.Page();char line[320];
+            if(g_live_browser.Result()!=WavDirectoryResult::Ok){std::snprintf(line,sizeof(line),"BTSTORE1 WAVERROR %u %lu %u\n",request.version,(unsigned long)request.request,unsigned(g_live_browser.Result()));(void)QueueLine(line);}
+            else {
+                std::snprintf(line,sizeof(line),"BTSTORE1 WAVDIR %u %lu %s\n",request.version,(unsigned long)request.request,page.directory);(void)QueueLine(line);
+                std::snprintf(line,sizeof(line),"BTSTORE1 WAVINFO %u %lu %u\n",request.version,(unsigned long)request.request,page.fallback);(void)QueueLine(line);
+                for(unsigned i=0;i<page.count;++i){const auto& entry=page.entries[i];std::snprintf(line,sizeof(line),"BTSTORE1 WAVITEM %u %lu %c %s\n",request.version,(unsigned long)request.request,entry.kind==WavEntryKind::Directory?'D':'F',entry.name);(void)QueueLine(line);
+                    if(request.version>=3 && entry.kind==WavEntryKind::File){const auto& f=entry.facts;std::snprintf(line,sizeof(line),"BTSTORE1 WAVMETA 3 %lu %u %u %u %u %u %lu\n",(unsigned long)request.request,i,unsigned(f.status),f.format,f.channels,f.bits,(unsigned long)f.sample_rate);(void)QueueLine(line);}}
+                std::snprintf(line,sizeof(line),"BTSTORE1 WAVEND %u %lu %lu %u %u\n",request.version,(unsigned long)request.request,(unsigned long)page.next,unsigned(page.done),page.scanned);(void)QueueLine(line);
+            }
+            g_live_browser.Consumed();
+        }
+    }
+#endif
     void StorageCommand(const char* line,std::uint32_t now) {
         if(!std::strncmp(line,"BTSTORE1 WAVOPEN ",16)) {
             WavOpenRequest request;WavBrowsePage page;char reply[320];
             if(!ParseWavOpen(line,std::strlen(line),request))return;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            if(g_live_visit.Active()) {
+                if(!g_live_browser.Begin(request)){std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVERROR %u %lu %u\n",request.version,(unsigned long)request.request,unsigned(WavDirectoryResult::Busy));(void)QueueLine(reply);}return;
+            }
+#endif
             const auto version=request.version;auto result=WavDirectoryResult::Busy;
             if(g_protocol_connected && !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped && g_tx_count+2*kPatternListPageSize+3<=kTxCapacity)
                 result=ReadWavBrowsePage(g_storage_backend,request,page);
@@ -830,6 +938,7 @@ namespace
                     (unsigned long)g_streaming.reads,(unsigned long)g_streaming.io_errors,g_streaming.P99(),
                     (unsigned long)g_streaming.max_read_us,(unsigned long)g_streaming.stale_reads);
                 (void)QueueLine(reply);
+                std::snprintf(reply,sizeof(reply),"BTSTREAM1 JOBIO %lu %lu\n",(unsigned long)g_live_steps,(unsigned long)g_live_max_us);(void)QueueLine(reply);
                 for(unsigned i=0;i<8;++i) {
                     const auto state=g_streaming.Snapshot(i);
                     std::snprintf(reply,sizeof(reply),"BTSTREAM1 VOICE %u %lu %lu %lu %lu %lu %lu\n",i,
@@ -858,6 +967,7 @@ namespace
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             else if (!std::strncmp(line,"BTINS1",6)) {
+                if(!LiveCommand(line,used)) {
                 unsigned id=0;
                 const bool relink=!std::strncmp(line,"BTINS1 RELINK ",14),replace=!std::strncmp(line,"BTINS1 REPLACE ",15);
                 const unsigned operation=replace?2:relink?1:0;
@@ -866,10 +976,13 @@ namespace
                     if(replace?ParseInstrumentReplace(line,used,request):relink?ParseInstrumentRelink(line,used,request):ParseInstrumentDefine(line,used,request)) {
                         if(operation==g_last_definition_operation && request.request==g_last_define.request && request.expected==g_last_define.expected && request.type==g_last_define.type && !std::strcmp(request.resource,g_last_define.resource))result=g_last_define_result;
                         else {
-                            const bool ready=g_audio_ready && !StorageBlock() && g_control.StorageReady();
+                            const auto* prior=g_instrument_definitions.At(request.expected);
+                            const bool live_type=replace && prior && prior->type!=InstrumentType::Sample && (request.type==2 || request.type==3);
+                            const bool ready=live_type ? g_audio_ready && Snapshot().fault==PatternFault::None :
+                                g_audio_ready && !StorageBlock() && g_control.StorageReady();
                             VariableRateSampleBinding prepared;prepared.type=InstrumentType::Sample;
                             prepared.reference_note=60;prepared.sample_level_percent=80;
-                            if(ready) {
+                            if(ready && !live_type) {
                                 {InterruptGuard guard;g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());}
                                 g_streaming.ReleaseUnused(g_selected_bindings,true);
                             }
@@ -886,20 +999,21 @@ namespace
                             if(!result) {
                                 InterruptGuard guard;
                                 if(replace)result=ReplaceInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
-                                    [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceInstrumentBinding(binding);});
+                                    [&](const VariableRateSampleBinding& binding){return live_type ? g_control.OutputPlayer().MidiPlayer().ReplaceLiveInstrumentType(binding) : g_control.OutputPlayer().MidiPlayer().ReplaceInstrumentBinding(binding);});
                                 else if(relink)result=RelinkSampleDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
                                     [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceSampleBinding(binding);});
                                 else result=CommitInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,true,
                                     [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().AppendInstrumentBinding(binding);},
                                     request.type==1?&prepared:nullptr);
                                 if(!result) {
+                                    if(live_type)g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());
                                     g_sample_availability[request.expected]=request.type==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
                                     g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
                                 }
                             }
-                            if(!result && (relink || replace))g_streaming.ReleaseUnused(g_selected_bindings,true);
+                            if(!result && !live_type && (relink || replace))g_streaming.ReleaseUnused(g_selected_bindings,true);
                             if(result && g_streaming.SourceCount()>prior_sources)g_streaming.DiscardLast(request.resource);
-                            if(result==0)g_session_save.Changed();
+                            if(result==0 && !live_type)g_session_save.Changed();
                             g_last_definition_operation=operation;g_last_define=request;g_last_define_result=result;g_last_define_count=g_instrument_definitions.Count();
                         }
                     }
@@ -924,6 +1038,7 @@ namespace
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);
                 }
+            }
             }
             else if (!std::strncmp(line,"BTMUTE1",7)) {
                 if(!std::strcmp(line,"BTMUTE1 GET 1")) QueueMuteState();
@@ -1264,6 +1379,9 @@ namespace
         g_streaming.Service();
 #endif
         ServiceSerial();
+#if defined(BROTRACKER_PATTERN_VARIABLE_RATE) && defined(BROTRACKER_PATTERN_SD_PREPARE)
+        ServiceLiveJobs();
+#endif
     }
 }
 #endif

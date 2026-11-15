@@ -832,6 +832,7 @@ static void RenderPatternScreen(
         };
         const auto title=host.text.Get(WarningText::Instrument)+" "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
         line(title);
+        if(host.instrument_focus==2)framebuffer.Rectangle(x-3,y-52-4,width,face.ascent+face.descent+8,editing_frame);
         if(host.instrument_original_number) {
             const bool original=host.instrument_original_number==host.instrument_number;
             HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+(original?0:16),y-52+face.ascent,

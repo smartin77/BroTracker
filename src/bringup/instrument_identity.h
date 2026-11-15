@@ -113,6 +113,13 @@ inline bool ParseInstrumentReplace(const char* line,std::size_t length,Instrumen
     if(!ParseInstrumentDefine(normalized,length-1,candidate) || (candidate.type==1 && !InstrumentDefinitions::ValidResource(candidate.resource)))return false;
     out=candidate;return true;
 }
+inline bool ParseInstrumentEdit(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
+    constexpr unsigned prefix=12;
+    if(!line || length>=kPatternSnapshotLineCapacity-2 || length<prefix || std::memcmp(line,"BTINS1 EDIT ",prefix))return false;
+    char normalized[kPatternSnapshotLineCapacity]{};
+    std::memcpy(normalized,"BTINS1 DEFINE ",14);std::memcpy(normalized+14,line+prefix,length-prefix);
+    return ParseInstrumentDefine(normalized,length+2,out);
+}
 inline bool ParseInstrumentDefined(const char* line,std::size_t length,unsigned& request,unsigned& result,unsigned& count) noexcept {
     std::uint32_t f[4]{};if(!SnapshotFields(line,length,"BTINS1 DEFINED ",f,4) || std::memcmp(line,"BTINS1 DEFINED 1 ",16) || f[0]!=1 || !f[1] || f[2]>6 || f[3]>99)return false;
     request=f[1];result=f[2];count=f[3];return true;

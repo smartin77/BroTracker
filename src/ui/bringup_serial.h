@@ -69,7 +69,7 @@ public:
            UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
             define_error_="Sample relink unavailable: synchronize/reconnect and STOP before retry";return false;
         }
-        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;define_replace_=false;
+        define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;define_replace_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource);
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -89,7 +89,7 @@ public:
             define_error_="Definition commit unavailable: STOP, synchronize and use capable firmware";return false;
         }
         if(define_id_==UINT32_MAX){define_error_="Reconnect before definition commit";return false;}
-        ++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;define_replace_=false;
+        define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;define_replace_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -99,11 +99,45 @@ public:
             define_error_="Instrument update unavailable: synchronize/reconnect and STOP before retry";return false;
         }
         if(type<1 || type>3 || (type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {define_error_="WAV reference unavailable or invalid";return false;}
-        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;define_relink_=false;define_replace_=true;
+        define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;define_relink_=false;define_replace_=true;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
     bool InstrumentCommitPending() const {return define_pending_;}
+    bool LiveTypeSupported()const{return connected_ && live_type_supported_;}
+    bool LiveEditSupported()const{return connected_ && live_edit_supported_;}
+    bool InstrumentVisitReady()const{return LiveEditSupported() && visit_id_ && visit_ready_;}
+    bool InstrumentVisitActive()const{return visit_id_!=0;}
+    bool BeginInstrumentVisit(std::uint32_t now) {
+        if(!LiveEditSupported() || UserActionsBlocked())return false;
+        if(visit_id_)return true;
+        if(visit_sequence_==UINT32_MAX)return false;
+        visit_id_=++visit_sequence_;visit_ready_=false;visit_begin_queued_=true;visit_end_queued_=visit_ending_=false;visit_sent_at_=now;return true;
+    }
+    void EndInstrumentVisit(){if(visit_id_){visit_ending_=true;visit_end_queued_=true;}}
+    void CancelLiveDefinition(){if(define_pending_ && define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}}
+    bool InstrumentCommitCancelled()const{return define_cancelled_;}
+    unsigned InstrumentCommitResult()const{return define_result_;}
+    bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false) {
+        if(!InstrumentVisitReady() || visit_ending_ || (define_reconcile_required_ && !restore) || !number || number>collection_count_ ||
+            UserActionsBlocked() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX ||
+            type<1 || type>3 || (!restore && type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
+            define_error_="Live instrument update unavailable: synchronize the retained Instrument visit";return false;
+        }
+        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;
+        define_relink_=false;define_replace_=true;define_edit_=true;define_restore_=restore;define_cancelled_=false;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1 && resource?resource:"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    bool ReplaceLiveType(unsigned number,unsigned type,std::uint32_t now) {
+        if(!LiveTypeSupported() || define_reconcile_required_ || !InstrumentCollectionKnown() || !number || number>collection_count_ ||
+            (type!=2 && type!=3) || UserActionsBlocked() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
+            define_error_="Live Type update unavailable: synchronize/reconnect with LIVETYPECAP firmware";return false;
+        }
+        define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;
+        define_relink_=false;define_replace_=true;std::strcpy(define_resource_,"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
     bool InstrumentCommitSucceeded() const {return define_success_;}
     const std::string& InstrumentCommitError() const {return define_error_;}
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
@@ -253,6 +287,15 @@ public:
             (!startup_selection_enabled_ && !initial_sync_ready_) || !pattern_assembler_.Snapshot() || continuity_pending_;
     }
     bool StopAvailable() const {return connected_ && SdStatus()!=SdAvailability::Unavailable;}
+    bool LivePatternEditingAvailable() const {
+        return !UserActionsBlocked() && preview_.Supported() && !FilePending() && !PublicationBusy() && !TransportPending();
+    }
+    bool WorkingPatternApplied(const BroTracker::RealtimePattern& pattern) const {
+        const auto* remote=preview_.VerifiedWorking();
+        return !UserActionsBlocked() && preview_.Phase()==BroTracker::HostPreviewPhase::Synchronized &&
+            remote && BroTracker::SamePattern(pattern,*remote);
+    }
+    const char* WorkingPatternStatus()const{return preview_.Status();}
     // Only re-arm GET for an uncertain publication; never authorize host writes.
     bool PublicationReadbackRetryAvailable() const {
         return StopAvailable() && publication_.Phase()==BroTracker::HostPublicationPhase::Uncertain &&
@@ -386,6 +429,11 @@ private:
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
     bool replace_supported_=false,define_replace_=false,relink_supported_=false,define_relink_=false;unsigned define_slot_=0;
     bool define_supported_=false,define_pending_=false,define_queued_=false,define_success_=false;
+    bool live_type_supported_=false;
+    bool live_edit_supported_=false,define_edit_=false,define_restore_=false,define_cancelled_=false,cancel_live_queued_=false;
+    unsigned define_result_=8;
+    bool visit_ready_=false,visit_begin_queued_=false,visit_end_queued_=false,visit_ending_=false;
+    std::uint32_t visit_id_=0,visit_sequence_=0,visit_sent_at_=0,cancel_live_id_=0;
     bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
     unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[64]{};std::string define_error_;
     bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;

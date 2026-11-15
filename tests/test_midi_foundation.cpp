@@ -248,3 +248,35 @@ TEST_CASE(MidiGenerationRaceRetainsQueueThenQuarantinesWithoutStaleOnAndRecovers
     const auto fresh=h.words.size();h.Send(1,72);CHECK_EQ(h.words.size(),fresh+1);
     CHECK_EQ(h.words.back(),h.output.Pack(true,72));
 }
+
+TEST_CASE(LiveMidiTypeReplacementCancelsSoundingAndDelayedNotesWithoutReleasingPeerOwnership) {
+    for(bool shared:{false,true})for(bool delayed:{false,true}) {
+        RealtimePattern pattern;pattern.active_rows=2;pattern.active_channels=2;
+        pattern.cells[0][0]={69,1};if(shared)pattern.cells[0][1]={69,2};
+        VariableRateSampleBindings bindings;bindings.count=2;
+        bindings.bindings[0]={1,60,{},InstrumentType::MIDI};bindings.bindings[1]={2,60,{},InstrumentType::MIDI};
+        VariableRatePatternPlayer player;CHECK_EQ(player.Configure(12500,44100,pattern,bindings),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);(void)player.TakeMidiReset();
+        MidiHarness h;(void)h.output.TakeAbortRequest();
+        if(delayed)CHECK(h.output.SetNoteDelayMs(82,AudioOutputChoice::Bridge,AudioInitialization::Initialized,true)==MidiOutput::DelaySetting::Applied);
+        std::int16_t audio[128];CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        CHECK(h.output.Enqueue(player.TakeMidiCommands(),0,0));h.Service(0);
+        CHECK_EQ(h.words.size(),delayed?0u:1u);
+        const auto position=player.GetNextSamplePosition();
+        VariableRateSampleBinding replacement;replacement.instrument=1;replacement.type=InstrumentType::Synth;
+        CHECK(player.ReplaceLiveInstrumentType(replacement));CHECK_EQ(player.GetNextSamplePosition(),position);
+        CHECK(player.GetTransportState()==VariableRatePatternTransportState::Playing);
+        const auto mask=player.TakeMidiCancelMask();CHECK_EQ(mask,1u);h.output.CancelChannels(mask);h.Service(0);
+        CHECK_EQ(h.output.Queued(),delayed && shared?1u:0u);
+        if(delayed)h.Service(82000);
+        if(shared) {
+            CHECK_EQ(h.words.size(),1u);CHECK_EQ(h.words.back(),h.output.Pack(true,69));
+            replacement.instrument=2;CHECK(player.ReplaceLiveInstrumentType(replacement));
+            CHECK_EQ(player.TakeMidiCancelMask(),2u);h.output.CancelChannels(2);h.Service(delayed?82000:0);
+            CHECK_EQ(h.words.size(),2u);CHECK_EQ(h.words.back(),h.output.Pack(false,69));
+        } else if(!delayed) {CHECK_EQ(h.words.size(),2u);CHECK_EQ(h.words.back(),h.output.Pack(false,69));}
+        else CHECK(h.words.empty()); // cancelled delayed Note On never escapes
+        CHECK(!h.output.Faulted());
+        replacement.type=InstrumentType::Sample;CHECK(!player.ReplaceLiveInstrumentType(replacement));
+    }
+}
