@@ -1849,3 +1849,34 @@ TEST_CASE(ExitCancelsOnlyWhollyUnsentManualPatternSaveAndPreservesStartedFrames)
     }
     ConfigureHostLogging(HostLogMode::Basic);
 }
+
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+TEST_CASE(WindowsSlot06SineConfirmationFromMidiOrUndefinedWaitsForAckAndReopensSameType) {
+    for(bool existing:{false,true})for(bool left:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->define_cap=wire->facts_cap=wire->replace_cap=wire->hold_define=true;
+        if(existing){CHECK(wire->definitions.Append(5,2,nullptr));wire->collection_count=6;}
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        auto drive=[&](unsigned a,unsigned b){for(unsigned i=a;i<b;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+        drive(0,100);auto pattern=*editor.Draft();pattern.cells[0][3]={60,5};pattern.cells[1][3]={64,static_cast<std::uint8_t>(existing?5:255)};
+        CHECK(editor.RecoverDraft(pattern));editor.RestoreCursor({static_cast<std::uint8_t>(existing?0:1),3,EditField::Instrument,false});const auto before=*editor.Draft();auto expected=before;if(!existing)expected.cells[1][3].instrument=5;
+        controls.Request(BringUpAction::ScreenUp,"Ctrl+Up",2001);drive(101,180);
+        CHECK(controls.InstrumentScreen());CHECK_EQ(controls.InstrumentNumber(),6u);CHECK_EQ(controls.InstrumentFocus(),0);
+        CHECK_EQ(controls.InstrumentDraftType(),std::string(existing?"MIDI":"Sample"));
+        const unsigned steps=existing?(left?2:1):(left?1:2);
+        for(unsigned i=0;i<steps;++i){SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=left?SDLK_LEFT:SDLK_RIGHT;controls.Request(MapWindowsInstrumentAction(event),"Type arrow",3601+i);}
+        CHECK_EQ(controls.InstrumentDraftType(),std::string("Sine Synth"));CHECK_EQ(controls.InstrumentFocus(),0);
+        SDL_Event confirm{};confirm.type=SDL_KEYDOWN;confirm.key.keysym.sym=SDLK_DOWN;confirm.key.keysym.scancode=SDL_SCANCODE_DOWN;confirm.key.keysym.mod=KMOD_LCTRL;
+        const auto action=MapWindowsInstrumentAction(confirm);CHECK(action==BringUpAction::ScreenDown);CHECK(AllowWindowsBlockedAction(action,serial,controls));
+        controls.Request(action,"Ctrl+Down",3610);drive(181,190);
+        CHECK(controls.InstrumentScreen());CHECK(serial.InstrumentCommitPending());CHECK_EQ(serial.InstrumentCollectionSize(),existing?6u:5u);
+        CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(wire->definitions.Count(),6u);CHECK_EQ(wire->definitions.At(5)->type,InstrumentType::Synth);
+        CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[&](const auto& command){return command.rfind(existing?"BTINS1 REPLACE ":"BTINS1 DEFINE ",0)==0;}),1);
+        CHECK(!wire->define_reply.empty());wire->rx+=wire->define_reply;wire->define_reply.clear();drive(190,205);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(serial.InstrumentCollectionSize(),6u);CHECK(SamePattern(expected,*editor.Draft()));
+        controls.Request(BringUpAction::ScreenUp,"reopen06",4101);drive(206,280);
+        CHECK(controls.InstrumentScreen());CHECK_EQ(controls.InstrumentNumber(),6u);CHECK_EQ(controls.InstrumentFocus(),0);
+        CHECK_EQ(controls.InstrumentDraftType(),std::string("Sine Synth"));
+    }
+}
+#endif

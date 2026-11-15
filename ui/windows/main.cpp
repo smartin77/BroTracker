@@ -132,6 +132,12 @@ int main(int argc, char* argv[]) try {
                 (void)header_input.Handle(event,0,0,false);
                 if(controls.InstrumentScreen() && !controls.WavPicker()) {
                     const auto field=MapWindowsInstrumentAction(event,host_config.config.value_step_direction);
+                    if(event.type==SDL_KEYDOWN)
+                        BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Instrument input",
+                            "key=%d scan=%d modifiers=%u repeat=%u slot=%u focus=%d draft_type=%u action=%u",
+                            int(event.key.keysym.sym),int(event.key.keysym.scancode),unsigned(event.key.keysym.mod),
+                            unsigned(event.key.repeat),controls.InstrumentNumber(),controls.InstrumentFocus(),
+                            controls.InstrumentDraftTypeCode(),unsigned(field));
                     if(field!=BringUpAction::None){controls.Request(field,"Instrument field",SDL_GetTicks());continue;}
                     if((event.type==SDL_KEYDOWN || event.type==SDL_KEYUP) && (event.key.keysym.mod&KMOD_CTRL))continue;
                 }

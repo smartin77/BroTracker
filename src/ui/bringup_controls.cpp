@@ -161,6 +161,11 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 
         if(action==BringUpAction::ScreenDown) {
             const auto limit=serial_.InstrumentCollectionLimit();
+            BroTracker::HostLogf(log_,BroTracker::HostLogLevel::Debug,"Instrument confirm",
+                "slot=%u count=%u limit=%u focus=%d draft_type=%u saved_type=%u blocked=%u file=%u publication=%u transport=%u editor=%u locked=%u",
+                instrument_number_,serial_.InstrumentCollectionSize(),limit,InstrumentFocus(),InstrumentDraftTypeCode(),
+                serial_.InspectedType(instrument_number_),unsigned(serial_.UserActionsBlocked()),unsigned(serial_.FilePending()),
+                unsigned(serial_.PublicationBusy()),unsigned(serial_.TransportPending()),unsigned(editor_!=nullptr),unsigned(editor_ && editor_->Locked()));
             if(!limit || instrument_number_>limit) {
                 screen_status_=!limit?"Return unavailable: waiting for instrument collection; cancel is available":"Return unavailable: select a numbered slot or cancel";
                 return;
@@ -174,6 +179,9 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             const auto type=InstrumentDraftTypeCode();
             const auto path=!sample_path_.empty()?sample_path_:type==1 && serial_.InspectedSample(instrument_number_)?SavedInstrumentPath():std::string{};
             const bool changed=draft_slot_==instrument_number_ && ((definition_draft_.explicit_type && type!=serial_.InspectedType(instrument_number_)) || !sample_path_.empty());
+            BroTracker::HostLogf(log_,BroTracker::HostLogLevel::Debug,"Instrument confirm",
+                "branch=%s type=%u explicit=%u path=%u",existing?(changed?"replace":"assign"):"define-or-assign",type,
+                unsigned(definition_draft_.explicit_type),unsigned(!path.empty()));
             if(existing && changed && type==1 && path.empty()) {screen_status_="No sample selected; use Load WAV before confirming";return;}
             if(existing && changed) {
                 const bool accepted=serial_.ReplaceSupported()?serial_.ReplaceInstrument(instrument_number_,type,type==1?path.c_str():nullptr,now):
