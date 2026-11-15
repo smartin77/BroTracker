@@ -37,15 +37,25 @@ Sample/MIDI/Synth instrument boundaries (D0042); independent sample rate,
 reference pitch and loop tempo (D0055); paused current-row replay (D0054); and
 configuration, logging and sparse-preview semantics (D0057–D0059).
 
+Instrument selector cancellation: Windows **Escape** / handheld **unmodified B**
+returns to Pattern without assignment and restores the captured source cursor.
+Cancellation remains available while disconnected or held for reconnect recovery;
+retained musical work is preserved. Then enter recovery explicitly from Pattern
+(Ctrl+Left / Select+Left), review and confirm or cancel using the existing recovery
+menu. Cancellation never recovers work automatically or starts playback.
+Ctrl+Down / Select+Down confirms assignment and remains blocked when unsafe.
+Modified B keeps its existing STOP combinations; Enter remains STOP.
+Closing BTX does not confirm assignment.
+
+
 ## Shared interaction and navigation
 
 - PAT remains the primary workspace. The agreed planned directions are Left to
-  one Load screen for opening a module, project or tune; Up to Instrument Inventory,
-  with the selected instrument editor below it; and Right to Project Settings.
+  one Load screen for opening a module, project or tune; Up directly to one Instrument; and Right to Project Settings.
   Down to Master Mix is the current proposal, but that assignment remains open.
   Left currently implements Pattern Load/Save for compatible .btdev files, not
-  general module/project/tune loading. Up is the next feature foundation after
-  bridge closure: planned Ctrl+Up / Select+D-pad Up; Right/Down remain future routes.
+  general module/project/tune loading. Up implements the Instrument foundation via
+  Ctrl+Up / Select+D-pad Up; Right/Down remain future routes.
 - Retain Pattern's contextual right-side panel. Remove only its planned INS/MIX/OPT
   quick-access menu; reuse the space freed within the panel for future content,
   with both that content and its layout undecided.
@@ -56,8 +66,8 @@ configuration, logging and sparse-preview semantics (D0057–D0059).
   the caller's cursor, selection, page and scroll context. Editors support abstract
   Previous Item / Next Item actions within the relevant collection.
 - Use abstract Navigate, Select, Edit, Confirm, Back, Preview and Import actions.
-  Current Left/Right and planned Up bindings are distinguished in
-  [BTX Controls](BTX_CONTROLS.md#planned-instrument-entry). Other bindings remain
+  Current Left/Right and implemented Up bindings are distinguished in
+  [BTX Controls](BTX_CONTROLS.md#instrument-entry). Other bindings remain
   undecided. Screen entry reuses automatic STOP/acknowledged IDLE and successful
   session persistence; future MIX allows playback to continue. Return preserves
   view context without automatic resume.
@@ -116,23 +126,23 @@ event context rather than silently editing the advancing playhead's event. Any
 optional playback-follow inspection needs a clearly identified target and a
 resolved focus policy; see the contradictions below.
 
-### 3. Instrument Inventory
+### 3. Instrument foundation
 
-Create/select instruments independently of composing a pattern. Show instrument
-number, name, type, resource availability and project usage (references/counts
-where known). Missing resources remain visible rather than deleting definitions.
-The planned Up destination from Pattern is Instrument Inventory; the selected
-instrument editor sits below it. Contextual entry from a pattern instrument field
-may also be provided; that contextual binding remains undecided. The next
-foundation uses planned Pattern entry Ctrl+Up / Select+D-pad Up, not implemented
-controls. Back binding, selection versus assignment and minimum useful scope over
-available instrument identity/capability data remain follow-up decisions; the
-broader editor proposals below are not the foundation's promised scope.
-Opening an item inspects/edits it; assigning it to a pattern field is an explicit
-operation. Creation and usage reporting depend on a real instrument registry and
-reference model, not just existing development fixture bindings.
+Pattern opens one specific instrument directly; no Inventory screen or menu exists.
+The implemented text foundation shows decimal 01-99 and read-only authoritative
+binding type (Sample, MIDI, Sine Synth), or an honest unknown/unbound state.
+Common Type, Name, separate Load and Save destinations, and Fine Tune have stable
+space; only Type has backing identity today. All editor operations are deferred,
+including type mutation and Transpose. Future Sample content accommodates waveform
+and parameters together; Synth may later use graphical controls.
 
-### 4. Instrument Editor
+See [current controls](BTX_CONTROLS.md#instrument-entry) for provisional previous,
+next and return bindings, entry exclusions, STOP/save sequencing and preserved
+Pattern context. Normal return confirms selection to the captured cell through
+editor history/preview; browsing alone and closing BTX never assign. The original
+explicit source ID has a separate header marker; inherited selection does not.
+
+### 4. Future Instrument editing
 
 Common identity and navigation: number, name, type, availability, usage, Back and
 Previous/Next instrument. Type-specific pages expose supported capabilities:
@@ -300,7 +310,7 @@ before corresponding controls become actionable.
 
 | Stage | User benefit | Minimum useful scope | Backend prerequisites and dependencies |
 | --- | --- | --- | --- |
-| 1. Navigation foundation and instrument list | Reach instruments directly and return without losing editing context. | Abstract screen routing, Back context restoration, previous/next, read-only instrument identity/availability list; creation/selection only where backed. | Separate view state from musical state; instrument registry/identity and capability discovery; define selection versus assignment. Preserve existing editing/transport/preview contracts. |
+| 1. Direct Instrument foundation | Reach instruments directly and return without losing editing context. | Abstract screen routing, Back context restoration, previous/next, read-only identity for one instrument; editing remains deferred. | Separate view state from musical state; bounded authoritative binding identity and capability discovery; define selection versus assignment. Preserve existing editing/transport/preview contracts. |
 | 2. Sample browser and minimal sample instrument editor | Choose and audition usable sounds deliberately. | Directory/validated metadata view, explicit preview/import, resource selection and only supported playback parameters. | Stage 1; bounded file inspection/loading, audition ownership, instrument-resource binding, memory/storage validation and supported parameter command/readback. Gain, tuning and ranges need backend support before controls. |
 | 3. Project persistence and missing-sample recovery | Save work durably and recover unresolved resources. | Versioned BTT/BTP subset, New/Load/Save/Save As, metadata, dirty visibility and validated relinking. | Stages 1–2 resource/identity model; serialization design (binary layout is not yet fixed), resource copying/path policy, atomic/recoverable writes, SD exclusivity and explicit working/published/saved semantics. |
 | 4. Mixer controls over existing gains, then additional supported functionality | Balance channels without confusing audio level and sequencing mute. | Eight supported gain controls with authoritative readback, master information and pending/error status. | Gain-capable player/protocol path and host coordination; capability gating and ownership/application semantics. Later pan/meters/master gain require their own DSP/telemetry support; tracker mute requires its separate event-suppression path. Coordinate persistence with stage 3. |
@@ -318,10 +328,9 @@ before corresponding controls become actionable.
   quarter note. Treat that older example as fixed-grid illustration, not a setting.
   Older centered-scroll descriptions also conflict with the current fixed view
   and pending paging comparison. Final paging/follow behavior remains undecided.
-- Instrument Inventory is the planned Up destination from Pattern, with the
-  selected instrument editor below it. Confirm final selection/assignment behavior
-  and editor collection ordering during design. Pattern entry is planned as
-  Ctrl+Up / Select+D-pad Up; Back/contextual entry bindings remain undecided.
+- Instrument entry and previous/next/return bindings are provisional owner-validation
+  choices. Headers, NOTE_OFF timing fields and IDs outside 01-99
+  remain unavailable; their future interpretation needs an owner decision.
 - D0042 allows compiled modules without dynamic loading, while D0043 proposes
   binary loading and D0051 leaves execution/memory mechanisms undecided. What
   capability/interface contract can be supported first? No loader UI is assumed.

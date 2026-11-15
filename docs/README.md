@@ -12,6 +12,7 @@ Project documentation is located in the `docs` directory.
 - [Core Architecture](./CORE_ARCHITECTURE.md)
 - [UI / UX Architecture](./UI_UX_ARCHITECTURE.md)
 - [UI Screen Map and Implementation Direction](./UI_SCREEN_MAP.md)
+- [Instrument screen and session snapshot foundation](./INSTRUMENT_FOUNDATION.md)
 - [Effect Event Architecture](./EFFECT_EVENT_ARCHITECTURE.md)
 - [Teensy Audio Architecture](./TEENSY_AUDIO_ARCHITECTURE.md)
 - [Production Audio Shield headphones](./AUDIO_SHIELD_OUTPUT.md)

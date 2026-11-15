@@ -63,12 +63,20 @@ int main(int argc, char* argv[])
 
     Framebuffer framebuffer(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-    if (!RenderProductionPatternFixture(framebuffer, tune, pattern, beat_fixture, argc==4)) {
+    const bool instrument=argc==5 && std::string(argv[1])=="--instrument-preview";
+    HostPanelInformation host;
+    if(instrument) {
+        host.instrument_number=std::stoul(argv[3]);host.instrument_identity=argv[4];
+        host.connection_status="Offline renderer fixture";
+        host.transport_hints="Ctrl/Select+Left/Right: instrument | Ctrl/Select+Down: Pattern";
+        host.publication_status="Preview only; owner approval pending";
+    }
+    if (!RenderProductionPatternFixture(framebuffer, tune, pattern, beat_fixture, argc==4,host)) {
         LogError("Preview editor could not initialize.");
         return 1;
     }
 
-    const std::filesystem::path output_path = beat_fixture ? argv[2] : "assets/ui_main_screen.bmp";
+    const std::filesystem::path output_path = (beat_fixture || instrument) ? argv[2] : "assets/ui_main_screen.bmp";
 
     if (!framebuffer.SaveBMP(output_path))
     {

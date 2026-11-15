@@ -1,5 +1,6 @@
 #pragma once
 #include "core/playback/native_rate_sample_commands.h"
+#include "instrument_definition.h"
 #include "core/playback/variable_rate_sample_commands.h"
 
 #ifndef BROTRACKER_PATTERN_FIXTURE_ROWS
@@ -76,15 +77,17 @@ inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentF
     Pcm16MonoView test2, Pcm16MonoView test3={}, Pcm16MonoView test={}) noexcept {
     BasicPatternBringUpFixture<VariableRateSampleBindings> result{MakeDevelopmentPattern(),{}};
     auto& bindings=result.bindings;
-    bindings.bindings[bindings.count++]={1,0,{},InstrumentType::MIDI};
-    bindings.bindings[bindings.count++]={2,0,{},InstrumentType::Synth};
+    const Pcm16MonoView views[]={test2,{},{},test3,test};
+    // Preserve existing playback binding order/gains/ownership. Only successfully
+    // prepared Sample views become playable; definitions never depend on this.
     VariableRateSampleVoice validator; (void)validator.Configure(44100);
-    if(validator.Trigger(test2,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
-        bindings.bindings[bindings.count++]={0,60,test2,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
-    if(validator.Trigger(test3,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
-        bindings.bindings[bindings.count++]={3,60,test3,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
-    if(validator.Trigger(test,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
-        bindings.bindings[bindings.count++]={4,60,test,InstrumentType::Sample,kDevelopmentSampleLevelPercent};
+    for(const unsigned raw:{1u,2u,0u,3u,4u}) {
+        const auto& definition=kDevelopmentInstrumentDefinitions[raw];
+        if(definition.type!=InstrumentType::Sample)
+            bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),0,{},definition.type};
+        else if(validator.Trigger(views[raw],kSourceFrameStepUnity)==VariableVoiceStatus::Success)
+            bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),60,views[raw],definition.type,kDevelopmentSampleLevelPercent};
+    }
     return result;
 }
 

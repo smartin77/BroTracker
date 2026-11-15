@@ -1,4 +1,5 @@
 #include "bringup/pattern_fixture.h"
+#include "bringup/instrument_identity.h"
 #include "core/playback/variable_rate_sample_commands.h"
 #include "core/audio/pcm16_mixer.h"
 #include "firmware/teensy/BroTracker/sd_wav_inspection.h"
@@ -266,4 +267,29 @@ TEST_CASE(FifthDevelopmentSampleReusesCheckedSdLoaderWhenCallerStorageExists) {
     CHECK_EQ(binding.sample_level_percent,80u);
     SdWavPreparation unavailable;unavailable.Prepare(false,kDevelopmentWavPaths[0],pcm,4);
     CHECK_EQ(SelectDevelopmentFixture({}, {}, unavailable.view).bindings.count,2u);
+}
+
+TEST_CASE(InstrumentDefinitionsSurviveActualPreparationFailuresWithoutFallback) {
+    for(unsigned mode=0;mode<5;++mode) {
+        Fixture();if(mode==1)FakeSd::fail_open=true;if(mode==2)FakeSd::bytes[20]=3;if(mode==3)FakeSd::short_at=44;
+        const auto* definition=DevelopmentInstrumentDefinition(0);CHECK(definition);CHECK(definition->type==InstrumentType::Sample);
+        DevelopmentWavInspection inspection;inspection.InspectOnce(mode!=4);
+        std::int16_t pcm[2];SdWavPreparation preparation;preparation.Prepare(mode!=4,definition->resource,pcm,2);
+        const auto availability=SamplePreparationAvailability(*definition,preparation,inspection.files[1]);
+        CHECK(availability==(mode==0?InstrumentAvailability::Ready:mode==1?InstrumentAvailability::ResourceUnavailable:mode==4?InstrumentAvailability::StorageUnavailable:InstrumentAvailability::PreparationFailed));
+        const auto facts=DevelopmentInstrumentFacts(0,availability);CHECK_EQ(facts.type,1u);CHECK_EQ(std::string(facts.resource),std::string("Samples/test2.wav"));
+        char reply[96];CHECK(FormatInstrumentFacts(facts,reply,sizeof(reply)));InstrumentFacts parsed;
+        CHECK(ParseInstrumentFacts(reply,std::strlen(reply)-1,parsed));CHECK_EQ(parsed.type,1u);CHECK_EQ(std::string(parsed.resource),std::string(facts.resource));CHECK(parsed.availability==availability);
+        const auto playable=SelectDevelopmentFixture(preparation.view).bindings;
+        CHECK_EQ(playable.count,mode==0?3u:2u);CHECK_EQ(InstrumentBindingIdentity(playable,0),mode==0?1u:0u);
+        CHECK_EQ(InstrumentBindingIdentity(playable,1),2u);CHECK_EQ(InstrumentBindingIdentity(playable,2),3u);
+        CHECK(!DevelopmentInstrumentDefinition(98));
+    }
+    InstrumentDefinition no_sample{InstrumentType::Sample,nullptr};SdWavPreparation preparation;SdWavInspection inspection;
+    CHECK(SamplePreparationAvailability(no_sample,preparation,inspection)==InstrumentAvailability::NoResource);
+    const auto empty=InstrumentDefinitionFacts(0,&no_sample,InstrumentAvailability::NoResource);char reply[96];
+    CHECK_EQ(empty.type,1u);CHECK_EQ(std::string(empty.resource),std::string("-"));CHECK(FormatInstrumentFacts(empty,reply,sizeof(reply)));
+    InstrumentFacts parsed;CHECK(ParseInstrumentFacts(reply,std::strlen(reply)-1,parsed));CHECK(parsed.availability==InstrumentAvailability::NoResource);
+    const auto* definition=DevelopmentInstrumentDefinition(4);CHECK_EQ(std::string(definition->resource),std::string("Samples/test.wav"));
+    CHECK(SamplePreparationAvailability(*definition,preparation,inspection)==InstrumentAvailability::NotPrepared);
 }

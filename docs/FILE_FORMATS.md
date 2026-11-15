@@ -193,35 +193,92 @@ These details shall be specified separately once the internal data model and sto
 
 ## Working session: separate from tunes/projects
 
-Teensy owns `/BroTracker/current.btsession`. It stores the current published
-baseline **and** working intent, including unpublished preview edits available on
-the device, with independent tempos. Normal startup/reconnect never loads the
-configured development file. Firmware restores a validated session at boot,
-stopped; BTX synchronizes with the device. See [continuity and audio/storage
-policy](RECONNECT_CONTINUITY.md).
+Teensy owns `/BroTracker/current.btsession`. Normal Windows and ArkOS session
+save/exit, automatic stopped saves and boot restore use the temporary BTM below.
+Hosts are UI clients; definitions, playback and session authority stay on Teensy.
+Startup/reconnect never replays a configured development file over a valid session.
 
-This is a bounded one-pattern foundation, not BTT/BTP/BTM or a self-contained tune.
-Raw instrument references use current bindings. No Sample PCM/paths, instrument
-definitions, voice phase, playback position/running state, mute/gain/master volume,
-MIDI route/ownership, external instrument state or host configuration is stored.
-Unsent host-only edits cannot be reconstructed after a host crash.
+### Temporary BTM session version 1
 
-### Working-session envelope
+This bounded development format is **not** the future ZIP BTM described above.
+The existing filename is retained to reuse recovery markers and installed workflows.
+All integers are little-endian. The maximum file length is 8027 bytes.
 
-All integers are unsigned little-endian; no native struct dumps. Maximum 3144 bytes.
+| Offset | Bytes | Meaning |
+| --- | --- | --- |
+| 0 | 4 | ASCII `BTM1` (temporary format discriminator) |
+| 4 | 2 | Version 1 |
+| 6 | 2 | Header length 24 |
+| 8 | 4 | Embedded Pattern record length |
+| 12 | 4 | Definition count N, 0..99 |
+| 16 | 4 | Reserved zero |
+| 20 | 4 | CRC-32/ISO-HDLC, omitting bytes 20..23 |
+| 24 | variable | One BTSS-layout Pattern record: notes, timing, raw slots and the single session BPM |
+| after Pattern | N ? 65 | Consecutive definitions: Type byte (1 Sample, 2 MIDI, 3 Sine Synth), 64-byte zero-padded resource |
+| after definitions | 8 | Row, channel, field, header, mute mask, three reserved zeros |
+
+The embedded record's tempo is the sole BTM BPM, not a standalone Pattern BPM.
+Save captures current working intent. Restore initializes both published baseline
+and working state from this one Pattern and BPM; previous publication history is
+not persisted. All definitions, including unused ones, retain their array position
+(raw 0..N-1/display 01..N). Type and SD-relative WAV reference are all the current
+development definition model carries; MIDI/Synth have no resource payload. Sample
+paths are 1..63 ASCII letters/digits/slash/dot/underscore/hyphen, with no leading
+slash or `..`; non-Sample resource fields must be empty. No WAV PCM is embedded.
+Future parameters require a format version change.
+
+Exact length, version, reserved bytes, CRC, Pattern and every definition validate
+before destination mutation. Malformed definitions invalidate the whole session.
+Missing/unprepared WAVs do not invalidate definitions: retain slots, references and
+notes, omit unavailable playback bindings, and never substitute another instrument.
+Sample assets are prepared by their saved SD-relative WAV path rather than saved
+slot, using the shared streamed-source owner. This includes picker paths under
+`BroTracker/Samples/` as well as legacy development paths under `Samples/`. Missing,
+unsupported or source-capacity-exhausted WAVs retain definitions but no playable
+binding. No BTM layout/version change is needed.
+The one trailing undefined slot remains selectable and can remain referenced in a
+session; persistence does not create a definition for it or clear its reference.
+
+Legacy single BTSS and BTWS v1/v2 remain readable. They have no definitions and
+therefore use the original five development definitions. BTWS retains its old two
+records/tempos on legacy decode; the next successful save migrates to temporary BTM
+using working intent and its BPM. Legacy files cannot recover previously RAM-only
+appended definitions. Candidate/previous safeguards below apply unchanged, including
+fallback to a validated previous file and never promoting an uncommitted candidate.
+Cursor and acknowledged mute state are retained; restore is stopped. No host config,
+voice phase, playback position, gain or external instrument state is persisted.
+The legacy tooling-only `RESTORE` command remains single-BTSS-only; normal UI restore
+is boot plus authoritative readback, not that retired command.
+
+### Standalone Pattern contract (future import/export)
+
+A standalone Pattern carries notes, timing and instrument slot numbers. BPM and
+definitions belong to the destination project. Import keeps a reference whenever
+that destination slot is defined, even if its instrument differs or its Sample WAV
+is unavailable. If the destination slot is undefined (including the sole trailing
+undefined slot), clear **only** the instrument reference. Preserve notes and timing,
+and use the destination project's BPM. No instrument matching, substitution or
+creation is implied. Standalone Pattern import/export is not implemented here;
+existing development `.btdev` operations retain their temporary behavior.
+
+### Legacy working-session envelope
+
+All integers are unsigned little-endian; no native struct dumps. Historical BTWS maximum 3152 bytes (v2); v1 maximum 3144 bytes.
+New writes use temporary BTM above; the following describes legacy decoding.
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |
 | 0 | 4 | ASCII `BTWS` |
-| 4 | 2 | Version 1 |
+| 4 | 2 | Version 2; readers also accept 1 |
 | 6 | 2 | Header length 24 |
 | 8 | 4 | Published BTSS record length |
 | 12 | 4 | Working BTSS record length |
 | 16 | 4 | Reserved zero |
 | 20 | 4 | CRC-32/ISO-HDLC of envelope header/payload, omitting bytes 20..23 |
 | 24 | variable | Published BTSS record, then working BTSS record |
+| after records | 8 (v2 only) | Row, channel, field, header, mute mask, three reserved zeros |
 
-Both records and the complete envelope validate before destination mutation. Each
+For legacy BTWS, both records and the complete envelope validate before destination mutation. Each
 record is bounded to 1560 bytes. Unsupported versions, reserved fields, excessive
 length, truncation, trailing bytes, bad CRC, notes, timings, dimensions or tempo
 are rejected. Old single-record BTSS sessions remain readable as identical
@@ -234,7 +291,8 @@ are left untouched; BTX has no Load/Save/Publish/Restore shortcuts for it, and
 firmware rejects DRAFTSAVE/DRAFTLOAD. BTSS remains documented for legacy readers.
 Pattern Load/Save now targets `.btdev` files; Save As remains future work.
 
-Both draft BTSS and development BTDP records have this version-1 layout:
+Both draft BTSS and development BTDP records have this version-1 layout (temporary
+BTM embeds this layout and uses its tempo as the single session BPM):
 
 | Offset | Bytes | Meaning |
 | --- | --- | --- |
@@ -395,3 +453,117 @@ barriers leave it pending. Failed writes retain pending intent with a failure la
 another mutation/request rearms it. No busy-loop I/O retry. The firmware no longer
 accepts DRAFTSAVE/DRAFTLOAD; old tune.btdraft files are left untouched. Internal
 publication/readback recovery remains available via explicit retained-work review.
+
+## Instrument foundation session snapshot (2026-11-09)
+
+`current.btsession` previously held BTWS v1: two BTSS records, published baseline
+and working intent, each with cells, NOTE_OFF metadata, dimensions and tempo.
+It did not store channel mutes or the host edit frame. BTWS v2 retains those
+records and appends eight CRC-covered bytes: row, channel, field (0 Note / 1
+Instrument), header flag, authoritative mute mask and three reserved zero bytes.
+BTWS v1 and legacy single BTSS files load with default cursor and unmuted channels.
+Coordinates are validated/clamped against existing dimensions, never resized.
+
+`BTSESSION1 CAP 1` enables `BTSTORE1 SAVE 2 row channel field header` through the
+same readiness/synchronization and atomic candidate/previous session writer.
+`BTSESSION1 VIEW 1 row channel field header` advertises saved host view on HELLO;
+a surviving host retains its current context. Geometry is main-owned opaque session
+metadata and never goes to the realtime player. Explicit save/exit captures the
+host view; automatic musical saves retain the last captured view.
+
+Mute is captured from acknowledged audio-owner state after host mute coordination
+settles. At boot, the restored mask uses the existing SubmitMute slot and audio
+block application/STATE acknowledgment, with no START. HELLO/reconnect never applies
+a saved mute or overwrites the running device; existing uncertain mute readback and
+retained working-draft recovery remain authoritative. Browsing instruments neither
+saves nor changes mutes or musical data. Physical validation remains pending.
+
+## Sample WAV picker protocol
+
+`BTINS1 WAVCAP 1` advertises stopped-only Sample Load and path preparation.
+Legacy `BTSTORE1 WAVLIST 1 request offset` pages the fixed `/BroTracker/Samples/` SD
+directory, returning up to eight `BTSTORE1 WAVFILE 1 request filename` lines and
+`BTSTORE1 WAVEND 1 request next_offset done`, or `BTSTORE1 WAVERROR 1 request reason`.
+The existing read lease, 64-entry scan limit, aligned opaque directory offsets,
+matching request IDs, complete-page acceptance and timeouts apply. Listing filters
+bounded regular-file names, not WAV contents; content validation and prefix read
+occur at confirmed definition commit so a failed selection can report its error.
+No directories/files are created by listing or preparation.
+
+The path stays in the host Instrument draft until normal `BTINS1 DEFINE` is
+confirmed. New Sample definitions require a supported, prepared WAV. The stopped
+foreground uses the existing RIFF validator and streaming engine; only the bounded
+binding/definition append runs with audio excluded. Temporary BTM persists the
+same path and re-prepares it at boot. Valid saved definitions survive missing or
+unsupported WAVs without renumbering or fallback playback. The current bounded
+source cache has 16 entries including the three reserved development sources.
+Successful stopped replacements release unused dynamic entries, retaining any
+source referenced by another binding or a retained voice snapshot. Live source
+addresses never move. Candidates require a spare entry until installation succeeds;
+a cache whose entries are all retained can still report capacity exhaustion.
+Read/format/capacity failures never delete saved definitions or the old binding.
+
+### Existing Sample path relinking
+
+The Instrument UI can now relink a saved Sample path using a stopped Teensy
+transaction advertised by `BTINS1 RELINKCAP 1`. An explicit old/new-path prompt
+precedes staging a different resource. `BTINS1 RELINK 1 request slot 1 resource`
+prepares the candidate before replacing the existing Sample definition and binding;
+`BTINS1 RELINKED 1 request result count` confirms the outcome without changing count.
+Failed candidates preserve the old saved path and playable binding/unavailable
+state. Pattern slot references never change as part of relinking. Successful
+changes schedule the existing temporary BTM writer. The BTM layout and version
+are unchanged: only the resource bytes in that same definition record differ.
+
+
+### Hierarchical Sample WAV browser (temporary protocol v2)
+
+`BTINS1 WAVBROWSECAP 1` adds `BTSTORE1 WAVOPEN 2 request offset fallback directory`.
+The directory is an absolute SD path (root `/`), at most 63 bytes, using existing
+resource path characters. Requests have a nonzero monotonically increasing identity
+and a FAT cursor aligned to 32 bytes. Only the initial offset zero may request
+fallback. Teensy tests the requested directory and readable parents through root;
+manual navigation never silently falls back. Browsing creates no files/directories.
+
+A successful page returns `BTSTORE1 WAVDIR 2 request confirmed_directory`,
+`BTSTORE1 WAVINFO 2 request fallback_reason` (0 none, 1 preferred directory missing,
+2 preferred directory unreadable), up to eight `BTSTORE1 WAVITEM 2 request D name`
+or `... F name`, and `BTSTORE1 WAVEND 2 request next_offset done scanned_entries`.
+Each page inspects at most 64 physical entries under the existing SD read guard.
+Directories and eligible regular WAV filenames are included. The host accumulates
+all correlated pages before replacing the visible confirmed directory/list; it
+adds `..` below root. Failed navigation preserves that prior list and selection.
+
+`BTSTORE1 WAVERROR 2 request result` distinguishes missing (1), SD read error (2),
+not a directory (3), busy (4), and invalid path (5). An empty successful directory
+has zero scanned entries; a nonempty directory without eligible WAV files has a
+separate UI message. Filename eligibility does not imply supported WAV contents.
+Selection joins the confirmed directory and filename into a full SD-relative
+resource, enforcing the existing 63-byte limit before staging. Content validation,
+replacement confirmation and transactional definition installation are unchanged.
+Legacy WAVLIST v1 remains available to old hosts; new hosts require WAVBROWSECAP
+for directory navigation. BTM storage and saved path semantics are unchanged.
+
+
+### Sample Browser metadata listing (temporary protocol v3)
+
+`BTINS1 WAVBROWSECAP 2` advertises `BTSTORE1 WAVOPEN 3` with the same directory,
+request identity, FAT cursor and fallback rules as v2. Replies use version 3.
+Each WAV `WAVITEM` is followed by `BTSTORE1 WAVMETA 3 request page_index status
+format channels bits sample_rate`. `status` is the existing `WavBufferStatus`
+ordinal from the playback validator; other fields are the actual metadata read
+before success/rejection. The host requires one matching metadata record per WAV
+before accepting the page. Unsupported and invalid WAVs stay in the list. All
+case variants of `.wav` are listed; unrelated files are omitted. Directory entries
+and WAV names can contain up to 255 filename bytes. Selecting a supported WAV
+still enforces the existing filename and 63-byte resource-path validation.
+
+Teensy inspects at most one WAV and scans at most 64 directory entries per page.
+It uses the existing bounded header/chunk validator under the shared SD read lease,
+never reading PCM for browser metadata. Highlight changes use the listing's cached
+metadata and perform no SD I/O. Missing/read-failed WAVs receive a rejected result;
+folder failures retain the previous confirmed directory/list. Only validated
+success can stage a selection; definition commit still prepares again. The same
+single footer line shows metadata, the approved rejection reason, or an empty/
+navigation status. Legacy v1/v2 requests and replies remain supported by firmware;
+new metadata-aware hosts require WAVBROWSECAP 2. BTM storage is unchanged.

@@ -3,7 +3,7 @@
 namespace BroTracker {
 constexpr unsigned kPatternListPageSize=8;
 struct PatternDirectoryPage {
-    char names[kPatternListPageSize][kDevelopmentNameMaximum+1]{};
+    char names[kPatternListPageSize][64]{};
     unsigned count=0;std::uint32_t next=0;bool done=false;
 };
 inline bool CompatiblePatternName(std::string_view name) noexcept {

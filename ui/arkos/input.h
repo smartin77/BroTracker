@@ -9,6 +9,12 @@
 // Names are SDL semantic controls, not physical/raw indices or S/H layouts.
 // Raw fallback requires bindings obtained from the selected SDL GameController.
 enum class ArkOSInputStream { Controller, VerifiedRaw };
+inline bool AllowArkOSBlockedTransport(BringUpAction transport,const BringUpSerial& serial,const BringUpControls& controls) {
+    return (controls.InstrumentScreen() && transport>=BringUpAction::InstrumentPreviousField && transport<=BringUpAction::InstrumentActivate) || (controls.WavPicker() && (transport==BringUpAction::BrowserBack || transport==BringUpAction::BrowserCancel)) || (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
+        ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
+         (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || transport==BringUpAction::ScreenUp || transport==BringUpAction::ScreenDown ||
+          (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp)));
+}
 struct ArkOSInputResult {
     BringUpAction transport = BringUpAction::None;
     bool publish = false;
@@ -21,7 +27,7 @@ static_assert(SDL_CONTROLLER_BUTTON_MAX <= 32, "Handheld held-state mask must co
 class ArkOSEditorInput {
 public:
     explicit ArkOSEditorInput(BroTracker::ValueStepDirection direction = BroTracker::ValueStepDirection::Normal) noexcept
-        : repeat_(direction) {}
+        : repeat_(direction),value_direction_(direction) {}
     void Select(SDL_JoystickID id, ArkOSInputStream stream = ArkOSInputStream::Controller,
                 const SDL_GameControllerButtonBind* bindings = nullptr) noexcept {
         Cancel(); id_=id; stream_=stream;
@@ -30,11 +36,12 @@ public:
         }
         blocked_=0; focused_=true;start_pending_=chord_used_=false;
     }
-    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false,bool screen_navigation_available=false,bool browser_available=false) noexcept {
+    void SetActionBarrier(bool blocked,bool stop_available=false,bool recovery_available=false,bool publication_readback_available=false,bool screen_navigation_available=false,bool browser_available=false,bool instrument_cancel_available=false) noexcept {
         if(blocked!=action_barrier_) {Cancel();start_pending_=false;chord_used_=false;}
         action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
-        publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;browser_available_=browser_available;
+        publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;browser_available_=browser_available;instrument_cancel_available_=instrument_cancel_available;
     }
+    void SetInstrumentFields(bool enabled)noexcept {instrument_fields_=enabled;}
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
         SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
@@ -111,17 +118,34 @@ private:
         pressed_[b]=down;
         // Select must precede the direction. Shoulders retain their existing
         // channel/tempo bindings, and BACK+START retains its independent chord.
-        const bool horizontal=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT || b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        const bool horizontal=b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
         if(horizontal && pressed_[SDL_CONTROLLER_BUTTON_BACK] &&
            !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
             const bool was_blocked=(blocked_ & (1u<<b))!=0;
-            const auto opposite=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?SDL_CONTROLLER_BUTTON_DPAD_RIGHT:SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+            const auto opposite=b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?SDL_CONTROLLER_BUTTON_DPAD_RIGHT:b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT?SDL_CONTROLLER_BUTTON_DPAD_LEFT:b==SDL_CONTROLLER_BUTTON_DPAD_UP?SDL_CONTROLLER_BUTTON_DPAD_DOWN:SDL_CONTROLLER_BUTTON_DPAD_UP;
             Cancel();
             if(!down)blocked_ &= ~(1u<<b);
             if(down && !was_blocked && !pressed_[opposite] && focused_ &&
                (screen_navigation_available_ || (!action_barrier_ && connected && editor.Ready())))
-                return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:BringUpAction::ScreenRight,false};
+                if(instrument_fields_ && b!=SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {};
+                else return {b==SDL_CONTROLLER_BUTTON_DPAD_LEFT?BringUpAction::ScreenLeft:b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT?BringUpAction::ScreenRight:b==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown,false};
             return {};
+        }
+        if(instrument_fields_ && pressed_[SDL_CONTROLLER_BUTTON_BACK]) {Cancel();start_pending_=false;return {};}
+        if(instrument_fields_ && down && focused_ && !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
+            if(b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT) {
+                Cancel();
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::InstrumentPreviousField,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::InstrumentNextField,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_LEFT)return {BringUpAction::InstrumentDecrease,false};
+                if(b==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)return {BringUpAction::InstrumentIncrease,false};
+            }
+            if(b==SDL_CONTROLLER_BUTTON_A){Cancel();return {BringUpAction::InstrumentActivate,false};}
+        }
+        if(instrument_cancel_available_ && b==SDL_CONTROLLER_BUTTON_B && down && focused_ &&
+           !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_START] &&
+           !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
+            Cancel();return {BringUpAction::InstrumentCancel,false};
         }
         if(action_barrier_ && browser_available_ && down && focused_ &&
            !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] && !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) {
@@ -226,8 +250,9 @@ private:
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
     }
+    bool instrument_fields_=false;BroTracker::ValueStepDirection value_direction_;
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
-    bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false;
+    bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false,instrument_cancel_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
     EditorStepInput repeat_;
     NavigationRepeat navigation_;
@@ -239,3 +264,13 @@ private:
     unsigned blocked_=0;
     int repeat_direction_=-1;
 };
+
+// Keep the production barrier setup available to input integration tests.
+inline void ConfigureArkOSInputBarrier(ArkOSEditorInput& input,const BringUpSerial& serial,const BringUpControls& controls) {
+    input.SetInstrumentFields(controls.InstrumentScreen() && !controls.WavPicker());
+    input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
+        !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
+        !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),
+        (!serial.UserActionsBlocked() && controls.PatternInputBlocked()) || serial.RecoveryMenuAvailable() || controls.RecoveryScreen(),
+        (!serial.UserActionsBlocked() || controls.RecoveryScreen() || controls.WavPicker()) && controls.BrowserInputAvailable(),controls.InstrumentCancellationAvailable());
+}

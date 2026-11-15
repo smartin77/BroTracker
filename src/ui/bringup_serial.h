@@ -5,6 +5,7 @@
 #include <cstring>
 #include "serial_transport.h"
 #include "bringup/pattern_directory.h"
+#include "bringup/wav_directory.h"
 #include "bringup/audio_output_selection.h"
 #include "bringup/device_facts.h"
 #include "bringup/host_midi_note_delay.h"
@@ -30,6 +31,81 @@ public:
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    void InspectInstrument(unsigned number) {
+        if(number<1 || number>255 || (number>99 && !InstrumentCollectionSupported()) || number==identity_number_)return;
+        identity_number_=number;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
+    }
+    std::string InstrumentIdentity() const {
+        if(!connected_)return "Unknown (identity unavailable)";
+        if(collection_ready_ && identity_number_>collection_count_)return "Not defined yet";
+        if(!identity_supported_)return "Unknown (identity unavailable)";
+        if(!identity_ready_)return "Unknown (awaiting device)";
+        return identity_type_==0?(identity_facts_ready_?"Not defined yet":"Unbound (legacy binding only)"):identity_type_==1?"Sample":identity_type_==2?"MIDI":identity_type_==3?"Sine Synth":"Unknown";
+    }
+    std::string InstrumentAvailabilityText() const {
+        if(!connected_)return "Unknown (device unavailable)";
+        if(collection_ready_ && identity_number_>collection_count_)return "Not defined yet";
+        if(!identity_supported_)return "Unknown (device unavailable)";
+        if(!identity_ready_)return "Unknown (awaiting device)";
+        if(!identity_facts_ready_)return "Unknown (legacy firmware)";
+        switch(identity_availability_) {
+        case 0:return "Not defined yet";case 1:return identity_type_==1?"Prepared":"Ready";
+        case 2:return "No sample selected";case 3:return "Resource unavailable";
+        case 4:return "Preparation failed";case 5:return "Not prepared";
+        case 6:return "SD unavailable";case 7:return "External MIDI device unknown";
+        }return "Unknown";
+    }
+    std::string InstrumentResource() const {
+        if(connected_ && collection_ready_ && identity_number_>collection_count_)return "None";
+        if(!connected_ || !identity_facts_ready_)return "Unknown";
+        return !std::strcmp(identity_resource_,"-")?"None":identity_resource_;
+    }
+    unsigned InspectedType(unsigned number)const{return connected_ && identity_number_==number && identity_facts_ready_?identity_type_:0;}
+    bool ReplaceSupported()const{return connected_ && replace_supported_;}
+    bool InspectedSample(unsigned number)const{return connected_ && identity_number_==number && identity_facts_ready_ && identity_type_==1;}
+    bool RelinkSupported()const{return connected_ && relink_supported_;}
+    bool RelinkInstrument(unsigned number,const char* resource,std::uint32_t now) {
+        if(define_reconcile_required_ || !RelinkSupported() || !InspectedSample(number) || !InstrumentCollectionKnown() || number>collection_count_ ||
+           UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
+            define_error_="Sample relink unavailable: synchronize/reconnect and STOP before retry";return false;
+        }
+        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;define_replace_=false;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource);
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    // Zero holds navigation/confirmation until this connection supplies its count.
+    // Older firmware retains the original 01-99 selector after snapshot readback.
+    bool InstrumentCollectionSupported() const {return connected_ && collection_supported_;}
+    bool InstrumentCollectionKnown() const {return connected_ && collection_supported_ && collection_ready_;}
+    unsigned InstrumentCollectionSize() const {return collection_count_;}
+    unsigned InstrumentCollectionLimit() const {
+        return !connected_?0:collection_supported_?(collection_ready_?BroTracker::InstrumentSelectionMaximum(collection_count_):0):pattern_assembler_.Snapshot()?99:0;
+    }
+    bool CommitInstrument(unsigned type,const char* resource,std::uint32_t now) {
+        if(define_reconcile_required_) {
+            define_error_="Definition commit unconfirmed; reconnect for a fresh collection count before retry";return false;
+        }
+        if(!define_supported_ || !InstrumentCollectionKnown() || collection_count_>=99 || UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_) {
+            define_error_="Definition commit unavailable: STOP, synchronize and use capable firmware";return false;
+        }
+        if(define_id_==UINT32_MAX){define_error_="Reconnect before definition commit";return false;}
+        ++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;define_replace_=false;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource?resource:"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    bool ReplaceInstrument(unsigned number,unsigned type,const char* resource,std::uint32_t now) {
+        if(define_reconcile_required_ || !ReplaceSupported() || !InspectedType(number) || !InstrumentCollectionKnown() || number>collection_count_ ||
+           UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
+            define_error_="Instrument update unavailable: synchronize/reconnect and STOP before retry";return false;
+        }
+        if(type<1 || type>3 || (type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {define_error_="WAV reference unavailable or invalid";return false;}
+        ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;define_relink_=false;define_replace_=true;
+        std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1?resource:"-");
+        define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
+    }
+    bool InstrumentCommitPending() const {return define_pending_;}
+    bool InstrumentCommitSucceeded() const {return define_success_;}
+    const std::string& InstrumentCommitError() const {return define_error_;}
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
     bool PublicationBusy() const { return publish_queued_ || publication_.Blocking(); }
@@ -102,17 +178,23 @@ public:
     enum class PatternLoadState { Idle, Pending, Succeeded, Failed };
     bool RequestPatternLoad(std::string_view name,std::uint32_t now);
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
-    bool RequestPatternList(std::uint32_t offset,std::uint32_t now);
+    bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
+    bool WavPickerAvailable()const{return connected_ && wav_browser_supported_;}
+    bool RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now);
+    const BroTracker::WavBrowsePage& WavDirectoryPage()const{return wav_page_;}
+    BroTracker::WavDirectoryResult WavDirectoryError()const{return wav_error_;}
     bool PatternListBusy()const{return list_queued_ || list_pending_;}
     bool PatternListReady()const{return list_ready_;}
     const BroTracker::PatternDirectoryPage& PatternFiles()const{return list_page_;}
     const char* PatternListStatus()const{return list_status_;}
-    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false);
+    bool RequestFile(FileAction action, std::uint32_t now, bool wait_for_storage=false,const EditCursor* view=nullptr);
     bool Done() const {return connected_ && !std::strcmp(state_,"DONE");}
+    void CancelQueuedScreenSave() {if(file_action_==FileAction::Session && pending_!=Command::File && pending_!=Command::StorageReady) {file_action_=FileAction::None;session_save_succeeded_=false;}}
     bool FilePending() const {return file_action_!=FileAction::None;}
     const char* PatternSource()const{return pattern_source_.c_str();}
     bool PatternSaveAvailable()const{return pattern_save_supported_ && !pattern_source_.empty();}
     bool PatternSaveSucceeded()const{return pattern_save_succeeded_;}
+    bool SessionSnapshotAvailable() const {return connected_ && snapshot_metadata_supported_;}
     bool SessionSaveSucceeded() const {return session_save_succeeded_;}
     void BeginExit(std::uint32_t now);
     bool ExitReady() const {return exit_done_;}
@@ -206,6 +288,11 @@ private:
     BroTracker::DevelopmentPattern file_pattern_;
     PatternLoadState pattern_load_state_=PatternLoadState::Idle;
     BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool wav_browser_supported_=false,list_browser_=false;std::string wav_request_path_;
+    bool wav_fallback_=false,wav_dir_received_=false,wav_info_received_=false;
+    BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
+    BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
+    bool wav_supported_=false,list_wav_=false;
     bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
     std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
     char list_status_[96]{};
@@ -291,6 +378,16 @@ private:
     mutable char tempo_status_[96]{};
     BroTracker::HostTempo tempo_; bool tx_tempo_=false, tempo_publication_=false;
     BroTracker::HostMasterVolume volume_;bool tx_volume_=false;mutable char volume_status_[48]{};
+    bool replace_supported_=false,define_replace_=false,relink_supported_=false,define_relink_=false;unsigned define_slot_=0;
+    bool define_supported_=false,define_pending_=false,define_queued_=false,define_success_=false;
+    bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
+    unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[64]{};std::string define_error_;
+    bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;
+    bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
+    unsigned identity_availability_=0;char identity_resource_[64]{};
+    unsigned identity_number_=0,identity_type_=0;
+    bool snapshot_metadata_supported_=false,restore_view_pending_=false,host_view_seen_=false;
+    EditCursor host_view_{},restored_view_{},save_view_{};
     BroTracker::HostChannelMute mute_; bool tx_mute_=false;
     bool tx_gains_=false;
     bool publish_queued_=false, tx_preview_=false, editor_seen_=false, preview_session_=false;
@@ -304,9 +401,9 @@ private:
     bool tx_publication_ = false;
     // Zero reported bytes may still mean the asynchronous worker owns the line.
     bool tx_write_attempted_=false;
-    char tx_[BroTracker::kPatternSnapshotLineCapacity]{};
+    char tx_[128]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
-    char line_[256]{};
+    char line_[512]{};
     unsigned int used_ = 0;
     bool overflow_ = false;
     char state_[16] = "UNKNOWN";

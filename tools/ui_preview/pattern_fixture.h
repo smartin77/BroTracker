@@ -4,7 +4,7 @@
 #include "ui/pattern_screen.h"
 
 inline bool RenderProductionPatternFixture(Framebuffer& framebuffer, const Tune& tune,
-    const Pattern& pattern, bool beat_fixture=false, bool unmuted_digits=false)
+    const Pattern& pattern, bool beat_fixture=false, bool unmuted_digits=false, const HostPanelInformation& host={})
 {
     LivePlaybackView live;
     live.telemetry_available = true;
@@ -34,7 +34,7 @@ inline bool RenderProductionPatternFixture(Framebuffer& framebuffer, const Tune&
         live.mute_mask=unmuted_digits?2:65;
         live.mute_status="Mute synchronized (fixture)";
     }
-    RenderMainScreen(framebuffer, tune, pattern, live, &editor);
+    RenderMainScreen(framebuffer, tune, pattern, live, &editor,host);
 
     return true;
 }

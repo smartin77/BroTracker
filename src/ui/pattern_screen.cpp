@@ -806,6 +806,12 @@ static void RenderPatternScreen(
     const HostPanelInformation& host)
 {
     framebuffer.Clear(background);
+    if(host.sample_picker) {
+        DrawSampleBrowser(framebuffer,host.pattern_browser_list,host.browser_directory,host.sample_browser_confirmation?std::string{}:host.pattern_browser_text);
+        if(host.sample_browser_confirmation)DrawWrappedFixedText(framebuffer,8,kSampleBrowserLineHeight+8,framebuffer.Width()-16,framebuffer.Height()-2*kSampleBrowserLineHeight-16,host.pattern_browser_text,header_name);
+        return;
+    }
+
     const auto display = ResolvePatternDisplay(live, !live);
     // Never show a draft against unrelated or unavailable device dimensions.
     if (editor && (!display.device_pattern || !editor->Ready() ||
@@ -817,7 +823,36 @@ static void RenderPatternScreen(
         tune,
         pattern, display, live);
 
-    if(host.load_save_screen) {
+    if(host.instrument_number) {
+        static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+        const int x=layout.pattern_x+8, width=layout.pattern_width-16;
+        int y=layout.pattern_y+12;
+        const auto line=[&](const std::string& text) {
+            HostBitmap::Text(framebuffer,face,x,y+face.ascent,text,header_name);y+=52;
+        };
+        const auto title=host.text.Get(WarningText::Instrument)+" "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
+        line(title);
+        if(host.instrument_original_number) {
+            const bool original=host.instrument_original_number==host.instrument_number;
+            HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+(original?0:16),y-52+face.ascent,
+                original?"*":"[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
+        }
+        const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
+        const int type_y=y;
+        line(host.text.Get(WarningText::Type)+": "+identity);
+        if(host.instrument_focus==0)framebuffer.Rectangle(x-3,type_y-4,width,face.ascent+face.descent+8,editing_frame);
+        const int availability_y=y;
+        line("Availability: "+host.instrument_availability);
+        if(!host.instrument_load_warning.empty())DrawWrappedFixedText(framebuffer,x,availability_y+18,width,32,host.instrument_load_warning,editing_frame);
+        DrawWrappedFixedText(framebuffer,x,y,width,44,"Resource: "+host.instrument_resource,header_name);
+        if(!host.instrument_candidate.empty())DrawWrappedFixedText(framebuffer,x,y+38,width,44,"Staged: "+host.instrument_candidate,editing_frame);
+        y+=host.instrument_candidate.empty()?52:88;
+        const int load_y=y;
+        line(host.text.Get(WarningText::Load)+": "+(host.instrument_load_available?"[Load WAV]":host.text.Get(WarningText::Unavailable)));
+        if(host.instrument_focus==1)framebuffer.Rectangle(x-3,load_y-4,width,face.ascent+face.descent+8,editing_frame);
+        line(host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable));
+        line(host.text.Get(WarningText::FineTune)+": "+host.text.Get(WarningText::Unavailable));
+    } else if(host.load_save_screen) {
         static const auto heading=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
         static const auto filename=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
         DrawFileList(framebuffer,host.pattern_browser_list,layout.pattern_x+8,layout.pattern_y+8,

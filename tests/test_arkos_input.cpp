@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "ui/arkos/input.h"
+#include "ui/wav_browser.h"
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -605,4 +606,104 @@ TEST_CASE(ArkOSPatternBrowserConsumesActionsWithoutEditingAndKeepsSelectNavigati
     CHECK(SamePattern(original,*f.editor.Draft()));CHECK_EQ(f.editor.Cursor().row,cursor.row);
     f.input.SetActionBarrier(true,true);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);
     CHECK(f.Tap(SDL_CONTROLLER_BUTTON_A).transport==BringUpAction::None);
+}
+
+TEST_CASE(ArkOSInstrumentChordConsumesUpAndKeepsShoulderPrecedence) {
+    for(auto direction:{SDL_CONTROLLER_BUTTON_DPAD_UP,SDL_CONTROLLER_BUTTON_DPAD_DOWN}) {
+        InputFixture f;const auto cursor=f.editor.Cursor();f.Edge(SDL_CONTROLLER_BUTTON_BACK);
+        CHECK(f.Edge(direction).transport==(direction==SDL_CONTROLLER_BUTTON_DPAD_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown));
+        CHECK(f.Edge(direction).transport==BringUpAction::None);f.input.Tick(3000,true,f.editor);
+        CHECK_EQ(f.editor.Cursor().row,cursor.row);f.Edge(SDL_CONTROLLER_BUTTON_BACK,false);f.input.Tick(6000,true,f.editor);
+        CHECK_EQ(f.editor.Cursor().row,cursor.row);
+        for(auto shoulder:{SDL_CONTROLLER_BUTTON_LEFTSHOULDER,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}) {
+            InputFixture other;other.Edge(SDL_CONTROLLER_BUTTON_BACK);other.Edge(shoulder);
+            CHECK(other.Edge(direction).transport==BringUpAction::None);
+        }
+    }
+}
+
+TEST_CASE(InstrumentCancelUsesOnlyUnmodifiedBAndPreservesStopCombinations) {
+    for(bool connected:{false,true})for(int modifier:{-1,int(SDL_CONTROLLER_BUTTON_BACK),int(SDL_CONTROLLER_BUTTON_START),int(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),int(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)}) {
+        InputFixture f;f.input.SetActionBarrier(true,true,false,false,false,false,true);
+        LocalPatternEditor sink;
+        const auto edge=[&](unsigned button,bool down=true) {
+            SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=button;
+            return f.input.Handle(e,0,connected,sink).transport;
+        };
+        if(modifier>=0)edge(modifier);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==(modifier<0?BringUpAction::InstrumentCancel:BringUpAction::ResetStop));
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==BringUpAction::None);edge(SDL_CONTROLLER_BUTTON_B,false);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_B)==(modifier<0?BringUpAction::InstrumentCancel:BringUpAction::ResetStop));
+    }
+}
+
+TEST_CASE(HandheldPatternTrailingSlotStoresSixAndCannotAdvanceToSeven) {
+    InputFixture f;f.editor.SetInstrumentCollection(true,true,5);f.editor.RestoreCursor({0,0,EditField::Instrument,false});
+    CHECK(f.editor.Apply(EditorAction::SetValue,4));const auto before=*f.editor.Draft();f.Edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+    f.Tap(SDL_CONTROLLER_BUTTON_DPAD_UP);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+    CHECK(f.Tap(SDL_CONTROLLER_BUTTON_B).transport==BringUpAction::ResetStop);CHECK_EQ(f.editor.Draft()->cells[0][0].instrument,5u);
+}
+
+TEST_CASE(HandheldInstrumentDirectTypeShortcutIsRetired) {
+    for(int modifier:{-1,int(SDL_CONTROLLER_BUTTON_BACK),int(SDL_CONTROLLER_BUTTON_START),int(SDL_CONTROLLER_BUTTON_LEFTSHOULDER),int(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)}) {
+        InputFixture f;f.input.SetActionBarrier(true,true,false,false,false,false,true);
+        if(modifier>=0)f.Edge(modifier);
+        CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
+        CHECK(f.Edge(SDL_CONTROLLER_BUTTON_X).transport==BringUpAction::None);
+    }
+}
+
+TEST_CASE(ArkOSInstrumentFocusedFieldsUseNormalAndVerifiedRawControlsWithoutPatternEdits) {
+    for(auto direction:{ValueStepDirection::Normal,ValueStepDirection::Reversed})for(bool raw:{false,true}) {
+        InputFixture f(direction);SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+        for(unsigned b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b){bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b;}
+        f.input.Select(7,raw?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);
+        f.input.SetActionBarrier(true,true,false,false,true,true,true);f.input.SetInstrumentFields(true);
+        const auto before=*f.editor.Draft();
+        const auto edge=[&](unsigned button,bool down) {
+            SDL_Event e{};
+            if(raw){e.type=down?SDL_JOYBUTTONDOWN:SDL_JOYBUTTONUP;e.jbutton.which=7;e.jbutton.button=button;}
+            else{e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=button;}
+            return f.input.Handle(e,f.now,true,f.editor).transport;
+        };
+        const auto tap=[&](unsigned b){const auto action=edge(b,true);CHECK(edge(b,true)==BringUpAction::None);edge(b,false);return action;};
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::InstrumentNextField);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::InstrumentPreviousField);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::InstrumentActivate);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT)==BringUpAction::InstrumentDecrease);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)==BringUpAction::InstrumentIncrease);
+        for(auto b:{SDL_CONTROLLER_BUTTON_X,SDL_CONTROLLER_BUTTON_Y})CHECK(tap(b)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_BACK,true);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::None);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_LEFT)==BringUpAction::None);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_RIGHT)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_BACK,false);
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,true);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_UP)==BringUpAction::None);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_LEFTSHOULDER,false);
+        edge(SDL_CONTROLLER_BUTTON_BACK,true);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);edge(SDL_CONTROLLER_BUTTON_BACK,false);
+        CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::InstrumentCancel);CHECK(SamePattern(before,*f.editor.Draft()));
+    }
+}
+
+TEST_CASE(HandheldWavBrowserAOpensParentAndNestedFileBCancelsWithoutPatternEdits) {
+    for(bool raw:{false,true}) {
+        InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+        for(unsigned b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b){bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b;}
+        f.input.Select(7,raw?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);f.input.SetActionBarrier(true,true,false,false,true,true);
+        const auto before=*f.editor.Draft();WavBrowser browser;WavBrowsePage page;std::strcpy(page.directory,"/Nested");page.count=1;page.scanned=1;page.done=true;std::strcpy(page.entries[0].name,"tone.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin("/Nested");CHECK(browser.Accept(page));
+        const auto tap=[&](unsigned b){
+            SDL_Event e{};e.type=raw?SDL_JOYBUTTONDOWN:SDL_CONTROLLERBUTTONDOWN;
+            if(raw){e.jbutton.which=7;e.jbutton.button=b;}else{e.cbutton.which=7;e.cbutton.button=b;}
+            const auto action=f.input.Handle(e,0,true,f.editor).transport;CHECK(f.input.Handle(e,0,true,f.editor).transport==BringUpAction::None);
+            e.type=raw?SDL_JOYBUTTONUP:SDL_CONTROLLERBUTTONUP;f.input.Handle(e,0,true,f.editor);return action;
+        };
+        std::string path;CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::BrowserConfirm);CHECK_EQ(browser.Select(path),1u);CHECK_EQ(path,std::string("/"));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::BrowserDown);browser.Move(1);CHECK(tap(SDL_CONTROLLER_BUTTON_A)==BringUpAction::BrowserConfirm);CHECK_EQ(browser.Select(path),2u);CHECK_EQ(path,std::string("Nested/tone.wav"));
+        CHECK(tap(SDL_CONTROLLER_BUTTON_B)==BringUpAction::BrowserBack);CHECK(SamePattern(before,*f.editor.Draft()));
+        SDL_Event modifier{};modifier.type=raw?SDL_JOYBUTTONDOWN:SDL_CONTROLLERBUTTONDOWN;
+        if(raw){modifier.jbutton.which=7;modifier.jbutton.button=SDL_CONTROLLER_BUTTON_BACK;}else{modifier.cbutton.which=7;modifier.cbutton.button=SDL_CONTROLLER_BUTTON_BACK;}
+        f.input.Handle(modifier,0,true,f.editor);CHECK(tap(SDL_CONTROLLER_BUTTON_DPAD_DOWN)==BringUpAction::ScreenDown);
+        modifier.type=raw?SDL_JOYBUTTONUP:SDL_CONTROLLERBUTTONUP;f.input.Handle(modifier,0,true,f.editor);
+    }
 }

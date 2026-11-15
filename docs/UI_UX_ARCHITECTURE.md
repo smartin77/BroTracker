@@ -548,7 +548,7 @@ from planned destinations below:
 | Direction from Pattern | Current / planned destination |
 | --- | --- |
 | Left | Implemented Pattern Load/Save for compatible .btdev files; general module/project/tune loading remains planned. |
-| Up | Planned Instrument Inventory foundation: Ctrl+Up / Select+D-pad Up from Pattern; selected instrument editor below it remains the design direction. |
+| Up | Implemented direct Instrument foundation: Ctrl+Up / Select+D-pad Up; no Inventory menu. |
 | Right | Project Settings. |
 | Down | Master Mix is the current proposal; this assignment remains open. |
 
@@ -557,14 +557,12 @@ right-side panel stays; its freed menu space will serve future content, with
 content and layout undecided. Other screens may be contextual sub-screens or
 reached through menus. Their exact placement, input bindings and user guide
 remain for later work except the explicit current/planned bindings in
-[BTX Controls](BTX_CONTROLS.md#planned-instrument-entry). Instrument foundation
-follows closure of current bridge-audio refinement and agreed validation. Entry
-reuses automatic STOP/acknowledged IDLE and successful session persistence, with
-context retained on return and no automatic resume; future MIX allows playback.
-Ctrl+Up is currently unused; Select+Up needs explicit consumption to avoid ordinary
-row navigation while retaining shoulder precedence. No Instrument binding or
-screen is implemented by this plan; Back/assignment and foundation scope remain
-follow-up decisions within the existing instrument architecture.
+[BTX Controls](BTX_CONTROLS.md#instrument-entry). Instrument entry captures a
+specific cell target, reuses STOP/acknowledged IDLE and successful session snapshot,
+and confirms selection to the source cell on normal return, preserving its field
+without playback resume. Browsing alone and closing BTX never assign.
+Future MIX still allows playback. Previous/next and return chords are provisional
+owner-validation choices; actual editing remains deferred.
 
 ### Program and Project Settings
 
@@ -588,20 +586,14 @@ Project Options contain project-specific operations and settings, including:
 - project main settings;
 - project description.
 
-### Instrument Inventory and Editor
+### Instrument
 
-The planned Up destination from Pattern is Instrument Inventory, with the selected
-instrument editor below it. Instrument editing is intentionally a first-class function.
-
-The user should be able to create or select an instrument before composing a pattern rather than being forced through a chain/phrase hierarchy first.
-
-The Instrument Editor will eventually support different instrument types, including:
-
-- sample-based instruments;
-- MIDI instruments/devices;
-- internal synthesizers.
-
-Further instrument-specific editing may be nested below the Instrument Editor.
+Pattern opens the screen of one specific instrument directly. There is no Inventory
+screen or inventory menu. Identity and type are distinct: displayed instance 01-99,
+with device-owned Sample, MIDI or Sine Synth type. The text foundation reserves
+Type, Name, separate Load/Save screens and Fine Tune; unsupported controls remain
+unavailable. Type mutation, Transpose and all editing are deferred. Future Sample
+layout must fit waveform and parameters together; Synth can later use graphics.
 
 ### Master Mix
 

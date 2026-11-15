@@ -168,7 +168,7 @@ TEST_CASE(VariableSampleCommands_ConfigurationValidationAndReconfiguration)
         CHECK_EQ(output.commands[0].sample.sample_rate_hz,44100);
     };
     reject(original,VariableSampleCommandStatus::InvalidSampleRate,0);
-    auto bad=original; bad.count=17; reject(bad,VariableSampleCommandStatus::InvalidBindingCount);
+    auto bad=original; bad.count=kVariableRateSampleBindingCapacity+1; reject(bad,VariableSampleCommandStatus::InvalidBindingCount);
     bad.count=SIZE_MAX; reject(bad,VariableSampleCommandStatus::InvalidBindingCount);
     bad=original; bad.bindings[1].instrument=0; reject(bad,VariableSampleCommandStatus::DuplicateInstrument);
     bad=original; bad.bindings[1].instrument=255; reject(bad,VariableSampleCommandStatus::ReservedInstrument);

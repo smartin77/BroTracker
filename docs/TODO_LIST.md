@@ -81,20 +81,21 @@ acceptance supersedes a blanket claim that handheld playback is still unconfirme
   Recordings now exist for Windows sine/MIDI and sample/MIDI; quantified analysis
   remains pending. This is not a general stereo/panning or Instrument feature.
 
-### Instrument screen foundation (next agreed feature milestone)
+### Instrument screen foundation
 
-* [ ] Implement the foundation within the existing instrument architecture and
-  [screen map](UI_SCREEN_MAP.md#3-instrument-inventory); no new editor capabilities,
-  instrument features or registry design are decided here. Intended Pattern entry:
-  Windows Ctrl+Up; handheld Select+D-pad Up. These bindings are planned only.
-* [ ] Reuse screen entry's automatic STOP/acknowledgement and successful working-
-  session persistence before switching; retain the future MIX playback exception.
-  Preserve view context on return without automatic playback resume.
-* [ ] Resolve Back/return binding, selection versus assignment and foundation scope
-  against available identity/capability data. Current input has no ScreenUp action:
-  Ctrl+Up is unused; Select+Up can reach ordinary row navigation. Consume the future
-  chord once per press, preserving L1 value-edit and R1 beat-navigation precedence.
-  See [planned controls](BTX_CONTROLS.md#planned-instrument-entry).
+* [x] Implement direct Pattern -> one Instrument (no Inventory), captured target,
+  STOP/acknowledged IDLE/session save, bounded browsing and preserved return context.
+* [x] Add read-only binding identity and version-2 working-session view/mute metadata;
+  retain legacy music, boot-only acknowledged mute restoration and reconnect authority.
+* [ ] Owner validation of actual 640x480 previews, Windows and handheld controls,
+  and physical persistence/reconnect. Automated checks do not establish physical proof.
+* [x] Add same-channel inherited/default selection and assignment only on normal
+  return; original-ID marker, history/preview and barrier retention. Type editing,
+  live assignment and playback-preserving navigation remain deferred.
+* [ ] Resolve entry for headers, NOTE_OFF timing fields and IDs
+  outside 01-99; currently unavailable. Validate provisional previous/next/return.
+* [ ] Future editing: Name, separate instrument Load/Save screens, Fine Tune,
+  type mutation, waveform/parameters, graphical Synth. Transpose remains undecided.
 
 ### Other deferred follow-up
 

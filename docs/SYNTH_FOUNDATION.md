@@ -171,3 +171,9 @@ then agreed controls. The planned three-oscillator/envelope/filter editor in
 A later modular **Synth2** is separate work and is not implemented here. MIDI
 backend/playback, instrument registry redesign, plugin loading and persistence
 changes remain out of scope. No handheld deployment or SSH is required/performed.
+
+Definition/availability foundation: the five firmware-initialized development
+instrument definitions now exist independently of their derived playable bindings.
+Missing/failed Samples retain Type and resource reference and remain unbound
+for playback; existing unknown-binding validation is preserved. See [Instrument foundation](INSTRUMENT_FOUNDATION.md#definitions-and-read-only-availability).
+No DSP, gain, timing, routing or ownership changes accompany this definition step.

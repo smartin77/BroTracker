@@ -143,8 +143,76 @@ static int HeaderMouseRegression() {
     e.type=SDL_MOUSEBUTTONDOWN;CHECK(input.Handle(e,56,42,false)==-1);
     return 0;
 }
+static int ScreenFocusRegression() {
+    const SDL_Keycode keys[]={SDLK_UP,SDLK_DOWN,SDLK_LEFT,SDLK_RIGHT};
+    const BringUpAction actions[]={BringUpAction::ScreenUp,BringUpAction::ScreenDown,BringUpAction::ScreenLeft,BringUpAction::ScreenRight};
+    for(unsigned i=0;i<4;++i) {
+        WindowsScreenInput input;
+        const auto key=[&](unsigned index,unsigned type=SDL_KEYDOWN,unsigned repeat=0) {
+            SDL_Event e{};e.type=type;e.key.keysym.sym=keys[index];e.key.keysym.mod=KMOD_CTRL;e.key.repeat=repeat;
+            return input.Handle(e);
+        };
+        const auto focus=[&](unsigned state) {
+            SDL_Event e{};e.type=SDL_WINDOWEVENT;e.window.event=state;return input.Handle(e);
+        };
+        CHECK(key(i)==actions[i]);
+        CHECK(focus(SDL_WINDOWEVENT_FOCUS_LOST)==BringUpAction::None);
+        CHECK(key(i,SDL_KEYDOWN,1)==BringUpAction::None); // Background input must not re-arm a hold.
+        // Released outside: no KEYUP reaches this window.
+        CHECK(focus(SDL_WINDOWEVENT_FOCUS_GAINED)==BringUpAction::None);
+        CHECK(key(i)==actions[i]);
+        CHECK(key(i)==BringUpAction::None);CHECK(key(i,SDL_KEYDOWN,1)==BringUpAction::None);
+        CHECK(key(i,SDL_KEYUP)==BringUpAction::None);CHECK(key(i)==actions[i]);
+
+        CHECK(focus(SDL_WINDOWEVENT_FOCUS_LOST)==BringUpAction::None);
+        // Still physically held on focus gain: repeats carry no new navigation edge.
+        CHECK(focus(SDL_WINDOWEVENT_FOCUS_GAINED)==BringUpAction::None);
+        CHECK(key(i,SDL_KEYDOWN,1)==BringUpAction::None);
+        CHECK(key(i,SDL_KEYDOWN,1)==BringUpAction::None);
+        CHECK(key(i)==BringUpAction::None); // Duplicate down after a repeat is also held.
+        CHECK(key(i^1)==BringUpAction::None); // The repeated held arrow still opposes this direction.
+        CHECK(key(i,SDL_KEYUP)==BringUpAction::None);
+        CHECK(key(i^1)==BringUpAction::None); // Opposite must release before re-arming.
+        CHECK(key(i^1,SDL_KEYUP)==BringUpAction::None);CHECK(key(i^1)==actions[i^1]);
+        CHECK(key(i^1,SDL_KEYUP)==BringUpAction::None);
+
+        CHECK(key(i)==actions[i]);CHECK(key(i^1)==BringUpAction::None);
+        CHECK(key(i,SDL_KEYUP)==BringUpAction::None);CHECK(key(i^1,SDL_KEYDOWN,1)==BringUpAction::None);
+        CHECK(key(i^1,SDL_KEYUP)==BringUpAction::None);CHECK(key(i^1)==actions[i^1]);
+    }
+    return 0;
+}
+static int CollectionChoiceRegression() {
+    for(auto direction:{BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
+        LocalPatternEditor editor;std::optional<LivePlaybackView> live=LivePlaybackView{};
+        BroTracker::DevicePatternSnapshot snapshot;snapshot.transfer_id=1;snapshot.tempo_hundredths=12500;snapshot.pattern.active_rows=4;snapshot.pattern.active_channels=1;
+        snapshot.pattern.cells[0][0]={60,4};live->device_pattern=snapshot;live->telemetry_available=true;live->position.rows=4;live->position.channels=1;
+        editor.Sync(live);editor.RestoreCursor({0,0,EditField::Instrument,false});editor.SetInstrumentCollection(true,true,5);
+        WindowsEditorInput input(direction);const auto key=direction==BroTracker::ValueStepDirection::Normal?SDLK_PAGEUP:SDLK_PAGEDOWN;
+        SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;input.Handle(e,0,editor);e.type=SDL_KEYUP;input.Handle(e,1,editor);
+        CHECK(editor.Draft()->cells[0][0].instrument==5);
+        e.type=SDL_KEYDOWN;input.Handle(e,2,editor);e.type=SDL_KEYUP;input.Handle(e,3,editor);CHECK(editor.Draft()->cells[0][0].instrument==5);
+        e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(!input.Handle(e,4,editor));CHECK(editor.Draft()->cells[0][0].instrument==5);
+    }return 0;
+}
 int main() {
+    for(bool focused:{false,true})for(auto arrow:{SDLK_UP,SDLK_DOWN,SDLK_LEFT,SDLK_RIGHT}) {
+        WindowsScreenInput screen;WindowsEditorInput editor_input;WindowsTempoInput tempo;WindowsHeaderInput header;
+        LocalPatternEditor editor;
+        SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=arrow;event.key.keysym.mod=KMOD_CTRL;
+        screen.Handle(event); // A held navigation arrow must never hide close.
+        if(!focused) {event={};event.type=SDL_WINDOWEVENT;event.window.event=SDL_WINDOWEVENT_FOCUS_LOST;screen.Handle(event);}
+        event={};event.type=SDL_WINDOWEVENT;event.window.event=SDL_WINDOWEVENT_CLOSE;
+        CHECK(screen.Handle(event)==BringUpAction::None); // SDL follows native close with SDL_QUIT.
+        event={};event.type=SDL_QUIT;
+        const auto mapped=screen.Handle(event); // Same ordering as the actual main loop.
+        CHECK(MapWindowsAction(event)==BringUpAction::Exit);
+        CHECK(!editor_input.Handle(event,0,editor));CHECK(!tempo.Handle(event,0,true));CHECK(header.Handle(event,0,0,false)<0);
+        CHECK(mapped==BringUpAction::Exit);
+    }
+    CHECK(ScreenFocusRegression()==0);
     CHECK(HeaderMouseRegression()==0);
+    CHECK(CollectionChoiceRegression()==0);
     CHECK(NavigationRegression()==0);
     CHECK(BeatNavigationRegression()==0);
     CHECK(TempoRegression()==0);
@@ -354,5 +422,37 @@ int main() {
     CHECK(!IsTeensyIdentity(L"USB\\VID_16C0&PID_048AB&MI_00"));
     CHECK(!IsTeensyIdentity(L"USB\\VID_1234&PID_048A&MI_00"));
     CHECK(!IsTeensyIdentity(L"BTHENUM\\USB\\VID_16C0&PID_048A"));
+    for(auto key:{SDLK_UP,SDLK_DOWN}) {
+        WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;e.key.keysym.mod=KMOD_CTRL;
+        CHECK(input.Handle(e)==(key==SDLK_UP?BringUpAction::ScreenUp:BringUpAction::ScreenDown));
+        CHECK(input.Handle(e)==BringUpAction::None);e.key.repeat=1;CHECK(input.Handle(e)==BringUpAction::None);
+        e.type=SDL_KEYUP;input.Handle(e);e.type=SDL_KEYDOWN;e.key.repeat=0;
+        CHECK(input.Handle(e)!=BringUpAction::None);
+    }
+    {
+        WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;
+        CHECK(input.Handle(e)==BringUpAction::InstrumentCancel);
+        e.key.repeat=1;CHECK(input.Handle(e)==BringUpAction::None);e.key.repeat=0;
+        for(auto mod:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}) {e.key.keysym.mod=mod;CHECK(input.Handle(e)==BringUpAction::None);}
+        e.key.keysym.mod=KMOD_NONE;e.type=SDL_KEYUP;CHECK(input.Handle(e)==BringUpAction::None);
+        e.type=SDL_WINDOWEVENT;e.window.event=SDL_WINDOWEVENT_FOCUS_LOST;input.Handle(e);
+        e={};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;CHECK(input.Handle(e)==BringUpAction::None);
+    }
+    for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_1,BringUpAction::None},
+        {SDLK_2,BringUpAction::None},{SDLK_3,BringUpAction::None}}) {
+        for(auto locks:{KMOD_NONE,KMOD_NUM,KMOD_CAPS,SDL_Keymod(KMOD_NUM|KMOD_CAPS)}) {
+            WindowsScreenInput input;SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;e.key.keysym.mod=locks;
+            CHECK(input.Handle(e)==pair.second);e.key.repeat=1;CHECK(input.Handle(e)==BringUpAction::None);e.key.repeat=0;
+            for(auto modifier:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}) {e.key.keysym.mod=SDL_Keymod(locks|modifier);CHECK(input.Handle(e)==BringUpAction::None);}
+        }
+    }
+    for(auto direction:{BroTracker::ValueStepDirection::Normal,BroTracker::ValueStepDirection::Reversed}) {
+        for(auto pair:{std::pair<SDL_Keycode,BringUpAction>{SDLK_UP,BringUpAction::InstrumentPreviousField},{SDLK_DOWN,BringUpAction::InstrumentNextField},
+            {SDLK_LEFT,BringUpAction::InstrumentDecrease},{SDLK_RIGHT,BringUpAction::InstrumentIncrease},{SDLK_RETURN,BringUpAction::InstrumentActivate},
+            {SDLK_PAGEUP,BringUpAction::None},{SDLK_PAGEDOWN,BringUpAction::None},{SDLK_1,BringUpAction::None},{SDLK_2,BringUpAction::None},{SDLK_3,BringUpAction::None}}) {
+            SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=pair.first;CHECK(MapWindowsInstrumentAction(e,direction)==pair.second);e.key.repeat=1;CHECK(MapWindowsInstrumentAction(e,direction)==BringUpAction::None);
+        }
+        for(auto key:{SDLK_UP,SDLK_LEFT,SDLK_RIGHT,SDLK_x,SDLK_DOWN}) {SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;e.key.keysym.mod=KMOD_CTRL;CHECK(MapWindowsInstrumentAction(e,direction)==(key==SDLK_DOWN?BringUpAction::ScreenDown:BringUpAction::None));}
+    }
     std::puts("Windows keyboard mapping and Teensy identity checks passed");
 }

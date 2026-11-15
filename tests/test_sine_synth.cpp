@@ -192,7 +192,7 @@ TEST_CASE(SynthBindingsRejectInvalidTypesRatesDuplicatesAndMissingSampleWithoutF
         CHECK_EQ(p.Configure(44100,fixture.bindings),VariableSampleCommandStatus::Success);
         RowEventBatch rows; rows.count=1; rows.events[0]={0,0,0,0,0,0,60,0};
         VariableRateVoiceCommandBatch commands; commands.count=7;
-        CHECK_EQ(p.Prepare(rows,commands),VariableSampleCommandStatus::UnknownInstrument); CHECK_EQ(commands.count,7);
+        CHECK_EQ(p.Prepare(rows,commands),VariableSampleCommandStatus::Success); CHECK_EQ(commands.count,1);CHECK(commands.commands[0].action==VariableRateVoiceAction::Stop);
     }
     auto bindings=SelectDevelopmentFixture({pcm,1,44100}).bindings;
     VariableRateSampleCommandPreparer p;
