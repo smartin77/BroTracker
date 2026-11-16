@@ -29,6 +29,7 @@ std::string BringUpControls::BrowserText()const {
     return serial_.PatternListStatus();
 }
 void BringUpControls::OpenWavDirectory(const std::string& path,bool fallback,std::uint32_t now) {
+    serial_.CancelWavDirectory();
     audition_feedback_.clear();
     wav_browser_.Begin(path);wav_collecting_=serial_.RequestWavDirectory(path,0,fallback,now);
     if(!wav_collecting_)wav_browser_.Fail(BroTracker::WavDirectoryResult::Busy);
@@ -139,6 +140,7 @@ bool BringUpControls::InstrumentLoadAvailable()const {
 }
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
+    if(action==BringUpAction::Exit && wav_picker_) {serial_.CancelWavDirectory();wav_collecting_=false;}
     if(action==BringUpAction::Exit || action==BringUpAction::Start || action==BringUpAction::PatternToggle ||
         action==BringUpAction::ResetStop)serial_.CancelWavAudition();
     if(instrument_screen_ && !wav_picker_ && (action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack))action=BringUpAction::InstrumentCancel;
@@ -211,7 +213,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
     }
     if(wav_picker_) {
         if(action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenLeft) {
-            serial_.CancelWavAudition();
+            serial_.CancelWavAudition();serial_.CancelWavDirectory();wav_collecting_=false;
             wav_picker_=false;screen_status_="WAV selection cancelled; previous draft retained";return;
         }
         if(action==BringUpAction::BrowserAudition) {
@@ -231,7 +233,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 std::string path;const auto selection=wav_browser_.Select(path);
                 if(selection==1)OpenWavDirectory(path,false,now);
                 if(selection==2) {
-                    serial_.CancelWavAudition();
+                    serial_.CancelWavAudition();serial_.CancelWavDirectory();wav_collecting_=false;
                     const auto saved=SavedInstrumentPath();
                     if(!saved.empty() && saved!=path) {replacement_candidate_=path;replace_prompt_=true;screen_status_="Confirm Sample WAV replacement";return;}
                     if(StageLiveSample(path,now)){wav_picker_=false;return;}

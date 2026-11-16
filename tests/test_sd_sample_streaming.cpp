@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
 #include "firmware/teensy/BroTracker/sd_wav_audition.h"
+#include "ui/wav_browser.h"
 #include "core/audio/variable_rate_sample_voice.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include "bringup/pattern_fixture.h"
@@ -662,4 +663,58 @@ TEST_CASE(ManualAuditionCancellationAndNewerRequestsFenceLatePreparation) {
     CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
     CHECK(!audition.Snapshot().sample);
     while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
+}
+
+TEST_CASE(ProgressiveBrowserPublishesUsableBatchesBefore306FileScanCompletesAndNeverMovesSelection) {
+    Fixture f;const char* dir="/Samples/Wav-LQ/Acid";FakePatternSd::files[dir].directory=true;
+    FakePatternSd::files[std::string(dir)+"/nested"].directory=true;
+    FakePatternSd::files[std::string(dir)+"/ignore.txt"].bytes={0};
+    for(unsigned i=0;i<306;++i){char name[96];std::snprintf(name,sizeof(name),"%s/tone_%03u.wav",dir,i);FakePatternSd::files[name].bytes=PickerWav(16);}
+    WavBrowser browser;browser.Begin(dir);SdWavBrowseJob job;WavOpenRequest request;request.version=3;std::strcpy(request.directory,dir);
+    unsigned batches=0,first_selected=0,first_scroll=0;
+    do {
+        ++request.request;CHECK(job.Begin(request));unsigned steps=0;
+        while(!job.Done() && steps++<400) {
+            const auto reads=FakePatternSd::reads.size();job.Step();CHECK(FakePatternSd::reads.size()-reads<=1u);
+            ReadReleased();
+        }
+        CHECK(job.Done());CHECK(job.Result()==WavDirectoryResult::Ok);
+        const auto page=job.Page();CHECK(page.count<=kPatternListPageSize);CHECK(page.scanned<=64);CHECK(browser.Accept(page));job.Consumed();++batches;
+        if(batches==1) {
+            CHECK(!browser.Loading());CHECK(browser.Reading());CHECK(browser.SamplesRead()>1);CHECK(browser.SamplesRead()<306);
+            for(unsigned i=0;i<3;++i)browser.Move(1);
+            std::string path;CHECK_EQ(browser.Select(path),2u);CHECK(path.find("Samples/Wav-LQ/Acid/tone_")==0);
+            CHECK(browser.Message().find("samples read")!=std::string::npos);CHECK(browser.Message().find("PCM")!=std::string::npos);
+        }
+        if(batches==3) {for(unsigned i=0;i<21;++i)browser.Move(1);first_selected=browser.View().selected;first_scroll=browser.View().first;CHECK(browser.Reading());}
+        if(batches>3){CHECK_EQ(browser.View().selected,first_selected);CHECK_EQ(browser.View().first,first_scroll);}
+        request.offset=page.next;if(page.done)break;
+    }while(batches<100);
+    CHECK(batches>3);CHECK(!browser.Reading());CHECK_EQ(browser.SamplesRead(),306u);CHECK_EQ(browser.View().names.size(),308u);
+    CHECK(browser.Message().find("306 samples read")!=std::string::npos);
+}
+TEST_CASE(CooperativeBrowserSupersedesMidMetadataAndReleasesOldHandlesBeforeOpeningNewDirectory) {
+    Fixture f;FakePatternSd::files["/old"].directory=true;FakePatternSd::files["/new"].directory=true;
+    FakePatternSd::files["/old/old.wav"].bytes=PickerWav(16);FakePatternSd::files["/new/new.wav"].bytes=PickerWav(16);
+    SdWavBrowseJob job;WavOpenRequest request;request.version=3;request.request=1;std::strcpy(request.directory,"/old");
+    CHECK(job.Begin(request));for(unsigned i=0;i<7;++i)job.Step();
+    request.request=2;std::strcpy(request.directory,"/new");CHECK(job.Begin(request));
+    for(unsigned i=0;i<200 && !job.Done();++i)job.Step();
+    CHECK(job.Done());CHECK_EQ(job.Request().request,2u);CHECK_EQ(std::string(job.Page().directory),std::string("/new"));
+    CHECK_EQ(job.Page().count,1u);CHECK_EQ(std::string(job.Page().entries[0].name),std::string("new.wav"));ReadReleased();
+}
+
+TEST_CASE(CooperativeEightWavBatchKeepsActiveStreamingVoiceRefilled) {
+    Fixture f(100000);FakePatternSd::files["/batch"].directory=true;
+    for(unsigned i=0;i<8;++i)FakePatternSd::files["/batch/file_"+std::to_string(i)+".wav"].bytes=PickerWav(16);
+    f.Trigger();SdWavBrowseJob job;WavOpenRequest request;request.version=3;request.request=1;std::strcpy(request.directory,"/batch");CHECK(job.Begin(request));
+    unsigned turns=0;
+    while(!job.Done() && turns++<500) {
+        f.producer.Service();f.producer.Service();
+        if(!f.producer.RefillNeeded() && f.producer.BackgroundHeadroom()) {
+            const auto reads=FakePatternSd::reads.size();job.Step();CHECK(FakePatternSd::reads.size()-reads<=1u);
+        }
+        f.Consume(0,0,128);
+    }
+    CHECK(job.Done());CHECK_EQ(job.Page().count,8u);CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);
 }

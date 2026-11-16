@@ -1,19 +1,27 @@
 #pragma once
 #include "file_list.h"
 #include "bringup/wav_directory.h"
-// Shared host model: only a complete, correlated Teensy listing changes the
-// visible directory. Failed navigation preserves the last committed list.
+// Publish correlated batches from one confirmed directory in scan order.
+// Appending never changes the highlight or scroll position; failed navigation
+// retains the last confirmed directory until the first new batch arrives.
 class WavBrowser {
 public:
     void Reset(){*this=WavBrowser{};}
     const std::string& Directory()const{return directory_;}
     const std::string& Requested()const{return requested_;}
     const FileListView& View()const{return view_;}
-    bool Loading()const{return loading_;}
+    bool Loading()const{return awaiting_first_;}
+    bool Reading()const{return loading_;}
+    unsigned SamplesRead()const{return samples_;}
     std::string Message()const {
+        const auto detail=SelectedMessage();
+        const auto count=std::to_string(samples_)+" samples read";
+        return detail.empty()?count:count+" | "+detail;
+    }
+    std::string SelectedMessage()const {
         if(!message_.empty())return message_;
-        if(loading_)return {};
-        if(entries_.empty())return "No supported samples";
+        if(awaiting_first_)return {};
+        if(entries_.empty() && !loading_)return "No supported samples";
         const auto* entry=SelectedFile();if(!entry)return {};
         const auto& f=entry->facts;
         if(!f.known || f.status==BroTracker::WavBufferStatus::IoError)return "Unable to read WAV";
@@ -29,33 +37,35 @@ public:
         char rate[32];std::snprintf(rate,sizeof(rate),"%u.%u kHz",f.sample_rate/1000,(f.sample_rate%1000)/100);
         return std::string("PCM ")+"\xc2\xb7 "+std::to_string(f.bits)+"-bit "+"\xc2\xb7 "+rate;
     }
-    void Begin(std::string path){requested_=std::move(path);pending_.clear();pending_directory_.clear();seen_=0;fallback_=0;loading_=true;message_.clear();}
+    void Begin(std::string path){requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
     bool Accept(const BroTracker::WavBrowsePage& page) {
         if(!loading_ || !BroTracker::ValidWavDirectory(page.directory) || page.count>BroTracker::kPatternListPageSize || page.fallback>2)return false;
         if(!pending_directory_.empty() && pending_directory_!=page.directory)return false;
-        pending_directory_=page.directory;if(page.fallback)fallback_=page.fallback;seen_+=page.scanned;
-        for(unsigned i=0;i<page.count;++i)pending_.push_back(page.entries[i]);
-        if(!page.done)return true;
-        std::sort(pending_.begin(),pending_.end(),[](const auto& a,const auto& b){return a.kind!=b.kind?a.kind==BroTracker::WavEntryKind::Directory:std::strcmp(a.name,b.name)<0;});
-        entries_=pending_;directory_=pending_directory_;view_={};view_.rows=SampleBrowserRows(480);
-        if(directory_!="/")view_.names.push_back("..");
-        for(const auto& entry:entries_) {
+        if(awaiting_first_) {
+            entries_.clear();samples_=0;directory_=page.directory;pending_directory_=page.directory;
+            view_={};view_.rows=SampleBrowserRows(480);
+            if(directory_!="/")view_.names.push_back("..");
+            awaiting_first_=false;
+        }
+        if(page.fallback)fallback_=page.fallback;seen_+=page.scanned;
+        for(unsigned i=0;i<page.count;++i) {
+            const auto& entry=page.entries[i];entries_.push_back(entry);
             std::string label=entry.name;
-            if(entry.kind==BroTracker::WavEntryKind::Directory)label+='/';
+            if(entry.kind==BroTracker::WavEntryKind::Directory)label+='/';else ++samples_;
             view_.names.push_back(label);
         }
-        loading_=false;
-        message_=fallback_?(fallback_==1?"Folder not found":"Unable to read folder"):std::string{};
+        loading_=!page.done;
+        if(page.fallback)message_=fallback_==1?"Folder not found":"Unable to read folder";
         return true;
     }
     void Fail(BroTracker::WavDirectoryResult result) {
-        loading_=false;pending_.clear();
+        loading_=awaiting_first_=false;
         message_=result==BroTracker::WavDirectoryResult::Missing?"Folder not found":"Unable to read folder";
     }
-    void Move(int direction){if(!loading_){message_.clear();view_.Move(direction);}}
+    void Move(int direction){if(!awaiting_first_){message_.clear();view_.Move(direction);}}
     // 0=no action/error, 1=directory, 2=file. Paths come from the confirmed CWD.
     unsigned Select(std::string& path) {
-        if(loading_ || view_.names.empty() || view_.selected>=view_.names.size())return 0;
+        if(awaiting_first_ || view_.names.empty() || view_.selected>=view_.names.size())return 0;
         if(directory_!="/" && view_.selected==0) {char parent[64];std::strcpy(parent,directory_.c_str());BroTracker::ParentWavDirectory(parent);path=parent;return 1;}
         const auto index=view_.selected-(directory_!="/"?1:0);if(index>=entries_.size())return 0;
         const auto& entry=entries_[index];
@@ -82,6 +92,6 @@ private:
         return index<entries_.size() && entries_[index].kind==BroTracker::WavEntryKind::File?&entries_[index]:nullptr;
     }
     std::string directory_,requested_,pending_directory_,message_;
-    FileListView view_;std::vector<BroTracker::WavDirectoryEntry> entries_,pending_;
-    unsigned seen_=0,fallback_=0;bool loading_=false;
+    FileListView view_;std::vector<BroTracker::WavDirectoryEntry> entries_;
+    unsigned seen_=0,fallback_=0,samples_=0;bool loading_=false,awaiting_first_=false;
 };

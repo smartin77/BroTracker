@@ -558,7 +558,14 @@ case variants of `.wav` are listed; unrelated files are omitted. Directory entri
 and WAV names can contain up to 255 filename bytes. Selecting a supported WAV
 still enforces the existing filename and 63-byte resource-path validation.
 
-Teensy inspects at most one WAV and scans at most 64 directory entries per page.
+Current variable-rate firmware fills batches of at most eight entries, scanning
+at most 64 directory entries per batch. Directory access and WAV inspection are
+cooperative: each foreground turn performs at most one operation/bounded read.
+The legacy synchronous adapter still stops after one WAV. BTX publishes each
+correlated batch immediately in scan order, without a full-list sort; later batches
+append while preserving the cursor and scroll. The footer counts only this
+directory's WAV entries (`NN samples read`), including unsupported WAVs, alongside
+metadata/errors. Leaving or changing folders invalidates older request replies.
 It uses the existing bounded header/chunk validator under the shared SD read lease,
 never reading PCM for browser metadata. Highlight changes use the listing's cached
 metadata and perform no SD I/O. Missing/read-failed WAVs receive a rejected result;

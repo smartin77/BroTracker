@@ -332,7 +332,7 @@ Load WAV starts at `/BroTracker/Samples` only after Teensy has opened and listed
 it. If missing or unreadable, Teensy tries the nearest readable parent, up to `/`.
 The UI names the fallback reason and confirmed directory; it never presents the
 requested path as though it had been opened. No folders are created by browsing.
-Subdirectories and all WAV filenames appear together, folders first. Below
+Subdirectories and all WAV filenames appear together in directory scan order. Below
 the SD root a visible `..` opens the parent. Enter/A opens the selected folder or
 stages the selected file's complete SD-relative path. Escape/B cancels to
 Instrument, preserving the previous draft. Modified screen chords retain their
@@ -354,16 +354,23 @@ still requires stopped transport. Windows and ArkOS render the same confirmed li
 The Sample Browser uses the complete host viewport: confirmed SD path at the top,
 a scrollable list through the remaining middle area, and exactly one status line
 at the bottom. Diagnostics and repeated control hints are hidden. Directory rows
-(including `..` below root) normally leave the status line blank. Empty listings
-show `No supported samples`; navigation failures use `Folder not found` or
+(including `..` below root) show the sample count without file metadata. Empty
+listings show `No supported samples`; navigation failures use `Folder not found` or
 `Unable to read folder`, while retaining the last confirmed directory/list.
 
 All WAV filenames remain visible, including invalid and unsupported files;
 unrelated files are excluded. Teensy reads actual metadata with the same bounded
 `InspectWavMetadata` validator as streaming preparation, without reading PCM.
-Each listing page inspects at most one WAV and at most 64 directory entries;
-the existing per-file chunk limit applies. Metadata/results travel with the
-correlated listing, so moving the highlight does not issue metadata SD reads.
+Current firmware scans at most 64 directory entries and returns at most eight
+rows per batch. Each foreground turn performs at most one directory operation or
+bounded metadata read; the existing per-file chunk limit applies. The first batch
+is usable immediately, and further batches fill the 24-row viewport and append
+without resetting highlight or scroll. BTX does not wait for a full-directory scan,
+sort or metadata pass. Only this directory is listed. The footer shows
+`NN samples read` as WAV entries arrive, excluding folders and the parent row;
+selected-file facts and errors remain alongside it, and the completed count stays
+visible. Folder changes and browser exit invalidate outstanding listing replies.
+Metadata/results travel with the correlated listing, so moving the highlight does not issue metadata SD reads.
 A supported file displays its actual PCM format, bit depth and sample rate. Rejected files
 display the corresponding approved reason on that single line. Enter/A on a
 rejected WAV leaves the browser and Instrument draft unchanged. Live application

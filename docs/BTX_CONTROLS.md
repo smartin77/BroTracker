@@ -98,7 +98,12 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 The confirmed SD directory is at the top. The list fills the middle; one bottom
 line shows selected-file metadata, rejection, empty state or folder error. All
 WAVs remain visible. Enter/A on an unsupported WAV or invalid resource path keeps
-the browser and draft unchanged. Ordinary folder rows leave the footer blank.
+the browser and draft unchanged. Rows appear in directory scan order as bounded
+batches arrive; you can navigate and choose confirmed rows while loading continues.
+New batches append without moving the highlight or scroll position. The footer
+shows `NN samples read` for WAV entries in this directory only (including rejected
+WAVs), excluding folders and `..`, alongside selected-file metadata or useful errors.
+The final count remains after loading. Changing folders or leaving ignores old replies.
 
 The preferred folder is `/BroTracker/Samples`; missing/unreadable folders fall
 back to a readable parent. `..` is absent at SD root. Choosing a different path

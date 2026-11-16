@@ -1221,11 +1221,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             // Permit CRLF, but preserve embedded CR for strict field rejection.
             if (used_ && line_[used_ - 1] == '\r') --used_;
             line_[used_] = '\0';
-            // Only correlated WAV items may exceed the established 255-byte RX
-            // limit. Preserve malformed snapshot/preview handling for every other line.
+            // WAV items may exceed the established 255-byte RX limit. Correlation
+            // happens in OnLine so late items from cancelled lists are harmless;
+            // preserve malformed snapshot/preview handling for every other line.
             if(used_>=256) {
-                char prefix[64];std::snprintf(prefix,sizeof(prefix),"BTSTORE1 WAVITEM 3 %" PRIu32 " ",list_id_);
-                if(!list_pending_ || !list_browser_ || std::strncmp(line_,prefix,std::strlen(prefix)))overflow_=true;
+                if(std::strncmp(line_,"BTSTORE1 WAVITEM 3 ",19))overflow_=true; // stale listing items are ignored by request ID too
             }
             if (overflow_)
             {

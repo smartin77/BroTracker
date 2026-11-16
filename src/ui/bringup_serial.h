@@ -225,6 +225,13 @@ public:
     }
     const std::string& WavAuditionError()const{return audition_error_;}
     bool WavPickerAvailable()const{return connected_ && wav_browser_supported_;}
+    void CancelWavDirectory() {
+        if(!list_browser_)return;
+        list_queued_=list_pending_=list_ready_=false;
+        if(pending_==Command::List)pending_=Command::None;
+        // Keep any partial TX line intact. The next request uses a fresh ID;
+        // old replies cannot populate its staging page.
+    }
     bool RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now);
     const BroTracker::WavBrowsePage& WavDirectoryPage()const{return wav_page_;}
     BroTracker::WavDirectoryResult WavDirectoryError()const{return wav_error_;}

@@ -646,8 +646,10 @@ namespace
             WavOpenRequest request;WavBrowsePage page;char reply[320];
             if(!ParseWavOpen(line,std::strlen(line),request))return;
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-            if(g_live_visit.Active()) {
-                if(!g_live_browser.Begin(request)){std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVERROR %u %lu %u\n",request.version,(unsigned long)request.request,unsigned(WavDirectoryResult::Busy));(void)QueueLine(reply);}return;
+            // Current firmware always scans cooperatively, including stopped
+            // browsing outside a visit. A new request supersedes the old batch.
+            {
+                if(!g_protocol_connected || (!g_live_visit.Active() && (StorageBlock() || Snapshot().transport!=PatternTransportState::Stopped)) || !g_live_browser.Begin(request)){std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVERROR %u %lu %u\n",request.version,(unsigned long)request.request,unsigned(WavDirectoryResult::Busy));(void)QueueLine(reply);}return;
             }
 #endif
             const auto version=request.version;auto result=WavDirectoryResult::Busy;
