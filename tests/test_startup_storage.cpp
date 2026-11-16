@@ -59,6 +59,7 @@ struct StoragePeer:SerialTransport {
     PatternPublication simulated_preview;
     std::uint32_t simulated_revision=0;
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
+    bool path_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
@@ -105,6 +106,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && live_type_cap)rx+="BTINS1 LIVETYPECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_edit_cap)rx+="BTINS1 LIVEEDITCAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
+            if(line=="BTTEST1 HELLO" && path_cap)rx+="BTPATH1 CAP 1 255 8192\n";
             if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
             if(line=="BTTEST1 HELLO" && list_cap)rx+="BTSTORE1 LISTCAP 1\n";
             if(line=="BTTEST1 HELLO" && !boot_sd.empty())rx+="BTSTORE1 SDCAP 1\nBTSTORE1 SD 1 "+boot_sd+"\n";
@@ -137,6 +139,15 @@ struct StoragePeer:SerialTransport {
                 reply="BTSTORE1 WAVERROR 3 "+id+" "+std::to_string(failure->second)+"\n";
             else if(std::find(empty_wav_directories.begin(),empty_wav_directories.end(),request.directory)!=empty_wav_directories.end())
                 reply="BTSTORE1 WAVDIR 3 "+id+" "+request.directory+"\nBTSTORE1 WAVINFO 3 "+id+" 0\nBTSTORE1 WAVEND 3 "+id+" 0 1 0\n";
+            if(request.version==4){
+                for(const auto word:{"WAVDIR","WAVINFO","WAVITEM","WAVMETA","WAVEND","WAVERROR"}){
+                    const auto from=std::string("BTSTORE1 ")+word+" 3 ",to=std::string("BTSTORE1 ")+word+" 4 ";
+                    std::size_t at=0;while((at=reply.find(from,at))!=std::string::npos){reply.replace(at,from.size(),to);at+=to.size();}
+                }
+                char token[kPathProtocolCapacity];CHECK(EncodePathToken(request.directory,token,sizeof(token)));
+                const auto marker=std::string("BTSTORE1 WAVDIR 4 ")+id+" ";const auto at=reply.find(marker);
+                if(at!=std::string::npos){const auto end=reply.find('\n',at);reply.replace(at+marker.size(),end-at-marker.size(),token);}
+            }
             if(hold_list)list_reply=reply;else rx+=reply;
         }
         else if(line.rfind("BTSTORE1 WAVLIST ",0)==0) {
@@ -205,11 +216,11 @@ struct StoragePeer:SerialTransport {
         else if(line=="BTINS1 COLLECTION GET 1") {
             if(!hold_collection)rx+="BTINS1 COLLECTION STATE 1 "+std::to_string(collection_count)+"\n";
         }
-        else if(line.rfind("BTINS1 GET 2 ",0)==0) {
+        else if(line.rfind("BTINS1 GET 2 ",0)==0 || line.rfind("BTINS1 GET 3 ",0)==0) {
             unsigned id=0;if(ParseInstrumentFactsRequest(line.data(),line.size(),id)) {
                 const auto* definition=define_cap?definitions.At(id):DevelopmentInstrumentDefinition(id);
                 auto availability=definition && definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:definition && definition->type==InstrumentType::Synth?InstrumentAvailability::Ready:facts_availability;
-                char reply[96];if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,definition,availability),reply,sizeof(reply))) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
+                char reply[kPathProtocolCapacity];if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,definition,availability),reply,sizeof(reply),path_cap?3:2)) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -1690,7 +1701,7 @@ TEST_CASE(SharedWavBrowserPublishesConfirmedBatchesAndExplainsEmptyMissingAndLon
     browser.Begin("/unreadable");browser.Fail(WavDirectoryResult::ReadError);CHECK(browser.Message().find("Unable to read folder")!=std::string::npos);CHECK_EQ(browser.Directory(),path);
     page={};std::strcpy(page.directory,"/BroTracker/New");page.count=1;page.scanned=1;std::strcpy(page.entries[0].name,"tone.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin(page.directory);CHECK(browser.Accept(page));CHECK_EQ(browser.Directory(),std::string(page.directory));CHECK(!browser.Loading());CHECK(browser.Reading()); // first correlated batch is usable immediately
     page.done=true;page.count=0;CHECK(browser.Accept(page));browser.Move(1);CHECK_EQ(browser.Select(path),2u);CHECK_EQ(path,std::string("BroTracker/New/tone.wav"));
-    page={};const auto longdir="/"+std::string(55,'a');std::strcpy(page.directory,longdir.c_str());page.done=true;page.scanned=1;page.count=1;std::strcpy(page.entries[0].name,"test.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin(longdir);CHECK(browser.Accept(page));browser.Move(1);CHECK_EQ(browser.Select(path),0u);CHECK(browser.Message().find("63-byte limit")!=std::string::npos);
+    page={};const auto longdir="/"+std::string(248,'a');std::strcpy(page.directory,longdir.c_str());page.done=true;page.scanned=1;page.count=1;std::strcpy(page.entries[0].name,"test.wav");page.entries[0].facts={WavBufferStatus::Success,44100,1,1,16,true};browser.Begin(longdir);CHECK(browser.Accept(page));browser.Move(1);CHECK_EQ(browser.Select(path),0u);CHECK(browser.Message().find("255-byte limit")!=std::string::npos);
     page={};std::strcpy(page.directory,"/");page.done=true;browser.Begin("/");CHECK(browser.Accept(page));CHECK(browser.View().names.empty());
 }
 
@@ -2458,4 +2469,27 @@ TEST_CASE(SampleBrowserStartupUsesMissingOnlyHostChainAndReusesTheSuccessfulList
             const auto opens=std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTSTORE1 WAVOPEN ",0)==0;});CHECK_EQ(opens,2);
         }
     }
+}
+
+TEST_CASE(HostNegotiatesLongSpacedPathsForListingAuditionLiveAssignmentAndRollback) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->define_cap=wire->path_cap=wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,0};
+    static const std::int16_t sample[]={100,-100,50,0};wire->live_prepared.type=InstrumentType::Sample;wire->live_prepared.sample={sample,4,44100};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;Pump(serial,0,100,&editor);CHECK(serial.LongSamplePathsSupported());
+    wire->rx+="BTWAV1 CAP 1\n";Pump(serial,100,105,&editor);
+    const auto directory="/Samples/Jungle riddims/"+std::string(100,'d');CHECK(serial.RequestWavDirectory(directory,0,false,2101));Pump(serial,106,140,&editor);
+    CHECK(serial.PatternListReady());CHECK_EQ(std::string(serial.WavDirectoryPage().directory),directory);
+    WavBrowser browser;browser.Begin(directory);CHECK(browser.Accept(serial.WavDirectoryPage()));browser.Move(1);std::string path;CHECK_EQ(browser.Select(path),2u);CHECK(path.size()>63);
+    CHECK(serial.RequestWavAudition(path));Pump(serial,141,155,&editor);
+    CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 PLAY 2 ",0)==0;}));serial.CancelWavAudition();
+    CHECK(serial.BeginInstrumentVisit(3101));Pump(serial,156,180,&editor);CHECK(serial.InstrumentVisitReady());serial.InspectInstrument(1);Pump(serial,181,200,&editor);
+    const auto original=std::string(wire->definitions.At(0)->resource);
+    CHECK(serial.ReplaceLiveDefinition(1,1,path.c_str(),4001));Pump(serial,201,230,&editor);CHECK(serial.InstrumentCommitSucceeded());CHECK_EQ(std::string(wire->definitions.At(0)->resource),path);
+    Pump(serial,231,250,&editor);CHECK_EQ(serial.InstrumentResource(),path);
+    wire->hold_prepare=true;CHECK(serial.ReplaceLiveDefinition(1,1,(path+"x").c_str(),5000));Pump(serial,251,260,&editor);CHECK(wire->edit_pending);
+    wire->edit_pending=false;wire->EditReply(wire->pending_edit.request,9);wire->hold_prepare=false;Pump(serial,261,270,&editor);
+    CHECK(!serial.InstrumentCommitSucceeded());CHECK(serial.InstrumentCommitError().find("path storage full")!=std::string::npos);CHECK_EQ(std::string(wire->definitions.At(0)->resource),path);
+    CHECK(serial.ReplaceLiveDefinition(1,1,original.c_str(),5401,true));Pump(serial,271,300,&editor);CHECK(serial.InstrumentCommitSucceeded());CHECK_EQ(std::string(wire->definitions.At(0)->resource),original);
+    serial.EndInstrumentVisit();Pump(serial,301,320,&editor);CHECK(!serial.InstrumentVisitActive());
 }

@@ -573,13 +573,14 @@ TEST_CASE(TemporaryBtmMalformedDefinitionsAndIoRestorePreserveActiveSession) {
     CHECK(active.definitions.Append(5,3,nullptr));active.working_tempo=14550;
     for(unsigned fault=0;fault<8;++fault) {
         auto bad=good;const auto offset=24+PatternFileU32(bad.data()+8);
+        const auto paths=offset+source.definitions.Count()*3;const auto length=unsigned(bad[paths])+(unsigned(bad[paths+1])<<8);
         if(fault==0)bad[offset]=0;
-        if(fault==1)std::memset(bad.data()+offset+1,0,64); // Sample requires a resource.
-        if(fault==2)bad[offset+1]='/';
-        if(fault==3){bad[offset+1]='.';bad[offset+2]='.';}
-        if(fault==4)std::memset(bad.data()+offset+1,'a',64); // No terminator.
-        if(fault==5)bad[offset+64]=1; // Nonzero padding.
-        if(fault==6)bad[offset+65+1]='x'; // MIDI must have no resource.
+        if(fault==1)bad[offset+1]=0; // Sample requires a resource identity.
+        if(fault==2)bad[offset+1]=255; // Outside unique-path table.
+        if(fault==3)PatternFilePut32(bad.data()+16,100);
+        if(fault==4){bad[paths]=0;bad[paths+1]=1;} // Over-limit path length.
+        if(fault==5)bad[paths+2+length]='x'; // No terminator.
+        if(fault==6)bad[offset+3+1]=1; // MIDI must have no resource.
         if(fault==7)PatternFilePut32(bad.data()+12,100);
         PatternFilePut32(bad.data()+20,PatternFileCrc(bad.data(),bad.size()));
         FakePatternSd::files[kSessionPath].bytes=bad;
@@ -717,4 +718,31 @@ TEST_CASE(TemporaryBtmPreservesNoteWithoutInstrumentThroughSessionSaveRestore) {
     CHECK_EQ(restored.working.cells[0][7].note,64);CHECK_EQ(restored.working.cells[0][7].instrument,kNoInstrumentUpdate);
     CHECK_EQ(restored.published.cells[0][7].note,64);CHECK_EQ(restored.published.cells[0][7].instrument,kNoInstrumentUpdate);
     CHECK_EQ(restored.working_tempo,13725u);
+}
+
+TEST_CASE(BtmVersionTwoStoresUniqueFullPathsAndStillReadsVersionOne) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession s;s.working=MakeDevelopmentPattern();s.definitions.Reset(false);
+    const auto path="Samples/Jungle riddims/"+std::string(90,'d')+"/long sample.wav";
+    CHECK(s.definitions.Append(0,1,path.c_str()));CHECK(s.definitions.Append(1,1,path.c_str()));CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
+    const auto bytes=FakePatternSd::files[kSessionPath].bytes;CHECK_EQ(bytes[4],2u);CHECK_EQ(PatternFileU32(bytes.data()+16),1u);
+    WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(std::string(loaded.definitions.At(0)->resource),path);CHECK_EQ(loaded.definitions.At(0)->resource,loaded.definitions.At(1)->resource);
+    std::size_t size=0;std::vector<std::uint8_t> old(kWorkingSessionCapacity);CHECK_EQ(EncodePatternFile(PatternFileKind::Session,s.working,12500,old.data()+24,kPatternFileCapacity,size),PatternFileResult::Ok);
+    std::memcpy(old.data(),"BTM1",4);old[4]=1;old[6]=24;PatternFilePut32(old.data()+8,size);PatternFilePut32(old.data()+12,1);
+    old[24+size]=1;std::strcpy(reinterpret_cast<char*>(old.data()+25+size),"Samples/legacy.wav");old.resize(32+size+65);PatternFilePut32(old.data()+20,PatternFileCrc(old.data(),old.size()));
+    CHECK_EQ(DecodeWorkingSession(old.data(),old.size(),loaded),PatternFileResult::Ok);CHECK_EQ(std::string(loaded.definitions.At(0)->resource),std::string("Samples/legacy.wav"));
+}
+
+TEST_CASE(SessionResourceCapacityFailureIsVisibleAndPreservesTheActiveSession) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession source;source.working=MakeDevelopmentPattern();source.definitions.Reset(false);
+    const auto path="Samples/"+std::string(240,'s')+".wav";CHECK(source.definitions.Append(0,1,path.c_str()));
+    CHECK_EQ(store.Save(backend,source),PatternFileResult::Ok);source.definitions.Reset(false);
+    WorkingSession target;target.working=MakeDevelopmentPattern();target.working.cells[0][0].note=71;
+    std::vector<ResourcePathRef> pressure;
+    for(unsigned i=0;i<256;++i){ResourcePathRef ref;const auto p="Samples/fill_"+std::to_string(i)+"/"+std::string(225,'x')+".wav";if(!ref.Assign(p.c_str()))break;pressure.push_back(ref);}
+    CHECK(!ResourcePaths().CanAcquire(path.c_str()));CHECK_EQ(store.Load(backend,target),PatternFileResult::ResourceCapacity);
+    CHECK_EQ(target.working.cells[0][0].note,71u);CHECK_EQ(target.definitions.Count(),DevelopmentInstrumentCount());
+    CHECK_EQ(std::string(PatternFileResultName(PatternFileResult::ResourceCapacity)),std::string("resource-capacity"));
+    pressure.clear();CHECK_EQ(store.Load(backend,target),PatternFileResult::Ok);CHECK_EQ(std::string(target.definitions.At(0)->resource),path);
 }

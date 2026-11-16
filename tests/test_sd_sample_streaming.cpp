@@ -718,3 +718,65 @@ TEST_CASE(CooperativeEightWavBatchKeepsActiveStreamingVoiceRefilled) {
     }
     CHECK(job.Done());CHECK_EQ(job.Page().count,8u);CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);
 }
+
+TEST_CASE(LongSpacedResourceIsSharedByDefinitionsCacheAndRollbackAndStreamsThroughEof) {
+    Fixture f;const auto base=ResourcePaths().UsedBytes();
+    const auto path="Samples/Jungle riddims/"+std::string(80,'a')+"/long sample.wav";
+    FakePatternSd::files[path].bytes=PickerWav(10000,44100,7);
+    InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,path.c_str()));CHECK(defs.Append(1,1,path.c_str()));
+    CHECK_EQ(defs.At(0)->resource,defs.At(1)->resource);CHECK_EQ(ResourcePaths().UsedBytes(),base+path.size()+1);
+    Pcm16MonoView view;CHECK_EQ(f.producer.PreparePath(path.c_str(),view),InstrumentAvailability::Ready);
+    CHECK_EQ(ResourcePaths().UsedBytes(),base+path.size()+1); // cache holds the same interned path
+    VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]=CacheCandidate(view);
+    LiveInstrumentVisit visit;CHECK(visit.Begin(1,defs,bindings));f.producer.PinRollback(bindings);
+    CHECK(defs.Replace(0,2,nullptr));CHECK(defs.Replace(1,3,nullptr));
+    CHECK_EQ(visit.Restore(0,defs,bindings,[](unsigned,const auto*){return true;}),0u);
+    CHECK_EQ(std::string(defs.At(0)->resource),path);CHECK(visit.End(1));f.producer.UnpinRollback();
+    CHECK_EQ(f.player.voices[0].Trigger(view,kSourceFrameStepUnity),VariableVoiceStatus::Success);f.producer.Publish(f.player);
+    defs.Reset(false);bindings={};CHECK(!f.producer.ReclaimOne(bindings)); // voice retains file identity
+    for(unsigned at=0;at<10000;at+=128){f.producer.Service();std::int16_t pcm[128]{};const auto n=std::min(128u,10000-at);CHECK_EQ(f.player.voices[0].Render(pcm,n),VariableVoiceStatus::Success);for(unsigned i=0;i<n;++i)CHECK_EQ(pcm[i],Fixture::Pcm(7,at+i));f.producer.Publish(f.player);}
+    CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(ResourcePaths().UsedBytes(),base);
+}
+TEST_CASE(PathPoolHasBoundedActualLengthStorageAndRejectsCapacityWithoutChangingDefinition) {
+    ResourcePathPool pool;const auto used=pool.UsedBytes();
+    const auto id=pool.Acquire("Samples/shared.wav");CHECK(id);CHECK_EQ(pool.Acquire("Samples/shared.wav"),id);CHECK_EQ(pool.UniqueCount(),1u);
+    pool.Release(id);CHECK_EQ(pool.UniqueCount(),1u);pool.Release(id);CHECK_EQ(pool.UsedBytes(),used);
+    ResourcePathPool::Id ids[256]{};unsigned n=0;
+    for(;n<256;++n){const auto path="Samples/"+std::to_string(n)+"/"+std::string(220,'x')+".wav";ids[n]=pool.Acquire(path.c_str());if(!ids[n])break;}
+    CHECK(n>20 && n<99);CHECK(pool.UsedBytes()<=kResourcePathBytes);for(unsigned i=0;i<n;++i)pool.Release(ids[i]);CHECK_EQ(pool.UsedBytes(),0u);
+    CHECK(pool.Acquire("Samples/reused.wav"));
+    Fixture f;InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,"Samples/old.wav"));const auto original=defs.At(0)->resource;
+    std::vector<ResourcePathRef> pressure;
+    for(unsigned i=0;i<256;++i){ResourcePathRef ref;const auto path="Samples/pressure_"+std::to_string(i)+"/"+std::string(220,'x')+".wav";if(!ref.Assign(path.c_str()))break;pressure.push_back(ref);}
+    const auto candidate="Samples/"+std::string(240,'z')+".wav";
+    CHECK(!defs.Replace(0,1,candidate.c_str()));CHECK_EQ(defs.At(0)->resource,original);CHECK_EQ(std::string(original),std::string("Samples/old.wav"));
+    Pcm16MonoView rejected;CHECK_EQ(f.producer.PreparePath(candidate.c_str(),rejected),InstrumentAvailability::PathCapacity);
+    InstrumentDefineRequest request;request.request=1;request.expected=0;request.type=1;std::strcpy(request.resource,candidate.c_str());
+    VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]=CacheCandidate(f.producer.reports[0].view);bool installed=false;
+    CHECK_EQ(RelinkSampleDefinition(defs,bindings,request,bindings.bindings[0],true,[&](const auto&){installed=true;return true;}),9u);
+    CHECK(!installed);CHECK_EQ(defs.At(0)->resource,original);
+    pressure.clear();CHECK(defs.Replace(0,1,candidate.c_str()));
+}
+TEST_CASE(LongPathCodecIsVersionedBoundedAndDoesNotTruncateOrAcceptTraversal) {
+    const auto relative="Samples/Jungle riddims/"+std::string(210,'b')+".wav";
+    char token[kPathProtocolCapacity],path[kSamplePathMaximum+1];CHECK(relative.size()>63);CHECK(EncodePathToken(relative.c_str(),token,sizeof(token)));
+    CHECK(DecodePathToken(token,path,sizeof(path),true));CHECK_EQ(std::string(path),relative);
+    WavOpenRequest request;const auto directory="/Samples/Jungle riddims/"+std::string(100,'d');CHECK(EncodePathToken(directory.c_str(),token,sizeof(token)));
+    const auto line=std::string("BTSTORE1 WAVOPEN 4 1 0 0 ")+token;CHECK(ParseWavOpen(line.data(),line.size(),request));CHECK_EQ(std::string(request.directory),directory);
+    CHECK(!DecodePathToken("@610062",path,sizeof(path),true));CHECK(!ValidSamplePath("Samples/../escape.wav"));CHECK(!ValidSamplePath("Samples//empty.wav"));
+    const auto maximum="Samples/"+std::string(243,'a')+".wav";CHECK_EQ(maximum.size(),255u);CHECK(InstrumentDefinitions::ValidResource(maximum.c_str()));
+    CHECK(!InstrumentDefinitions::ValidResource((maximum+"x").c_str()));CHECK(!EncodePathToken((maximum+"x").c_str(),token,sizeof(token)));
+    InstrumentDefineRequest update;CHECK(EncodePathToken(relative.c_str(),token,sizeof(token)));const auto edit=std::string("BTINS1 EDIT 2 2 0 1 ")+token;CHECK(ParseInstrumentEdit(edit.data(),edit.size(),update));CHECK_EQ(std::string(update.resource),relative);
+    InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,relative.c_str()));const auto facts=InstrumentDefinitionFacts(0,defs.At(0),InstrumentAvailability::Ready);char reply[kPathProtocolCapacity];CHECK(FormatInstrumentFacts(facts,reply,sizeof(reply),3));InstrumentFacts parsed;CHECK(ParseInstrumentFacts(reply,std::strlen(reply)-1,parsed));CHECK_EQ(std::string(parsed.resource),relative);
+    CHECK(!FormatInstrumentFacts(facts,reply,sizeof(reply),2)); // legacy must never truncate
+}
+
+TEST_CASE(ResourceEntryLimitAndFreedGapReuseRemainBoundedBelowByteBudget) {
+    ResourcePathPool pool;ResourcePathPool::Id ids[kResourcePathEntries]{};
+    for(unsigned i=0;i<kResourcePathEntries;++i){const auto path="Samples/s"+std::to_string(i)+".wav";ids[i]=pool.Acquire(path.c_str());CHECK(ids[i]);}
+    CHECK_EQ(pool.UniqueCount(),kResourcePathEntries);CHECK(pool.UsedBytes()<kResourcePathBytes);
+    CHECK_EQ(pool.Acquire("Samples/overflow.wav"),0u);
+    pool.Release(ids[50]);const auto next=pool.Acquire("Samples/new.wav");CHECK(next);CHECK_EQ(next,ids[50]);
+    CHECK_EQ(std::string(pool.Resolve(ids[51])),std::string("Samples/s51.wav"));
+}

@@ -29,7 +29,7 @@ inline bool ParseInstrumentIdentity(const char* line,std::size_t length,unsigned
 struct InstrumentFacts {
     unsigned id=0,type=0; // type 0 is undefined, not an unavailable defined Sample.
     InstrumentAvailability availability=InstrumentAvailability::Undefined;
-    char resource[64]{};
+    char resource[kSamplePathMaximum+1]{};
 };
 inline InstrumentFacts InstrumentDefinitionFacts(unsigned id,const InstrumentDefinition* definition,InstrumentAvailability availability) noexcept {
     InstrumentFacts facts;facts.id=id;
@@ -44,38 +44,35 @@ inline InstrumentFacts DevelopmentInstrumentFacts(unsigned id,InstrumentAvailabi
 }
 inline bool ParseInstrumentFactsRequest(const char* line,std::size_t length,unsigned& id) noexcept {
     std::uint32_t fields[2]{};
-    if(!SnapshotFields(line,length,"BTINS1 GET ",fields,2) || std::memcmp(line,"BTINS1 GET 2 ",13) || fields[0]!=2 || fields[1]>=99)return false;
+    if(!SnapshotFields(line,length,"BTINS1 GET ",fields,2) || (fields[0]!=2 && fields[0]!=3) || fields[1]>=99)return false;
     id=fields[1];return true;
 }
 inline bool ValidInstrumentFacts(const InstrumentFacts& f) noexcept {
     if(f.id>=99 || f.type>3 || unsigned(f.availability)>7)return false;
     std::size_t n=0;while(n<sizeof(f.resource) && f.resource[n])++n;if(!n || n==sizeof(f.resource))return false;
-    for(std::size_t i=0;i<n;++i) {
-        const char c=f.resource[i];
-        if(!((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='/' || c=='_' || c=='-' || c=='.'))return false;
-    }
     const bool none=!std::strcmp(f.resource,"-");
+    if(!none && !InstrumentDefinitions::ValidResource(f.resource))return false;
     if(!f.type)return f.availability==InstrumentAvailability::Undefined && none;
     if(f.type==2)return f.availability==InstrumentAvailability::ExternalUnknown && none;
     if(f.type==3)return f.availability==InstrumentAvailability::Ready && none;
     return f.availability>=InstrumentAvailability::Ready && f.availability<=InstrumentAvailability::StorageUnavailable &&
         ((f.availability==InstrumentAvailability::NoResource)==none);
 }
-inline bool FormatInstrumentFacts(const InstrumentFacts& facts,char* output,std::size_t capacity) noexcept {
-    if(!ValidInstrumentFacts(facts))return false;
-    const int n=std::snprintf(output,capacity,"BTINS1 STATE 2 %u %u %u %s\n",facts.id,facts.type,unsigned(facts.availability),facts.resource);
+inline bool FormatInstrumentFacts(const InstrumentFacts& facts,char* output,std::size_t capacity,unsigned version=2) noexcept {
+    if(!ValidInstrumentFacts(facts))return false;char token[kPathProtocolCapacity];
+    if(version==3){if(!EncodePathToken(facts.resource,token,sizeof(token)))return false;}
+    else {if(std::strlen(facts.resource)>63 || std::strchr(facts.resource,' '))return false;std::strcpy(token,facts.resource);}
+    const int n=std::snprintf(output,capacity,"BTINS1 STATE %u %u %u %u %s\n",version,facts.id,facts.type,unsigned(facts.availability),token);
     return n>0 && static_cast<std::size_t>(n)<capacity;
 }
 inline bool ParseInstrumentFacts(const char* line,std::size_t length,InstrumentFacts& output) noexcept {
-    if(!line || length>=kPatternSnapshotLineCapacity)return false;
-    std::size_t split=length;while(split && line[split-1]!=' ')--split;
-    if(!split || split==length || length-split>=sizeof(output.resource))return false;
+    if(!line || length<15 || length>=kPathProtocolCapacity ||
+        (std::memcmp(line,"BTINS1 STATE 2 ",15) && std::memcmp(line,"BTINS1 STATE 3 ",15)))return false;
+    std::size_t split=length;while(split && line[split-1]!=' ')--split;if(!split)return false;
     std::uint32_t fields[4]{};
-    if(!SnapshotFields(line,split-1,"BTINS1 STATE ",fields,4) || std::memcmp(line,"BTINS1 STATE 2 ",15) || fields[0]!=2 || fields[3]>7)return false;
+    if(!SnapshotFields(line,split-1,"BTINS1 STATE ",fields,4) || (fields[0]!=2 && fields[0]!=3) || fields[3]>7)return false;
     InstrumentFacts parsed;parsed.id=fields[1];parsed.type=fields[2];parsed.availability=static_cast<InstrumentAvailability>(fields[3]);
-    std::memcpy(parsed.resource,line+split,length-split);parsed.resource[length-split]=0;
-    // Embedded NULs must not turn an invalid resource token into a shorter one.
-    if(std::strlen(parsed.resource)!=length-split || !ValidInstrumentFacts(parsed))return false;
+    if(!DecodePathToken(std::string_view(line+split,length-split),parsed.resource,sizeof(parsed.resource),fields[0]==3) || !ValidInstrumentFacts(parsed))return false;
     output=parsed;return true;
 }
 inline bool ParseInstrumentCollectionCount(const char* line,std::size_t length,unsigned& count) noexcept {
@@ -85,21 +82,20 @@ inline bool ParseInstrumentCollectionCount(const char* line,std::size_t length,u
     count=fields[1];return true;
 }
 
-struct InstrumentDefineRequest {unsigned request=0,expected=0,type=0;char resource[64]{};};
+struct InstrumentDefineRequest {unsigned request=0,expected=0,type=0;char resource[kSamplePathMaximum+1]{};};
 inline bool ParseInstrumentDefine(const char* line,std::size_t length,InstrumentDefineRequest& output) noexcept {
-    if(!line || length>=kPatternSnapshotLineCapacity)return false;
-    std::size_t split=length;while(split && line[split-1]!=' ')--split;
-    if(!split || split==length || length-split>=64)return false;
+    if(!line || length<15 || length>=kPathProtocolCapacity ||
+        (std::memcmp(line,"BTINS1 DEFINE 1 ",15) && std::memcmp(line,"BTINS1 DEFINE 2 ",15)))return false;
+    std::size_t split=length;while(split && line[split-1]!=' ')--split;if(!split)return false;
     std::uint32_t f[4]{};
-    if(!SnapshotFields(line,split-1,"BTINS1 DEFINE ",f,4) || std::memcmp(line,"BTINS1 DEFINE 1 ",15) || f[0]!=1 || !f[1] || f[2]>=99 || f[3]<1 || f[3]>3)return false;
+    if(!SnapshotFields(line,split-1,"BTINS1 DEFINE ",f,4) || (f[0]!=1 && f[0]!=2) || !f[1] || f[2]>=99 || f[3]<1 || f[3]>3)return false;
     InstrumentFacts facts;facts.id=f[2];facts.type=f[3];facts.availability=f[3]==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
-    std::memcpy(facts.resource,line+split,length-split);facts.resource[length-split]=0;
-    if(std::strlen(facts.resource)!=length-split || !ValidInstrumentFacts(facts))return false;
-    InstrumentDefineRequest value;value.request=f[1];value.expected=f[2];value.type=f[3];std::memcpy(value.resource,facts.resource,64);output=value;return true;
+    if(!DecodePathToken(std::string_view(line+split,length-split),facts.resource,sizeof(facts.resource),f[0]==2) || !ValidInstrumentFacts(facts))return false;
+    InstrumentDefineRequest value;value.request=f[1];value.expected=f[2];value.type=f[3];std::strcpy(value.resource,facts.resource);output=value;return true;
 }
 inline bool ParseInstrumentRelink(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
-    if(!line || length>=kPatternSnapshotLineCapacity || length<14 || std::memcmp(line,"BTINS1 RELINK ",14))return false;
-    char normalized[kPatternSnapshotLineCapacity];std::memcpy(normalized,line,length);
+    if(!line || length>=kPathProtocolCapacity || length<14 || std::memcmp(line,"BTINS1 RELINK ",14))return false;
+    char normalized[kPathProtocolCapacity];std::memcpy(normalized,line,length);
     std::memcpy(normalized,"BTINS1 DEFINE ",14);
     InstrumentDefineRequest request;
     if(!ParseInstrumentDefine(normalized,length,request) || request.type!=1)return false;
@@ -107,21 +103,21 @@ inline bool ParseInstrumentRelink(const char* line,std::size_t length,Instrument
 }
 inline bool ParseInstrumentReplace(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
     constexpr unsigned prefix=15;
-    if(!line || length>kPatternSnapshotLineCapacity || length<prefix || std::memcmp(line,"BTINS1 REPLACE ",prefix))return false;
-    char normalized[kPatternSnapshotLineCapacity]{};std::memcpy(normalized,"BTINS1 DEFINE ",14);std::memcpy(normalized+14,line+prefix,length-prefix);
+    if(!line || length>kPathProtocolCapacity || length<prefix || std::memcmp(line,"BTINS1 REPLACE ",prefix))return false;
+    char normalized[kPathProtocolCapacity]{};std::memcpy(normalized,"BTINS1 DEFINE ",14);std::memcpy(normalized+14,line+prefix,length-prefix);
     InstrumentDefineRequest candidate;
     if(!ParseInstrumentDefine(normalized,length-1,candidate) || (candidate.type==1 && !InstrumentDefinitions::ValidResource(candidate.resource)))return false;
     out=candidate;return true;
 }
 inline bool ParseInstrumentEdit(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
     constexpr unsigned prefix=12;
-    if(!line || length>=kPatternSnapshotLineCapacity-2 || length<prefix || std::memcmp(line,"BTINS1 EDIT ",prefix))return false;
-    char normalized[kPatternSnapshotLineCapacity]{};
+    if(!line || length>=kPathProtocolCapacity-2 || length<prefix || std::memcmp(line,"BTINS1 EDIT ",prefix))return false;
+    char normalized[kPathProtocolCapacity]{};
     std::memcpy(normalized,"BTINS1 DEFINE ",14);std::memcpy(normalized+14,line+prefix,length-prefix);
     return ParseInstrumentDefine(normalized,length+2,out);
 }
 inline bool ParseInstrumentDefined(const char* line,std::size_t length,unsigned& request,unsigned& result,unsigned& count) noexcept {
-    std::uint32_t f[4]{};if(!SnapshotFields(line,length,"BTINS1 DEFINED ",f,4) || std::memcmp(line,"BTINS1 DEFINED 1 ",16) || f[0]!=1 || !f[1] || f[2]>6 || f[3]>99)return false;
+    std::uint32_t f[4]{};if(!SnapshotFields(line,length,"BTINS1 DEFINED ",f,4) || std::memcmp(line,"BTINS1 DEFINED 1 ",16) || f[0]!=1 || !f[1] || (f[2]>7 && f[2]!=9) || f[3]>99)return false;
     request=f[1];result=f[2];count=f[3];return true;
 }
 }

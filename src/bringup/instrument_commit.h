@@ -55,6 +55,7 @@ unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableR
         if(prepared->type!=InstrumentType::Sample || !prepared->sample.data || !prepared->sample.frame_count)return 4;
         binding=*prepared;binding.instrument=request.expected;resource=request.resource;playable=true;
     }
+    if(resource && !ResourcePaths().CanAcquire(resource))return 9;
     if(!definitions.CanAppend(request.expected,request.type,resource))return 4;
     if(playable && (bindings.count>=kVariableRateSampleBindingCapacity || !append(binding)))return 5;
     if(playable)bindings.bindings[bindings.count++]=binding;
@@ -78,6 +79,7 @@ template<class Install> unsigned RelinkSampleDefinition(InstrumentDefinitions& d
         candidate.reference_note=bindings.bindings[index].reference_note;
         candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
     } else if(bindings.count>=kVariableRateSampleBindingCapacity)return 5;
+    if(!ResourcePaths().CanAcquire(request.resource))return 9;
     if(!install(candidate))return 5;
     (void)definitions.ReplaceSample(request.expected,request.resource);
     if(index==bindings.count)++bindings.count;
@@ -93,6 +95,7 @@ template<class Install> unsigned ReplaceInstrumentDefinition(InstrumentDefinitio
     const auto* previous=definitions.At(request.expected);if(!previous)return 2;
     if(!ready)return 3;
     const auto* resource=request.type==1?request.resource:nullptr;
+    if(resource && !ResourcePaths().CanAcquire(resource))return 9;
     if(!definitions.CanReplace(request.expected,request.type,resource))return 4;
     VariableRateSampleBinding candidate;candidate.instrument=request.expected;
     candidate.type=request.type==1?InstrumentType::Sample:request.type==2?InstrumentType::MIDI:InstrumentType::Synth;

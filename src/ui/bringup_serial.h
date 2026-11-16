@@ -65,6 +65,7 @@ public:
     bool InspectedSample(unsigned number)const{return connected_ && identity_number_==number && identity_facts_ready_ && identity_type_==1;}
     bool RelinkSupported()const{return connected_ && relink_supported_;}
     bool RelinkInstrument(unsigned number,const char* resource,std::uint32_t now) {
+        if(!ResourceWireAvailable(resource))return false;
         if(define_reconcile_required_ || !RelinkSupported() || !InspectedSample(number) || !InstrumentCollectionKnown() || number>collection_count_ ||
            UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
             define_error_="Sample relink unavailable: synchronize/reconnect and STOP before retry";return false;
@@ -82,6 +83,7 @@ public:
         return !connected_?0:collection_supported_?(collection_ready_?BroTracker::InstrumentSelectionMaximum(collection_count_):0):pattern_assembler_.Snapshot()?99:0;
     }
     bool CommitInstrument(unsigned type,const char* resource,std::uint32_t now) {
+        if(type==1 && !ResourceWireAvailable(resource))return false;
         if(define_reconcile_required_) {
             define_error_="Definition commit unconfirmed; reconnect for a fresh collection count before retry";return false;
         }
@@ -94,6 +96,7 @@ public:
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
     bool ReplaceInstrument(unsigned number,unsigned type,const char* resource,std::uint32_t now) {
+        if(type==1 && !ResourceWireAvailable(resource))return false;
         if(define_reconcile_required_ || !ReplaceSupported() || !InspectedType(number) || !InstrumentCollectionKnown() || number>collection_count_ ||
            UserActionsBlocked() || !MidiRecoveryStopped() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX) {
             define_error_="Instrument update unavailable: synchronize/reconnect and STOP before retry";return false;
@@ -119,6 +122,7 @@ public:
     bool InstrumentCommitCancelled()const{return define_cancelled_;}
     unsigned InstrumentCommitResult()const{return define_result_;}
     bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false) {
+        if(type==1 && !ResourceWireAvailable(resource))return false;
         if(!InstrumentVisitReady() || visit_ending_ || (define_reconcile_required_ && !restore) || !number || number>collection_count_ ||
             UserActionsBlocked() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX ||
             type<1 || type>3 || (!restore && type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
@@ -214,7 +218,7 @@ public:
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
     bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
     bool RequestWavAudition(const std::string& path) {
-        if(!connected_ || !audition_supported_ || !MidiRecoveryStopped() || UserActionsBlocked() ||
+        if(!ResourceWireAvailable(path.c_str()) || !connected_ || !audition_supported_ || !MidiRecoveryStopped() || UserActionsBlocked() ||
             FilePending() || PublicationBusy() || TransportPending() || InstrumentCommitPending() ||
             !BroTracker::InstrumentDefinitions::ValidResource(path.c_str()) || audition_id_==UINT32_MAX)return false;
         ++audition_id_;audition_path_=path;audition_queued_=true;audition_cancel_=false;audition_error_.clear();return true;
@@ -224,6 +228,14 @@ public:
         if(audition_supported_ && audition_id_)audition_cancel_=true;
     }
     const std::string& WavAuditionError()const{return audition_error_;}
+    bool ResourceWireAvailable(const char* path) {
+        if(path && (!BroTracker::InstrumentDefinitions::ValidResource(path) ||
+            (!path_supported_ && (std::strlen(path)>63 || std::strchr(path,' '))))) {
+            define_error_="Invalid sample path or long-path firmware required";return false;
+        }
+        return true;
+    }
+    bool LongSamplePathsSupported()const{return path_supported_;}
     bool WavPickerAvailable()const{return connected_ && wav_browser_supported_;}
     void CancelWavDirectory() {
         if(!list_browser_)return;
@@ -350,6 +362,8 @@ private:
     BroTracker::DevelopmentPattern file_pattern_;
     PatternLoadState pattern_load_state_=PatternLoadState::Idle;
     BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
+    bool path_supported_=false;
+    unsigned wav_list_version_=3;
     bool wav_browser_supported_=false,list_browser_=false;std::string wav_request_path_;
     bool wav_fallback_=false,wav_dir_received_=false,wav_info_received_=false;
     BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
@@ -453,10 +467,10 @@ private:
     bool visit_ready_=false,visit_begin_queued_=false,visit_end_queued_=false,visit_ending_=false;
     std::uint32_t visit_id_=0,visit_sequence_=0,visit_sent_at_=0,cancel_live_id_=0;
     bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
-    unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[64]{};std::string define_error_;
+    unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[BroTracker::kSamplePathMaximum+1]{};std::string define_error_;
     bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;
     bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
-    unsigned identity_availability_=0;char identity_resource_[64]{};
+    unsigned identity_availability_=0;char identity_resource_[BroTracker::kSamplePathMaximum+1]{};
     unsigned identity_number_=0,identity_type_=0;
     bool snapshot_metadata_supported_=false,restore_view_pending_=false,host_view_seen_=false;
     EditCursor host_view_{},restored_view_{},save_view_{};
@@ -475,9 +489,9 @@ private:
     bool tx_write_attempted_=false;
     bool audition_supported_=false,audition_queued_=false,audition_cancel_=false;
     std::uint32_t audition_id_=0;std::string audition_path_,audition_error_;
-    char tx_[128]{};
+    char tx_[BroTracker::kPathProtocolCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
-    char line_[512]{};
+    char line_[BroTracker::kPathProtocolCapacity]{};
     unsigned int used_ = 0;
     bool overflow_ = false;
     char state_[16] = "UNKNOWN";

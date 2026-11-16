@@ -93,6 +93,6 @@ public:
 private:
     enum Phase{Idle,Open,Seek,Next,Name,Inspect,CloseEntry,CloseDir,CancelEntry,CancelDir,DonePhase};Phase phase_=Idle;
     FsFile dir_,entry_;WavInspectionJob inspection_;WavOpenRequest request_{},replacement_{};WavBrowsePage page_{};
-    WavDirectoryResult result_=WavDirectoryResult::Ok;char directory_[64]{};unsigned fallback_=0;bool finish_page_=false;
+    WavDirectoryResult result_=WavDirectoryResult::Ok;char directory_[kSamplePathMaximum+1]{};unsigned fallback_=0;bool finish_page_=false;
 };
 }

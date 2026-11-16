@@ -1,5 +1,6 @@
 #pragma once
 #include "pattern_directory.h"
+#include "resource_path.h"
 #include "core/audio/wav_buffer_loader.h"
 namespace BroTracker {
 constexpr unsigned kWavNameMaximum=44;
@@ -31,7 +32,7 @@ template<class Backend> PatternFileResult ReadWavDirectoryPage(Backend& b,std::u
 }
 
 namespace BroTracker {
-constexpr unsigned kWavDirectoryMaximum=63;
+constexpr unsigned kWavDirectoryMaximum=kSamplePathMaximum;
 enum class WavDirectoryResult : unsigned {Ok,Missing,ReadError,NotDirectory,Busy,InvalidPath};
 enum class WavEntryKind : unsigned {File,Directory};
 struct WavFileFacts {
@@ -46,16 +47,12 @@ inline bool WavFilename(std::string_view name) noexcept {
 }
 struct WavDirectoryEntry {char name[256]{};WavEntryKind kind=WavEntryKind::File;WavFileFacts facts{};};
 struct WavBrowsePage {
-    char directory[64]{};WavDirectoryEntry entries[kPatternListPageSize]{};
+    char directory[kSamplePathMaximum+1]{};WavDirectoryEntry entries[kPatternListPageSize]{};
     unsigned count=0,scanned=0,fallback=0;std::uint32_t next=0;bool done=false;
 };
-struct WavOpenRequest {unsigned version=2;std::uint32_t request=0,offset=0;bool fallback=false;char directory[64]{};};
-inline bool ValidWavDirectory(std::string_view path) noexcept {
-    if(path=="/")return true;
-    if(path.size()<2 || path.size()>kWavDirectoryMaximum || path.front()!='/' || path.back()=='/' || path.find("..")!=path.npos || path.find("//")!=path.npos)return false;
-    for(const auto c:path)if(!((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='/' || c=='.' || c=='_' || c=='-'))return false;
-    return true;
-}
+struct WavOpenRequest {unsigned version=2;std::uint32_t request=0,offset=0;bool fallback=false;char directory[kSamplePathMaximum+1]{};};
+inline bool ValidWavDirectory(std::string_view path) noexcept {return ValidSamplePath(path,true);}
+inline bool SampleWavName(std::string_view name) noexcept {return WavFilename(name) && name.find('/')==name.npos && ValidSamplePath(name);}
 inline void ParentWavDirectory(char* path) noexcept {
     auto* slash=std::strrchr(path,'/');if(!slash || slash==path){path[0]='/';path[1]=0;}else *slash=0;
 }
@@ -65,25 +62,27 @@ inline bool WavEntryName(std::string_view name) noexcept {
     return true;
 }
 inline bool BuildWavResourceAt(std::string_view directory,std::string_view name,char* output,std::size_t capacity) noexcept {
-    if(!output || !ValidWavDirectory(directory) || !CompatibleWavName(name))return false;
+    if(!output || !ValidWavDirectory(directory) || !SampleWavName(name))return false;
     const auto prefix=directory=="/"?std::string_view{}:directory.substr(1);
-    const auto size=prefix.size()+(prefix.empty()?0:1)+name.size();if(size>63 || capacity<=size)return false;
+    const auto size=prefix.size()+(prefix.empty()?0:1)+name.size();if(size>kSamplePathMaximum || capacity<=size)return false;
     std::size_t at=0;if(!prefix.empty()){std::memcpy(output,prefix.data(),prefix.size());at=prefix.size();output[at++]='/';}
     std::memcpy(output+at,name.data(),name.size());output[at+name.size()]=0;return true;
 }
 inline bool ParseWavOpen(const char* line,std::size_t length,WavOpenRequest& output) noexcept {
-    if(!line || length>=128)return false;
-    std::size_t split=length;while(split && line[split-1]!=' ')--split;
-    if(!split || length-split>63 || !ValidWavDirectory(std::string_view(line+split,length-split)))return false;
+    if(!line || length>=kPathProtocolCapacity)return false;
+    std::size_t split=length;while(split && line[split-1]!=' ')--split;if(!split)return false;
     std::uint32_t f[4]{};
-    if(!SnapshotFields(line,split-1,"BTSTORE1 WAVOPEN ",f,4) || (f[0]!=2 && f[0]!=3) || !f[1] || f[2]%32 || f[3]>1 || (f[3] && f[2]))return false;
-    WavOpenRequest value;value.version=f[0];value.request=f[1];value.offset=f[2];value.fallback=f[3];std::memcpy(value.directory,line+split,length-split);output=value;return true;
+    if(!SnapshotFields(line,split-1,"BTSTORE1 WAVOPEN ",f,4) || (f[0]!=2 && f[0]!=3 && f[0]!=4) || !f[1] || f[2]%32 || f[3]>1 || (f[3] && f[2]))return false;
+    WavOpenRequest value;value.version=f[0];value.request=f[1];value.offset=f[2];value.fallback=f[3];
+    if(!DecodePathToken(std::string_view(line+split,length-split),value.directory,sizeof(value.directory),f[0]==4) || !ValidWavDirectory(value.directory))return false;
+    output=value;return true;
 }
+
 template<class Backend> WavDirectoryResult ReadWavBrowsePage(Backend& b,const WavOpenRequest& request,WavBrowsePage& output) noexcept {
     if(!ValidWavDirectory(request.directory) || request.offset%32 || (request.fallback && request.offset))return WavDirectoryResult::InvalidPath;
     if(!b.Acquire(false))return WavDirectoryResult::Busy;
     struct Release {Backend& b;~Release(){b.Release(false);}} release{b};
-    char directory[64];std::strcpy(directory,request.directory);unsigned fallback=0;
+    char directory[kSamplePathMaximum+1];std::strcpy(directory,request.directory);unsigned fallback=0;
     for(unsigned parent=0;parent<33;++parent) {
         WavBrowsePage page;page.next=request.offset;std::strcpy(page.directory,directory);page.fallback=fallback;
         auto result=b.ReadDirectoryStatus(directory);

@@ -272,11 +272,11 @@ namespace
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
     // Reserve discovery lines, including identity/session and WAV audition CAP.
-    constexpr std::size_t kDiscoveryReserve = 49;
-    constexpr std::size_t kTxCapacity = 50;
+    constexpr std::size_t kDiscoveryReserve = 50;
+    constexpr std::size_t kTxCapacity = 51;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
-    struct TxLine { char data[320]{}; std::size_t length = 0, offset = 0; };
+    struct TxLine { char data[kPathProtocolCapacity]{}; std::size_t length = 0, offset = 0; };
     TxLine g_tx[kTxCapacity];
     std::size_t g_tx_head = 0, g_tx_count = 0;
     PatternTelemetrySender g_telemetry;
@@ -384,7 +384,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -524,6 +524,11 @@ namespace
             operation,result,revision);
         (void)QueueLine(reply);
     }
+    const char* DirectoryToken(const WavOpenRequest& request,const WavBrowsePage& page) {
+        static char token[kPathProtocolCapacity];
+        if(request.version==4){if(!EncodePathToken(page.directory,token,sizeof(token)))return "";return token;}
+        return page.directory;
+    }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     void LiveReply(unsigned request,unsigned result) {
         char reply[80];std::snprintf(reply,sizeof(reply),"BTINS1 REPLACED 1 %u %u %u\n",request,result,g_instrument_definitions.Count());(void)QueueLine(reply);
@@ -540,15 +545,16 @@ namespace
         return result;
     }
     bool AuditionCommand(const char* line) {
-        unsigned long id=0;char path[64]{},extra=0;
+        unsigned long id=0;char path[kSamplePathMaximum+1]{},extra=0;
         if(std::sscanf(line,"BTWAV1 CANCEL 1 %lu %c",&id,&extra)==1 && id) {
             g_audition.Cancel();return true;
         }
         if(std::strncmp(line,"BTWAV1 PLAY ",12))return false;
-        unsigned result=1;
-        if(std::sscanf(line,"BTWAV1 PLAY 1 %lu %63s %c",&id,path,&extra)==2 && id && id<=UINT32_MAX) {
-            result=3;
-            // Serialized RX permits retrigger to supersede our pending job.
+        unsigned result=1;const auto length=std::strlen(line);std::size_t split=length;
+        while(split && line[split-1]!=' ')--split;std::uint32_t f[2]{};
+        if(split && SnapshotFields(line,split-1,"BTWAV1 PLAY ",f,2) && (f[0]==1 || f[0]==2) && f[1] &&
+            DecodePathToken(std::string_view(line+split,length-split),path,sizeof(path),f[0]==2)) {
+            id=f[1];result=3;
             if(g_protocol_connected && g_audio_ready && !g_live_pending &&
                 !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped)
                 result=g_audition.Request(id,path)?0:1;
@@ -620,7 +626,7 @@ namespace
                 if(!g_live_visit.Cancelled(g_live_request.request)) {
                     const auto prepared=g_streaming.PreparationResult();
                     if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedView();result=InstallLive(g_live_request,binding);}
-                    else result=prepared==InstrumentAvailability::ResourceUnavailable?4:6;
+                    else result=prepared==InstrumentAvailability::PathCapacity?9:prepared==InstrumentAvailability::ResourceUnavailable?4:6;
                 }
                 g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result);
             }
@@ -628,13 +634,13 @@ namespace
         else g_streaming.ReclaimOne(g_selected_bindings);
         const auto elapsed=micros()-began;++g_live_steps;g_live_max_us=std::max(g_live_max_us,elapsed);
         if(g_live_browser.Done()) {
-            const auto& request=g_live_browser.Request();const auto& page=g_live_browser.Page();char line[320];
+            const auto& request=g_live_browser.Request();const auto& page=g_live_browser.Page();char line[kPathProtocolCapacity];
             if(g_live_browser.Result()!=WavDirectoryResult::Ok){std::snprintf(line,sizeof(line),"BTSTORE1 WAVERROR %u %lu %u\n",request.version,(unsigned long)request.request,unsigned(g_live_browser.Result()));(void)QueueLine(line);}
             else {
-                std::snprintf(line,sizeof(line),"BTSTORE1 WAVDIR %u %lu %s\n",request.version,(unsigned long)request.request,page.directory);(void)QueueLine(line);
+                std::snprintf(line,sizeof(line),"BTSTORE1 WAVDIR %u %lu %s\n",request.version,(unsigned long)request.request,DirectoryToken(request,page));(void)QueueLine(line);
                 std::snprintf(line,sizeof(line),"BTSTORE1 WAVINFO %u %lu %u\n",request.version,(unsigned long)request.request,page.fallback);(void)QueueLine(line);
                 for(unsigned i=0;i<page.count;++i){const auto& entry=page.entries[i];std::snprintf(line,sizeof(line),"BTSTORE1 WAVITEM %u %lu %c %s\n",request.version,(unsigned long)request.request,entry.kind==WavEntryKind::Directory?'D':'F',entry.name);(void)QueueLine(line);
-                    if(request.version>=3 && entry.kind==WavEntryKind::File){const auto& f=entry.facts;std::snprintf(line,sizeof(line),"BTSTORE1 WAVMETA 3 %lu %u %u %u %u %u %lu\n",(unsigned long)request.request,i,unsigned(f.status),f.format,f.channels,f.bits,(unsigned long)f.sample_rate);(void)QueueLine(line);}}
+                    if(request.version>=3 && entry.kind==WavEntryKind::File){const auto& f=entry.facts;std::snprintf(line,sizeof(line),"BTSTORE1 WAVMETA %u %lu %u %u %u %u %u %lu\n",request.version,(unsigned long)request.request,i,unsigned(f.status),f.format,f.channels,f.bits,(unsigned long)f.sample_rate);(void)QueueLine(line);}}
                 std::snprintf(line,sizeof(line),"BTSTORE1 WAVEND %u %lu %lu %u %u\n",request.version,(unsigned long)request.request,(unsigned long)page.next,unsigned(page.done),page.scanned);(void)QueueLine(line);
             }
             g_live_browser.Consumed();
@@ -643,7 +649,7 @@ namespace
 #endif
     void StorageCommand(const char* line,std::uint32_t now) {
         if(!std::strncmp(line,"BTSTORE1 WAVOPEN ",16)) {
-            WavOpenRequest request;WavBrowsePage page;char reply[320];
+            WavOpenRequest request;WavBrowsePage page;char reply[kPathProtocolCapacity];
             if(!ParseWavOpen(line,std::strlen(line),request))return;
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             // Current firmware always scans cooperatively, including stopped
@@ -658,14 +664,14 @@ namespace
             if(result!=WavDirectoryResult::Ok) {
                 std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVERROR %u %" PRIu32 " %u\n",version,request.request,unsigned(result));(void)QueueLine(reply);return;
             }
-            std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVDIR %u %" PRIu32 " %s\n",version,request.request,page.directory);(void)QueueLine(reply);
+            std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVDIR %u %" PRIu32 " %s\n",version,request.request,DirectoryToken(request,page));(void)QueueLine(reply);
             std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVINFO %u %" PRIu32 " %u\n",version,request.request,page.fallback);(void)QueueLine(reply);
             for(unsigned i=0;i<page.count;++i) {
                 const auto& entry=page.entries[i];
                 std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVITEM %u %" PRIu32 " %c %s\n",version,request.request,entry.kind==WavEntryKind::Directory?'D':'F',entry.name);(void)QueueLine(reply);
                 if(version>=3 && entry.kind==WavEntryKind::File) {
                     const auto& f=entry.facts;
-                    std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVMETA 3 %" PRIu32 " %u %u %u %u %u %" PRIu32 "\n",request.request,i,unsigned(f.status),unsigned(f.format),unsigned(f.channels),unsigned(f.bits),f.sample_rate);(void)QueueLine(reply);
+                    std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVMETA %u %" PRIu32 " %u %u %u %u %u %" PRIu32 "\n",request.version,request.request,i,unsigned(f.status),unsigned(f.format),unsigned(f.channels),unsigned(f.bits),f.sample_rate);(void)QueueLine(reply);
                 }
             }
             std::snprintf(reply,sizeof(reply),"BTSTORE1 WAVEND %u %" PRIu32 " %" PRIu32 " %u %u\n",version,request.request,page.next,unsigned(page.done),page.scanned);(void)QueueLine(reply);return;
@@ -767,7 +773,7 @@ namespace
 #endif
     void ServiceSerial()
     {
-        static char line[128]; static std::size_t used = 0;
+        static char line[kPathProtocolCapacity]; static std::size_t used = 0;
         static bool overflow = false;
         static std::uint32_t reported_failures = 0;
         if (!Serial)
@@ -976,8 +982,9 @@ namespace
                     (unsigned long)g_streaming.reads,(unsigned long)g_streaming.io_errors,g_streaming.P99(),
                     (unsigned long)g_streaming.max_read_us,(unsigned long)g_streaming.stale_reads);
                 (void)QueueLine(reply);
+                std::snprintf(reply,sizeof(reply),"BTSTREAM1 PATHS %u %u %u %u\n",ResourcePaths().UsedBytes(),ResourcePaths().UniqueCount(),kResourcePathBytes,kResourcePathEntries);(void)QueueLine(reply);
                 std::snprintf(reply,sizeof(reply),"BTSTREAM1 JOBIO %lu %lu\n",(unsigned long)g_live_steps,(unsigned long)g_live_max_us);(void)QueueLine(reply);
-                for(unsigned i=0;i<8;++i) {
+                for(unsigned i=0;i<kStreamVoiceCount;++i) {
                     const auto state=g_streaming.Snapshot(i);
                     std::snprintf(reply,sizeof(reply),"BTSTREAM1 VOICE %u %lu %lu %lu %lu %lu %lu\n",i,
                         (unsigned long)state.position,(unsigned long)state.underruns,(unsigned long)state.eofs,
@@ -1033,10 +1040,11 @@ namespace
                             const auto* existing=g_instrument_definitions.At(request.expected);
                             result=replace?(!existing?2:!ready?3:0):relink?(!existing || existing->type!=InstrumentType::Sample?2:!ready?3:0):request.expected!=g_instrument_definitions.Count() || request.expected>=99?2:!ready?3:0;
                             if(!result && request.type==1) {
-                                if((relink || replace)?!InstrumentDefinitions::ValidResource(request.resource):!g_instrument_definitions.CanAppend(request.expected,request.type,request.resource))result=4;
+                                if(!InstrumentDefinitions::ValidResource(request.resource))result=4;
+                                else if(!ResourcePaths().CanAcquire(request.resource))result=9;
                                 else {
                                     const auto available=g_streaming.PreparePath(request.resource,prepared.sample);
-                                    if(available!=InstrumentAvailability::Ready)result=available==InstrumentAvailability::ResourceUnavailable?4:6;
+                                    if(available!=InstrumentAvailability::Ready)result=available==InstrumentAvailability::PathCapacity?9:available==InstrumentAvailability::ResourceUnavailable?4:6;
                                 }
                             }
                             if(!result) {
@@ -1075,8 +1083,8 @@ namespace
 #endif
                         }
                     }
-                    char reply[96];
-                    if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability),reply,sizeof(reply)))(void)QueueLine(reply);
+                    char reply[kPathProtocolCapacity];
+                    if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability),reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2))(void)QueueLine(reply);
                 } else if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);

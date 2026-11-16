@@ -104,6 +104,10 @@ New batches append without moving the highlight or scroll position. The footer
 shows `NN samples read` for WAV entries in this directory only (including rejected
 WAVs), excluding folders and `..`, alongside selected-file metadata or useful errors.
 The final count remains after loading. Changing folders or leaving ignores old replies.
+Paths up to 255 ASCII bytes, including ordinary spaces in folder/file names, are
+supported with long-path firmware. Long directory headers wrap to show the full
+path. Over-limit paths and exhausted shared storage are rejected without replacing
+the previous assignment; see [path storage](SAMPLE_PATH_STORAGE.md).
 
 On opening the Sample Browser, BTX tries `/Samples`, then `/BroTracker`, then `/`
 on Teensy SD. It advances only when a candidate is missing; an empty directory is

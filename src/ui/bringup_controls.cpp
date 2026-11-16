@@ -77,7 +77,7 @@ bool BringUpControls::StageLiveSample(const std::string& path,std::uint32_t now)
 void BringUpControls::TickLiveTypes(std::uint32_t now) {
     if(live_type_inflight_ && !serial_.InstrumentCommitPending()) {
         const bool success=serial_.InstrumentCommitSucceeded();
-        const bool known_failure=serial_.InstrumentCommitResult()<=7;
+        const bool known_failure=(serial_.InstrumentCommitResult()<=7 || serial_.InstrumentCommitResult()==9);
         if(success){applied_types_[live_type_slot_]=live_type_sent_;applied_resources_[live_type_slot_]=live_resource_sent_;}
         else if(!known_failure)applied_types_[live_type_slot_]=0;
         live_type_failed_=!success && !serial_.InstrumentCommitCancelled() && !assignment_rollback_;

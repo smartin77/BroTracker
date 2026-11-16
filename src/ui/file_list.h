@@ -46,16 +46,18 @@ inline void DrawFileList(Framebuffer& fb,const FileListView& view,int x,int y,in
 
 // Sample Browser owns the complete viewport: one directory line, list, one status line.
 constexpr unsigned kSampleBrowserLineHeight=18;
-constexpr unsigned SampleBrowserRows(unsigned height) {
-    return height>2*kSampleBrowserLineHeight?(height-2*kSampleBrowserLineHeight)/kSampleBrowserLineHeight:1;
+constexpr unsigned SampleBrowserRows(unsigned height,unsigned header_lines=1) {
+    return height>(header_lines+1)*kSampleBrowserLineHeight?(height-(header_lines+1)*kSampleBrowserLineHeight)/kSampleBrowserLineHeight:1;
 }
 inline void DrawSampleBrowser(Framebuffer& fb,FileListView view,const std::string& directory,const std::string& status) {
     static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
     constexpr Color text{225,225,225},highlight{153,153,153},ink{16,16,16},border{130,130,196};
-    const int width=fb.Width(),height=fb.Height(),top=kSampleBrowserLineHeight,bottom=height-kSampleBrowserLineHeight;
-    HostBitmap::Text(fb,face,4,2+face.ascent,directory,text);
+    const int width=fb.Width(),height=fb.Height();
+    const unsigned columns=std::max(1,(width-8)/face.cell),header_lines=std::max<std::size_t>(1,(directory.size()+columns-1)/columns);
+    const int top=header_lines*kSampleBrowserLineHeight,bottom=height-kSampleBrowserLineHeight;
+    for(unsigned i=0;i<header_lines;++i)HostBitmap::Text(fb,face,4,i*kSampleBrowserLineHeight+2+face.ascent,directory.substr(i*columns,columns),text);
     fb.HorizontalLine(0,width-1,top-1,border);fb.HorizontalLine(0,width-1,bottom,border);
-    view.rows=SampleBrowserRows(height);view.KeepVisible();
+    view.rows=SampleBrowserRows(height,header_lines);view.KeepVisible();
     const auto scroll=view.Indicator(bottom-top);
     if(!view.names.empty())fb.FilledRectangle(width-4,top+scroll.offset,2,scroll.length,text);
     for(unsigned row=0;row<view.rows && view.first+row<view.names.size();++row) {

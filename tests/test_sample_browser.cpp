@@ -53,7 +53,8 @@ void Screenshot(const char* name,const WavBrowser& browser,bool confirming=false
     CHECK(actual.SaveBMP(std::filesystem::path(BROTRACKER_BROWSER_SCREENSHOTS)/(std::string(name)+".bmp")));
     if(!confirming && !browser.View().names.empty()) {
         const auto row=browser.View().selected-browser.View().first;
-        const auto pixel=actual.PixelData()[(kSampleBrowserLineHeight+row*kSampleBrowserLineHeight+1)*640+620];
+        const auto header_lines=std::max<std::size_t>(1,(browser.Directory().size()+89)/90);
+        const auto pixel=actual.PixelData()[(header_lines*kSampleBrowserLineHeight+row*kSampleBrowserLineHeight+1)*640+620];
         CHECK_EQ(pixel.r,153u);CHECK_EQ(pixel.g,153u);CHECK_EQ(pixel.b,153u); // Selection spans former diagnostics area.
     }
 }
@@ -112,15 +113,14 @@ TEST_CASE(SampleBrowserListsLongAndMixedCaseWavNamesButRetainsResourcePathValida
     FakePatternSd::files["/Samples/not-a-sample.txt"].bytes=Wave();WavBrowser browser;List(backend,browser);
     const auto read_count=FakePatternSd::reads.size();
     for(const auto& name:{long_name,std::string("with space.WaV")}) {
-        Highlight(browser,name);CHECK_EQ(browser.SelectedMessage(),std::string("WAV reference unavailable or invalid")); // Before Enter/A.
-        const auto footer=browser.SelectedMessage();std::string previous="previous.wav";
-        CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("previous.wav"));CHECK_EQ(browser.SelectedMessage(),footer);
+        Highlight(browser,name);CHECK(browser.SelectedMessage().find("PCM")!=std::string::npos);
+        std::string selected;CHECK_EQ(browser.Select(selected),2u);CHECK_EQ(selected,std::string("Samples/")+name);
     }
     CHECK_EQ(FakePatternSd::reads.size(),read_count);
-    const auto directory="/"+std::string(55,'a');FakePatternSd::files[directory].directory=true;
+    const auto directory="/"+std::string(248,'a');FakePatternSd::files[directory].directory=true;
     FakePatternSd::files[directory+"/test.wav"].bytes=Wave();FakePatternSd::files[directory+"/bad stereo.wav"].bytes=Wave(2);
     List(backend,browser,directory.c_str());Highlight(browser,"test.wav");
-    const auto rejection=std::string("Cannot select test.wav: full SD-relative WAV path exceeds the supported 63-byte limit.");
+    const auto rejection=std::string("Cannot select test.wav: full SD-relative WAV path exceeds the supported 255-byte limit.");
     CHECK_EQ(browser.SelectedMessage(),rejection); // Format-valid WAV, valid basename, unselectable full path.
     std::string previous="previous.wav";CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("previous.wav"));CHECK_EQ(browser.SelectedMessage(),rejection);
     Highlight(browser,"bad stereo.wav");CHECK_EQ(browser.SelectedMessage(),std::string("Stereo WAV not supported")); // Audio rejection takes precedence over filename/path.
@@ -140,4 +140,14 @@ TEST_CASE(SampleBrowserMetadataInspectionRespectsExistingChunkBudgetAndReadLease
     CHECK(page.entries[0].kind==WavEntryKind::Directory);CHECK(page.entries[1].facts.status==WavBufferStatus::ChunkLimit);
     CHECK(FakePatternSd::reads.size()<=1+2*kWavInspectionChunkLimit);
     CHECK(SdAccess::AcquireWrite());SdAccess::ReleaseWrite();
+}
+
+TEST_CASE(SampleBrowserWrapsLongDirectoryAndBuildsSpacedPathWithoutTruncation) {
+    SdPatternFiles backend;Begin(backend);
+    const auto directory="/Samples/Jungle riddims/"+std::string(120,'d');FakePatternSd::files[directory].directory=true;
+    FakePatternSd::files[directory+"/long sample.wav"].bytes=Wave();WavBrowser browser;List(backend,browser,directory.c_str());
+    CHECK_EQ(browser.Directory(),directory);CHECK_EQ(browser.View().rows,23u);browser.Move(1);
+    std::string selected;CHECK_EQ(browser.Select(selected),2u);CHECK_EQ(selected,directory.substr(1)+"/long sample.wav");
+    Screenshot("full-long-spaced-directory-640x480",browser);
+    browser.Move(-1);CHECK_EQ(browser.Select(selected),1u);CHECK_EQ(selected,std::string("/Samples/Jungle riddims"));
 }

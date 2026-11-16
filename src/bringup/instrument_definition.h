@@ -1,5 +1,6 @@
 #pragma once
 #include "core/instrument_type.h"
+#include "resource_path.h"
 #include <cstddef>
 #include <cstring>
 namespace BroTracker {
@@ -21,7 +22,7 @@ inline unsigned InstrumentTypeCode(InstrumentType type) noexcept {
 }
 enum class InstrumentAvailability : unsigned char {
     Undefined, Ready, NoResource, ResourceUnavailable, PreparationFailed, NotPrepared,
-    StorageUnavailable, ExternalUnknown
+    StorageUnavailable, ExternalUnknown, PathCapacity
 };
 
 inline constexpr unsigned InstrumentSelectionMaximum(unsigned count) noexcept {return count<99?count+1:99;}
@@ -37,35 +38,31 @@ public:
     InstrumentDefinitions& operator=(const InstrumentDefinitions& other) noexcept {
         if(this!=&other) { Reset(false);for(unsigned i=0;i<other.Count();++i) {const auto* d=other.At(i);Append(i,InstrumentTypeCode(d->type),d->resource);} }return *this;
     }
-    void Reset(bool development=true) noexcept {count_=0;if(development)for(const auto& d:kDevelopmentInstrumentDefinitions)Append(count_,InstrumentTypeCode(d.type),d.resource);}
-    static bool ValidResource(const char* r) noexcept {
-        if(!r || !*r || std::strlen(r)>63 || *r=='/' || std::strstr(r,".."))return false;
-        for(const char* c=r;*c;++c)if(!((*c>='a' && *c<='z') || (*c>='A' && *c<='Z') || (*c>='0' && *c<='9') || *c=='/' || *c=='.' || *c=='_' || *c=='-'))return false;
-        return true;
-    }
+    void Reset(bool development=true) noexcept {for(auto& r:resources_)r.Reset();count_=0;if(development)for(const auto& d:kDevelopmentInstrumentDefinitions)Append(count_,InstrumentTypeCode(d.type),d.resource);}
+    static bool ValidResource(const char* r) noexcept {return r && ValidSamplePath(r);}
     unsigned Count() const noexcept {return count_;}
     const InstrumentDefinition* At(unsigned id) const noexcept {return id<count_?&definitions_[id]:nullptr;}
     bool CanAppend(unsigned expected,unsigned type,const char* resource) const noexcept {
-        return expected==count_ && count_<99 && (type==1?ValidResource(resource):(type==2 || type==3) && !resource);
+        return expected==count_ && count_<99 && (type==1?(ValidResource(resource)&&ResourcePaths().CanAcquire(resource)):(type==2 || type==3) && !resource);
     }
     bool Append(unsigned expected,unsigned type,const char* resource) noexcept {
         if(!CanAppend(expected,type,resource))return false;
-        if(resource)std::strcpy(resources_[count_],resource);
-        definitions_[count_]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resource?resources_[count_]:nullptr};++count_;return true;
+        if(!resources_[count_].Assign(resource))return false;
+        definitions_[count_]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resources_[count_].Get()};++count_;return true;
     }
     bool CanReplace(unsigned slot,unsigned type,const char* resource)const noexcept {
-        return slot<count_ && (type==1?ValidResource(resource):(type==2 || type==3) && !resource);
+        return slot<count_ && (type==1?(ValidResource(resource)&&ResourcePaths().CanAcquire(resource)):(type==2 || type==3) && !resource);
     }
     bool Replace(unsigned slot,unsigned type,const char* resource) noexcept {
         if(!CanReplace(slot,type,resource))return false;
-        if(resource)std::strcpy(resources_[slot],resource);else resources_[slot][0]=0;
-        definitions_[slot]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resource?resources_[slot]:nullptr};return true;
+        if(!resources_[slot].Assign(resource))return false;
+        definitions_[slot]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resources_[slot].Get()};return true;
     }
     bool ReplaceSample(unsigned slot,const char* resource) noexcept {
         if(slot>=count_ || definitions_[slot].type!=InstrumentType::Sample || !ValidResource(resource))return false;
-        std::strcpy(resources_[slot],resource);definitions_[slot].resource=resources_[slot];return true;
+        if(!resources_[slot].Assign(resource))return false;definitions_[slot].resource=resources_[slot].Get();return true;
     }
 private:
-    char resources_[99][64]{};InstrumentDefinition definitions_[99]{};unsigned count_=0;
+    ResourcePathRef resources_[99];InstrumentDefinition definitions_[99]{};unsigned count_=0;
 };
 }

@@ -16,7 +16,7 @@ public:
     const VariableRateSampleBindings& OriginalBindings()const{return original_bindings_;}
     void Cancel(std::uint32_t request){cancelled_=std::max(cancelled_,request);}
     bool Cancelled(std::uint32_t request)const{return request && request<=cancelled_;}
-    bool End(std::uint32_t id){if(id!=id_)return false;id_=0;return true;}
+    bool End(std::uint32_t id){if(id!=id_)return false;id_=0;original_definitions_.Reset(false);original_bindings_={};return true;}
     template<class Install> unsigned Restore(unsigned slot,InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,Install install)const {
         const auto* d=original_definitions_.At(slot);if(!Active() || !d || !definitions.At(slot))return 2;
         const VariableRateSampleBinding* original=nullptr;

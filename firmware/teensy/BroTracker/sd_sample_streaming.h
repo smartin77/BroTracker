@@ -40,7 +40,7 @@ public:
         for(unsigned i=0;i<kStreamVoiceCount;++i) buffers_[i].ring=memory.rings[i];
         for(unsigned i=0;i<3;++i) {
             occupied_[i]=true;
-            std::strcpy(paths_[i],kDevelopmentWavPaths[i]);
+            (void)paths_[i].Assign(kDevelopmentWavPaths[i]);
             const auto& found=inspection.files[i];
             auto& source=sources_[i]; auto& report=reports[i];
             report.attempted=true; report.sd_ready=sd_ready; report.capacity=kStreamStartFrames;
@@ -61,14 +61,15 @@ public:
     InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
         if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
         if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
-        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i],path) && reports[i].view.data) {
+        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
         unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
         if(index==kSourceCapacity)return InstrumentAvailability::PreparationFailed;
+        ResourcePathRef candidate;if(!candidate.Assign(path))return InstrumentAvailability::PathCapacity;
         SdReadScope ownership;if(!ownership)return InstrumentAvailability::NotPrepared;
         auto& file=files_[index];
-        if(!file.open(path,O_RDONLY))return InstrumentAvailability::ResourceUnavailable;
+        if(!file.open(candidate.Get(),O_RDONLY))return InstrumentAvailability::ResourceUnavailable;
         class Reader final:public WavBufferReader {
             FsFile& file_;
         public:
@@ -90,11 +91,11 @@ public:
         auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
         report.view={sources_[index].start,sources_[index].frames,44100,&sources_[index]};
-        std::strcpy(paths_[index],path);occupied_[index]=true;last_prepared_=index;++count_;output=report.view;return InstrumentAvailability::Ready;
+        paths_[index]=candidate;occupied_[index]=true;last_prepared_=index;++count_;output=report.view;return InstrumentAvailability::Ready;
     }
     // Only the just-prepared, uninstalled candidate is discardable on rejection.
     void DiscardLast(const char* path) {
-        if(last_prepared_>=kSourceCapacity || !occupied_[last_prepared_] || std::strcmp(paths_[last_prepared_],path))return;
+        if(last_prepared_>=kSourceCapacity || !occupied_[last_prepared_] || std::strcmp(paths_[last_prepared_].Get(),path))return;
         SdReadScope ownership;if(ownership)ReleaseSource(last_prepared_);
     }
     // Stopped foreground only, after successful binding publication. Never compact
@@ -149,16 +150,17 @@ public:
     }
     bool BeginPrepareAsync(const char* path) {
         if(job_phase_!=JobIdle && job_phase_!=JobDone)return false;
-        job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin();
+        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin();
         job_phase_=JobDone;
         if(!sd_ready_ || !memory_){job_result_=InstrumentAvailability::StorageUnavailable;return true;}
         if(!InstrumentDefinitions::ValidResource(path)){job_result_=InstrumentAvailability::NoResource;return true;}
-        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i],path) && reports[i].view.data) {
+        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
             job_view_=reports[i].view;job_result_=InstrumentAvailability::Ready;return true;
         }
         unsigned i=3;while(i<kSourceCapacity && occupied_[i])++i;
         if(i==kSourceCapacity)return true;
-        job_index_=i;std::strcpy(job_path_,path);job_phase_=JobOpen;return true;
+        if(!job_path_.Assign(path)){job_result_=InstrumentAvailability::PathCapacity;return true;}
+        job_index_=i;job_phase_=JobOpen;return true;
     }
     bool PreparationDone()const{return job_phase_==JobDone;}
     InstrumentAvailability PreparationResult()const{return job_result_;}
@@ -170,9 +172,9 @@ public:
         if(job_phase_==JobIdle || job_phase_==JobDone)return;
         SdReadScope lease;if(!lease)return;
         auto& file=files_[job_index_];
-        if(job_phase_==JobClose){file.close();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
+        if(job_phase_==JobClose){file.close();job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
         if(job_phase_==JobOpen) {
-            if(!file.open(job_path_,O_RDONLY)){job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
+            if(!file.open(job_path_.Get(),O_RDONLY)){job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
             job_phase_=JobInspect;return;
         }
         if(job_phase_==JobInspect) {
@@ -198,7 +200,7 @@ public:
         offsets_[job_index_]=m.data_offset;sources_[job_index_]={memory_->starts[job_index_],static_cast<std::uint32_t>(m.frames),buffers_};
         auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view={sources_[job_index_].start,sources_[job_index_].frames,44100,&sources_[job_index_]};
-        std::strcpy(paths_[job_index_],job_path_);occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
+        paths_[job_index_]=job_path_;job_path_.Reset();occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
         __DMB(); // Publish immutable PCM/source data before the audio binding can reference it.
         job_view_=report.view;job_result_=InstrumentAvailability::Ready;job_index_=kSourceCapacity;job_phase_=JobDone;
     }
@@ -269,16 +271,16 @@ private:
     // Caller holds foreground SD ownership and has proved this slot unretained.
     void ReleaseSource(unsigned index) {
         if(!files_[index].close()) {reports[index].view={};return;} // uncertain close: do not reuse
-        occupied_[index]=false;paths_[index][0]=0;reports[index]={};sources_[index]={};offsets_[index]=0;--count_;
+        occupied_[index]=false;paths_[index].Reset();reports[index]={};sources_[index]={};offsets_[index]=0;--count_;
         if(last_prepared_==index)last_prepared_=kSourceCapacity;
     }
     Storage* memory_=nullptr;
     enum JobPhase{JobIdle,JobOpen,JobInspect,JobPcm,JobClose,JobDone};JobPhase job_phase_=JobIdle;
-    unsigned job_index_=kSourceCapacity;std::uint64_t job_read_=0;char job_path_[64]{};
+    unsigned job_index_=kSourceCapacity;std::uint64_t job_read_=0;ResourcePathRef job_path_;
     WavInspectionJob job_inspection_;Pcm16MonoView job_view_{};
     InstrumentAvailability job_result_=InstrumentAvailability::PreparationFailed;unsigned rollback_pins_=0;
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
-    bool sd_ready_=false;unsigned count_=3;char paths_[kSourceCapacity][64]{};
+    bool sd_ready_=false;unsigned count_=3;ResourcePathRef paths_[kSourceCapacity];
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
     StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[kStreamVoiceCount];
     StreamedVoiceSnapshot states_[kStreamVoiceCount]; std::uint64_t failed_generation_[kStreamVoiceCount]{};

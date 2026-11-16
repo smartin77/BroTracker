@@ -7,9 +7,9 @@
 
 namespace BroTracker {
 enum class PatternFileKind : std::uint8_t { Development, Session };
-enum class PatternFileResult { Ok, Invalid, Unsupported, Missing, Exists, Busy, Io, RecoveryRequired, BackupRetained };
+enum class PatternFileResult { Ok, Invalid, Unsupported, Missing, Exists, Busy, Io, RecoveryRequired, BackupRetained, ResourceCapacity };
 inline const char* PatternFileResultName(PatternFileResult r) noexcept {
-    constexpr const char* names[]={"ok","invalid","unsupported","missing","exists","busy","io","recovery-required","backup-retained"};
+    constexpr const char* names[]={"ok","invalid","unsupported","missing","exists","busy","io","recovery-required","backup-retained","resource-capacity"};
     return names[static_cast<unsigned>(r)];
 }
 constexpr std::size_t kPatternFileHeaderSize=24;

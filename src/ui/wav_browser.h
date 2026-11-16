@@ -33,7 +33,7 @@ public:
             if(f.sample_rate!=44100)return "WAV sample rate not supported";
         }
         if(f.status!=BroTracker::WavBufferStatus::Success)return "Invalid WAV";
-        char resource[64];const auto rejection=ValidateResource(*entry,resource);if(!rejection.empty())return rejection;
+        char resource[BroTracker::kSamplePathMaximum+1];const auto rejection=ValidateResource(*entry,resource);if(!rejection.empty())return rejection;
         char rate[32];std::snprintf(rate,sizeof(rate),"%u.%u kHz",f.sample_rate/1000,(f.sample_rate%1000)/100);
         return std::string("PCM ")+"\xc2\xb7 "+std::to_string(f.bits)+"-bit "+"\xc2\xb7 "+rate;
     }
@@ -43,7 +43,7 @@ public:
         if(!pending_directory_.empty() && pending_directory_!=page.directory)return false;
         if(awaiting_first_) {
             entries_.clear();samples_=0;directory_=page.directory;pending_directory_=page.directory;
-            view_={};view_.rows=SampleBrowserRows(480);
+            view_={};view_.rows=SampleBrowserRows(480,std::max<std::size_t>(1,(directory_.size()+89)/90));
             if(directory_!="/")view_.names.push_back("..");
             awaiting_first_=false;
         }
@@ -66,24 +66,24 @@ public:
     // 0=no action/error, 1=directory, 2=file. Paths come from the confirmed CWD.
     unsigned Select(std::string& path) {
         if(awaiting_first_ || view_.names.empty() || view_.selected>=view_.names.size())return 0;
-        if(directory_!="/" && view_.selected==0) {char parent[64];std::strcpy(parent,directory_.c_str());BroTracker::ParentWavDirectory(parent);path=parent;return 1;}
+        if(directory_!="/" && view_.selected==0) {char parent[BroTracker::kSamplePathMaximum+1];std::strcpy(parent,directory_.c_str());BroTracker::ParentWavDirectory(parent);path=parent;return 1;}
         const auto index=view_.selected-(directory_!="/"?1:0);if(index>=entries_.size())return 0;
         const auto& entry=entries_[index];
         if(entry.kind==BroTracker::WavEntryKind::Directory) {
             path=(directory_=="/"?directory_:directory_+"/")+entry.name;
-            if(!BroTracker::ValidWavDirectory(path)) {message_="Cannot open "+path+": folder path exceeds 63 bytes or uses unsupported characters. Kept "+directory_+".";return 0;}
+            if(!BroTracker::ValidWavDirectory(path)) {message_="Cannot open "+path+": folder path exceeds 255 bytes or uses unsupported characters. Kept "+directory_+".";return 0;}
             return 1;
         }
         if(!entry.facts.known || entry.facts.status!=BroTracker::WavBufferStatus::Success)return 0;
-        char resource[64];const auto rejection=ValidateResource(entry,resource);
+        char resource[BroTracker::kSamplePathMaximum+1];const auto rejection=ValidateResource(entry,resource);
         if(!rejection.empty()){message_=rejection;return 0;}
         path=resource;return 2;
     }
 private:
-    std::string ValidateResource(const BroTracker::WavDirectoryEntry& entry,char (&resource)[64])const {
-        if(!BroTracker::CompatibleWavName(entry.name))return "WAV reference unavailable or invalid";
+    std::string ValidateResource(const BroTracker::WavDirectoryEntry& entry,char (&resource)[BroTracker::kSamplePathMaximum+1])const {
+        if(!BroTracker::SampleWavName(entry.name))return "WAV reference unavailable or invalid";
         if(!BroTracker::BuildWavResourceAt(directory_,entry.name,resource,sizeof(resource)))
-            return "Cannot select "+std::string(entry.name)+": full SD-relative WAV path exceeds the supported 63-byte limit.";
+            return "Cannot select "+std::string(entry.name)+": full SD-relative WAV path exceeds the supported 255-byte limit.";
         return {};
     }
     const BroTracker::WavDirectoryEntry* SelectedFile()const {

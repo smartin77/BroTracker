@@ -94,8 +94,9 @@ New firmware advertises both `BTINS1 CAP 1` and `BTINS1 CAP 2`. New BTX prefers
 Type is 0 undefined, 1 Sample, 2 MIDI, 3 existing sine Synth. Availability codes
 are 0 undefined, 1 prepared/ready, 2 no resource, 3 resource unavailable,
 4 preparation failed, 5 not prepared, 6 storage unavailable, 7 external MIDI
-unknown. Resource is a single bounded ASCII path token (maximum 63 characters)
-or `-` for none. Lines fit the 96-byte firmware TX entry. Parsers enforce matching
+unknown. This legacy v2 resource is a single ASCII path token (maximum 63 characters)
+or `-` for none. Current negotiated long-path facts use GET/STATE 3 and the
+[bounded shared path extension](SAMPLE_PATH_STORAGE.md); no path is truncated. Parsers enforce matching
 Type/status/reference combinations; undefined is not an unavailable Sample.
 
 `GET 1` / `STATE 1` semantics remain frozen binding facts for older hosts. New BTX
@@ -239,8 +240,8 @@ session snapshot durably includes definitions in temporary BTM.
 
 New firmware advertises `BTINS1 DEFINECAP 1`; older firmware remains usable for
 inspection/numbered selection, with unavailable commit reported honestly. The host
-sends `BTINS1 DEFINE 1 request expected_count type reference` (63-character bounded
-ASCII resource token, or `-`). Teensy requires stopped/storage-ready coordination,
+sends legacy `BTINS1 DEFINE 1 request expected_count type reference` (63-character
+ASCII token, or `-`), or negotiated DEFINE 2 with an encoded full path. Teensy requires stopped/storage-ready coordination,
 exact expected count, available capacity and a qualifying definition. MIDI/Synth
 append their existing binding types. New Sample commits require successful
 foreground preparation before the bounded binding/definition append; SD I/O is
@@ -251,7 +252,8 @@ source ownership.
 
 Reply: `BTINS1 DEFINED 1 request result count`. Result 0 succeeds; 1 malformed,
 2 stale/full collection, 3 not ready, 4 invalid definition/resource, 5 binding
-installation rejected, 6 WAV preparation/format/read/source-capacity failure. Identical retries of the last request replay its result;
+installation rejected, 6 WAV preparation/format/read/source-capacity failure,
+9 bounded shared path-storage capacity exhausted (previous binding retained). Identical retries of the last request replay its result;
 expected-count checking prevents duplicate creation. The host does not advance N
 on rejection/timeout, nor automatically retry an uncertain commit. Reconnect
 reacquires authoritative facts. Identity CAP1/CAP2 formats remain unchanged.
@@ -276,9 +278,10 @@ the reason is shown. Choosing a filename is not a definition commit or audition.
 Enter/A activates Load. Existing-slot live editing is described below.
 
 Supported files use the existing RIFF validator: PCM16, mono, 44100 Hz, nonempty
-sample data and bounded metadata/chunk traversal. Filenames use 1..40 ASCII letters,
-digits, underscore or hyphen plus `.wav` or `.WAV` (44 bytes maximum); paths fit the
-existing 63-byte definition resource field. The Teensy browser supports directory
+sample data and bounded metadata/chunk traversal. Current filenames may contain ordinary spaces and use any case of `.wav`; the
+validated full SD-relative path is bounded at 255 ASCII bytes. Folder navigation,
+audition, assignment and persistence use the same bound. Legacy WAVLIST retains
+its original filename rules. See [path storage](SAMPLE_PATH_STORAGE.md). The Teensy browser supports directory
 navigation; waveform and sample parameter editing remain deferred.
 Replacing a saved Sample path requires the explicit confirmation below. Temporary BTM stores the path
 unchanged. Boot prepares it again by path; missing or failed resources keep their
@@ -354,7 +357,8 @@ Empty listings show `No supported samples`. Missing-directory and SD read errors
 use the approved single-line folder messages and preserve the last fully listed
 directory and selection. WAV metadata and rejection reasons come from the actual
 firmware validator; applying a candidate still prepares it again. A file whose full
-SD-relative path exceeds 63 bytes stays visible but cannot be selected. Directory paths must also fit 63 bytes and the existing path
+SD-relative path exceeds 255 bytes stays visible but cannot be selected. Directory
+paths must also fit 255 bytes and the validated component
 character rules. Browser paging, file opens and directory reads run on Teensy in
 foreground code using the shared SD read guard. Active live visits use bounded
 background browse jobs paced behind streaming refill/headroom; the legacy path
@@ -416,10 +420,12 @@ active and pending work; cancelled or superseded preparation cannot start audio.
 Unused dynamic sources are reclaimed after the voice releases them.
 
 `BTWAV1 CAP 1` advertises this temporary protocol. BTX sends
-`BTWAV1 PLAY 1 request resource` or `BTWAV1 CANCEL 1 request`. Resources use the
-existing bounded SD-relative path rules. `BTWAV1 RESULT 1 request result` is
+`BTWAV1 PLAY 2 request encoded_resource` after BTPATH1 negotiation, or legacy
+PLAY 1; `BTWAV1 CANCEL 1 request` is unchanged. Resources use the bounded
+255-byte SD-relative path rules described in [path storage](SAMPLE_PATH_STORAGE.md). `BTWAV1 RESULT 1 request result` is
 correlated to the latest host request: 0 accepted/success, 1 invalid request,
-3 transport/coordination unavailable, 4 preparation/playback setup failed.
+3 transport/coordination unavailable, 4 preparation/playback setup failed,
+9 shared path storage exhausted.
 Firmware checks stopped/storage readiness independently of the host gate.
 Preparation is serialized with existing live definition jobs and runs outside
 the audio interrupt guard. The audio owner only renders prepared streaming PCM.

@@ -580,3 +580,31 @@ success can stage a selection; definition commit still prepares again. The same
 single footer line shows metadata, the approved rejection reason, or an empty/
 navigation status. Legacy v1/v2 requests and replies remain supported by firmware;
 new metadata-aware hosts require WAVBROWSECAP 2. BTM storage is unchanged.
+
+
+## Bounded sample paths and BTM version 2
+
+Current path limits, shared resource ownership and the negotiated protocol are
+specified in [SAMPLE_PATH_STORAGE.md](SAMPLE_PATH_STORAGE.md). BTPATH1 CAP 1
+advertises the 255-byte path limit and 8192-byte string arena. WAVOPEN/WAVDIR and
+metadata/listing replies use version 4; GET/STATE facts use version 3;
+DEFINE/RELINK/REPLACE/EDIT and audition PLAY use version 2 for encoded path tokens.
+Legacy versions retain their original 63-byte, whitespace-free tokens.
+
+The session magic remains `BTM1`; byte 4 is now **2**. Header size remains 24,
+with embedded Pattern byte count at offset 8, definition count at offset 12,
+unique path count at offset 16 and the existing whole-file CRC at offset 20.
+The embedded BTSS record follows the header. Each definition uses three bytes:
+Type and a little-endian uint16 path-table index (zero for non-Sample, otherwise
+one-based). The unique path table follows: little-endian uint16 byte length,
+full ASCII SD-relative path bytes, then NUL. Identical paths are written once.
+The same eight view/mute/reserved bytes terminate the file. No host resource ID,
+address, streaming handle or request identity is persisted. The bounded serializer
+capacity is 10279 bytes; the path strings themselves cannot exceed the 8192-byte
+arena budget. Restore validates the complete record before changing live state.
+Resource pressure returns `resource-capacity` and preserves the current state.
+
+BTM version 1 (fixed 65-byte definition records), BTWS v1/v2 and single BTSS reads
+remain supported. Candidate/previous atomic save and recovery rules are unchanged.
+There is no separate implemented instrument-file browser/format to migrate; saved
+instrument definitions in existing sessions retain their slot numbers and paths.

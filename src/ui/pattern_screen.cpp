@@ -845,9 +845,12 @@ static void RenderPatternScreen(
         const int availability_y=y;
         line("Availability: "+host.instrument_availability);
         if(!host.instrument_load_warning.empty())DrawWrappedFixedText(framebuffer,x,availability_y+18,width,32,host.instrument_load_warning,editing_frame);
-        DrawWrappedFixedText(framebuffer,x,y,width,44,"Resource: "+host.instrument_resource,header_name);
-        if(!host.instrument_candidate.empty())DrawWrappedFixedText(framebuffer,x,y+38,width,44,"Staged: "+host.instrument_candidate,editing_frame);
-        y+=host.instrument_candidate.empty()?52:88;
+        const int resource_height=DrawWrappedFixedText(framebuffer,x,y,width,72,"Resource: "+host.instrument_resource,header_name);
+        y+=std::max(52,resource_height+8);
+        if(!host.instrument_candidate.empty()){
+            const int staged_height=DrawWrappedFixedText(framebuffer,x,y,width,72,"Staged: "+host.instrument_candidate,editing_frame);
+            y+=std::max(36,staged_height+8);
+        }
         const int load_y=y;
         line(host.text.Get(WarningText::Load)+": "+(host.instrument_load_available?"[Load WAV]":host.text.Get(WarningText::Unavailable)));
         if(host.instrument_focus==1)framebuffer.Rectangle(x-3,load_y-4,width,face.ascent+face.descent+8,editing_frame);

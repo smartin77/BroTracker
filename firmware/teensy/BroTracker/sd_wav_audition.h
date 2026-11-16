@@ -30,7 +30,7 @@ public:
             if(!stream_.PreparationDone())return;
             preparing_=false;
             if(job_id_==id_ && pending_) {
-                pending_=false;result_=stream_.PreparationResult()==InstrumentAvailability::Ready?0:4;
+                pending_=false;result_=stream_.PreparationResult()==InstrumentAvailability::Ready?0:stream_.PreparationResult()==InstrumentAvailability::PathCapacity?9:4;
                 if(!result_) {
                     const auto view=stream_.PreparedView();
                     // All currently supported WAVs are 44100 Hz. Unity playback
@@ -61,7 +61,7 @@ public:
     StreamedVoiceSnapshot Snapshot()const{return voice_.StreamSnapshot();}
 private:
     SdSampleStreaming& stream_;VariableRateSampleVoice voice_;MasterVolume volume_;
-    char path_[64]{};bool pending_=false,preparing_=false;
+    char path_[kSamplePathMaximum+1]{};bool pending_=false,preparing_=false;
     std::uint32_t id_=0,job_id_=0,completed_=0;unsigned result_=0;
 };
 }
