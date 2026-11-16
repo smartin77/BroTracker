@@ -32,34 +32,57 @@ BPM value controls also repeat. The Pattern value-direction preference affects
 PgUp/PgDn and L1+Up/Down, not Instrument editor Left/Right, OFF timing or BPM.
 No Undo/Redo or direct typed note/slot shortcut is currently mapped.
 
-Opening another screen stops playback and saves the session before entry. Instrument
-opens the cell's explicit slot, otherwise its preceding slot in the same channel,
-otherwise 01. Select another slot on Pattern before opening Instrument again. The single trailing
-undefined slot, when available, opens with Sample as its default Type.
+Instrument entry preserves Pattern playback with current live-edit firmware and
+captures the visit baseline in RAM. It opens the cell's explicit slot, otherwise
+the nearest preceding explicit slot in the same channel, otherwise 01. Select a
+trailing undefined reference on Pattern before entry; its default Type is Sample.
+Pattern Load/Save retains STOP and session-save entry coordination.
 
 ## Instrument
 
 | Visible action | Windows | Handheld |
 |---|---|---|
 | Previous / next actionable field | Up / Down (also Shift+Tab / Tab) | D-pad Up / Down |
-| Previous / next focused value | Left / Right | D-pad Left / Right |
+| Previous / next defined slot (focus Instrument slot) | Left / Right | D-pad Left / Right |
 | Cycle Type backward / forward | Left / Right on Type | D-pad Left / Right on Type |
 | Open Sample Browser | Enter on Load | A on Load |
-| Confirm draft and return to Pattern | Ctrl+Down | Select+D-pad Down |
-| Discard draft and return to Pattern | Escape (also Backspace) | B |
+| Keep visit changes and return to Pattern | Ctrl+Down | Select+D-pad Down |
+| Restore visit baseline and return to Pattern | Escape (also Backspace) | B |
 | Exit without confirming Instrument draft | Ctrl+X or close window | L1+Start |
 
-The orange frame marks the focused field. Type cycles Sample, MIDI and Sine Synth
-for existing and new slots, including built-in slots. Sample exposes Load. A new
-Sample needs a prepared WAV to become defined; without a staged WAV, confirmed
-return assigns its still-undefined slot and keeps the next slot unavailable.
-Existing changes keep the same slot,
-Pattern references and defined count; failed preparation keeps the editor open
-and the original instrument intact. Confirmation waits for Teensy acknowledgement.
+Entry focuses Type. The orange frame marks focus; field navigation cycles Type,
+available Load WAV, and Instrument slot. Left/Right on slot clamps to 01-N (at
+most 99), immediately assigning that defined slot to the captured Pattern cell.
+It cannot select N+1. Slot changes wait for known collection and live Pattern
+synchronization, an unlocked editor, no pending file/publication/transport work,
+no recovery barrier, no retained Type/WAV draft and settled live acknowledgements.
+
+Type cycles Sample, MIDI and Sine Synth for existing and new slots, including
+built-in slots. Existing-slot Type/WAV changes apply live in Teensy RAM. Sample
+conversion retains the previous playable binding until Load supplies a valid WAV.
+Load requires confirmed stopped transport or a ready live Instrument visit,
+subject to the existing Sample/browser, pending-operation and recovery guards.
+Replacing a binding releases its voices while
+Pattern transport continues. Failures retain the previous binding and show a reason;
+unconfirmed outcomes require reconciliation/restoration, not assumed success.
+
+Ctrl+Down / Select+Down keeps live changes; Escape / unmodified B restores the
+original source assignment and every touched existing definition/binding. Return
+waits for definition, working-Pattern and visit-end acknowledgements as applicable;
+disconnection/recovery can keep it pending. Both restore the captured cursor.
+Browser cancellation only leaves the picker, preserving previous Instrument work.
+
+A trailing undefined slot is a local draft, not a live-created instrument. Confirmed
+return requires STOP: without a WAV its default Sample stays undefined and its
+reference is assigned; explicit MIDI/Synth or a selected WAV can qualify for DEFINE.
+Only successful acknowledgement advances N and exposes the next trailing slot.
+Failure retains the draft, source cell and count. Escape/B discards the draft.
+An untouched inherited/default selection also requires STOP to assign on return;
+a matching explicit reference can return without STOP.
 
 PgUp/PgDn, L1 value stepping, 1/2/3 and X do not change Instrument Type. Ctrl/Select
 is used only for confirmed return within this editor (Ctrl+X remains global exit).
-Modified Left/Right does not change slots. Enter/A on Type does not change it.
+Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 
 ## Sample Browser
 
@@ -67,7 +90,7 @@ Modified Left/Right does not change slots. Enter/A on Type does not change it.
 |---|---|---|
 | Move selection | Up / Down | D-pad Up / Down |
 | Open folder, including `..` | Enter | A |
-| Stage supported WAV and return to Instrument | Enter | A |
+| Choose supported WAV and return to Instrument | Enter | A |
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
 | Cancel via existing screen-navigation chord | Ctrl+Left / Right | Select+D-pad Left / Right |
 
@@ -78,17 +101,34 @@ the browser and draft unchanged. Ordinary folder rows leave the footer blank.
 
 The preferred folder is `/BroTracker/Samples`; missing/unreadable folders fall
 back to a readable parent. `..` is absent at SD root. Choosing a different path
-for an existing Sample opens the replacement confirmation below.
+for an existing Sample opens the replacement confirmation below. Choosing a WAV
+starts live preparation when `StageLiveSample()` accepts it. If live staging is
+unavailable, the candidate stays local, including with current firmware. Stopped
+application is possible only if confirmed return reaches the fallback path. If
+the visit already has a live assignment or tracked live definition edits,
+Ctrl+Down / Select+Down can reject the unapplied draft even after STOP.
+
+Moving browser focus does not audition WAVs in the current code, whether Pattern
+is stopped or playing. Immediate focus preview while stopped is not implemented;
+metadata display alone does not play the file.
 
 ## WAV replacement confirmation
 
 | Visible action | Windows | Handheld |
 |---|---|---|
-| Stage the displayed new path | Enter | A |
+| Accept the displayed new path | Enter | A |
 | Keep the saved path | Escape / Backspace | B |
 
-Review both paths. Accepting stages the candidate; confirmed return from
-Instrument prepares it before changing the saved definition and playback binding.
+Review both paths. Accepting starts live preparation when `StageLiveSample()`
+accepts the request; successful preparation applies the replacement and awaits
+acknowledgement. If live staging is unavailable, the candidate stays local,
+including with current firmware. It can apply through stopped confirmation only
+when the controller reaches that fallback path; a live assignment or tracked live
+definition edits can make Ctrl+Down / Select+Down reject the unapplied draft even
+after STOP.
+Ctrl+Down / Select+Down later keeps the whole visit; Escape / unmodified B in
+Instrument restores the visit baseline. Declining this prompt only keeps the current
+path and returns to Instrument.
 
 ## Pattern Load/Save
 
