@@ -89,6 +89,7 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 | Visible action | Windows | Handheld |
 |---|---|---|
 | Move selection | Up / Down | D-pad Up / Down |
+| Audition selected supported WAV (confirmed STOP only) | P | X |
 | Open folder, including `..` | Enter | A |
 | Choose supported WAV and return to Instrument | Enter | A |
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
@@ -108,9 +109,16 @@ application is possible only if confirmed return reaches the fallback path. If
 the visit already has a live assignment or tracked live definition edits,
 Ctrl+Down / Select+Down can reject the unapplied draft even after STOP.
 
-Moving browser focus does not audition WAVs in the current code, whether Pattern
-is stopped or playing. Immediate focus preview while stopped is not implemented;
-metadata display alone does not play the file.
+Press P (Windows) or X (ArkOS) to audition the selected supported WAV only with
+confirmed stopped Pattern transport. Each new press starts at frame zero and
+replaces any active or pending audition; holding the control does not repeat.
+The WAV streams from Teensy SD at its native rate through EOF, independently of
+instrument tuning and Pattern tempo, with no duration limit or whole-file RAM load.
+Directories and unsupported WAVs stay silent. Navigation, hover and row selection
+stay silent in every transport state. Enter/A retains Load/open-folder behavior.
+Leaving the browser (including choosing a WAV) or starting Pattern playback cancels
+active and pending audition. Audition changes no assignment, WAV draft or Pattern
+transport state. Auto preview, mouse controls and audition during playback are deferred.
 
 ## WAV replacement confirmation
 

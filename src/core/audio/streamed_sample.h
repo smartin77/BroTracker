@@ -6,6 +6,7 @@ namespace BroTracker {
 // Immutable prepared source. File ownership belongs to the foreground adapter.
 // Ring spans are published only while the audio consumer is excluded.
 constexpr std::uint32_t kStreamRingFrames=4096, kStreamStartFrames=2048, kStreamReadFrames=2048;
+constexpr unsigned kStreamVoiceCount=9; // eight Pattern voices plus independent WAV audition
 struct StreamedSample;
 struct StreamedVoiceBuffer {
     std::int16_t* ring=nullptr;
@@ -16,7 +17,7 @@ struct StreamedVoiceBuffer {
 struct StreamedSample {
     const std::int16_t* start=nullptr;
     std::uint32_t frames=0;
-    StreamedVoiceBuffer* voices=nullptr; // eight independent rings, shared start
+    StreamedVoiceBuffer* voices=nullptr; // independent voice rings, shared start
 };
 struct StreamedVoiceSnapshot {
     const StreamedSample* sample=nullptr;

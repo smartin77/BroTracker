@@ -43,6 +43,7 @@ extern volatile uint8_t usb_configuration;
 #include "sd_sample_streaming.h"
 #include "sd_wav_browse_job.h"
 #include "bringup/live_instrument_visit.h"
+#include "sd_wav_audition.h"
 #endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
@@ -92,6 +93,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     DMAMEM alignas(32) static SdSampleStreaming::Storage g_stream_memory;
     SdSampleStreaming g_streaming;
+    SdWavAudition g_audition(g_streaming);
     SdWavPreparation& g_preparation=g_streaming.reports[1];
     SdWavPreparation& g_preparation3=g_streaming.reports[2];
     SdPreparationReport g_preparation_report3;
@@ -225,6 +227,14 @@ namespace
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            const auto audition_state=g_control.Snapshot();
+            const bool audition_rendered=g_audition.Render(block->data,AUDIO_BLOCK_SAMPLES,
+                audition_state.transport==PatternTransportState::Stopped && audition_state.fault==PatternFault::None,
+                audition_state.volume_percent);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            if(audition_rendered)std::copy_n(block->data,AUDIO_BLOCK_SAMPLES,right->data);
+#endif
+            (void)audition_rendered;
             CollectMidi(render_us);
 #endif
             transmit(block);
@@ -261,9 +271,9 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve all 46 discovery lines, including identity CAP and session CAP/view.
-    constexpr std::size_t kDiscoveryReserve = 48;
-    constexpr std::size_t kTxCapacity = 49;
+    // Reserve discovery lines, including identity/session and WAV audition CAP.
+    constexpr std::size_t kDiscoveryReserve = 49;
+    constexpr std::size_t kTxCapacity = 50;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
     static_assert(kPatternGainLineCapacity <= kPatternSnapshotLineCapacity, "Gain RX must fit line storage");
     struct TxLine { char data[320]{}; std::size_t length = 0, offset = 0; };
@@ -374,7 +384,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -529,6 +539,23 @@ namespace
         }
         return result;
     }
+    bool AuditionCommand(const char* line) {
+        unsigned long id=0;char path[64]{},extra=0;
+        if(std::sscanf(line,"BTWAV1 CANCEL 1 %lu %c",&id,&extra)==1 && id) {
+            g_audition.Cancel();return true;
+        }
+        if(std::strncmp(line,"BTWAV1 PLAY ",12))return false;
+        unsigned result=1;
+        if(std::sscanf(line,"BTWAV1 PLAY 1 %lu %63s %c",&id,path,&extra)==2 && id && id<=UINT32_MAX) {
+            result=3;
+            // Serialized RX permits retrigger to supersede our pending job.
+            if(g_protocol_connected && g_audio_ready && !g_live_pending &&
+                !StorageBlock() && Snapshot().transport==PatternTransportState::Stopped)
+                result=g_audition.Request(id,path)?0:1;
+        }
+        char reply[80];std::snprintf(reply,sizeof(reply),"BTWAV1 RESULT 1 %lu %u\n",id,result);
+        (void)QueueLine(reply);return true;
+    }
     bool LiveCommand(const char* line,unsigned length) {
         std::uint32_t fields[3]{};char reply[96];
         if(SnapshotFields(line,length,"BTINS1 VISIT BEGIN ",fields,2) && fields[0]==1 && fields[1]) {
@@ -578,6 +605,12 @@ namespace
         const auto reserve=std::max<std::uint32_t>(1024,(std::uint64_t(g_live_max_us)*44100+999999)/1000000+256);
         if(g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(reserve) || g_tx_count+2*kPatternListPageSize+3>kTxCapacity)return;
         const auto began=micros();
+        if(g_audition.Busy()) {
+            g_audition.Service(g_selected_bindings,g_protocol_connected && Snapshot().transport==PatternTransportState::Stopped);
+            unsigned result;const auto id=g_audition.TakeResult(result);
+            if(id){char reply[80];std::snprintf(reply,sizeof(reply),"BTWAV1 RESULT 1 %lu %u\n",(unsigned long)id,result);(void)QueueLine(reply);}
+            return;
+        }
         if(g_live_pending) {
             if(!g_live_preparing) {
                 if(!g_streaming.ReclaimOne(g_selected_bindings)){(void)g_streaming.BeginPrepareAsync(g_live_request.resource);g_live_preparing=true;}
@@ -754,6 +787,9 @@ namespace
             g_publication.NewSession();
             g_preview.NewSession();
             g_protocol_connected = false;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            g_audition.Cancel();
+#endif
             // Never queues START on reconnect. Already accepted requests retain
             // their order; HELLO reports applied state, not a reconnect restart.
         }
@@ -949,7 +985,12 @@ namespace
             }
 #endif
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
-                if (!std::strcmp(line,"BTTEST1 HELLO")) { g_publication.NewSession(); g_preview.NewSession(); }
+                if (!std::strcmp(line,"BTTEST1 HELLO")) {
+                    g_publication.NewSession();g_preview.NewSession();
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                    g_audition.Cancel();
+#endif
+                }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                 if(!std::strcmp(line,"BTTEST1 HELLO")) {
@@ -966,8 +1007,8 @@ namespace
 #endif
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-            else if (!std::strncmp(line,"BTINS1",6)) {
-                if(!LiveCommand(line,used)) {
+            else if (!std::strncmp(line,"BTINS1",6) || !std::strncmp(line,"BTWAV1",6)) {
+                if(!AuditionCommand(line) && !LiveCommand(line,used)) {
                 unsigned id=0;
                 const bool relink=!std::strncmp(line,"BTINS1 RELINK ",14),replace=!std::strncmp(line,"BTINS1 REPLACE ",15);
                 const unsigned operation=replace?2:relink?1:0;
@@ -979,7 +1020,7 @@ namespace
                             const auto* prior=g_instrument_definitions.At(request.expected);
                             const bool live_type=replace && prior && prior->type!=InstrumentType::Sample && (request.type==2 || request.type==3);
                             const bool ready=live_type ? g_audio_ready && Snapshot().fault==PatternFault::None :
-                                g_audio_ready && !StorageBlock() && g_control.StorageReady();
+                                g_audio_ready && !g_audition.Busy() && !StorageBlock() && g_control.StorageReady();
                             VariableRateSampleBinding prepared;prepared.type=InstrumentType::Sample;
                             prepared.reference_note=60;prepared.sample_level_percent=80;
                             if(ready && !live_type) {
@@ -1239,6 +1280,7 @@ namespace
                     !std::strcmp(line,"BTTEST1 PAUSE") ? PatternRequest::Pause :
                     !std::strcmp(line,"BTTEST1 CONTINUE") ? PatternRequest::Continue : PatternRequest::Stop;
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                g_audition.Cancel();
                 if(request==PatternRequest::Start && g_midi_session) {
                     InterruptGuard guard;
                     // Never recover during a running/paused song, on reconnect,

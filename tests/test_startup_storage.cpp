@@ -2347,3 +2347,36 @@ TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRo
         CHECK_EQ(std::string(wire->definitions.At(0)->resource?wire->definitions.At(0)->resource:""),original_sample?"Samples/test2.wav":"");CHECK(serial.Playing());
     }
 }
+
+TEST_CASE(ManualWavAuditionIsStoppedOnlyAndIndependentOfBrowserSelectionAndDraft) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,0};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    auto drive=[&](unsigned a,unsigned b){for(unsigned i=a;i<b;++i){controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
+    drive(0,100);wire->rx+="BTWAV1 CAP 1\n";drive(100,110);
+    CHECK(editor.Draft());editor.RestoreCursor({0,0,EditField::Instrument,false});const auto before=*editor.Draft();
+    controls.Request(BringUpAction::ScreenUp,"entry",2201);drive(111,160);
+    controls.Request(BringUpAction::InstrumentNextField,"Load",3201);controls.Request(BringUpAction::InstrumentActivate,"browse",3202);drive(161,210);
+    CHECK(controls.WavPicker());
+    const auto plays=[&](){return std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 PLAY",0)==0;});};
+    controls.Request(BringUpAction::BrowserAudition,"directory",4201);drive(211,220);CHECK_EQ(plays(),0);
+    controls.Request(BringUpAction::BrowserDown,"focus WAV",4401);drive(221,230);CHECK_EQ(plays(),0);
+    controls.Request(BringUpAction::BrowserAudition,"P/X",4601);drive(231,240);CHECK_EQ(plays(),1);
+    CHECK(controls.WavPicker());CHECK(controls.InstrumentDraftResource().empty());CHECK(SamePattern(before,*editor.Draft()));
+    wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";drive(241,250);
+    controls.Request(BringUpAction::BrowserAudition,"blocked playing",5001);drive(251,260);CHECK_EQ(plays(),1);
+    CHECK_EQ(controls.BrowserText(),std::string("Audition requires confirmed STOP and audition-capable firmware"));
+    controls.Request(BringUpAction::BrowserUp,"change selection clears feedback",5201);
+    CHECK(controls.BrowserText().find("Audition requires")==std::string::npos);
+    controls.Request(BringUpAction::BrowserDown,"back to WAV",5202);
+    wire->state="PAUSED";wire->rx+="BTTEST1 STATE PAUSED\n";drive(261,270);
+    controls.Request(BringUpAction::BrowserAudition,"blocked paused",5401);drive(271,280);CHECK_EQ(plays(),1);
+    CHECK_EQ(controls.BrowserText(),std::string("Audition requires confirmed STOP and audition-capable firmware"));
+    wire->state="IDLE";wire->rx+="BTTEST1 STATE IDLE\n";drive(281,290);
+    controls.Request(BringUpAction::BrowserAudition,"restart",5801);drive(291,300);CHECK_EQ(plays(),2);
+    CHECK(controls.BrowserText().find("Audition requires")==std::string::npos);
+    controls.Request(BringUpAction::BrowserCancel,"leave",6001);drive(301,320);CHECK(!controls.WavPicker());
+    CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 CANCEL",0)==0;}));
+    CHECK(controls.InstrumentDraftResource().empty());CHECK(SamePattern(before,*editor.Draft()));
+}

@@ -31,13 +31,13 @@ class SdSampleStreaming {
 public:
     static constexpr unsigned kSourceCapacity=16;
     struct Storage {
-        std::int16_t rings[8][kStreamRingFrames];
+        std::int16_t rings[kStreamVoiceCount][kStreamRingFrames];
         std::int16_t starts[kSourceCapacity][kStreamStartFrames];
         std::int16_t staging[kStreamReadFrames];
     };
     void Prepare(bool sd_ready,Storage& memory,const DevelopmentWavInspection& inspection) {
         memory_=&memory;sd_ready_=sd_ready;
-        for(unsigned i=0;i<8;++i) buffers_[i].ring=memory.rings[i];
+        for(unsigned i=0;i<kStreamVoiceCount;++i) buffers_[i].ring=memory.rings[i];
         for(unsigned i=0;i<3;++i) {
             occupied_[i]=true;
             std::strcpy(paths_[i],kDevelopmentWavPaths[i]);
@@ -106,7 +106,7 @@ public:
         for(unsigned i=3;i<kSourceCapacity;++i)for(unsigned j=0;j<bindings.count;++j)
             if(bindings.bindings[j].sample.streaming==&sources_[i])retained[i]=true;
         { StreamInterruptGuard guard;
-          for(unsigned i=3;i<kSourceCapacity;++i)for(unsigned channel=0;channel<8;++channel)
+          for(unsigned i=3;i<kSourceCapacity;++i)for(unsigned channel=0;channel<kStreamVoiceCount;++channel)
               if(states_[channel].sample==&sources_[i] || buffers_[channel].sample==&sources_[i])retained[i]=true;
         }
         SdReadScope ownership;if(!ownership)return;
@@ -121,13 +121,13 @@ public:
     void UnpinRollback(){rollback_pins_=0;}
     bool RefillNeeded()const {
         StreamInterruptGuard guard;
-        for(unsigned i=0;i<8;++i)if(states_[i].sample && states_[i].step && buffers_[i].end<states_[i].sample->frames &&
+        for(unsigned i=0;i<kStreamVoiceCount;++i)if(states_[i].sample && states_[i].step && buffers_[i].end<states_[i].sample->frames &&
             failed_generation_[i]!=states_[i].generation && StreamRefillUrgency(states_[i],buffers_[i])!=UINT64_MAX)return true;
         return false;
     }
     bool BackgroundHeadroom(unsigned reserve_frames=1024)const {
         StreamInterruptGuard guard;
-        for(unsigned i=0;i<8;++i) {
+        for(unsigned i=0;i<kStreamVoiceCount;++i) {
             const auto& s=states_[i];const auto& b=buffers_[i];
             if(!s.sample || !s.step || s.position>=s.sample->frames)continue;
             const auto consumed=std::max(s.position,kStreamStartFrames);
@@ -142,7 +142,7 @@ public:
         for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !(rollback_pins_&(1u<<i)) && i!=job_index_) {
             bool keep=false;
             for(unsigned j=0;j<bindings.count;++j)keep|=bindings.bindings[j].sample.streaming==&sources_[i];
-            {StreamInterruptGuard guard;for(unsigned c=0;c<8;++c)keep|=states_[c].sample==&sources_[i] || buffers_[c].sample==&sources_[i];}
+            {StreamInterruptGuard guard;for(unsigned c=0;c<kStreamVoiceCount;++c)keep|=states_[c].sample==&sources_[i] || buffers_[c].sample==&sources_[i];}
             if(!keep){SdReadScope lease;if(!lease)return false;ReleaseSource(i);return true;}
         }
         return false;
@@ -204,23 +204,23 @@ public:
     }
     // Audio owner only, after the transactional render commits. No filesystem
     // side effects from validation/probe copies or discarded tentative renders.
-    template<class Player> void Publish(const Player& player) noexcept {
-        for(unsigned i=0;i<8;++i) {
-            const auto state=player.SampleVoice(i)->StreamSnapshot();
-            auto& ready=buffers_[i];
-            if(state.generation!=ready.generation || state.sample!=ready.sample) {
-                ready.generation=state.generation; ready.sample=state.sample;
-                ready.begin=ready.end=state.sample ? std::min(kStreamStartFrames,state.sample->frames) : 0;
-            }
-            states_[i]=state;
+    void PublishVoice(unsigned i,const StreamedVoiceSnapshot& state) noexcept {
+        auto& ready=buffers_[i];
+        if(state.generation!=ready.generation || state.sample!=ready.sample) {
+            ready.generation=state.generation;ready.sample=state.sample;
+            ready.begin=ready.end=state.sample?std::min(kStreamStartFrames,state.sample->frames):0;
         }
+        states_[i]=state;
+    }
+    template<class Player> void Publish(const Player& player) noexcept {
+        for(unsigned i=0;i<8;++i)PublishVoice(i,player.SampleVoice(i)->StreamSnapshot());
     }
     void Service() {
         if(!memory_) return;
         int best=-1; std::uint64_t least=UINT64_MAX;
         StreamedVoiceSnapshot selected; StreamedVoiceBuffer span;
         { StreamInterruptGuard guard;
-        for(unsigned i=0;i<8;++i) {
+        for(unsigned i=0;i<kStreamVoiceCount;++i) {
             const auto& state=states_[i]; const auto& ready=buffers_[i];
             if(!state.sample || !state.step || ready.end>=state.sample->frames || failed_generation_[i]==state.generation) continue;
             const auto until=StreamRefillUrgency(state,ready);
@@ -280,7 +280,7 @@ private:
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
     bool sd_ready_=false;unsigned count_=3;char paths_[kSourceCapacity][64]{};
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
-    StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[8];
-    StreamedVoiceSnapshot states_[8]; std::uint64_t failed_generation_[8]{};
+    StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[kStreamVoiceCount];
+    StreamedVoiceSnapshot states_[kStreamVoiceCount]; std::uint64_t failed_generation_[kStreamVoiceCount]{};
 };
 }

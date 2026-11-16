@@ -5,7 +5,7 @@
 #include "instrument_navigation.h"
 #include <array>
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext, InstrumentPreviousField, InstrumentNextField, InstrumentIncrease, InstrumentDecrease, InstrumentActivate };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserAudition, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext, InstrumentPreviousField, InstrumentNextField, InstrumentIncrease, InstrumentDecrease, InstrumentActivate };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
@@ -87,6 +87,7 @@ private:
     bool wav_picker_=false;std::string sample_path_;
     bool load_save_screen_=false;
     std::string screen_status_;
+    std::string audition_feedback_;
     std::uint32_t screen_started_=0;
     BringUpSerial& serial_;
     FILE* log_;

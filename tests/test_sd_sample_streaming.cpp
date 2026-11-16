@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
+#include "firmware/teensy/BroTracker/sd_wav_audition.h"
 #include "core/audio/variable_rate_sample_voice.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include "bringup/pattern_fixture.h"
@@ -608,4 +609,57 @@ TEST_CASE(CooperativeBrowserInspectsChunksOneReadPerTurnAndRetainsCompletePageSe
     }
     CHECK(job.Done());CHECK_EQ(job.Result(),WavDirectoryResult::Ok);CHECK_EQ(job.Page().count,1u);
     CHECK_EQ(job.Page().entries[0].facts.status,WavBufferStatus::Success);CHECK_EQ(job.Page().entries[0].facts.sample_rate,44100u);
+}
+
+TEST_CASE(ManualAuditionStreamsLongWavToEofAndRetriggersFromZeroWithoutPatternBindings) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    constexpr unsigned frames=100000;const char* path="BroTracker/Samples/long.wav";
+    FakePatternSd::files[path].bytes=PickerWav(frames,44100,4);
+    const auto prepare=[&](unsigned id) {
+        CHECK(audition.Request(id,path));
+        for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
+        CHECK(!audition.Busy());CHECK(audition.Snapshot().sample);CHECK_EQ(audition.Snapshot().position,0u);
+        CHECK_EQ(audition.Snapshot().step,kSourceFrameStepUnity);
+    };
+    const auto consume=[&](unsigned at,unsigned count) {
+        f.producer.Service();std::int16_t pcm[128]{};
+        CHECK(audition.Render(pcm,count,true,100));
+        for(unsigned i=0;i<count;++i)CHECK_EQ(pcm[i],Fixture::Pcm(4,at+i));
+    };
+    prepare(1);for(unsigned at=0;at<8192;at+=128)consume(at,128);
+    CHECK(audition.Snapshot().sample);prepare(2); // replace active stream, restart frame zero
+    for(unsigned at=0;at<frames;at+=128)consume(at,std::min(128u,frames-at));
+    CHECK(!audition.Snapshot().sample);CHECK_EQ(audition.Snapshot().underruns,0u);
+    CHECK_EQ(audition.Snapshot().eofs,1u);CHECK_EQ(bindings.count,0u);
+    // Neither retrigger nor EOF leaks dynamic sources.
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
+}
+TEST_CASE(ManualAuditionCancellationAndNewerRequestsFenceLatePreparation) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    const char* old="BroTracker/Samples/old.wav";const char* fresh="BroTracker/Samples/new.wav";
+    FakePatternSd::files[old].bytes=PickerWav(10000,44100,5);
+    FakePatternSd::files[fresh].bytes=PickerWav(10000,44100,6);
+    CHECK(audition.Request(1,old));
+    for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
+    CHECK(audition.Request(2,fresh));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
+    std::int16_t pcm[128]{};CHECK(audition.Render(pcm,128,true,100));CHECK_EQ(pcm[0],Fixture::Pcm(6,0));
+    audition.Cancel();CHECK(!audition.Snapshot().sample);
+    CHECK(audition.Request(3,old));for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
+    audition.Cancel();for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
+    CHECK(audition.Request(4,fresh));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,false);
+    CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
+    CHECK(audition.Request(5,fresh));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(audition.Snapshot().sample);CHECK(!audition.Render(pcm,128,false,100));CHECK(!audition.Snapshot().sample);
+    // Cached preparation can complete immediately. Cancellation before its
+    // publication turn still prevents that successful result from starting PCM.
+    CHECK(audition.Request(7,fresh));audition.Service(bindings,true);audition.Cancel();
+    for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);
+    FakePatternSd::files[old].bytes=PickerWav(10000,22050);
+    CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
 }

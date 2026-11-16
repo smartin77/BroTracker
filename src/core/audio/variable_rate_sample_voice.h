@@ -38,7 +38,7 @@ public:
         if(sample.sample_rate_hz!=rate_) return VariableVoiceStatus::SampleRateMismatch;
         if(!step_q32_32) return VariableVoiceStatus::InvalidStep;
         if(sample.streaming && (!sample.streaming->start || !sample.streaming->voices ||
-            sample.streaming->frames!=sample.frame_count || stream_channel_>=8)) return VariableVoiceStatus::InvalidSample;
+            sample.streaming->frames!=sample.frame_count || stream_channel_>=kStreamVoiceCount)) return VariableVoiceStatus::InvalidSample;
         ++generation_; sample_=sample; position_=0; phase_=0; step_=step_q32_32; hash_=2166136261u;
         return VariableVoiceStatus::Success;
     }

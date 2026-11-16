@@ -219,6 +219,7 @@ void BringUpSerial::Disconnect(const char* reason)
     connected_ = false;
     define_reconcile_required_=define_reconcile_required_ || define_pending_;
     replace_supported_=relink_supported_=false;
+    audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
     define_supported_=define_pending_=define_queued_=define_success_=false;live_type_supported_=live_edit_supported_=false;visit_ready_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
@@ -489,6 +490,7 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
+    CancelWavAudition();
     if(UserActionsBlocked())return false;
     if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
@@ -789,6 +791,11 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTINS1 RELINKCAP 1")){relink_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 REPLACECAP 1")){replace_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 LIVETYPECAP 1")){live_type_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTWAV1 CAP 1")){audition_supported_=connected_;return;}
+    {std::uint32_t f[3]{};if(BroTracker::SnapshotFields(line_,std::strlen(line_),"BTWAV1 RESULT ",f,3) && f[0]==1) {
+        if(f[1]==audition_id_ && !audition_path_.empty())audition_error_=f[2]?"WAV audition unavailable or preparation failed":std::string{};
+        return;
+    }}
     if(!std::strcmp(line_,"BTINS1 LIVEEDITCAP 1")){live_edit_supported_=connected_;return;}
     {std::uint32_t v[2]{};
         if(BroTracker::SnapshotFields(line_,used_,"BTINS1 VISIT READY ",v,2) && v[0]==1 && v[1]==visit_id_){visit_ready_=true;visit_begin_queued_=false;return;}
@@ -1299,7 +1306,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             if(now-sent_at_>=1000)Send(Command::Status,now);
             return;
         }
-        if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
+        if(connected_ && (audition_cancel_ || audition_queued_)) {
+            if(audition_cancel_)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTWAV1 CANCEL 1 %lu\n",(unsigned long)audition_id_);
+            else tx_size_=std::snprintf(tx_,sizeof(tx_),"BTWAV1 PLAY 1 %lu %s\n",(unsigned long)audition_id_,audition_path_.c_str());
+            tx_offset_=0;audition_cancel_=audition_queued_=false;
+        }
+        else if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
             Send(Command::Audio,now);
         }
         else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }

@@ -213,6 +213,17 @@ public:
     bool RequestPatternLoad(std::string_view name,std::uint32_t now);
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
     bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
+    bool RequestWavAudition(const std::string& path) {
+        if(!connected_ || !audition_supported_ || !MidiRecoveryStopped() || UserActionsBlocked() ||
+            FilePending() || PublicationBusy() || TransportPending() || InstrumentCommitPending() ||
+            !BroTracker::InstrumentDefinitions::ValidResource(path.c_str()) || audition_id_==UINT32_MAX)return false;
+        ++audition_id_;audition_path_=path;audition_queued_=true;audition_cancel_=false;audition_error_.clear();return true;
+    }
+    void CancelWavAudition() {
+        audition_queued_=false;audition_path_.clear();audition_error_.clear();
+        if(audition_supported_ && audition_id_)audition_cancel_=true;
+    }
+    const std::string& WavAuditionError()const{return audition_error_;}
     bool WavPickerAvailable()const{return connected_ && wav_browser_supported_;}
     bool RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now);
     const BroTracker::WavBrowsePage& WavDirectoryPage()const{return wav_page_;}
@@ -455,6 +466,8 @@ private:
     bool tx_publication_ = false;
     // Zero reported bytes may still mean the asynchronous worker owns the line.
     bool tx_write_attempted_=false;
+    bool audition_supported_=false,audition_queued_=false,audition_cancel_=false;
+    std::uint32_t audition_id_=0;std::string audition_path_,audition_error_;
     char tx_[128]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
     char line_[512]{};
