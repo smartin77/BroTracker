@@ -105,8 +105,11 @@ shows `NN samples read` for WAV entries in this directory only (including reject
 WAVs), excluding folders and `..`, alongside selected-file metadata or useful errors.
 The final count remains after loading. Changing folders or leaving ignores old replies.
 
-The preferred folder is `/BroTracker/Samples`; missing/unreadable folders fall
-back to a readable parent. `..` is absent at SD root. Choosing a different path
+On opening the Sample Browser, BTX tries `/Samples`, then `/BroTracker`, then `/`
+on Teensy SD. It advances only when a candidate is missing; an empty directory is
+valid, and other SD errors remain visible. The successful initial listing is used
+directly. Explicit navigation does not run this startup chain. The header displays
+the actual opened directory. `..` is absent at SD root. Choosing a different path
 for an existing Sample opens the replacement confirmation below. Choosing a WAV
 starts live preparation when `StageLiveSample()` accepts it. If live staging is
 unavailable, the candidate stays local, including with current firmware. Stopped
@@ -124,6 +127,11 @@ stay silent in every transport state. Enter/A retains Load/open-folder behavior.
 Leaving the browser (including choosing a WAV) or starting Pattern playback cancels
 active and pending audition. Audition changes no assignment, WAV draft or Pattern
 transport state. Auto preview, mouse controls and audition during playback are deferred.
+
+The separate instrument-file Load action has no browser yet. Its intended,
+independent startup chain is `/Instruments` -> `/BroTracker` -> `/`, with the same
+missing-only fallback and empty-directory/error rules. Current Load WAV uses the
+Sample Browser chain above.
 
 ## WAV replacement confirmation
 

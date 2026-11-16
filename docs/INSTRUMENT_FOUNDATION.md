@@ -260,8 +260,9 @@ reacquires authoritative facts. Identity CAP1/CAP2 formats remain unchanged.
 
 The trailing slot defaults to Sample. Focus **Load WAV**, then activate it with
 Windows Enter or handheld A. The shared picker lists regular `.wav`/`.WAV` files
-and folders on Teensy SD, starting in `/BroTracker/Samples/` when readable or
-its nearest readable parent. It uses the existing bordered list and paging controls. Hosts never browse their local filesystem. Up/Down selects an entry;
+and folders on Teensy SD, using the BTX startup chain `/Samples` -> `/BroTracker`
+-> `/`. Only missing candidates trigger fallback; an empty directory is valid and
+other SD errors remain visible. It uses the existing bordered list and paging controls. Hosts never browse their local filesystem. Up/Down selects an entry;
 Enter/A opens a folder or chooses a WAV and returns to Instrument, setting only the draft SD-relative
 path (for example `BroTracker/Samples/kick.wav`). Escape, Backspace or B in the
 picker returns to Instrument with the previous draft intact. Escape/B in Instrument
@@ -328,10 +329,21 @@ retains unavailable definitions without substituting sounds.
 
 ## Teensy SD directory browser
 
-Load WAV starts at `/BroTracker/Samples` only after Teensy has opened and listed
-it. If missing or unreadable, Teensy tries the nearest readable parent, up to `/`.
-The UI names the fallback reason and confirmed directory; it never presents the
-requested path as though it had been opened. No folders are created by browsing.
+On Sample Browser entry, BTX requests an exact initial listing of `/Samples` on
+Teensy SD. A missing-directory result advances to `/BroTracker`, then `/`; no
+other error triggers fallback. Empty directories count as successful opens. The
+first successful listing is reused as the first progressive batch, without a
+second open/probe. The header changes only to a confirmed opened directory.
+Progressive continuation and explicit folder navigation do not run this startup
+chain. BTX sends the directory-listing request with Teensy's automatic-parent
+fallback disabled, so read errors are surfaced rather than hidden. No directories
+are created by browsing.
+
+The separate **instrument-file Load** action has no browser implementation yet.
+Its intended independent startup chain is `/Instruments` -> `/BroTracker` -> `/`,
+also missing-only, accepting empty directories and surfacing other SD errors.
+This is distinct from the existing **Load WAV** action and its Sample Browser.
+
 Subdirectories and all WAV filenames appear together in directory scan order. Below
 the SD root a visible `..` opens the parent. Enter/A opens the selected folder or
 stages the selected file's complete SD-relative path. Escape/B cancels to

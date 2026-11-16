@@ -549,6 +549,12 @@ for directory navigation. BTM storage and saved path semantics are unchanged.
 
 `BTINS1 WAVBROWSECAP 2` advertises `BTSTORE1 WAVOPEN 3` with the same directory,
 request identity, FAT cursor and fallback rules as v2. Replies use version 3.
+Current BTX keeps Sample Browser startup policy on the host: exact listings of
+`/Samples`, then `/BroTracker`, then `/`, advancing only on missing (result 1).
+It sends `fallback=0`, accepts empty successful pages, and publishes the initial
+successful page directly. Other errors are surfaced; explicit navigation never
+uses this startup chain. The legacy firmware parent-fallback flag remains available
+for older clients.
 Each WAV `WAVITEM` is followed by `BTSTORE1 WAVMETA 3 request page_index status
 format channels bits sample_rate`. `status` is the existing `WavBufferStatus`
 ordinal from the playback validator; other fields are the actual metadata read

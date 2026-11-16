@@ -57,8 +57,9 @@ private:
     void TickLiveTypes(std::uint32_t now);
     bool CaptureLiveDefinition();
     bool StageLiveSample(const std::string& path,std::uint32_t now);
-    void OpenWavDirectory(const std::string& path,bool fallback,std::uint32_t now);
+    void OpenWavDirectory(const std::string& path,std::uint32_t now);
     WavBrowser wav_browser_;bool wav_collecting_=false;
+    int wav_startup_candidate_=-1;
     void LoadSelected(std::uint32_t now);
     bool confirm_load_replace_=true,browser_confirm_=false,browser_loading_=false,browser_initialized_=false;
     FileListView browser_list_;
