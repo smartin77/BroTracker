@@ -39,8 +39,12 @@ session, rollback and in-flight candidates, not only the displayed instruments.
 
 Protocol and temporary transaction/path buffers remain fixed-size. A path is at
 most 256 bytes with NUL; an encoded command/reply line is bounded at 640 bytes.
-The fixed TX FIFO has 51 entries of 640 payload bytes. These temporary copies are
-separate from shared resource storage and are included in the firmware RAM report.
+The TX FIFO shares 6144 payload bytes across 51 compact line descriptors (6376
+bytes total including counters). Each line remains bounded below 640 bytes.
+Producers reserve byte and descriptor capacity before consuming requests or
+completion state; USB backpressure defers further replies without blocking audio.
+These temporary copies are separate from shared resource storage and are included
+in the firmware RAM report.
 
 ## Versioned protocol
 

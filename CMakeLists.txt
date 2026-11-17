@@ -388,3 +388,8 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL OR BROTRACKER_
     add_test(NAME BroTrackerSampleBrowserTests COMMAND BroTrackerSampleBrowserTests)
     set_tests_properties(BroTrackerSampleBrowserTests PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
+
+# Foreground Teensy TX byte ring and slow-reader/backpressure invariants.
+add_executable(BroTrackerSerialTxQueueTests tests/test_main.cpp tests/test_serial_tx_queue.cpp)
+target_include_directories(BroTrackerSerialTxQueueTests PRIVATE tests src)
+add_test(NAME BroTrackerSerialTxQueueTests COMMAND BroTrackerSerialTxQueueTests)
