@@ -34,12 +34,14 @@ struct StreamBufferLayout {
 };
 struct StreamedSample;
 struct StreamedVoiceBuffer {
+    // Native interleaved PCM16, indexed using the source layout in frames.
     std::int16_t* ring=nullptr;
     std::uint64_t generation=0;
     const StreamedSample* sample=nullptr;
     std::uint32_t begin=0,end=0;
 };
 struct StreamedSample {
+    // Native interleaved PCM16 prefix. The layout describes the byte budget in frames.
     const std::int16_t* start=nullptr;
     std::uint32_t frames=0;
     StreamedVoiceBuffer* voices=nullptr; // independent voice rings, shared start
