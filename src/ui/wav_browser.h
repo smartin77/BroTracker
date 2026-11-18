@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include "file_list.h"
 #include "bringup/wav_directory.h"
 // Publish correlated batches from one confirmed directory in scan order.
@@ -24,20 +25,21 @@ public:
         if(entries_.empty() && !loading_)return "No supported samples";
         const auto* entry=SelectedFile();if(!entry)return {};
         const auto& f=entry->facts;
-        if(!f.known || f.status==BroTracker::WavBufferStatus::IoError)return "Unable to read WAV";
-        if(f.status==BroTracker::WavBufferStatus::UnsupportedFormat) {
-            if(f.format!=1)return "WAV format not supported";
-            if(f.channels==2)return "Stereo WAV not supported";
-            if(f.channels!=1)return "WAV format not supported";
-            if(f.bits!=16)return "WAV bit depth not supported";
-            if(f.sample_rate!=44100)return "WAV sample rate not supported";
+        if(!f.known)return "Unable to read WAV";
+        if(f.status==BroTracker::WavBufferStatus::Success) {
+            char resource[BroTracker::kSamplePathMaximum+1];
+            const auto rejection=ValidateResource(*entry,resource);
+            if(!rejection.empty())return rejection;
         }
-        if(f.status!=BroTracker::WavBufferStatus::Success)return "Invalid WAV";
-        char resource[BroTracker::kSamplePathMaximum+1];const auto rejection=ValidateResource(*entry,resource);if(!rejection.empty())return rejection;
-        char rate[32];std::snprintf(rate,sizeof(rate),"%u.%u kHz",f.sample_rate/1000,(f.sample_rate%1000)/100);
-        return std::string("PCM ")+"\xc2\xb7 "+std::to_string(f.bits)+"-bit "+"\xc2\xb7 "+rate+(f.channels==2?" | Stereo":"");
+        auto detail=FormatFacts(f);
+        const auto* reason=FormatRejection(f);
+        if(*reason) {
+            if(!detail.empty())detail+=" | ";
+            detail+=reason;
+        }
+        return detail;
     }
-    void Begin(std::string path){requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
+    void Begin(std::string path,bool pcm8_and_8363=false){pcm8_and_8363_=pcm8_and_8363;requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
     bool Accept(const BroTracker::WavBrowsePage& page) {
         if(!loading_ || !BroTracker::ValidWavDirectory(page.directory) || page.count>BroTracker::kPatternListPageSize || page.fallback>2)return false;
         if(!pending_directory_.empty() && pending_directory_!=page.directory)return false;
@@ -80,6 +82,59 @@ public:
         path=resource;return 2;
     }
 private:
+    static std::string EncodingName(unsigned tag) {
+        switch(tag) {
+            case 0:return {};
+            case 1:return "PCM";
+            case 2:return "MS ADPCM";
+            case 3:return "IEEE float";
+            case 6:return "A-law";
+            case 7:return "Mu-law";
+            case 0x11:return "IMA ADPCM";
+            case 0x31:return "GSM 6.10";
+            case 0x55:return "MP3 in WAV";
+            case 0x674f:case 0x6750:case 0x6751:
+            case 0x676f:case 0x6770:case 0x6771:return "Ogg Vorbis";
+            case 0xfffe:return "Extensible";
+        }
+        char name[12];
+        std::snprintf(name,sizeof(name),"Tag 0x%04X",tag);
+        return name;
+    }
+    static std::string FormatFacts(const BroTracker::WavFileFacts& f) {
+        auto detail=EncodingName(f.format);
+        const auto append=[&](const std::string& value) {
+            if(!detail.empty())detail+=" \xc2\xb7 ";
+            detail+=value;
+        };
+        // The current wire format uses zero for fields unavailable to the inspector.
+        if(f.bits)append(std::to_string(f.bits)+"-bit");
+        if(f.sample_rate) {
+            auto fraction=std::to_string(1000+f.sample_rate%1000).substr(1);
+            while(fraction.size()>1 && fraction.back()=='0')fraction.pop_back();
+            append(std::to_string(f.sample_rate/1000)+"."+fraction+" kHz");
+        }
+        if(f.channels==1)append("Mono");
+        else if(f.channels==2)append("Stereo");
+        else if(f.channels)append(std::to_string(f.channels)+" ch");
+        return detail;
+    }
+    const char* FormatRejection(const BroTracker::WavFileFacts& f) const {
+        using BroTracker::WavBufferStatus;
+        switch(f.status) {
+            case WavBufferStatus::Success:return "";
+            case WavBufferStatus::IoError:return "Unable to read WAV";
+            case WavBufferStatus::ChunkLimit:return "WAV inspection limit";
+            case WavBufferStatus::UnsupportedFormat:
+                if(f.format && f.format!=1)return "Unsupported encoding";
+                if(f.bits && f.bits!=16 && !(pcm8_and_8363_ && f.bits==8))return "Unsupported bit depth";
+                // Older negotiated browser versions can reject a lower rate or stereo.
+                if(f.sample_rate && f.sample_rate!=44100)return "Unsupported rate";
+                if(f.channels && f.channels!=1)return "Unsupported channels";
+                return "Unsupported WAV";
+            default:return "Invalid WAV";
+        }
+    }
     std::string ValidateResource(const BroTracker::WavDirectoryEntry& entry,char (&resource)[BroTracker::kSamplePathMaximum+1])const {
         if(!BroTracker::SampleWavName(entry.name))return "WAV reference unavailable or invalid";
         if(!BroTracker::BuildWavResourceAt(directory_,entry.name,resource,sizeof(resource)))
@@ -93,5 +148,5 @@ private:
     }
     std::string directory_,requested_,pending_directory_,message_;
     FileListView view_;std::vector<BroTracker::WavDirectoryEntry> entries_;
-    unsigned seen_=0,fallback_=0,samples_=0;bool loading_=false,awaiting_first_=false;
+    unsigned seen_=0,fallback_=0,samples_=0;bool loading_=false,awaiting_first_=false,pcm8_and_8363_=false;
 };

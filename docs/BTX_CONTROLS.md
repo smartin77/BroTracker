@@ -95,6 +95,9 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
 | Cancel via existing screen-navigation chord | Ctrl+Left / Right | Select+D-pad Left / Right |
 
+Production accepts PCM8 and PCM16 mono/stereo at 8, 8.363, 11.025, 22.05 and 44.1 kHz.
+Stopped audition plays at the file's original pitch and speed.
+
 The confirmed SD directory is at the top. The list fills the middle; one bottom
 line shows selected-file metadata, rejection, empty state or folder error. All
 WAVs remain visible. Enter/A on an unsupported WAV or invalid resource path keeps
@@ -109,11 +112,17 @@ supported with long-path firmware. Long directory headers wrap to show the full
 path. Over-limit paths and exhausted shared storage are rejected without replacing
 the previous assignment; see [path storage](SAMPLE_PATH_STORAGE.md).
 
-On opening the Sample Browser, BTX tries `/Samples`, then `/BroTracker`, then `/`
-on Teensy SD. It advances only when a candidate is missing; an empty directory is
-valid, and other SD errors remain visible. The successful initial listing is used
-directly. Explicit navigation does not run this startup chain. The header displays
-the actual opened directory. `..` is absent at SD root. Choosing a different path
+On the first Sample Browser opening of an Instrument visit, BTX starts in the
+selected instrument's assigned WAV directory, when available. With no assignment,
+it tries `/Samples`, then `/BroTracker`, then `/`. A missing preferred directory can
+fall back through these roots. An empty directory counts as success, and other
+SD errors remain visible. Explicit navigation does not run the startup chain.
+
+The last successfully opened directory is remembered in BTX until the Instrument
+visit ends. Reopening after choosing a WAV or cancelling the browser uses that
+directory. A new visit resolves the initial directory again. No setting is saved.
+The header displays the actual opened directory. `..` is absent at SD root.
+Choosing a different path
 for an existing Sample opens the replacement confirmation below. Choosing a WAV
 starts live preparation when `StageLiveSample()` accepts it. If live staging is
 unavailable, the candidate stays local, including with current firmware. Stopped

@@ -3,6 +3,22 @@
 #include <cstddef>
 #include <cstdint>
 namespace BroTracker {
+constexpr bool IsStreamingPcmRate(std::uint32_t rate) noexcept {
+    return rate==44100 || rate==22050 || rate==11025 || rate==8363 || rate==8000;
+}
+// Compose an already quantized Q32.32 pitch ratio with the rational rate
+// conversion, rounding to nearest with ties upward. Splitting the quotient
+// bounds both products, even at the largest positive input step.
+inline bool ComposeStreamingStep(std::uint64_t pitch,std::uint32_t source_rate,
+    std::uint32_t output_rate,std::uint64_t& result) noexcept {
+    if(!pitch || !source_rate || !output_rate) return false;
+    if(source_rate==output_rate) {result=pitch;return true;}
+    if(output_rate!=44100 || !IsStreamingPcmRate(source_rate)) return false;
+    const auto step=(pitch/output_rate)*source_rate+
+        ((pitch%output_rate)*source_rate+output_rate/2)/output_rate;
+    if(!step) return false;
+    result=step;return true;
+}
 // Immutable prepared source. File ownership belongs to the foreground adapter.
 // Ring spans are published only while the audio consumer is excluded.
 constexpr std::uint32_t kStreamRingBytes=8192, kStreamStartBytes=4096, kStreamReadBytes=4096;
@@ -34,14 +50,14 @@ struct StreamBufferLayout {
 };
 struct StreamedSample;
 struct StreamedVoiceBuffer {
-    // Native interleaved PCM16, indexed using the source layout in frames.
+    // Aligned backing storage for packed unsigned PCM8 or interleaved PCM16.
     std::int16_t* ring=nullptr;
     std::uint64_t generation=0;
     const StreamedSample* sample=nullptr;
     std::uint32_t begin=0,end=0;
 };
 struct StreamedSample {
-    // Native interleaved PCM16 prefix. The layout describes the byte budget in frames.
+    // Aligned native PCM backing storage. PCM8 is accessed through byte pointers.
     const std::int16_t* start=nullptr;
     std::uint32_t frames=0;
     StreamedVoiceBuffer* voices=nullptr; // independent voice rings, shared start
@@ -67,6 +83,16 @@ inline std::uint32_t StreamReadyEnd(const StreamedSample& source, const Streamed
         end=ready.end;
     return end;
 }
+// Conservative output-time coverage. Fractional playback can need the next
+// source frame before it reaches the end of the ready span. At EOF the voice
+// reuses its final sample, and integer playback needs no interpolation guard.
+inline std::uint64_t StreamReadyOutputFrames(const StreamedVoiceSnapshot& state,
+    std::uint32_t end) noexcept {
+    if(!state.step || end<=state.position) return 0;
+    auto ready=end-state.position;
+    if(end<state.sample->frames && (state.phase || std::uint32_t(state.step))) --ready;
+    return (std::uint64_t(ready)<<32)/state.step;
+}
 // Source frames determine ring capacity; output frames determine urgency.
 // Higher pitch may make a larger ready span more urgent than a smaller one.
 inline std::uint64_t StreamRefillUrgency(const StreamedVoiceSnapshot& state,
@@ -78,8 +104,9 @@ inline std::uint64_t StreamRefillUrgency(const StreamedVoiceSnapshot& state,
     if(!read_frames) return UINT64_MAX;
     const auto consumed=std::max({state.position,source.PrefixFrames(),ready.begin});
     const auto used=ready.end>consumed ? ready.end-consumed : 0;
-    const auto available=StreamReadyEnd(source,ready,state.generation,state.position)-state.position;
-    const auto until=(std::uint64_t(available)<<32)/state.step;
+    const auto end=StreamReadyEnd(source,ready,state.generation,state.position);
+    const auto available=end-state.position;
+    const auto until=StreamReadyOutputFrames(state,end);
     // Preserve the mono half-ring threshold and the existing output-time threshold.
     const auto half_ring=std::uint32_t(ring_frames)/2;
     if(used>ring_frames || ring_frames-used<read_frames ||

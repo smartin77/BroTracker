@@ -51,15 +51,18 @@ public:
 private:
     void Log(const char* message);
     void FinishInstrumentVisit();
+    void CloseInstrumentView();
     bool InstrumentDraftChanged()const;
     bool HasLiveTypes()const;
     bool LiveTypesSettled()const;
     void TickLiveTypes(std::uint32_t now);
     bool CaptureLiveDefinition();
     bool StageLiveSample(const std::string& path,std::uint32_t now);
+    void OpenSampleBrowser(std::uint32_t now);
     void OpenWavDirectory(const std::string& path,std::uint32_t now);
     WavBrowser wav_browser_;bool wav_collecting_=false;
-    int wav_startup_candidate_=-1;
+    std::string wav_visit_directory_;
+    std::size_t wav_next_startup_root_=0;
     void LoadSelected(std::uint32_t now);
     bool confirm_load_replace_=true,browser_confirm_=false,browser_loading_=false,browser_initialized_=false;
     FileListView browser_list_;

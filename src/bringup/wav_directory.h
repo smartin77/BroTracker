@@ -72,7 +72,7 @@ inline bool ParseWavOpen(const char* line,std::size_t length,WavOpenRequest& out
     if(!line || length>=kPathProtocolCapacity)return false;
     std::size_t split=length;while(split && line[split-1]!=' ')--split;if(!split)return false;
     std::uint32_t f[4]{};
-    if(!SnapshotFields(line,split-1,"BTSTORE1 WAVOPEN ",f,4) || (f[0]<2 || f[0]>5) || !f[1] || f[2]%32 || f[3]>1 || (f[3] && f[2]))return false;
+    if(!SnapshotFields(line,split-1,"BTSTORE1 WAVOPEN ",f,4) || (f[0]<2 || f[0]>7) || !f[1] || f[2]%32 || f[3]>1 || (f[3] && f[2]))return false;
     WavOpenRequest value;value.version=f[0];value.request=f[1];value.offset=f[2];value.fallback=f[3];
     if(!DecodePathToken(std::string_view(line+split,length-split),value.directory,sizeof(value.directory),f[0]>=4) || !ValidWavDirectory(value.directory))return false;
     output=value;return true;

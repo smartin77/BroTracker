@@ -33,11 +33,13 @@ public:
                 pending_=false;result_=stream_.PreparationResult()==InstrumentAvailability::Ready?0:stream_.PreparationResult()==InstrumentAvailability::PathCapacity?9:4;
                 if(!result_) {
                     const auto view=stream_.PreparedMixedView();
-                    // All currently supported WAVs are 44100 Hz. Unity playback
-                    // uses their native rate, with no instrument pitch/tempo input.
-                    StreamInterruptGuard guard;
-                    result_=view.Trigger(voice_,kSourceFrameStepUnity)==VariableVoiceStatus::Success?0:4;
-                    stream_.PublishVoice(8,voice_.StreamSnapshot());
+                    std::uint64_t step=0;
+                    if(!ComposeStreamingStep(kSourceFrameStepUnity,view.sample_rate_hz,44100,step))result_=4;
+                    else {
+                        StreamInterruptGuard guard;
+                        result_=view.Trigger(voice_,step)==VariableVoiceStatus::Success?0:4;
+                        stream_.PublishVoice(8,voice_.StreamSnapshot());
+                    }
                 }
                 completed_=id_;
             }

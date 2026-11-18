@@ -2,9 +2,9 @@
 
 ## Status
 
-Production streaming accepts integer PCM WAV at 44.1 kHz with 16-bit mono or
-native interleaved stereo frames. Mono and Synth are centered in the normal mix.
-PCM8, other sample rates, and loops remain outside this implementation.
+Production streaming accepts integer PCM WAV at 44.1, 22.05, 11.025, 8.363 and 8 kHz
+with unsigned 8-bit or signed 16-bit mono or native interleaved stereo frames. Mono and Synth are centered in the normal mix.
+Other depths, rates, encodings, and loops remain outside this implementation.
 
 ## Purpose
 
@@ -16,10 +16,11 @@ The agreed sample model must support the following properties. This is design
 scope, not a claim that every property is currently implemented:
 
 * PCM audio
-* 16-bit depth
+* 8-bit or 16-bit depth
 * mono or stereo
 * 44.1 kHz sample rate
-* future lower-rate support (including 8 kHz and 22.05 kHz) and extension to 48 kHz
+* 8, 8.363, 11.025 and 22.05 kHz sample rates
+* future extension to 48 kHz
 * loop start
 * loop end
 * loop type
@@ -70,8 +71,8 @@ source-frame step = (source_sample_rate / output_sample_rate)
 Zero correction means fine_tuning_ratio = 1. Lower-rate sources must retain
 original speed at the reference note through correct source/output conversion.
 Rate and bit depth are independent; 8000/22050 Hz does not imply 8-bit PCM.
-Retaining source PCM or converting internal PCM remains a future storage decision;
-both approaches must preserve pitch/duration and consistent effective-rate metadata.
+Production retains source PCM. Any future prepared representation must preserve
+pitch, duration and consistent effective-rate metadata.
 
 Original BPM and musical length in quarter-note beats are optional independent
 metadata. Given known beat count, BPM = 60 * beats / exact duration in seconds.
@@ -86,12 +87,16 @@ the same rate adjustment twice.
 
 ## Implemented subset and next foundations
 
-Current portable loading supports signed PCM16 mono 44100 Hz. Native-rate playback
-and VariableRateSampleVoice both require matching source/output sample rates;
-the variable-rate voice accepts explicit Q32.32 steps with reference-note interval
-mapping. Production Sample bindings now use fixed-memory SD streaming through
-that voice, including short sources entirely covered by their start cache; see
-[production streaming](SD_SAMPLE_STREAMING.md). Additional rates, general source/output conversion, tuning metadata
-integration, tempo matching/detection and time stretching remain pending. The
-C-3/D-3 beeper bindings are trigger anchors, not measured physical tuning. Loop
-metadata above also does not imply sample-loop playback is implemented.
+The legacy full-RAM loader accepts signed PCM16 mono at 44,100 Hz. Production
+Sample bindings stream native frames through fixed-memory prefixes and rings.
+PCM8 stays packed and is widened to the signed PCM16 domain as it is rendered.
+Stored bytes 0, 128 and 255 map to -32768, 0 and 32512 respectively.
+Trigger preparation applies the source/output rate ratio once to the existing
+Q32.32 note ratio, rounding to the nearest Q32.32 step with ties upward. The
+output stays at 44,100 Hz. A reference-note trigger and stopped audition preserve
+source pitch and duration to Q32.32 and output-frame precision. The renderer
+continues to use linear interpolation. See [production streaming](SD_SAMPLE_STREAMING.md).
+
+Future interpolation and anti-alias controls, additional rates and depths,
+tuning metadata integration, tempo matching/detection, time stretching and
+sample-loop playback remain pending.

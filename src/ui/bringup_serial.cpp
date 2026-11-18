@@ -81,7 +81,7 @@ bool BringUpSerial::RequestPatternList(std::uint32_t offset,std::uint32_t now,bo
 bool BringUpSerial::RequestWavDirectory(const std::string& path,std::uint32_t offset,bool fallback,std::uint32_t now) {
     if((!path_supported_ && (path.size()>63 || path.find(' ')!=std::string::npos)) || !WavPickerAvailable() || UserActionsBlocked() || (!MidiRecoveryStopped() && !InstrumentVisitReady()) || PatternListBusy() || FilePending() ||
         !BroTracker::ValidWavDirectory(path) || offset%32 || (fallback && offset) || list_id_==UINT32_MAX)return false;
-    wav_list_version_=path_supported_?(wav_stereo_supported_?5:4):3;
+    wav_list_version_=path_supported_?(WavPcm8Supported()?7:wav_rates_supported_?6:wav_stereo_supported_?5:4):3;
     ++list_id_;list_offset_=offset;list_started_=now;list_queued_=true;list_ready_=false;list_wav_=list_browser_=true;
     wav_request_path_=path;wav_fallback_=fallback;wav_staging_={};wav_dir_received_=wav_info_received_=false;
     wav_error_=BroTracker::WavDirectoryResult::ReadError;return true;
@@ -174,7 +174,7 @@ void BringUpSerial::Disconnect(const char* reason)
     if(pattern_load_state_==PatternLoadState::Pending)pattern_load_state_=PatternLoadState::Failed;
     new_pattern_supported_=false;if(!startup_decided_)boot_status_known_=false;
     pattern_save_supported_=false;pattern_source_.clear();
-    wav_browser_supported_=false;wav_stereo_supported_=false;
+    wav_browser_supported_=false;wav_stereo_supported_=false;wav_rates_supported_=false;wav_pcm8_supported_=false;
     wav_supported_=false;
     list_supported_=list_queued_=list_pending_=list_ready_=false;std::strcpy(list_status_,"Disconnected; refresh pattern list after recovery");
     initial_sync_ready_=false;session_save_succeeded_=false;
@@ -689,6 +689,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
     }
     if(!std::strcmp(line_,"BTINS1 WAVBROWSECAP 2")){wav_browser_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 WAVSTEREOCAP 1")){wav_stereo_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTINS1 WAVRATECAP 1")){wav_rates_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTINS1 WAVPCM8CAP 1")){wav_pcm8_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 WAVCAP 1")){wav_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTSTORE1 LISTCAP 1")){if(connected_)list_supported_=true;return;}
     if(list_pending_ && list_browser_) {
@@ -711,7 +713,8 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(BroTracker::SnapshotFields(line_,used_,"BTSTORE1 WAVMETA ",meta,8) && meta[0]==wav_list_version_ && meta[1]==list_id_) {
             if(meta[2]>=wav_staging_.count || wav_staging_.entries[meta[2]].kind!=BroTracker::WavEntryKind::File || wav_staging_.entries[meta[2]].facts.known || meta[3]>unsigned(BroTracker::WavBufferStatus::ChunkLimit) || meta[4]>65535 || meta[5]>65535 || meta[6]>65535) {list_pending_=false;pending_=Command::None;return;}
             auto& f=wav_staging_.entries[meta[2]].facts;f.known=true;f.status=static_cast<BroTracker::WavBufferStatus>(meta[3]);f.format=meta[4];f.channels=meta[5];f.bits=meta[6];f.sample_rate=meta[7];
-            if(f.status==BroTracker::WavBufferStatus::Success && (f.format!=1 || (f.channels!=1 && (wav_list_version_<5 || f.channels!=2)) || f.bits!=16 || f.sample_rate!=44100)){list_pending_=false;pending_=Command::None;}
+            if(f.status==BroTracker::WavBufferStatus::Success && !BroTracker::WavBufferDetail::SupportsIntegerPcm(
+                f.format,f.channels,f.bits,f.sample_rate,wav_list_version_>=5,wav_list_version_>=6,wav_list_version_>=7)){list_pending_=false;pending_=Command::None;}
             return;
         }
         std::uint32_t fields[5]{};

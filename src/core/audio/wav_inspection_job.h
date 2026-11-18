@@ -5,7 +5,9 @@ namespace BroTracker {
 // read here. Unknown chunks are skipped, with the same 1024-chunk bound as boot.
 class WavInspectionJob {
 public:
-    void Begin(bool stereo=false){*this=WavInspectionJob{};stereo_=stereo;}
+    void Begin(bool stereo=false,bool lower_rates=false,bool pcm8_and_8363=false) {
+        *this=WavInspectionJob{};stereo_=stereo;lower_rates_=lower_rates;pcm8_and_8363_=pcm8_and_8363;
+    }
     bool Done()const{return phase_==DonePhase;}
     WavBufferStatus Status()const{return status_;}
     const WavMetadata& Metadata()const{return metadata_;}
@@ -32,8 +34,8 @@ public:
             if(chunk_bytes_!=16 && U16(bytes+16)!=chunk_bytes_-18)return Finish(WavBufferStatus::InvalidFormat);
             metadata_.format=U16(bytes);metadata_.channels=U16(bytes+2);metadata_.sample_rate=U32(bytes+4);
             metadata_.byte_rate=U32(bytes+8);metadata_.block_align=U16(bytes+12);metadata_.bits=U16(bytes+14);metadata_.format_known=true;
-            supported_=metadata_.format==1 && (metadata_.channels==1 || (stereo_ && metadata_.channels==2)) && metadata_.sample_rate==44100 && metadata_.bits==16;
-            if(supported_ && (metadata_.block_align!=2*metadata_.channels || metadata_.byte_rate!=88200u*metadata_.channels))return Finish(WavBufferStatus::InvalidFormat);
+            supported_=SupportsIntegerPcm(metadata_,stereo_,lower_rates_,pcm8_and_8363_);
+            if(supported_ && !ValidPcmGeometry(metadata_))return Finish(WavBufferStatus::InvalidFormat);
             phase_=Chunk;return;
         }
         if(offset_==end_)return Validate();
@@ -72,7 +74,7 @@ private:
     enum Phase{Size,Header,Chunk,Format,DonePhase};Phase phase_=Size;
     WavBufferStatus status_=WavBufferStatus::IoError;WavMetadata metadata_{};
     std::uint64_t end_=0,offset_=0,payload_=0,chunk_bytes_=0;unsigned chunks_=0;
-    bool stereo_=false;
+    bool stereo_=false,lower_rates_=false,pcm8_and_8363_=false;
     bool have_format_=false,have_data_=false,supported_=false;
 };
 }
