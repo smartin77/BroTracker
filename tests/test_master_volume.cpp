@@ -79,3 +79,16 @@ TEST_CASE(MasterVolumeQueueCapacityAndRejectedIdsAreBounded) {
     while(control.TakeApplied(ack)){CHECK_EQ(ack.request,PatternRequest::MasterVolume);++count;}CHECK_EQ(count,8u);CHECK_EQ(control.Snapshot().volume_percent,40u);
     CHECK_EQ(control.SubmitVolume(0,9),PatternRequestStatus::Accepted);control.AudioBlock(pcm,128,true);while(control.TakeApplied(ack)){}CHECK_EQ(control.Snapshot().applied_volume_id,9u);
 }
+TEST_CASE(MasterStereoRampMatchesTwoIndependentMonoRamps) {
+    MasterVolume stereo,left_ref,right_ref;
+    stereo.Configure(44100);left_ref.Configure(44100);right_ref.Configure(44100);
+    for(unsigned level:{0u,73u,25u,100u}) {
+        CHECK(stereo.Set(level));CHECK(left_ref.Set(level));CHECK(right_ref.Set(level));
+        std::int16_t left[127],right[127],reference_l[127],reference_r[127];
+        for(unsigned i=0;i<127;++i) {left[i]=reference_l[i]=32767-i;right[i]=reference_r[i]=-32768+i;}
+        stereo.ProcessStereo(left,right,127);
+        left_ref.Process(reference_l,127);right_ref.Process(reference_r,127);
+        for(unsigned i=0;i<127;++i) {CHECK_EQ(left[i],reference_l[i]);CHECK_EQ(right[i],reference_r[i]);}
+        CHECK_EQ(stereo.Current(),left_ref.Current());
+    }
+}

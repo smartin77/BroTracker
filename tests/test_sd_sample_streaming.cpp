@@ -1,5 +1,7 @@
 #include "test_framework.h"
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
+#include "firmware/teensy/BroTracker/sd_wav_audition.h"
+#include "ui/wav_browser.h"
 #include "core/audio/variable_rate_sample_voice.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include "bringup/pattern_fixture.h"
@@ -22,6 +24,11 @@ StreamInterruptGuard::~StreamInterruptGuard() noexcept { FakeStreamPlatform::pri
 }
 namespace {
 constexpr std::uint32_t DataOffset=44;
+void DescribeMonoWav(WavMetadata& metadata,std::uint32_t frames) {
+    metadata.format=1;metadata.channels=1;metadata.bits=16;metadata.block_align=2;
+    metadata.sample_rate=44100;metadata.byte_rate=88200;
+    metadata.frames=frames;metadata.data_offset=DataOffset;metadata.data_bytes=std::uint64_t(frames)*2;
+}
 void ReadOwned() {
     CHECK_EQ(FakeStreamPlatform::primask,0u); // Seek/read must remain outside the ISR guard.
     const bool acquired=SdAccess::AcquireWrite(); CHECK(!acquired);
@@ -55,7 +62,7 @@ struct Fixture {
             }
             auto& file=inspection.files[source];
             file.open_status=SdWavBufferStatus::Success; file.validation=WavBufferStatus::Success;
-            file.metadata.frames=frames; file.metadata.data_offset=DataOffset;
+            DescribeMonoWav(file.metadata,frames);
         }
         producer.Prepare(true,memory,inspection); // Real preparation, handles and immutable starts.
         for(unsigned i=0;i<8;++i) {
@@ -73,7 +80,7 @@ struct Fixture {
         return static_cast<std::int16_t>(int((frame*137+source*997)%60001)-30000);
     }
     void Trigger(unsigned channel=0,unsigned source=0) {
-        CHECK_EQ(player.voices[channel].Trigger(producer.reports[source].view,kSourceFrameStepUnity),VariableVoiceStatus::Success);
+        CHECK_EQ(producer.reports[source].view.Trigger(player.voices[channel],kSourceFrameStepUnity),VariableVoiceStatus::Success);
         producer.Publish(player);
     }
     StreamedVoiceBuffer Span(unsigned channel=0) const {
@@ -258,7 +265,7 @@ TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailure
         inspection.attempted=inspection.sd_ready=true;auto& inspected=inspection.files[1];
         inspected.open_status=mode==1?SdWavBufferStatus::OpenFailed:SdWavBufferStatus::Success;
         inspected.validation=mode==1?WavBufferStatus::IoError:WavBufferStatus::Success;
-        inspected.metadata.frames=32;inspected.metadata.data_offset=44;
+        DescribeMonoWav(inspected.metadata,32);
         const auto& definition=*DevelopmentInstrumentDefinition(0);
         if(mode!=1)FakePatternSd::files[definition.resource].bytes.resize(44+64);
         if(mode==2)FakePatternSd::short_read_path=definition.resource;
@@ -271,6 +278,51 @@ TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailure
     }
 }
 
+TEST_CASE(SdStreamPreparationRejectsInvalidSourceLayoutBeforeReadingPcm) {
+    for(unsigned mode=0;mode<6;++mode) {
+        FakePatternSd::Reset();
+        SdSampleStreaming::Storage memory{};
+        SdSampleStreaming producer;
+        DevelopmentWavInspection inspection;
+        auto& found=inspection.files[0];
+        found.validation=WavBufferStatus::Success;
+        DescribeMonoWav(found.metadata,32);
+        auto& bytes=FakePatternSd::files[kDevelopmentWavPaths[0]].bytes;
+        bytes.resize(DataOffset+64);
+        switch(mode) {
+            case 0: ++found.metadata.data_bytes; break;
+            case 1: --found.metadata.byte_rate; break;
+            case 2: ++found.metadata.block_align; break;
+            case 3: bytes.pop_back(); break;
+            case 4: found.metadata.data_offset=UINT64_MAX; break;
+            case 5: found.metadata.frames=std::uint64_t{UINT32_MAX}+1; break;
+        }
+        producer.Prepare(true,memory,inspection);
+        CHECK(producer.reports[0].view.streaming==nullptr);
+        CHECK(FakePatternSd::reads.empty());
+    }
+}
+
+TEST_CASE(SdStreamRefillRecoversBeyondGapWithAReadThatWrapsTheRing) {
+    Fixture f;
+    f.Trigger();
+    f.producer.Service();
+    f.CheckSpan(0,0,2048,4096);
+    f.Consume(0,0,4096);
+    std::vector<std::int16_t> missing(2904);
+    CHECK_EQ(f.player.voices[0].Render(missing.data(),missing.size()),VariableVoiceStatus::Success);
+    for(auto value:missing) CHECK_EQ(value,0);
+    f.producer.Publish(f.player);
+    CHECK(!f.producer.BackgroundHeadroom());
+    f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.back().offset,DataOffset+7000u*2);
+    CHECK_EQ(FakePatternSd::reads.back().count,kStreamReadBytes);
+    f.CheckSpan(0,0,7000,9048);
+    CHECK(f.producer.BackgroundHeadroom());
+    f.Consume(0,0,2048);
+    CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,2904u);
+}
+
 namespace {
 std::vector<std::uint8_t> PickerWav(unsigned frames=10000,unsigned rate=44100,unsigned source=0) {
     std::vector<std::uint8_t> bytes(44+frames*2);
@@ -280,6 +332,41 @@ std::vector<std::uint8_t> PickerWav(unsigned frames=10000,unsigned rate=44100,un
     bytes[32]=2;bytes[34]=16;std::memcpy(bytes.data()+36,"data",4);PatternFilePut32(bytes.data()+40,frames*2);
     for(unsigned i=0;i<frames;++i) {const auto word=static_cast<std::uint16_t>(Fixture::Pcm(source,i));bytes[44+i*2]=word;bytes[45+i*2]=word>>8;}
     return bytes;
+}
+TEST_CASE(StreamingPreparationUsesPaddedChunkOffsetAndReadsOnlyWholeFrames) {
+    Fixture f;
+    const char* path="BroTracker/Samples/padded.wav";
+    auto bytes=PickerWav(257);
+    bytes.insert(bytes.begin()+36,{'J','U','N','K',1,0,0,0,42,0}); // One data byte and its pad.
+    PatternFilePut32(bytes.data()+4,static_cast<std::uint32_t>(bytes.size()-8));
+    FakePatternSd::files[path].bytes=bytes;
+    CHECK(f.producer.BeginPrepareAsync(path));
+    for(unsigned turn=0;turn<32 && !f.producer.PreparationDone();++turn) f.producer.PreparationStep();
+    CHECK(f.producer.PreparationDone());
+    CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::Ready);
+    const auto view=f.producer.PreparedView();
+    CHECK_EQ(view.frame_count,257u);
+    CHECK(view.streaming!=nullptr);
+    CHECK(FakePatternSd::reads.size()>=2);
+    if(!view.streaming || FakePatternSd::reads.size()<2) return;
+    CHECK_EQ(view.streaming->PrefixFrames(),257u);
+    CHECK_EQ(FakePatternSd::reads[FakePatternSd::reads.size()-2].offset,54u);
+    CHECK_EQ(FakePatternSd::reads[FakePatternSd::reads.size()-2].count,512u);
+    CHECK_EQ(FakePatternSd::reads.back().offset,566u);
+    CHECK_EQ(FakePatternSd::reads.back().count,2u);
+    for(unsigned i=0;i<257;++i) CHECK_EQ(view.data[i],Fixture::Pcm(0,i));
+
+    const char* malformed="BroTracker/Samples/incomplete-frame.wav";
+    PatternFilePut32(bytes.data()+50,513); // The final byte is now RIFF padding.
+    FakePatternSd::files[malformed].bytes=bytes;
+    Pcm16MonoView rejected;
+    CHECK_EQ(f.producer.PreparePath(malformed,rejected),InstrumentAvailability::PreparationFailed);
+    CHECK(rejected.data==nullptr);
+    CHECK(f.producer.BeginPrepareAsync(malformed));
+    for(unsigned turn=0;turn<32 && !f.producer.PreparationDone();++turn) f.producer.PreparationStep();
+    CHECK(f.producer.PreparationDone());
+    CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);
+    CHECK(f.producer.PreparedView().data==nullptr);
 }
 }
 TEST_CASE(SelectedNonDevelopmentWavUsesRealValidationAndStreamingRefills) {
@@ -579,7 +666,7 @@ TEST_CASE(CooperativePreparationYieldsBetweenReadsAndKeepsRollbackAndVoiceSource
 
 TEST_CASE(CooperativePreparationCancellationFailureAndFullPinnedCacheNeverEvictTheCurrentBinding) {
     Fixture f;const char* path="BroTracker/Samples/cancel.wav";FakePatternSd::files[path].bytes=PickerWav();
-    const auto original=f.producer.reports[0].view;
+    const auto original=f.producer.reports[0].view.Mono();
     CHECK(f.producer.BeginPrepareAsync(path));
     for(unsigned i=0;i<5;++i)f.producer.PreparationStep();
     f.producer.CancelPreparation();f.producer.PreparationStep();CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.SourceCount(),3u);
@@ -608,4 +695,242 @@ TEST_CASE(CooperativeBrowserInspectsChunksOneReadPerTurnAndRetainsCompletePageSe
     }
     CHECK(job.Done());CHECK_EQ(job.Result(),WavDirectoryResult::Ok);CHECK_EQ(job.Page().count,1u);
     CHECK_EQ(job.Page().entries[0].facts.status,WavBufferStatus::Success);CHECK_EQ(job.Page().entries[0].facts.sample_rate,44100u);
+}
+
+TEST_CASE(ManualAuditionStreamsLongWavToEofAndRetriggersFromZeroWithoutPatternBindings) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    constexpr unsigned frames=100000;const char* path="BroTracker/Samples/long.wav";
+    FakePatternSd::files[path].bytes=PickerWav(frames,44100,4);
+    const auto prepare=[&](unsigned id) {
+        CHECK(audition.Request(id,path));
+        for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
+        CHECK(!audition.Busy());CHECK(audition.Snapshot().sample);CHECK_EQ(audition.Snapshot().position,0u);
+        CHECK_EQ(audition.Snapshot().step,kSourceFrameStepUnity);
+    };
+    const auto consume=[&](unsigned at,unsigned count) {
+        f.producer.Service();std::int16_t pcm[128]{};
+        CHECK(audition.Render(pcm,count,true,100));
+        for(unsigned i=0;i<count;++i)CHECK_EQ(pcm[i],Fixture::Pcm(4,at+i));
+    };
+    prepare(1);for(unsigned at=0;at<8192;at+=128)consume(at,128);
+    CHECK(audition.Snapshot().sample);prepare(2); // replace active stream, restart frame zero
+    for(unsigned at=0;at<frames;at+=128)consume(at,std::min(128u,frames-at));
+    CHECK(!audition.Snapshot().sample);CHECK_EQ(audition.Snapshot().underruns,0u);
+    CHECK_EQ(audition.Snapshot().eofs,1u);CHECK_EQ(bindings.count,0u);
+    // Neither retrigger nor EOF leaks dynamic sources.
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
+}
+TEST_CASE(ManualAuditionCancellationAndNewerRequestsFenceLatePreparation) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    const char* old="BroTracker/Samples/old.wav";const char* fresh="BroTracker/Samples/new.wav";
+    FakePatternSd::files[old].bytes=PickerWav(10000,44100,5);
+    FakePatternSd::files[fresh].bytes=PickerWav(10000,44100,6);
+    CHECK(audition.Request(1,old));
+    for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
+    CHECK(audition.Request(2,fresh));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
+    std::int16_t pcm[128]{};CHECK(audition.Render(pcm,128,true,100));CHECK_EQ(pcm[0],Fixture::Pcm(6,0));
+    audition.Cancel();CHECK(!audition.Snapshot().sample);
+    CHECK(audition.Request(3,old));for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
+    audition.Cancel();for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
+    CHECK(audition.Request(4,fresh));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,false);
+    CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
+    CHECK(audition.Request(5,fresh));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(audition.Snapshot().sample);CHECK(!audition.Render(pcm,128,false,100));CHECK(!audition.Snapshot().sample);
+    // Cached preparation can complete immediately. Cancellation before its
+    // publication turn still prevents that successful result from starting PCM.
+    CHECK(audition.Request(7,fresh));audition.Service(bindings,true);audition.Cancel();
+    for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);
+    FakePatternSd::files[old].bytes=PickerWav(10000,22050);
+    CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(!audition.Snapshot().sample);
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
+}
+
+TEST_CASE(ProgressiveBrowserPublishesUsableBatchesBefore306FileScanCompletesAndNeverMovesSelection) {
+    Fixture f;const char* dir="/Samples/Wav-LQ/Acid";FakePatternSd::files[dir].directory=true;
+    FakePatternSd::files[std::string(dir)+"/nested"].directory=true;
+    FakePatternSd::files[std::string(dir)+"/ignore.txt"].bytes={0};
+    for(unsigned i=0;i<306;++i){char name[96];std::snprintf(name,sizeof(name),"%s/tone_%03u.wav",dir,i);FakePatternSd::files[name].bytes=PickerWav(16);}
+    WavBrowser browser;browser.Begin(dir);SdWavBrowseJob job;WavOpenRequest request;request.version=3;std::strcpy(request.directory,dir);
+    unsigned batches=0,first_selected=0,first_scroll=0;
+    do {
+        ++request.request;CHECK(job.Begin(request));unsigned steps=0;
+        while(!job.Done() && steps++<400) {
+            const auto reads=FakePatternSd::reads.size();job.Step();CHECK(FakePatternSd::reads.size()-reads<=1u);
+            ReadReleased();
+        }
+        CHECK(job.Done());CHECK(job.Result()==WavDirectoryResult::Ok);
+        const auto page=job.Page();CHECK(page.count<=kPatternListPageSize);CHECK(page.scanned<=64);CHECK(browser.Accept(page));job.Consumed();++batches;
+        if(batches==1) {
+            CHECK(!browser.Loading());CHECK(browser.Reading());CHECK(browser.SamplesRead()>1);CHECK(browser.SamplesRead()<306);
+            for(unsigned i=0;i<3;++i)browser.Move(1);
+            std::string path;CHECK_EQ(browser.Select(path),2u);CHECK(path.find("Samples/Wav-LQ/Acid/tone_")==0);
+            CHECK(browser.Message().find("samples read")!=std::string::npos);CHECK(browser.Message().find("PCM")!=std::string::npos);
+        }
+        if(batches==3) {for(unsigned i=0;i<21;++i)browser.Move(1);first_selected=browser.View().selected;first_scroll=browser.View().first;CHECK(browser.Reading());}
+        if(batches>3){CHECK_EQ(browser.View().selected,first_selected);CHECK_EQ(browser.View().first,first_scroll);}
+        request.offset=page.next;if(page.done)break;
+    }while(batches<100);
+    CHECK(batches>3);CHECK(!browser.Reading());CHECK_EQ(browser.SamplesRead(),306u);CHECK_EQ(browser.View().names.size(),308u);
+    CHECK(browser.Message().find("306 samples read")!=std::string::npos);
+}
+TEST_CASE(CooperativeBrowserSupersedesMidMetadataAndReleasesOldHandlesBeforeOpeningNewDirectory) {
+    Fixture f;FakePatternSd::files["/old"].directory=true;FakePatternSd::files["/new"].directory=true;
+    FakePatternSd::files["/old/old.wav"].bytes=PickerWav(16);FakePatternSd::files["/new/new.wav"].bytes=PickerWav(16);
+    SdWavBrowseJob job;WavOpenRequest request;request.version=3;request.request=1;std::strcpy(request.directory,"/old");
+    CHECK(job.Begin(request));for(unsigned i=0;i<7;++i)job.Step();
+    request.request=2;std::strcpy(request.directory,"/new");CHECK(job.Begin(request));
+    for(unsigned i=0;i<200 && !job.Done();++i)job.Step();
+    CHECK(job.Done());CHECK_EQ(job.Request().request,2u);CHECK_EQ(std::string(job.Page().directory),std::string("/new"));
+    CHECK_EQ(job.Page().count,1u);CHECK_EQ(std::string(job.Page().entries[0].name),std::string("new.wav"));ReadReleased();
+}
+
+TEST_CASE(CooperativeEightWavBatchKeepsActiveStreamingVoiceRefilled) {
+    Fixture f(100000);FakePatternSd::files["/batch"].directory=true;
+    for(unsigned i=0;i<8;++i)FakePatternSd::files["/batch/file_"+std::to_string(i)+".wav"].bytes=PickerWav(16);
+    f.Trigger();SdWavBrowseJob job;WavOpenRequest request;request.version=3;request.request=1;std::strcpy(request.directory,"/batch");CHECK(job.Begin(request));
+    unsigned turns=0;
+    while(!job.Done() && turns++<500) {
+        f.producer.Service();f.producer.Service();
+        if(!f.producer.RefillNeeded() && f.producer.BackgroundHeadroom()) {
+            const auto reads=FakePatternSd::reads.size();job.Step();CHECK(FakePatternSd::reads.size()-reads<=1u);
+        }
+        f.Consume(0,0,128);
+    }
+    CHECK(job.Done());CHECK_EQ(job.Page().count,8u);CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);
+}
+
+TEST_CASE(LongSpacedResourceIsSharedByDefinitionsCacheAndRollbackAndStreamsThroughEof) {
+    Fixture f;const auto base=ResourcePaths().UsedBytes();
+    const auto path="Samples/Jungle riddims/"+std::string(80,'a')+"/long sample.wav";
+    FakePatternSd::files[path].bytes=PickerWav(10000,44100,7);
+    InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,path.c_str()));CHECK(defs.Append(1,1,path.c_str()));
+    CHECK_EQ(defs.At(0)->resource,defs.At(1)->resource);CHECK_EQ(ResourcePaths().UsedBytes(),base+path.size()+1);
+    Pcm16MonoView view;CHECK_EQ(f.producer.PreparePath(path.c_str(),view),InstrumentAvailability::Ready);
+    CHECK_EQ(ResourcePaths().UsedBytes(),base+path.size()+1); // cache holds the same interned path
+    VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]=CacheCandidate(view);
+    LiveInstrumentVisit visit;CHECK(visit.Begin(1,defs,bindings));f.producer.PinRollback(bindings);
+    CHECK(defs.Replace(0,2,nullptr));CHECK(defs.Replace(1,3,nullptr));
+    CHECK_EQ(visit.Restore(0,defs,bindings,[](unsigned,const auto*){return true;}),0u);
+    CHECK_EQ(std::string(defs.At(0)->resource),path);CHECK(visit.End(1));f.producer.UnpinRollback();
+    CHECK_EQ(f.player.voices[0].Trigger(view,kSourceFrameStepUnity),VariableVoiceStatus::Success);f.producer.Publish(f.player);
+    defs.Reset(false);bindings={};CHECK(!f.producer.ReclaimOne(bindings)); // voice retains file identity
+    for(unsigned at=0;at<10000;at+=128){f.producer.Service();std::int16_t pcm[128]{};const auto n=std::min(128u,10000-at);CHECK_EQ(f.player.voices[0].Render(pcm,n),VariableVoiceStatus::Success);for(unsigned i=0;i<n;++i)CHECK_EQ(pcm[i],Fixture::Pcm(7,at+i));f.producer.Publish(f.player);}
+    CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,0u);
+    while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(ResourcePaths().UsedBytes(),base);
+}
+TEST_CASE(PathPoolHasBoundedActualLengthStorageAndRejectsCapacityWithoutChangingDefinition) {
+    ResourcePathPool pool;const auto used=pool.UsedBytes();
+    const auto id=pool.Acquire("Samples/shared.wav");CHECK(id);CHECK_EQ(pool.Acquire("Samples/shared.wav"),id);CHECK_EQ(pool.UniqueCount(),1u);
+    pool.Release(id);CHECK_EQ(pool.UniqueCount(),1u);pool.Release(id);CHECK_EQ(pool.UsedBytes(),used);
+    ResourcePathPool::Id ids[256]{};unsigned n=0;
+    for(;n<256;++n){const auto path="Samples/"+std::to_string(n)+"/"+std::string(220,'x')+".wav";ids[n]=pool.Acquire(path.c_str());if(!ids[n])break;}
+    CHECK(n>20 && n<99);CHECK(pool.UsedBytes()<=kResourcePathBytes);for(unsigned i=0;i<n;++i)pool.Release(ids[i]);CHECK_EQ(pool.UsedBytes(),0u);
+    CHECK(pool.Acquire("Samples/reused.wav"));
+    Fixture f;InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,"Samples/old.wav"));const auto original=defs.At(0)->resource;
+    std::vector<ResourcePathRef> pressure;
+    for(unsigned i=0;i<256;++i){ResourcePathRef ref;const auto path="Samples/pressure_"+std::to_string(i)+"/"+std::string(220,'x')+".wav";if(!ref.Assign(path.c_str()))break;pressure.push_back(ref);}
+    const auto candidate="Samples/"+std::string(240,'z')+".wav";
+    CHECK(!defs.Replace(0,1,candidate.c_str()));CHECK_EQ(defs.At(0)->resource,original);CHECK_EQ(std::string(original),std::string("Samples/old.wav"));
+    Pcm16MonoView rejected;CHECK_EQ(f.producer.PreparePath(candidate.c_str(),rejected),InstrumentAvailability::PathCapacity);
+    InstrumentDefineRequest request;request.request=1;request.expected=0;request.type=1;std::strcpy(request.resource,candidate.c_str());
+    VariableRateSampleBindings bindings;bindings.count=1;bindings.bindings[0]=CacheCandidate(f.producer.reports[0].view.Mono());bool installed=false;
+    CHECK_EQ(RelinkSampleDefinition(defs,bindings,request,bindings.bindings[0],true,[&](const auto&){installed=true;return true;}),9u);
+    CHECK(!installed);CHECK_EQ(defs.At(0)->resource,original);
+    pressure.clear();CHECK(defs.Replace(0,1,candidate.c_str()));
+}
+TEST_CASE(LongPathCodecIsVersionedBoundedAndDoesNotTruncateOrAcceptTraversal) {
+    const auto relative="Samples/Jungle riddims/"+std::string(210,'b')+".wav";
+    char token[kPathProtocolCapacity],path[kSamplePathMaximum+1];CHECK(relative.size()>63);CHECK(EncodePathToken(relative.c_str(),token,sizeof(token)));
+    CHECK(DecodePathToken(token,path,sizeof(path),true));CHECK_EQ(std::string(path),relative);
+    WavOpenRequest request;const auto directory="/Samples/Jungle riddims/"+std::string(100,'d');CHECK(EncodePathToken(directory.c_str(),token,sizeof(token)));
+    const auto line=std::string("BTSTORE1 WAVOPEN 4 1 0 0 ")+token;CHECK(ParseWavOpen(line.data(),line.size(),request));CHECK_EQ(std::string(request.directory),directory);
+    CHECK(!DecodePathToken("@610062",path,sizeof(path),true));CHECK(!ValidSamplePath("Samples/../escape.wav"));CHECK(!ValidSamplePath("Samples//empty.wav"));
+    const auto maximum="Samples/"+std::string(243,'a')+".wav";CHECK_EQ(maximum.size(),255u);CHECK(InstrumentDefinitions::ValidResource(maximum.c_str()));
+    CHECK(!InstrumentDefinitions::ValidResource((maximum+"x").c_str()));CHECK(!EncodePathToken((maximum+"x").c_str(),token,sizeof(token)));
+    InstrumentDefineRequest update;CHECK(EncodePathToken(relative.c_str(),token,sizeof(token)));const auto edit=std::string("BTINS1 EDIT 2 2 0 1 ")+token;CHECK(ParseInstrumentEdit(edit.data(),edit.size(),update));CHECK_EQ(std::string(update.resource),relative);
+    InstrumentDefinitions defs(false);CHECK(defs.Append(0,1,relative.c_str()));const auto facts=InstrumentDefinitionFacts(0,defs.At(0),InstrumentAvailability::Ready);char reply[kPathProtocolCapacity];CHECK(FormatInstrumentFacts(facts,reply,sizeof(reply),3));InstrumentFacts parsed;CHECK(ParseInstrumentFacts(reply,std::strlen(reply)-1,parsed));CHECK_EQ(std::string(parsed.resource),relative);
+    CHECK(!FormatInstrumentFacts(facts,reply,sizeof(reply),2)); // legacy must never truncate
+}
+
+TEST_CASE(ResourceEntryLimitAndFreedGapReuseRemainBoundedBelowByteBudget) {
+    ResourcePathPool pool;ResourcePathPool::Id ids[kResourcePathEntries]{};
+    for(unsigned i=0;i<kResourcePathEntries;++i){const auto path="Samples/s"+std::to_string(i)+".wav";ids[i]=pool.Acquire(path.c_str());CHECK(ids[i]);}
+    CHECK_EQ(pool.UniqueCount(),kResourcePathEntries);CHECK(pool.UsedBytes()<kResourcePathBytes);
+    CHECK_EQ(pool.Acquire("Samples/overflow.wav"),0u);
+    pool.Release(ids[50]);const auto next=pool.Acquire("Samples/new.wav");CHECK(next);CHECK_EQ(next,ids[50]);
+    CHECK_EQ(std::string(pool.Resolve(ids[51])),std::string("Samples/s51.wav"));
+}
+namespace {
+std::vector<std::uint8_t> StereoPickerWav(unsigned frames,unsigned rate=44100) {
+    auto wav=PickerWav(frames,rate);
+    wav.resize(44+4*frames);
+    PatternFilePut32(wav.data()+4,36+4*frames);
+    wav[22]=2;PatternFilePut32(wav.data()+28,4*rate);wav[32]=4;
+    PatternFilePut32(wav.data()+40,4*frames);
+    for(unsigned i=0;i<frames;++i) {
+        const std::uint16_t left=1200,right=static_cast<std::uint16_t>(-2700);
+        wav[44+4*i]=left&255;wav[45+4*i]=left>>8;
+        wav[46+4*i]=right&255;wav[47+4*i]=right>>8;
+    }
+    return wav;
+}
+}
+TEST_CASE(ProductionStreamingPreparesStereoAndRestoresMonoBindingAfterLiveVisit) {
+    Fixture f;
+    const char* path="BroTracker/Samples/stereo.wav";
+    FakePatternSd::files[path].bytes=StereoPickerWav(7000);
+    Pcm16MixedSampleView stereo;
+    CHECK_EQ(f.producer.PreparePath(path,stereo),InstrumentAvailability::Ready);
+    CHECK(stereo.IsStereo());CHECK_EQ(stereo.frame_count,7000u);
+    CHECK_EQ(stereo.streaming->layout.ring_frames,2048u);
+    CHECK_EQ(stereo.streaming->PrefixFrames(),1024u);
+    CHECK(f.producer.BeginPrepareAsync(path));
+    CHECK_EQ(f.producer.PreparedMixedView().streaming,stereo.streaming);
+    const char* incremental="BroTracker/Samples/incremental-stereo.wav";
+    FakePatternSd::files[incremental].bytes=StereoPickerWav(7000);
+    CHECK(f.producer.BeginPrepareAsync(incremental));
+    for(unsigned i=0;i<32 && !f.producer.PreparationDone();++i) f.producer.PreparationStep();
+    CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::Ready);
+    CHECK(f.producer.PreparedMixedView().IsStereo());
+
+    auto bindings=SelectDevelopmentFixture(f.producer.reports[1].view).bindings;
+    const auto mono=*CacheBinding(bindings,0);
+    InstrumentDefinitions definitions;
+    RealtimePattern pattern;pattern.active_rows=1;pattern.active_channels=3;
+    pattern.cells[0][0]={60,0};pattern.cells[0][1]={60,0};pattern.cells[0][2]={60,2};
+    auto centered=mono;centered.instrument=6;bindings.bindings[bindings.count++]=centered;
+    pattern.cells[0][1].instrument=6;
+    VariableRatePatternPlayer player;
+    CHECK_EQ(player.Configure(10000,44100,pattern,bindings),VariableRatePatternPlayerStatus::Success);
+    CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+    f.producer.PinRollback(bindings);
+    auto candidate=mono;candidate.sample=stereo;
+    CHECK(player.ReplaceLiveInstrumentBinding(candidate));
+    std::int16_t left[128],right[128];
+    left[0]=77;right[0]=88;
+    CHECK_EQ(player.RenderStereo(left,nullptr,128),VariableRatePatternPlayerStatus::InvalidDestination);
+    CHECK_EQ(player.GetNextSamplePosition(),0u);CHECK_EQ(left[0],77);CHECK_EQ(right[0],88);
+    CHECK_EQ(player.RenderStereo(left,right,128),VariableRatePatternPlayerStatus::Success);
+    CHECK_EQ(static_cast<int>(left[0])-right[0],3120);
+    f.producer.Publish(player);f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.back().path,std::string(path));
+    CHECK_EQ(FakePatternSd::reads.back().offset,4140u);
+    CHECK_EQ(FakePatternSd::reads.back().count,4096u);
+    const char* malformed="BroTracker/Samples/stereo-malformed.wav";
+    FakePatternSd::files[malformed].bytes=StereoPickerWav(4000);
+    FakePatternSd::files[malformed].bytes[32]=2;
+    auto rejected=stereo;
+    CHECK_EQ(f.producer.PreparePath(malformed,rejected),InstrumentAvailability::PreparationFailed);
+    CHECK_EQ(rejected.streaming,stereo.streaming);
+    CHECK_EQ(player.SampleVoice(0)->StreamSnapshot().sample,stereo.streaming);
+    CHECK(player.ReplaceLiveInstrumentBinding(mono));
+    f.producer.UnpinRollback();
+    CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+    CHECK_EQ(player.RenderStereo(left,right,128),VariableRatePatternPlayerStatus::Success);
+    for(unsigned i=0;i<128;++i) CHECK_EQ(left[i],right[i]);
 }

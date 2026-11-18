@@ -16,6 +16,7 @@ inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& 
 inline BringUpAction MapWindowsBrowserAction(const SDL_Event& event) {
     if(event.type!=SDL_KEYDOWN || event.key.repeat || (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI)))return BringUpAction::None;
     switch(event.key.keysym.sym) {
+    case SDLK_p:return BringUpAction::BrowserAudition;
     case SDLK_UP:return BringUpAction::BrowserUp;case SDLK_DOWN:return BringUpAction::BrowserDown;
     case SDLK_RETURN:case SDLK_KP_ENTER:return BringUpAction::BrowserConfirm;
     case SDLK_BACKSPACE:return BringUpAction::BrowserBack;

@@ -18,12 +18,7 @@ void Hash(std::uint32_t& hash,const Block& block) {
 }
 void Audio(SelectedPatternBringUpControl& control,Block& left,Block& right) {
     left.fill(1234);right.fill(2345);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
     control.AudioBlock(left.data(),left.size(),true,right.data());
-#else
-    control.AudioBlock(left.data(),left.size(),true);
-    right=left; // Normal production graph fans source output zero to both sides.
-#endif
     PatternAppliedRequest ack;
     while(control.TakeApplied(ack))CHECK_EQ(ack.result,PatternPlayerStatus::Success);
 }
@@ -67,7 +62,7 @@ TEST_CASE(DiagnosticStereoGraphUsesSharedSourceChannelsForEveryBackend) {
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
         CHECK_EQ(kProductionRightSourceChannel,1u);
 #else
-        CHECK_EQ(kProductionRightSourceChannel,0u);
+        CHECK_EQ(kProductionRightSourceChannel,1u);
 #endif
     }
 }

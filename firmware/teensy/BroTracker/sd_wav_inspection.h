@@ -14,7 +14,7 @@ struct SdWavInspection {
 struct DevelopmentWavInspection {
     bool attempted=false,sd_ready=false;
     SdWavInspection files[3];
-    void InspectOnce(bool initialized) noexcept {
+    void InspectOnce(bool initialized,bool stereo=false) noexcept {
         if(attempted) return;
         attempted=true; sd_ready=initialized;
         if(!initialized) return;
@@ -22,7 +22,7 @@ struct DevelopmentWavInspection {
             SdWavBufferReader reader; // Shared read lock spans validation; RAII closes every exit.
             files[i].open_status=reader.Open(kDevelopmentWavPaths[i]);
             if(files[i].open_status==SdWavBufferStatus::Success)
-                files[i].validation=InspectWavMetadata(reader,files[i].metadata);
+                files[i].validation=InspectWavMetadata(reader,files[i].metadata,kWavInspectionChunkLimit,stereo);
         }
     }
     bool Total(std::uint64_t& bytes) const noexcept {

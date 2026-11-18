@@ -707,3 +707,24 @@ TEST_CASE(HandheldWavBrowserAOpensParentAndNestedFileBCancelsWithoutPatternEdits
         modifier.type=raw?SDL_JOYBUTTONUP:SDL_CONTROLLERBUTTONUP;f.input.Handle(modifier,0,true,f.editor);
     }
 }
+
+TEST_CASE(ArkOSManualBrowserAuditionUsesXEdgesWithoutEditingPattern) {
+    for(bool raw:{false,true}) {
+        InputFixture f;SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
+        for(unsigned b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b){bindings[b].bindType=SDL_CONTROLLER_BINDTYPE_BUTTON;bindings[b].value.button=b;}
+        f.input.Select(7,raw?ArkOSInputStream::VerifiedRaw:ArkOSInputStream::Controller,bindings);
+        f.input.SetActionBarrier(true,true,false,false,true,true,false);f.input.SetWavAudition(true);
+        const auto before=*f.editor.Draft();
+        const auto edge=[&](unsigned b,bool down){SDL_Event e{};
+            if(raw){e.type=down?SDL_JOYBUTTONDOWN:SDL_JOYBUTTONUP;e.jbutton.which=7;e.jbutton.button=b;}
+            else{e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=7;e.cbutton.button=b;}
+            return f.input.Handle(e,0,true,f.editor).transport;};
+        CHECK(edge(SDL_CONTROLLER_BUTTON_X,true)==BringUpAction::BrowserAudition);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_X,true)==BringUpAction::None);
+        f.input.Tick(10000,true,f.editor);CHECK(SamePattern(before,*f.editor.Draft()));
+        edge(SDL_CONTROLLER_BUTTON_X,false);CHECK(edge(SDL_CONTROLLER_BUTTON_X,true)==BringUpAction::BrowserAudition);
+        edge(SDL_CONTROLLER_BUTTON_X,false);f.input.SetWavAudition(false);
+        CHECK(edge(SDL_CONTROLLER_BUTTON_X,true)==BringUpAction::None);
+        edge(SDL_CONTROLLER_BUTTON_X,false);CHECK(edge(SDL_CONTROLLER_BUTTON_A,true)==BringUpAction::BrowserConfirm);
+    }
+}

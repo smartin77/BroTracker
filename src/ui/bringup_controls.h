@@ -5,7 +5,7 @@
 #include "instrument_navigation.h"
 #include <array>
 // Temporary host test controls; no engine or final-protocol responsibilities.
-enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext, InstrumentPreviousField, InstrumentNextField, InstrumentIncrease, InstrumentDecrease, InstrumentActivate };
+enum class BringUpAction { None, Start, Stop, StopExit, Exit, PatternToggle, ResetStop, ScreenLeft, ScreenRight, ScreenUp, ScreenDown, BrowserUp, BrowserDown, BrowserAudition, BrowserConfirm, BrowserCancel, BrowserBack, InstrumentCancel, InstrumentSample, InstrumentMidi, InstrumentSynth, InstrumentTypeNext, InstrumentPreviousField, InstrumentNextField, InstrumentIncrease, InstrumentDecrease, InstrumentActivate };
 class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
@@ -57,8 +57,9 @@ private:
     void TickLiveTypes(std::uint32_t now);
     bool CaptureLiveDefinition();
     bool StageLiveSample(const std::string& path,std::uint32_t now);
-    void OpenWavDirectory(const std::string& path,bool fallback,std::uint32_t now);
+    void OpenWavDirectory(const std::string& path,std::uint32_t now);
     WavBrowser wav_browser_;bool wav_collecting_=false;
+    int wav_startup_candidate_=-1;
     void LoadSelected(std::uint32_t now);
     bool confirm_load_replace_=true,browser_confirm_=false,browser_loading_=false,browser_initialized_=false;
     FileListView browser_list_;
@@ -87,6 +88,7 @@ private:
     bool wav_picker_=false;std::string sample_path_;
     bool load_save_screen_=false;
     std::string screen_status_;
+    std::string audition_feedback_;
     std::uint32_t screen_started_=0;
     BringUpSerial& serial_;
     FILE* log_;

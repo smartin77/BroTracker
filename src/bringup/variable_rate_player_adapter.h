@@ -27,6 +27,13 @@ public:
     PatternPlayerStatus SetChannelGains(const Pcm16ChannelGains& gains) noexcept { return Map(player_.SetChannelGains(gains)); }
     Pcm16ChannelGains GetChannelGains() const noexcept { return player_.GetChannelGains(); }
     PatternPlayerStatus Render(std::int16_t* output,std::uint64_t frames) noexcept { return Map(player_.Render(output,frames)); }
+    PatternPlayerStatus RenderStereo(std::int16_t* left,std::int16_t* right,std::uint64_t frames) noexcept {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+        return Map(player_.RenderStereo(left,right,frames,true));
+#else
+        return Map(player_.RenderStereo(left,right,frames));
+#endif
+    }
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
     const std::int16_t* DiagnosticRight() const noexcept { return player_.DiagnosticRight(); }
 #endif

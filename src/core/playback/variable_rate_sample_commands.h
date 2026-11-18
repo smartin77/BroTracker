@@ -13,7 +13,7 @@ namespace BroTracker
     {
         std::uint8_t instrument = kNoInstrumentUpdate;
         Note reference_note = 0;
-        Pcm16MonoView sample;
+        Pcm16MixedSampleView sample;
         InstrumentType type = InstrumentType::Sample;
         // Optional binding attenuation; ordinary instruments remain exact unity.
         std::uint8_t sample_level_percent = 100;
@@ -81,7 +81,7 @@ namespace BroTracker
                 }
                 if(binding.type != InstrumentType::Sample) return VariableSampleCommandStatus::InvalidSample;
                 if(binding.sample_level_percent>100) return VariableSampleCommandStatus::InvalidGain;
-                const auto status = probe.Trigger(binding.sample, kSourceFrameStepUnity);
+                const auto status = binding.sample.Trigger(probe,kSourceFrameStepUnity);
                 if (status == VariableVoiceStatus::InvalidSample) return VariableSampleCommandStatus::InvalidSample;
                 if (status == VariableVoiceStatus::SampleRateMismatch) return VariableSampleCommandStatus::SampleRateMismatch;
                 if (status == VariableVoiceStatus::RangeOverflow) return VariableSampleCommandStatus::RangeOverflow;
@@ -140,8 +140,9 @@ namespace BroTracker
         // Reject decreasing offsets; renderer validates block bounds/ownership.
         // Work bounded by eight events, eight channel-state entries and 8*99 lookups.
         // No silent truncation; no measured Teensy execution budget is claimed.
+        template<class Sample>
         [[nodiscard]] VariableSampleCommandStatus Prepare(const RowEventBatch& events,
-            VariableRateVoiceCommandBatch& output,bool metadata_only=false) noexcept
+            BasicVariableRateVoiceCommandBatch<Sample>& output,bool metadata_only=false) noexcept
         {
             static_assert(kVariableRateVoiceCommandCapacity >= kRealtimePatternChannelCapacity,
                 "Every row event must fit the prepared command batch");
@@ -149,7 +150,7 @@ namespace BroTracker
             if (events.count > kRealtimePatternChannelCapacity)
                 return VariableSampleCommandStatus::InvalidEventCount;
             auto tentative = state_;
-            VariableRateVoiceCommandBatch result{};
+            BasicVariableRateVoiceCommandBatch<Sample> result{};
             for (std::size_t i = 0; i < events.count; ++i)
             {
                 const auto& event = events.events[i];
@@ -162,7 +163,7 @@ namespace BroTracker
                 if (status == ChannelStateStatus::InvalidNoteOffTiming) return VariableSampleCommandStatus::InvalidNoteOffTiming;
                 if (event.note == NOTE_EMPTY || (event.note == NOTE_OFF &&
                     event.note_off_timing == NoteOffTiming::EndOfPosition)) continue;
-                VariableRateVoiceCommand command{event.channel, event.sample_offset, VariableRateVoiceAction::Stop, {}};
+                BasicVariableRateVoiceCommand<Sample> command{event.channel, event.sample_offset, VariableRateVoiceAction::Stop, {}};
                 if (event.note != NOTE_OFF)
                 {
                     if (applied.after.instrument == kNoInstrumentUpdate) {
@@ -202,7 +203,10 @@ namespace BroTracker
                     if (mapped == NotePlaybackStepStatus::InvalidReferenceNote)
                         return VariableSampleCommandStatus::InvalidReferenceNote;
                     command.action = VariableRateVoiceAction::Trigger;
-                    command.sample = selected->sample;
+                    if constexpr(std::is_same_v<Sample,Pcm16MonoView>) {
+                        if(selected->sample.IsStereo()) return VariableSampleCommandStatus::InvalidSample;
+                        command.sample=selected->sample.Mono();
+                    } else command.sample=selected->sample;
                     command.sample_level_percent = selected->sample_level_percent;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                     command.instrument = selected->instrument;

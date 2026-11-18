@@ -1,5 +1,6 @@
 #pragma once
 #include "core/audio/pcm16_mixer.h"
+#include <algorithm>
 
 namespace BroTracker
 {
@@ -12,6 +13,13 @@ namespace BroTracker
             kPcm16UnityGain, kPcm16UnityGain, kPcm16UnityGain, kPcm16UnityGain};
     };
     enum class Pcm16GainMixStatus { Success, InvalidGain, InvalidInput, InvalidDestination, RangeOverflow };
+    namespace Pcm16GainMixDetail {
+        // Both stereo sums reach this boundary independently, after all products.
+        inline std::int16_t RoundAndSaturate(std::int64_t sum) noexcept {
+            const auto rounded=(sum>=0 ? sum+kPcm16UnityGain/2 : sum-kPcm16UnityGain/2)/kPcm16UnityGain;
+            return static_cast<std::int16_t>(std::clamp(rounded,std::int64_t{-32768},std::int64_t{32767}));
+        }
+    }
 
     // Separate stateless gain primitive; not a final instrument/channel/master
     // volume or headroom policy. Zero gain affects audio contribution only: it
@@ -53,11 +61,7 @@ namespace BroTracker
             std::int64_t sum = 0;
             for (unsigned channel = 0; channel < kRealtimePatternChannelCapacity; ++channel)
                 sum += static_cast<std::int64_t>(inputs.channels[channel][frame]) * gains.channels[channel];
-            auto rounded = (sum >= 0 ? sum + kPcm16UnityGain / 2 : sum - kPcm16UnityGain / 2) /
-                kPcm16UnityGain;
-            if (rounded < std::numeric_limits<std::int16_t>::min()) rounded = std::numeric_limits<std::int16_t>::min();
-            else if (rounded > std::numeric_limits<std::int16_t>::max()) rounded = std::numeric_limits<std::int16_t>::max();
-            destination[frame] = static_cast<std::int16_t>(rounded);
+            destination[frame] = Pcm16GainMixDetail::RoundAndSaturate(sum);
         }
         return Pcm16GainMixStatus::Success;
     }

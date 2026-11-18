@@ -343,6 +343,7 @@ add_test(NAME BroTrackerStartupStorageTests COMMAND BroTrackerStartupStorageTest
 # Actual production graph/lifecycle with isolated fake PJRC objects and bus.
 add_executable(BroTrackerProductionAudioTests tests/test_main.cpp tests/test_production_audio_output.cpp
     firmware/teensy/BroTracker/production_audio_output.cpp)
+target_compile_definitions(BroTrackerProductionAudioTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE)
 target_include_directories(BroTrackerProductionAudioTests PRIVATE tests/stubs/production_audio tests ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerProductionAudioTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerProductionAudioTests COMMAND BroTrackerProductionAudioTests)
@@ -388,3 +389,8 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL OR BROTRACKER_
     add_test(NAME BroTrackerSampleBrowserTests COMMAND BroTrackerSampleBrowserTests)
     set_tests_properties(BroTrackerSampleBrowserTests PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
+
+# Foreground Teensy TX byte ring and slow-reader/backpressure invariants.
+add_executable(BroTrackerSerialTxQueueTests tests/test_main.cpp tests/test_serial_tx_queue.cpp)
+target_include_directories(BroTrackerSerialTxQueueTests PRIVATE tests src)
+add_test(NAME BroTrackerSerialTxQueueTests COMMAND BroTrackerSerialTxQueueTests)

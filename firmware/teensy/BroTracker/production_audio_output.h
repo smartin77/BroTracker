@@ -7,11 +7,21 @@
 #include "../../../src/bringup/device_facts.h"
 
 namespace BroTracker {
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+#if defined(BROTRACKER_PATTERN_VARIABLE_RATE) || defined(BROTRACKER_DIAGNOSTIC_SYNTH_LEFT)
 constexpr unsigned kProductionRightSourceChannel=1;
 #else
 constexpr unsigned kProductionRightSourceChannel=0;
 #endif
+// Acquire a complete frame pair before the audio owner can render or publish.
+template<class Allocate,class Release>
+auto AllocateAudioPair(Allocate allocate,Release release) noexcept {
+    using Block=decltype(allocate());
+    struct Pair { Block left,right; };
+    auto left=allocate();
+    auto right=left ? allocate() : nullptr;
+    if(left && !right) { release(left); left=nullptr; }
+    return Pair{left,right};
+}
 // Foreground, boot-only activation. Placement new uses fixed static storage;
 // live outputs are never destroyed, replaced or reinitialized.
 class ProductionAudioOutput {

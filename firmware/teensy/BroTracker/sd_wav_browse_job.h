@@ -8,7 +8,10 @@ namespace BroTracker {
 class SdWavBrowseJob {
 public:
     bool Begin(const WavOpenRequest& request) {
-        if(Busy())return false;
+        if(Busy()) {
+            if(request.request==request_.request)return false;
+            replacement_=request;phase_=CancelEntry;return true;
+        }
         request_=request;page_={};result_=WavDirectoryResult::Ok;fallback_=0;finish_page_=false;
         std::strcpy(directory_,request.directory);phase_=Open;return true;
     }
@@ -21,6 +24,8 @@ public:
     void Step() {
         if(!Busy())return;
         SdReadScope lease;if(!lease)return;
+        if(phase_==CancelEntry){(void)entry_.close();phase_=CancelDir;return;}
+        if(phase_==CancelDir){(void)dir_.close();phase_=Idle;Begin(replacement_);return;}
         if(phase_==Open) {
             if(!dir_.open(directory_,O_RDONLY)) {
                 const auto error=SD.sdfs.sdErrorCode()?WavDirectoryResult::ReadError:WavDirectoryResult::Missing;
@@ -54,7 +59,7 @@ public:
                 (!directory && !(request_.version>=3?WavFilename(name):CompatibleWavName(name)))){phase_=CloseEntry;return;}
             auto& e=page_.entries[page_.count++];std::strcpy(e.name,name);e.kind=directory?WavEntryKind::Directory:WavEntryKind::File;
             finish_page_|=page_.count>=kPatternListPageSize;
-            if(!directory && request_.version>=3){inspection_.Begin();phase_=Inspect;finish_page_=true;}
+            if(!directory && request_.version>=3){inspection_.Begin(request_.version>=5);phase_=Inspect;}
             else phase_=CloseEntry;
             return;
         }
@@ -86,8 +91,8 @@ public:
         phase_=DonePhase;
     }
 private:
-    enum Phase{Idle,Open,Seek,Next,Name,Inspect,CloseEntry,CloseDir,DonePhase};Phase phase_=Idle;
-    FsFile dir_,entry_;WavInspectionJob inspection_;WavOpenRequest request_{};WavBrowsePage page_{};
-    WavDirectoryResult result_=WavDirectoryResult::Ok;char directory_[64]{};unsigned fallback_=0;bool finish_page_=false;
+    enum Phase{Idle,Open,Seek,Next,Name,Inspect,CloseEntry,CloseDir,CancelEntry,CancelDir,DonePhase};Phase phase_=Idle;
+    FsFile dir_,entry_;WavInspectionJob inspection_;WavOpenRequest request_{},replacement_{};WavBrowsePage page_{};
+    WavDirectoryResult result_=WavDirectoryResult::Ok;char directory_[kSamplePathMaximum+1]{};unsigned fallback_=0;bool finish_page_=false;
 };
 }

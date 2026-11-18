@@ -2,6 +2,7 @@
 #include "core/audio/variable_rate_sample_voice.h"
 #include "core/audio/variable_rate_voice_block_renderer.h"
 #include <array>
+#include <cmath>
 using namespace BroTracker;
 namespace {
 struct Fixture {
@@ -82,6 +83,41 @@ TEST_CASE(StreamedRefillPriorityAccountsForPitchCapacityAndEof) {
     span.end=f.source.frames; CHECK_EQ(StreamRefillUrgency(slow,span),UINT64_MAX); // final EOF drain
     slow.sample=nullptr; CHECK_EQ(StreamRefillUrgency(slow,span),UINT64_MAX);
 }
+TEST_CASE(StreamSourceGeometryUsesCompleteFramesWithoutEnablingOtherFormats) {
+    const StreamBufferLayout mono16{{44100,1,16}}, stereo16{{44100,2,16}}, mono8{{44100,1,8}};
+    const StreamBufferLayout stereo8{{44100,2,8}}, invalid{{44100,1,12}};
+    CHECK_EQ(mono16.bytes_per_frame,2u);
+    CHECK_EQ(mono16.start_frames,2048u);
+    CHECK_EQ(stereo16.bytes_per_frame,4u);
+    CHECK_EQ(stereo16.ring_frames,2048u);
+    CHECK_EQ(stereo16.read_frames,1024u);
+    CHECK_EQ(mono8.ring_frames,8192u);
+    CHECK_EQ(stereo8.read_frames,2048u);
+    CHECK_EQ(invalid.bytes_per_frame,0u);
+    CHECK_EQ(invalid.ring_frames,0u);
+
+    Fixture f;
+    VariableRateSampleVoice voice;
+    CHECK_EQ(voice.Configure(44100),VariableVoiceStatus::Success);
+    const StreamedSample stereo{f.start.data(),f.source.frames,f.buffers,{44100,2,16}};
+    const StreamedSample lower_rate{f.start.data(),f.source.frames,f.buffers,{22050,1,16}};
+    for(const auto* source:{&stereo,&lower_rate})
+        CHECK_EQ(voice.Trigger({source->start,source->frames,44100,source},kSourceFrameStepUnity),
+            VariableVoiceStatus::InvalidSample);
+}
+TEST_CASE(StreamReadinessStopsAtGapOrStaleSpan) {
+    Fixture f;
+    StreamedVoiceSnapshot voice{&f.source,7,kSourceFrameStepUnity,1024};
+    StreamedVoiceBuffer ready{f.ring.data(),7,&f.source,2304,3072};
+    CHECK_EQ(StreamRefillUrgency(voice,ready),1024u); // only the prefix is reachable
+    voice.position=2048;
+    CHECK_EQ(StreamRefillUrgency(voice,ready),0u);
+    voice.position=2304;
+    CHECK_EQ(StreamRefillUrgency(voice,ready),768u);
+    --ready.generation;
+    CHECK_EQ(StreamReadyEnd(f.source,ready,voice.generation,voice.position),voice.position);
+    CHECK_EQ(StreamRefillUrgency(voice,ready),UINT64_MAX);
+}
 TEST_CASE(StreamedCommandsKeepNoteOffOffsetAndResetGeneration) {
     Fixture f; VariableRateVoiceBlockRenderer renderer; CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
     std::int16_t pcm[8][128]{}; VariableRateVoiceOutputs out; for(unsigned c=0;c<8;++c) out.channels[c]=pcm[c];
@@ -157,4 +193,159 @@ TEST_CASE(StreamedPublicationRejectsStaleGenerationAndDifferentSourceWithoutMuta
         CHECK_EQ(f.ready.sample,saved.sample); CHECK_EQ(f.ready.begin,saved.begin); CHECK_EQ(f.ready.end,saved.end);
         CHECK(f.ring==pcm); f.CheckRange(4096,8192);
     }
+}
+
+namespace {
+struct StereoStreamFixture {
+    static constexpr std::uint32_t kFrames=7139;
+    std::array<std::int16_t,2*kFrames> pcm{};
+    std::array<std::int16_t,kStreamRingBytes/sizeof(std::int16_t)> ring{};
+    StreamedVoiceBuffer buffers[kStreamVoiceCount]{};
+    StreamedSample source{pcm.data(),kFrames,buffers,{44100,2,16}};
+
+    StereoStreamFixture() {
+        for(std::uint32_t i=0;i<kFrames;++i) {
+            pcm[2*i]=(i/257)%2 ? 0 : std::int16_t(int(i*173%65536)-32768);
+            pcm[2*i+1]=(i/257)%2 ? std::int16_t(32767-int(i*237%65536)) : 0;
+        }
+        buffers[0].ring=ring.data();
+    }
+    Pcm16StereoView View() const { return {pcm.data(),source.frames,44100,&source}; }
+    void StartSpan(const VariableRateSampleVoice& voice) {
+        const auto state=voice.StreamSnapshot();
+        buffers[0]={ring.data(),state.generation,&source,source.PrefixFrames(),source.PrefixFrames()};
+    }
+    void Publish(const StreamedVoiceSnapshot& state,std::uint32_t at,std::uint32_t count) {
+        for(std::uint32_t i=0;i<count;++i) {
+            const auto slot=(at+i)%source.layout.ring_frames;
+            ring[2*slot]=pcm[2*(at+i)];
+            ring[2*slot+1]=pcm[2*(at+i)+1];
+        }
+        CHECK(PublishStreamRead(buffers[0],state,at,count));
+    }
+    void Refill(const VariableRateSampleVoice& voice) {
+        const auto state=voice.StreamSnapshot();
+        const auto& ready=buffers[0];
+        if(StreamRefillUrgency(state,ready)!=UINT64_MAX) {
+            const auto at=ready.end;
+            Publish(state,at,std::min<std::uint32_t>(source.layout.read_frames,source.frames-at));
+        }
+    }
+    std::int16_t Reference(double at,unsigned side) const {
+        if(at>=source.frames) return 0;
+        const auto i=static_cast<std::uint32_t>(at);
+        const auto j=std::min(i+1,source.frames-1);
+        return static_cast<std::int16_t>(std::lround(pcm[2*i+side]+(pcm[2*j+side]-pcm[2*i+side])*(at-i)));
+    }
+};
+}
+
+TEST_CASE(StreamedStereoMatchesIndependentInterleavedReferenceThroughEof) {
+    for(const double pitch:{0.5,1.0,1.5,2.0,4.0}) {
+        StereoStreamFixture f;
+        VariableRateSampleVoice voice;
+        CHECK_EQ(voice.Configure(44100),VariableVoiceStatus::Success);
+        CHECK_EQ(voice.TriggerStereo(f.View(),std::uint64_t(pitch*kSourceFrameStepUnity)),VariableVoiceStatus::Success);
+        f.StartSpan(voice);
+        unsigned output_frame=0;
+        std::uint32_t expected_hash=2166136261u;
+        while(output_frame*pitch<f.source.frames) {
+            f.Refill(voice);
+            std::int16_t left[79],right[79];
+            CHECK_EQ(voice.RenderStereo(left,right,79),VariableVoiceStatus::Success);
+            for(unsigned i=0;i<79;++i,++output_frame) {
+                const double at=output_frame*pitch;
+                CHECK_EQ(left[i],f.Reference(at,0));
+                CHECK_EQ(right[i],f.Reference(at,1));
+                if(at<f.source.frames) for(unsigned side=0;side<2;++side) {
+                    const auto word=static_cast<std::uint16_t>(f.Reference(at,side));
+                    expected_hash=(expected_hash^(word&255u))*16777619u;
+                    expected_hash=(expected_hash^(word>>8))*16777619u;
+                }
+            }
+        }
+        CHECK(!voice.IsActive());
+        CHECK_EQ(voice.StreamSnapshot().eofs,1u);
+        CHECK_EQ(voice.StreamSnapshot().underruns,0u);
+        CHECK_EQ(voice.StreamSnapshot().hash,expected_hash);
+    }
+}
+
+TEST_CASE(StreamedStereoRequiresBothEndpointsAndFencesPreviousGenerations) {
+    StereoStreamFixture f;
+    VariableRateSampleVoice voice;
+    CHECK_EQ(voice.Configure(44100),VariableVoiceStatus::Success);
+    const auto step=kSourceFrameStepUnity/2;
+    CHECK_EQ(voice.TriggerStereo(f.View(),step),VariableVoiceStatus::Success);
+    f.StartSpan(voice);
+    const auto old=voice.StreamSnapshot();
+    f.Publish(old,1024,1024);
+    CHECK_EQ(voice.TriggerStereo(f.View(),step),VariableVoiceStatus::Success);
+    std::array<std::int16_t,2049> left{},right{};
+    CHECK_EQ(voice.RenderStereo(left.data(),right.data(),left.size()),VariableVoiceStatus::Success);
+    CHECK_EQ(left[2046],f.Reference(1023,0));
+    CHECK_EQ(right[2046],f.Reference(1023,1));
+    // A fractional read at 1023.5 cannot use just the valid prefix endpoint.
+    for(unsigned i:{2047u,2048u}) { CHECK_EQ(left[i],0); CHECK_EQ(right[i],0); }
+    CHECK_EQ(voice.StreamSnapshot().underruns,2u);
+    CHECK_EQ(voice.GetFramePosition(),1024u);
+    CHECK_EQ(voice.GetFractionalPhase(),UINT32_C(0x80000000));
+    f.StartSpan(voice);
+    CHECK(!PublishStreamRead(f.buffers[0],old,1024,1024));
+    f.Publish(voice.StreamSnapshot(),1025,1024); // Gap at 1024, straddling the ring wrap.
+    CHECK_EQ(voice.RenderStereo(left.data(),right.data(),3),VariableVoiceStatus::Success);
+    CHECK_EQ(left[0],0); CHECK_EQ(right[0],0);
+    for(unsigned i=1;i<3;++i) {
+        CHECK_EQ(left[i],f.Reference(1024.5+i*0.5,0));
+        CHECK_EQ(right[i],f.Reference(1024.5+i*0.5,1));
+    }
+    CHECK_EQ(voice.StreamSnapshot().underruns,3u);
+}
+
+TEST_CASE(StreamedStereoOneFrameClampsInterpolationAndRejectsMonoOutput) {
+    StereoStreamFixture f;
+    f.source.frames=1;
+    f.pcm[0]=INT16_MIN; f.pcm[1]=INT16_MAX;
+    VariableRateSampleVoice voice;
+    CHECK_EQ(voice.Configure(44100),VariableVoiceStatus::Success);
+    CHECK_EQ(voice.TriggerStereo(f.View(),kSourceFrameStepUnity/2),VariableVoiceStatus::Success);
+    std::int16_t left[3]{17,17,17},right[3]{17,17,17};
+    CHECK_EQ(voice.Render(left,3),VariableVoiceStatus::InvalidSample);
+    CHECK_EQ(voice.RenderStereo(left,nullptr,3),VariableVoiceStatus::InvalidDestination);
+    CHECK_EQ(left[0],17);
+    CHECK_EQ(voice.GetFramePosition(),0u);
+    CHECK_EQ(voice.GetFractionalPhase(),0u);
+    CHECK_EQ(voice.RenderStereo(left,right,3),VariableVoiceStatus::Success);
+    for(unsigned i=0;i<2;++i) { CHECK_EQ(left[i],INT16_MIN); CHECK_EQ(right[i],INT16_MAX); }
+    CHECK_EQ(left[2],0); CHECK_EQ(right[2],0);
+    CHECK_EQ(voice.StreamSnapshot().underruns,0u);
+    CHECK_EQ(voice.StreamSnapshot().eofs,1u);
+    CHECK_EQ(voice.TriggerStereo({left,3,22050},kSourceFrameStepUnity),VariableVoiceStatus::SampleRateMismatch);
+    CHECK_EQ(voice.TriggerStereo({left,VariableRateSampleVoice::kMaximumFrameCount/2+1,44100},
+        kSourceFrameStepUnity),VariableVoiceStatus::RangeOverflow);
+}
+
+TEST_CASE(StreamedStereoCanShareTheMixedBlockWithMono) {
+    StereoStreamFixture f;
+    VariableRateVoiceBlockRenderer renderer;
+    CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
+    VariableRateStereoMixScratch scratch;
+    const std::int16_t center[]{42,42,42,42,42,42,42,42};
+    VariableRateMixedVoiceCommandBatch commands;
+    commands.count=2;
+    commands.commands[0]={0,1,VariableRateVoiceAction::Trigger,Pcm16MixedSampleView(f.View()),
+        kSourceFrameStepUnity*3/2};
+    commands.commands[1]={1,1,VariableRateVoiceAction::Trigger,Pcm16MixedSampleView(Pcm16MonoView{center,8,44100})};
+    std::int16_t left[8],right[8];
+    CHECK_EQ(renderer.RenderStereo(left,right,8,commands,{},scratch),VariableRateBlockStatus::Success);
+    CHECK_EQ(left[0],0); CHECK_EQ(right[0],0);
+    for(unsigned i=1;i<8;++i) {
+        CHECK_EQ(left[i],42+f.Reference((i-1)*1.5,0));
+        CHECK_EQ(right[i],42+f.Reference((i-1)*1.5,1));
+    }
+    const auto state=renderer.GetVoice(0)->StreamSnapshot();
+    CHECK_EQ(state.sample,&f.source);
+    CHECK_EQ(state.position,10u);
+    CHECK_EQ(state.phase,UINT32_C(0x80000000));
+    CHECK(f.buffers[0].sample==nullptr); // Render exposes a snapshot for the owner to publish.
 }

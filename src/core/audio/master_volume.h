@@ -14,13 +14,24 @@ public:
     unsigned Percent() const noexcept {return percent_;}
     std::uint32_t Current() const noexcept {return current_;}
     void Process(std::int16_t* pcm,std::size_t count) noexcept {
-        for(std::size_t i=0;i<count;++i) {
-            if(position_<length_) {++position_;current_=std::uint32_t(std::int64_t(from_)+(std::int64_t(target_)-from_)*position_/length_);}
-            const auto value=std::int64_t(pcm[i])*current_;
-            pcm[i]=std::int16_t((value+(value>=0?32768:-32768))/65536);
-        }
+        ProcessFrames<false>(pcm,nullptr,count);
+    }
+    void ProcessStereo(std::int16_t* left,std::int16_t* right,std::size_t count) noexcept {
+        ProcessFrames<true>(left,right,count);
     }
 private:
+    std::int16_t Scale(std::int16_t pcm) const noexcept {
+        const auto value=std::int64_t(pcm)*current_;
+        return std::int16_t((value+(value>=0?32768:-32768))/65536);
+    }
+    template<bool Stereo>
+    void ProcessFrames(std::int16_t* left,std::int16_t* right,std::size_t count) noexcept {
+        for(std::size_t i=0;i<count;++i) {
+            if(position_<length_) {++position_;current_=std::uint32_t(std::int64_t(from_)+(std::int64_t(target_)-from_)*position_/length_);}
+            left[i]=Scale(left[i]);
+            if constexpr(Stereo) right[i]=Scale(right[i]);
+        }
+    }
     unsigned percent_=100;std::uint32_t current_=65536,target_=65536,from_=65536,length_=441,position_=441;
 };
 }

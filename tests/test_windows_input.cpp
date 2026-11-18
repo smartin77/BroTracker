@@ -473,5 +473,13 @@ int main() {
         }
         for(auto key:{SDLK_UP,SDLK_LEFT,SDLK_RIGHT,SDLK_x,SDLK_DOWN}) {SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=key;e.key.keysym.mod=KMOD_CTRL;CHECK(MapWindowsInstrumentAction(e,direction)==(key==SDLK_DOWN?BringUpAction::ScreenDown:BringUpAction::None));}
     }
+    {
+        SDL_Event e{};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_p;
+        CHECK(MapWindowsBrowserAction(e)==BringUpAction::BrowserAudition);
+        CHECK(MapWindowsAction(e)==BringUpAction::None);
+        e.key.repeat=1;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);e.key.repeat=0;
+        for(auto mod:{KMOD_CTRL,KMOD_SHIFT,KMOD_ALT,KMOD_GUI}){e.key.keysym.mod=mod;CHECK(MapWindowsBrowserAction(e)==BringUpAction::None);}
+        e.key.keysym.mod=KMOD_NONE;e.key.keysym.sym=SDLK_RETURN;CHECK(MapWindowsBrowserAction(e)==BringUpAction::BrowserConfirm);
+    }
     std::puts("Windows keyboard mapping and Teensy identity checks passed");
 }

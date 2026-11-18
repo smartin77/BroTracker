@@ -2,9 +2,187 @@
 #include "core/audio/variable_rate_voice_block_renderer.h"
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 using namespace BroTracker;
+namespace {
+struct MixedReference {
+    static constexpr unsigned Frames=128;
+    VariableRateMixedVoiceCommandBatch mixed;
+    VariableRateVoiceCommandBatch left,right;
+    void Add(unsigned channel,unsigned offset,VariableRateVoiceAction action) {
+        const auto i=mixed.count++;
+        ++left.count; ++right.count;
+        mixed.commands[i]={channel,offset,action,{}};
+        left.commands[i]=right.commands[i]={channel,offset,action,{}};
+    }
+    void AddMono(unsigned channel,unsigned offset,Pcm16MonoView pcm) {
+        Add(channel,offset,VariableRateVoiceAction::Trigger);
+        SetSample(Pcm16MixedSampleView(pcm),pcm,pcm,100);
+    }
+    void AddStereo(unsigned channel,unsigned offset,Pcm16StereoView pcm,
+        Pcm16MonoView l,Pcm16MonoView r,std::uint8_t level=100) {
+        Add(channel,offset,VariableRateVoiceAction::Trigger);
+        SetSample(Pcm16MixedSampleView(pcm),l,r,level);
+    }
+    void SetSample(Pcm16MixedSampleView view,Pcm16MonoView l,Pcm16MonoView r,std::uint8_t level) {
+        auto& command=mixed.commands[mixed.count-1];
+        command.sample=view;
+        command.sample_level_percent=level;
+        left.commands[left.count-1].sample=l;
+        right.commands[right.count-1].sample=r;
+        left.commands[left.count-1].sample_level_percent=level;
+        right.commands[right.count-1].sample_level_percent=level;
+    }
+    // Render the original mono path independently for each side, then mix by
+    // calculating each bus directly with its own exact binary Q16 scale.
+    struct MonoBus {
+        VariableRateVoiceBlockRenderer renderer;
+        std::int16_t channels[kRealtimePatternChannelCapacity][Frames]{};
+        MonoBus() { CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success); }
+        void Render(const VariableRateVoiceCommandBatch& commands) {
+            VariableRateVoiceOutputs out;
+            for(unsigned channel=0;channel<kRealtimePatternChannelCapacity;++channel)
+                out.channels[channel]=channels[channel];
+            CHECK_EQ(renderer.Render(out,Frames,commands),VariableRateBlockStatus::Success);
+        }
+        std::int16_t Mix(const Pcm16ChannelGains& gains,unsigned frame) const {
+            double value=0;
+            for(unsigned channel=0;channel<kRealtimePatternChannelCapacity;++channel)
+                value+=channels[channel][frame]*(gains.channels[channel]/65536.0);
+            return static_cast<std::int16_t>(std::clamp(std::lround(value),-32768L,32767L));
+        }
+    };
+};
+}
+
+TEST_CASE(VariableStereoBlockMatchesIndependentBusesWithClippingAndTransitions) {
+    constexpr auto frames=MixedReference::Frames;
+    std::array<std::int16_t,frames> center{},sample_l{},sample_r{},other_l{},other_r{};
+    std::array<std::int16_t,2*frames> sample_pair{},other_pair{};
+    for(unsigned i=0;i<frames;++i) {
+        center[i]=32767;
+        sample_l[i]=32767;
+        sample_r[i]=i<8 ? -32768 : -26000;
+        other_l[i]=i<32 ? 32767 : 0;
+        other_r[i]=i<8 ? -1000 : -32768;
+        sample_pair[2*i]=sample_l[i];sample_pair[2*i+1]=sample_r[i];
+        other_pair[2*i]=other_l[i];other_pair[2*i+1]=other_r[i];
+    }
+    const Pcm16StereoView stereo{sample_pair.data(),frames,44100},other{other_pair.data(),frames,44100};
+    const Pcm16MonoView l{sample_l.data(),frames,44100},r{sample_r.data(),frames,44100};
+    const Pcm16MonoView l2{other_l.data(),frames,44100},r2{other_r.data(),frames,44100};
+    MixedReference commands;
+    commands.AddMono(0,0,{center.data(),frames,44100});
+    commands.AddStereo(1,0,stereo,l,r);
+    commands.AddStereo(3,0,other,l2,r2);
+    commands.Add(2,1,VariableRateVoiceAction::TriggerSynth);
+    commands.AddStereo(4,1,stereo,l,r); // Zero channel gain still advances this voice.
+    commands.Add(1,13,VariableRateVoiceAction::Release);
+    commands.AddStereo(1,29,other,l2,r2,65); // Retrigger during release.
+    commands.AddStereo(2,41,other,l2,r2,73); // Synth to stereo.
+    commands.Add(3,51,VariableRateVoiceAction::TriggerSynth); // Stereo to Synth.
+    commands.AddStereo(3,67,stereo,l,r); // Retrigger during asymmetric fade.
+    commands.Add(1,76,VariableRateVoiceAction::Release);
+    commands.Add(0,101,VariableRateVoiceAction::Stop);
+    commands.AddStereo(5,103,other,l2,r2);
+    commands.Add(3,109,VariableRateVoiceAction::TriggerMidi);
+    Pcm16ChannelGains gains;
+    gains.channels[2]=32768; gains.channels[4]=0; gains.channels[5]=65535;
+
+    VariableRateVoiceBlockRenderer renderer;
+    CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
+    VariableRateStereoMixScratch scratch;
+    std::int16_t actual_l[frames],actual_r[frames];
+    CHECK_EQ(renderer.RenderStereo(actual_l,actual_r,frames,commands.mixed,gains,scratch),VariableRateBlockStatus::Success);
+    MixedReference::MonoBus ref_l,ref_r;
+    ref_l.Render(commands.left);
+    ref_r.Render(commands.right);
+    CHECK_EQ(actual_l[0],32767);
+    CHECK_EQ(actual_r[0],-1001); // Unclipped right when the left bus saturates.
+    for(unsigned frame=0;frame<frames;++frame) {
+        CHECK_EQ(actual_l[frame],ref_l.Mix(gains,frame));
+        CHECK_EQ(actual_r[frame],ref_r.Mix(gains,frame));
+    }
+    CHECK_EQ(renderer.GetVoice(4)->GetFramePosition(),frames-1);
+
+    CHECK_EQ(renderer.RenderStereo(actual_l,actual_r,frames,{},gains,scratch),VariableRateBlockStatus::Success);
+    ref_l.Render({});
+    ref_r.Render({});
+    for(unsigned frame=0;frame<frames;++frame) {
+        CHECK_EQ(actual_l[frame],ref_l.Mix(gains,frame));
+        CHECK_EQ(actual_r[frame],ref_r.Mix(gains,frame));
+    }
+    CHECK(!renderer.GetVoice(1)->IsActive());
+}
+
+TEST_CASE(VariableStereoBlockRoundsSignedTiesAndSaturatesEachBus) {
+    VariableRateVoiceBlockRenderer renderer;
+    CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
+    VariableRateStereoMixScratch scratch;
+    const std::int16_t pcm[]{1,-1,INT16_MAX,INT16_MIN,INT16_MIN,INT16_MAX};
+    const Pcm16StereoView pair{pcm,3,44100};
+    VariableRateMixedVoiceCommandBatch commands;
+    commands.count=1;
+    commands.commands[0]={0,0,VariableRateVoiceAction::Trigger,Pcm16MixedSampleView(pair)};
+    Pcm16ChannelGains gains;
+    gains.channels[0]=32768;
+    std::int16_t left[3],right[3];
+    CHECK_EQ(renderer.RenderStereo(left,right,3,commands,gains,scratch),VariableRateBlockStatus::Success);
+    CHECK_EQ(left[0],1); CHECK_EQ(right[0],-1);
+    commands.count=2;
+    commands.commands[1]=commands.commands[0];
+    commands.commands[1].channel=1;
+    gains.channels[0]=kPcm16UnityGain;
+    CHECK_EQ(renderer.RenderStereo(left,right,3,commands,gains,scratch),VariableRateBlockStatus::Success);
+    CHECK_EQ(left[1],INT16_MAX); CHECK_EQ(right[1],INT16_MIN);
+    CHECK_EQ(left[2],INT16_MIN); CHECK_EQ(right[2],INT16_MAX);
+}
+
+TEST_CASE(VariableStereoBlockCentersMonoAndSynthAndRejectsLateErrorsTransactionally) {
+    VariableRateVoiceBlockRenderer renderer;
+    CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
+    VariableRateStereoMixScratch scratch;
+    MixedReference commands;
+    const std::int16_t mono[]{10,20,30,40,50,60,70,80};
+    commands.AddMono(0,3,{mono,8,44100});
+    commands.Add(1,6,VariableRateVoiceAction::TriggerSynth);
+    Pcm16ChannelGains gains;
+    gains.channels[0]=32768;
+    std::array<std::int16_t,32> left{},right{};
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),32,commands.mixed,gains,scratch),VariableRateBlockStatus::Success);
+    CHECK(left==right);
+    CHECK_EQ(left[2],0); CHECK_EQ(left[3],5);
+    CHECK(std::any_of(left.begin()+12,left.end(),[](auto sample){return sample!=0;}));
+
+    const std::int16_t interleaved[]{1,0,-1,0,0,1,0,-1};
+    MixedReference stereo;
+    const Pcm16StereoView pair{interleaved,4,44100};
+    stereo.AddStereo(2,0,pair,{},{});
+    stereo.mixed.commands[0].step_q32_32=kSourceFrameStepUnity/2;
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),1,stereo.mixed,gains,scratch),VariableRateBlockStatus::Success);
+    auto control=renderer;
+    const auto before=renderer.GetVoice(2)->StreamSnapshot();
+    stereo.Add(2,8,VariableRateVoiceAction::Stop); // Invalid late offset after a valid trigger.
+    left.fill(123); right.fill(-123);
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),8,stereo.mixed,gains,scratch),VariableRateBlockStatus::InvalidOffset);
+    CHECK(std::all_of(left.begin(),left.end(),[](auto sample){return sample==123;}));
+    CHECK(std::all_of(right.begin(),right.end(),[](auto sample){return sample==-123;}));
+    CHECK_EQ(renderer.GetVoice(2)->StreamSnapshot().generation,before.generation);
+    CHECK_EQ(renderer.GetVoice(2)->GetFractionalPhase(),before.phase);
+    auto invalid_gain=gains;
+    invalid_gain.channels[7]=65537;
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),8,{},invalid_gain,scratch),VariableRateBlockStatus::InvalidGain);
+    CHECK_EQ(renderer.RenderStereo(left.data(),left.data(),8,{},gains,scratch),VariableRateBlockStatus::InvalidDestination);
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),129,{},gains,scratch),VariableRateBlockStatus::RangeOverflow);
+    std::array<std::int16_t,32> expected_l{},expected_r{};
+    CHECK_EQ(control.RenderStereo(expected_l.data(),expected_r.data(),32,{},gains,scratch),VariableRateBlockStatus::Success);
+    CHECK_EQ(renderer.RenderStereo(left.data(),right.data(),32,{},gains,scratch),VariableRateBlockStatus::Success);
+    CHECK(left==expected_l);
+    CHECK(right==expected_r);
+    CHECK_EQ(renderer.GetVoice(2)->StreamSnapshot().generation,control.GetVoice(2)->StreamSnapshot().generation);
+}
 namespace
 {
     constexpr std::int16_t pcm[] = {10, 20, 30, 40, 50, 60, 70, 80};

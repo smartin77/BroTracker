@@ -1,7 +1,9 @@
 #pragma once
 
 #include "variable_rate_sample_voice.h"
+#include "pcm16_gain_mixer.h"
 #include <algorithm>
+#include <type_traits>
 #include "sine_synth_voice.h"
 #include "core/playback/row_events.h"
 
@@ -10,12 +12,39 @@ namespace BroTracker
     // Initial command implementation capacity, not a permanent pattern-format limit.
     constexpr std::size_t kVariableRateVoiceCommandCapacity = 16;
     enum class VariableRateVoiceAction { Trigger, Stop, TriggerSynth, TriggerMidi, Release };
-    struct VariableRateVoiceCommand
+    // Explicitly construct from the matching PCM view. Existing mono commands
+    // retain their mono view and cannot carry stereo PCM.
+    class Pcm16MixedSampleView {
+    public:
+        Pcm16MixedSampleView()=default;
+        Pcm16MixedSampleView(Pcm16MonoView view) noexcept
+            : Pcm16MixedSampleView(view.data,view.frame_count,view.sample_rate_hz,view.streaming) {}
+        explicit Pcm16MixedSampleView(Pcm16StereoView view) noexcept
+            : Pcm16MixedSampleView(view.data,view.frame_count,view.sample_rate_hz,view.streaming) { stereo_=true; }
+        Pcm16MixedSampleView(const std::int16_t* pcm,std::size_t frames,std::uint32_t rate,
+            const StreamedSample* source=nullptr) noexcept
+            : data(pcm),frame_count(frames),sample_rate_hz(rate),streaming(source) {}
+        bool IsStereo() const noexcept { return stereo_; }
+        Pcm16MonoView Mono() const noexcept {
+            return stereo_ ? Pcm16MonoView{} : Pcm16MonoView{data,frame_count,sample_rate_hz,streaming};
+        }
+        VariableVoiceStatus Trigger(VariableRateSampleVoice& voice,std::uint64_t step) const noexcept {
+            if(stereo_) return voice.TriggerStereo({data,frame_count,sample_rate_hz,streaming},step);
+            return voice.Trigger({data,frame_count,sample_rate_hz,streaming},step);
+        }
+        const std::int16_t* data=nullptr;
+        std::size_t frame_count=0;
+        std::uint32_t sample_rate_hz=0;
+        const StreamedSample* streaming=nullptr;
+    private:
+        bool stereo_=false;
+    };
+    template<class Sample> struct BasicVariableRateVoiceCommand
     {
         std::uint32_t channel = 0;
         std::uint64_t sample_offset = 0;
         VariableRateVoiceAction action = VariableRateVoiceAction::Stop;
-        Pcm16MonoView sample;
+        Sample sample;
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
         Note synth_note = 69; // Raw Synth/MIDI pitch; never the display octave convention.
         std::uint8_t sample_level_percent = 100;
@@ -23,11 +52,14 @@ namespace BroTracker
         std::uint8_t instrument = kNoInstrumentUpdate; // Raw binding identity, not channel or PCM address.
 #endif
     };
-    struct VariableRateVoiceCommandBatch
+    template<class Sample> struct BasicVariableRateVoiceCommandBatch
     {
         std::size_t count = 0;
-        VariableRateVoiceCommand commands[kVariableRateVoiceCommandCapacity]{};
+        BasicVariableRateVoiceCommand<Sample> commands[kVariableRateVoiceCommandCapacity]{};
     };
+    using VariableRateVoiceCommand=BasicVariableRateVoiceCommand<Pcm16MonoView>;
+    using VariableRateVoiceCommandBatch=BasicVariableRateVoiceCommandBatch<Pcm16MonoView>;
+    using VariableRateMixedVoiceCommandBatch=BasicVariableRateVoiceCommandBatch<Pcm16MixedSampleView>;
     struct VariableRateVoiceOutputs
     {
         std::int16_t* channels[kRealtimePatternChannelCapacity]{};
@@ -36,6 +68,13 @@ namespace BroTracker
         // before the shared channel-gain mix.
         std::int16_t* diagnostic_without_synth[kRealtimePatternChannelCapacity]{};
 #endif
+    };
+    // Supplied by stereo callers as fixed reusable storage. Mono callers do not
+    // allocate this scratch. All spans used in a render are overwritten.
+    struct VariableRateStereoMixScratch {
+        static constexpr std::size_t kFrameCapacity=128;
+        std::int16_t left[kFrameCapacity],right[kFrameCapacity];
+        std::int64_t left_sum[kFrameCapacity],right_minus_left[kFrameCapacity];
     };
     enum class VariableRateBlockStatus
     {
@@ -95,12 +134,48 @@ namespace BroTracker
         [[nodiscard]] VariableRateBlockStatus Render(const VariableRateVoiceOutputs& output,
             std::uint64_t frame_count, const VariableRateVoiceCommandBatch& batch) noexcept
         {
+            return RenderBlock(output,frame_count,batch);
+        }
+        // Frame-bounded normal stereo mix of Sample and Synth commands. PCM,
+        // output spans and scratch must be mutually disjoint (immutable PCM
+        // sources may share storage). Zero frames allow null destinations.
+        // Preflight rejects the entire block before writing either output or
+        // mutating voices. All steps after preflight are infallible.
+        [[nodiscard]] VariableRateBlockStatus RenderStereo(std::int16_t* left,std::int16_t* right,
+            std::uint64_t frame_count,const VariableRateMixedVoiceCommandBatch& batch,
+            const Pcm16ChannelGains& gains,VariableRateStereoMixScratch& scratch,bool diagnostic=false) noexcept
+        {
+            if(frame_count>VariableRateStereoMixScratch::kFrameCapacity) return VariableRateBlockStatus::RangeOverflow;
+            if(frame_count && (!left || !right || left==right)) return VariableRateBlockStatus::InvalidDestination;
+            for(const auto gain:gains.channels)
+                if(gain>kPcm16UnityGain) return VariableRateBlockStatus::InvalidGain;
+            return RenderBlock(StereoOutput{left,right,gains,scratch,diagnostic},frame_count,batch);
+        }
+    private:
+        struct StereoOutput {
+            std::int16_t* left;
+            std::int16_t* right;
+            const Pcm16ChannelGains& gains;
+            VariableRateStereoMixScratch& scratch;
+            bool diagnostic;
+        };
+        static VariableVoiceStatus TriggerSample(VariableRateSampleVoice& voice,Pcm16MonoView sample,
+            std::uint64_t step) noexcept { return voice.Trigger(sample,step); }
+        static VariableVoiceStatus TriggerSample(VariableRateSampleVoice& voice,const Pcm16MixedSampleView& sample,
+            std::uint64_t step) noexcept { return sample.Trigger(voice,step); }
+        template<class Output,class Sample>
+        VariableRateBlockStatus RenderBlock(const Output& output,std::uint64_t frame_count,
+            const BasicVariableRateVoiceCommandBatch<Sample>& batch) noexcept
+        {
             if (sample_rate_hz_ == 0) return VariableRateBlockStatus::NotConfigured;
             if (batch.count > kVariableRateVoiceCommandCapacity) return VariableRateBlockStatus::InvalidCommandCount;
             if (frame_count > VariableRateSampleVoice::kMaximumFrameCount) return VariableRateBlockStatus::RangeOverflow;
-            if (frame_count != 0)
-                for (auto* destination : output.channels)
-                    if (destination == nullptr) return VariableRateBlockStatus::InvalidDestination;
+            if constexpr (std::is_same_v<Output,VariableRateVoiceOutputs>) {
+                if(frame_count) for(std::size_t channel=0;channel<kRealtimePatternChannelCapacity;++channel) {
+                    if(!output.channels[channel]) return VariableRateBlockStatus::InvalidDestination;
+                    if(HasDistinctRight(channel)) return VariableRateBlockStatus::InvalidSample;
+                }
+            }
 
             VariableRateSampleVoice probe = voices_[0];
             for (std::size_t i = 0; i < batch.count; ++i)
@@ -121,7 +196,7 @@ namespace BroTracker
                 if (command.action == VariableRateVoiceAction::Trigger)
                 {
                     if(command.sample_level_percent>100) return VariableRateBlockStatus::InvalidGain;
-                    const auto status = probe.Trigger(command.sample, command.step_q32_32);
+                    const auto status = TriggerSample(probe,command.sample,command.step_q32_32);
                     if (status == VariableVoiceStatus::InvalidStep) return VariableRateBlockStatus::InvalidStep;
                     if (status == VariableVoiceStatus::InvalidSample) return VariableRateBlockStatus::InvalidSample;
                     if (status == VariableVoiceStatus::RangeOverflow) return VariableRateBlockStatus::RangeOverflow;
@@ -151,7 +226,7 @@ namespace BroTracker
                     // A repeated trigger captures the current mixed value; no tail stack.
                     // Sample-to-sample replacement keeps its established semantics.
                     if(channel.synth || channel.transition<channel.length || command.action == VariableRateVoiceAction::TriggerSynth) {
-                        channel.from=channel.last; channel.transition=0;
+                        channel.from=channel.last; channel.right_from=channel.right_last; channel.transition=0;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                         channel.diagnostic_from=channel.diagnostic_last;
 #endif
@@ -164,85 +239,142 @@ namespace BroTracker
 #endif
                     channel.sample_level_percent=command.sample_level_percent;
                     if(channel.synth) { voice.Reset(); (void)synth.Trigger(command.synth_note); }
-                    else { synth.Reset(); (void)voice.Trigger(command.sample,command.step_q32_32); }
+                    else { synth.Reset(); (void)TriggerSample(voice,command.sample,command.step_q32_32); }
                 }
                 position = offset;
             }
             RenderSpan(output, position, static_cast<std::size_t>(frame_count) - position);
             return VariableRateBlockStatus::Success;
         }
-    private:
         void RenderSpan(const VariableRateVoiceOutputs& output, std::size_t start, std::size_t count) noexcept
         {
             if (count == 0) return;
-            // All arguments and triggers were validated; these calls cannot fail.
-            for (std::size_t channel = 0; channel < kRealtimePatternChannelCapacity; ++channel)
-            {
-                auto& state=channels_[channel];
-                auto* destination=output.channels[channel]+start;
+            for(std::size_t channel=0;channel<kRealtimePatternChannelCapacity;++channel) {
+                auto* left=output.channels[channel]+start;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                 auto* diagnostic=output.diagnostic_without_synth[channel];
-                if(diagnostic)diagnostic+=start;
+                RenderChannel<false,true>(channel,left,diagnostic ? diagnostic+start : nullptr,count);
+#else
+                RenderChannel<false,false>(channel,left,nullptr,count);
 #endif
-                if(!state.synth) {
-                    (void)voices_[channel].Render(destination,count);
-                    if(state.sample_level_percent!=100) for(std::size_t i=0;i<count;++i) {
-                        const std::int32_t value=std::int32_t(destination[i])*state.sample_level_percent;
-                        destination[i]=static_cast<std::int16_t>((value+(value>=0?50:-50))/100);
+            }
+        }
+    public:
+        bool HasDistinctRight(std::size_t channel) const noexcept {
+            const auto& state=channels_[channel];
+            return voices_[channel].IsStereo() ||
+                (state.transition<state.length && state.from!=state.right_from);
+        }
+    private:
+        void RenderSpan(const StereoOutput& output,std::size_t start,std::size_t count) noexcept {
+            if(!count) return;
+            auto& scratch=output.scratch;
+            std::fill_n(scratch.left_sum,count,0);
+            std::fill_n(scratch.right_minus_left,count,0);
+            for(std::size_t channel=0;channel<kRealtimePatternChannelCapacity;++channel) {
+                const auto gain=output.gains.channels[channel];
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                const bool diagnostic=output.diagnostic;
+#else
+                constexpr bool diagnostic=false;
+#endif
+                if(diagnostic || HasDistinctRight(channel)) {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    if(diagnostic) RenderChannel<true,true>(channel,scratch.left,scratch.right,count);
+                    else
+#endif
+                    RenderChannel<true,false>(channel,scratch.left,scratch.right,count);
+                    for(std::size_t i=0;i<count;++i) {
+                        scratch.left_sum[i]+=std::int64_t(scratch.left[i])*gain;
+                        scratch.right_minus_left[i]+=std::int64_t(scratch.right[i]-scratch.left[i])*gain;
                     }
-                    if(state.transition>=state.length && !state.release) {
-                        state.last=destination[count-1];
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                        state.diagnostic_last=state.diagnostic_excluded ? 0 : state.last;
-                        if(diagnostic) {
-                            if(state.diagnostic_excluded)std::fill_n(diagnostic,count,0);
-                            else std::copy_n(destination,count,diagnostic);
-                        }
-#endif
-                        continue;
-                    }
-                }
-                for(std::size_t i=0;i<count;++i) {
-                    float value=state.synth ? synths_[channel].Next() : float(destination[i]);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                    float without_synth=state.diagnostic_excluded ? 0.0f : float(destination[i]);
-#endif
-                    if(state.transition<state.length) {
-                        const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
-                        value=state.from*(1.0f-weight)+value*weight;
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                        // Track only right-routed tails: excluded Synth/#04 tails
-                        // must not leak through a later instrument transition.
-                        without_synth=state.diagnostic_from*(1.0f-weight)+without_synth*weight;
-#endif
-                    }
-                    if(state.release) {
-                        value*=float(state.release-1)/float(state.release_length-1);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                        without_synth*=float(state.release-1)/float(state.release_length-1);
-#endif
-                        if(!--state.release) voices_[channel].Stop();
-                    } else if(!state.synth && state.release_length) {
-                        value=0;
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                        without_synth=0;
-#endif
-                    }
-                    destination[i]=static_cast<std::int16_t>(std::lround(value));
-                    state.last=destination[i];
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                    const auto sample=static_cast<std::int16_t>(std::lround(without_synth));
-                    if(diagnostic)diagnostic[i]=sample;
-                    state.diagnostic_last=sample;
-#endif
+                } else {
+                    RenderChannel<false,false>(channel,scratch.left,nullptr,count);
+                    for(std::size_t i=0;i<count;++i) scratch.left_sum[i]+=std::int64_t(scratch.left[i])*gain;
                 }
             }
+            // An eight-voice difference fits in 37 signed bits including headroom.
+            // Add it to the exact left sum, then round and saturate each bus.
+            for(std::size_t i=0;i<count;++i) {
+                output.left[start+i]=Pcm16GainMixDetail::RoundAndSaturate(scratch.left_sum[i]);
+                output.right[start+i]=Pcm16GainMixDetail::RoundAndSaturate(scratch.left_sum[i]+scratch.right_minus_left[i]);
+            }
+        }
+        static void ScaleSample(std::int16_t* pcm,std::size_t count,std::uint8_t percent) noexcept {
+            if(percent==100) return;
+            for(std::size_t i=0;i<count;++i) {
+                const auto value=std::int32_t(pcm[i])*percent;
+                pcm[i]=static_cast<std::int16_t>((value+(value>=0?50:-50))/100);
+            }
+        }
+        template<bool Stereo,bool Diagnostic>
+        void RenderChannel(std::size_t channel,std::int16_t* left,std::int16_t* right,std::size_t count) noexcept {
+            auto& state=channels_[channel];
+            auto& voice=voices_[channel];
+            if(!state.synth) {
+                if constexpr(Stereo) (void)voice.RenderStereo(left,right,count);
+                else (void)voice.Render(left,count);
+                ScaleSample(left,count,state.sample_level_percent);
+                if constexpr(Stereo) ScaleSample(right,count,state.sample_level_percent);
+                if(state.transition>=state.length && !state.release) {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    if constexpr(Diagnostic) {
+                        state.diagnostic_last=state.diagnostic_excluded ? 0 : (Stereo ? right[count-1] : left[count-1]);
+                        if(right) {
+                            if(state.diagnostic_excluded)std::fill_n(right,count,0);
+                            else if constexpr(!Stereo) std::copy_n(left,count,right);
+                        }
+                    }
+#endif
+                    state.last=left[count-1];
+                    if constexpr(Stereo) state.right_last=right[count-1];
+                    else state.right_last=left[count-1];
+                    return;
+                }
+            }
+            for(std::size_t i=0;i<count;++i) {
+                float value=state.synth ? synths_[channel].Next() : float(left[i]);
+                float other=0;
+                if constexpr(Stereo) other=state.synth ? value : float(right[i]);
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                if constexpr(Diagnostic) other=state.diagnostic_excluded ? 0.0f : float(Stereo ? right[i] : left[i]);
+#endif
+                if(state.transition<state.length) {
+                    const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
+                    value=state.from*(1.0f-weight)+value*weight;
+                    if constexpr(Stereo && !Diagnostic) other=state.right_from*(1.0f-weight)+other*weight;
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    if constexpr(Diagnostic) other=state.diagnostic_from*(1.0f-weight)+other*weight;
+#endif
+                }
+                if(state.release) {
+                    const auto weight=float(state.release-1)/float(state.release_length-1);
+                    value*=weight;
+                    if constexpr(Stereo || Diagnostic) other*=weight;
+                    if(!--state.release) voice.Stop();
+                } else if(!state.synth && state.release_length) {
+                    value=other=0;
+                }
+                left[i]=static_cast<std::int16_t>(std::lround(value));
+                if constexpr(Stereo && !Diagnostic) right[i]=static_cast<std::int16_t>(std::lround(other));
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                if constexpr(Diagnostic) {
+                    const auto sample=static_cast<std::int16_t>(std::lround(other));
+                    if(right) right[i]=sample;
+                    state.diagnostic_last=sample;
+                }
+#endif
+            }
+            state.last=left[count-1];
+            if constexpr(Stereo) state.right_last=right[count-1];
+            else state.right_last=left[count-1];
         }
         struct ChannelTransition {
             bool synth=false;
             std::uint8_t sample_level_percent=100;
             std::uint32_t transition=0,length=0,release=0,release_length=0;
-            float from=0,last=0;
+            std::int16_t from=0,last=0;
+            std::int16_t right_from=0,right_last=0;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
             float diagnostic_from=0,diagnostic_last=0;
             bool diagnostic_excluded=false;

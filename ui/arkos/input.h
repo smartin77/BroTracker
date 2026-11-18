@@ -41,6 +41,7 @@ public:
         action_barrier_=blocked;stop_available_=stop_available;recovery_available_=recovery_available;
         publication_readback_available_=publication_readback_available;screen_navigation_available_=screen_navigation_available;browser_available_=browser_available;instrument_cancel_available_=instrument_cancel_available;
     }
+    void SetWavAudition(bool enabled)noexcept {wav_audition_=enabled;}
     void SetInstrumentFields(bool enabled)noexcept {instrument_fields_=enabled;}
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
@@ -153,6 +154,7 @@ private:
             if(!was_blocked) {
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_UP)return {BringUpAction::BrowserUp,false};
                 if(b==SDL_CONTROLLER_BUTTON_DPAD_DOWN)return {BringUpAction::BrowserDown,false};
+                if(b==SDL_CONTROLLER_BUTTON_X && wav_audition_ && !pressed_[SDL_CONTROLLER_BUTTON_START])return {BringUpAction::BrowserAudition,false};
                 if(b==SDL_CONTROLLER_BUTTON_A)return {BringUpAction::BrowserConfirm,false};
                 if(b==SDL_CONTROLLER_BUTTON_B)return {BringUpAction::BrowserBack,false};
             }
@@ -250,6 +252,7 @@ private:
         if(b==SDL_CONTROLLER_BUTTON_Y && connected) { Cancel(); editor.Apply(modifier ? EditorAction::Restore : EditorAction::Clear); return {BringUpAction::None,false,modifier}; }
         return {};
     }
+    bool wav_audition_=false;
     bool instrument_fields_=false;BroTracker::ValueStepDirection value_direction_;
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
     bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false,instrument_cancel_available_=false;
@@ -267,6 +270,7 @@ private:
 
 // Keep the production barrier setup available to input integration tests.
 inline void ConfigureArkOSInputBarrier(ArkOSEditorInput& input,const BringUpSerial& serial,const BringUpControls& controls) {
+    input.SetWavAudition(controls.WavPicker() && !controls.ReplacementConfirming());
     input.SetInstrumentFields(controls.InstrumentScreen() && !controls.WavPicker());
     input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
         !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
