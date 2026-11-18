@@ -34,7 +34,7 @@ std::string BringUpControls::BrowserText()const {
 void BringUpControls::OpenWavDirectory(const std::string& path,std::uint32_t now) {
     serial_.CancelWavDirectory();
     audition_feedback_.clear();
-    wav_browser_.Begin(path);wav_collecting_=serial_.RequestWavDirectory(path,0,false,now);
+    wav_browser_.Begin(path,serial_.WavPcm8Supported());wav_collecting_=serial_.RequestWavDirectory(path,0,false,now);
     if(!wav_collecting_)wav_browser_.Fail(BroTracker::WavDirectoryResult::Busy);
 }
 void BringUpControls::LoadSelected(std::uint32_t now) {

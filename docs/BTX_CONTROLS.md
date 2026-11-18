@@ -95,7 +95,7 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
 | Cancel via existing screen-navigation chord | Ctrl+Left / Right | Select+D-pad Left / Right |
 
-Production accepts PCM16 mono/stereo at 8, 11.025, 22.05 and 44.1 kHz.
+Production accepts PCM8 and PCM16 mono/stereo at 8, 8.363, 11.025, 22.05 and 44.1 kHz.
 Stopped audition plays at the file's original pitch and speed.
 
 The confirmed SD directory is at the top. The list fills the middle; one bottom

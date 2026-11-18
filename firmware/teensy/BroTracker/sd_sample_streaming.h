@@ -55,6 +55,7 @@ public:
                     candidate.PrefixFrames(),memory.starts[i],kStreamStartBytes)) { files_[i].close(); continue; }
             offsets_[i]=static_cast<std::uint32_t>(found.metadata.data_offset);
             source=candidate;
+            report.capacity=source.layout.start_frames;
             report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
             report.view=MakeView(source);
         }
@@ -62,15 +63,17 @@ public:
     // Stopped foreground only. New immutable sources never replace published PCM.
     InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
         Pcm16MixedSampleView prepared;
-        const auto result=PreparePath(path,prepared,false,false);
+        const auto result=PreparePath(path,prepared,false,false,false);
         if(result==InstrumentAvailability::Ready) output=prepared.Mono();
         return result;
     }
-    InstrumentAvailability PreparePath(const char* path,Pcm16MixedSampleView& output,bool stereo=true,bool lower_rates=true) {
+    InstrumentAvailability PreparePath(const char* path,Pcm16MixedSampleView& output,bool stereo=true,bool lower_rates=true,bool pcm8_and_8363=true) {
         if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
         if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
-            if((!stereo && reports[i].view.IsStereo()) || (!lower_rates && reports[i].view.sample_rate_hz!=44100))return InstrumentAvailability::PreparationFailed;
+            const auto& format=sources_[i].format;
+            if(!WavBufferDetail::SupportsIntegerPcm(1,format.channels,format.bits_per_sample,format.sample_rate_hz,
+                stereo,lower_rates,pcm8_and_8363))return InstrumentAvailability::PreparationFailed;
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
         unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
@@ -89,7 +92,7 @@ public:
         } reader(file);
         WavMetadata metadata;
         StreamedSample source;
-        if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo,lower_rates)!=WavBufferStatus::Success ||
+        if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo,lower_rates,pcm8_and_8363)!=WavBufferStatus::Success ||
             !DescribeSource(metadata,metadata.file_bytes,memory_->starts[index],source)) {
             file.close();return InstrumentAvailability::PreparationFailed;
         }
@@ -159,7 +162,7 @@ public:
     }
     bool BeginPrepareAsync(const char* path) {
         if(job_phase_!=JobIdle && job_phase_!=JobDone)return false;
-        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true,true);
+        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true,true,true);
         job_phase_=JobDone;
         if(!sd_ready_ || !memory_){job_result_=InstrumentAvailability::StorageUnavailable;return true;}
         if(!InstrumentDefinitions::ValidResource(path)){job_result_=InstrumentAvailability::NoResource;return true;}
@@ -295,7 +298,7 @@ private:
         StreamedSample& output) noexcept {
         const StreamSourceFormat format{metadata.sample_rate,metadata.channels,metadata.bits};
         const auto stride=format.BytesPerFrame();
-        if(metadata.format!=1 || (format.bits_per_sample!=16 || !stride) || !IsStreamingPcm16Rate(format.sample_rate_hz) ||
+        if(metadata.format!=1 || !stride || !IsStreamingPcmRate(format.sample_rate_hz) ||
             metadata.block_align!=stride || metadata.byte_rate!=std::uint64_t(format.sample_rate_hz)*stride ||
             !metadata.frames || metadata.frames>UINT32_MAX || metadata.data_offset>UINT32_MAX) return false;
         // Frame count now fits in 32 bits, so the extent multiplication fits in uint64_t.

@@ -1929,3 +1929,19 @@ The inspiration was a modified original OctaMED 4 on Amiga with ReCycle-style
 transient slicing and commands 39xx/59xx. OctaMEDIC is a separate clone; this
 feature is not attributed to it. Those command numbers are not adopted for
 BroTracker.
+
+## D0061 - Sample-to-Mono Conversion
+
+Conversion to mono is a future Sample editor feature. It runs only on explicit
+user request and never automatically. Preserve the source file and create a
+separate mono sample.
+
+Proposed choices are to mix L+R, use only L, or use only R. The default L+R mix
+uses 50% of each channel. Other mixing ratios are under consideration.
+
+At the same bit depth and sample rate, mono uses half the PCM payload and
+requires half the SD streaming payload bandwidth of stereo.
+
+Agree on final mixing gain options, clipping and phase handling, destination
+naming, and instrument reassignment before implementation. This decision
+records design only.

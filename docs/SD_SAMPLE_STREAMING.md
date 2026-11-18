@@ -1,5 +1,19 @@
 # Production SD sample streaming — 2026-11-07
 
+## Native PCM8 and 8,363 Hz
+
+Production accepts unsigned PCM8 and signed PCM16, mono or stereo, at 8,000,
+8,363, 11,025, 22,050 and 44,100 Hz. PCM8 occupies one byte per channel per
+source frame throughout SD reads, prefixes and rings. A 4 KiB prefix holds
+4,096 mono or 2,048 stereo PCM8 frames. An 8 KiB ring holds twice that many.
+The render path widens PCM8 before linear interpolation. The PCM16 render
+specialization, 143,360 B streaming allocation and 44,100 Hz output remain.
+The sample-rate ratio is included once in the Q32.32 trigger step.
+
+A peer advertising WAVPCM8CAP uses WAVOPEN v7 over the existing encoded-path
+and WAVMETA protocol. The capability includes 8,363 Hz for both depths.
+Previous WAVOPEN versions retain their existing eligibility rules.
+
 ## Native lower-rate PCM16
 
 Production accepts 22,050, 11,025 and 8,000 Hz mono/stereo alongside 44,100 Hz.
@@ -13,7 +27,7 @@ A complete buffered tail needs no more SD servicing.
 BTX negotiates WAVOPEN v6 via WAVRATECAP and path support. WAVOPEN v5 retains
 44,100 Hz mono/stereo eligibility and older versions retain their existing
 eligibility. The session format still stores the original resource path.
-PCM8, optional DSP and other rates are outside this change.
+The PCM16-only and earlier protocol versions retain their original format admission.
 
 ## Production stereo integration
 

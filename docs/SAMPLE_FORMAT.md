@@ -2,9 +2,9 @@
 
 ## Status
 
-Production streaming accepts integer PCM WAV at 44.1, 22.05, 11.025 and 8 kHz
-with 16-bit mono or native interleaved stereo frames. Mono and Synth are centered in the normal mix.
-PCM8, other sample rates, and loops remain outside this implementation.
+Production streaming accepts integer PCM WAV at 44.1, 22.05, 11.025, 8.363 and 8 kHz
+with unsigned 8-bit or signed 16-bit mono or native interleaved stereo frames. Mono and Synth are centered in the normal mix.
+Other depths, rates, encodings, and loops remain outside this implementation.
 
 ## Purpose
 
@@ -16,10 +16,10 @@ The agreed sample model must support the following properties. This is design
 scope, not a claim that every property is currently implemented:
 
 * PCM audio
-* 16-bit depth
+* 8-bit or 16-bit depth
 * mono or stereo
 * 44.1 kHz sample rate
-* 8, 11.025 and 22.05 kHz sample rates
+* 8, 8.363, 11.025 and 22.05 kHz sample rates
 * future extension to 48 kHz
 * loop start
 * loop end
@@ -89,6 +89,8 @@ the same rate adjustment twice.
 
 The legacy full-RAM loader accepts signed PCM16 mono at 44,100 Hz. Production
 Sample bindings stream native frames through fixed-memory prefixes and rings.
+PCM8 stays packed and is widened to the signed PCM16 domain as it is rendered.
+Stored bytes 0, 128 and 255 map to -32768, 0 and 32512 respectively.
 Trigger preparation applies the source/output rate ratio once to the existing
 Q32.32 note ratio, rounding to the nearest Q32.32 step with ties upward. The
 output stays at 44,100 Hz. A reference-note trigger and stopped audition preserve

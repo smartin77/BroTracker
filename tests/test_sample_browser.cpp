@@ -191,3 +191,22 @@ TEST_CASE(SampleBrowserShowsAvailableHeaderFactsWithoutMakingInvalidFilesSelecta
         CHECK_EQ(path,std::string(i==0?"Samples/facts0.wav":"unchanged.wav"));
     }
 }
+
+TEST_CASE(PackedPcmBrowserRejectionReflectsNegotiatedBitDepth) {
+    WavBrowsePage page;std::strcpy(page.directory,"/Samples");
+    page.done=true;page.count=1;page.scanned=1;
+    std::strcpy(page.entries[0].name,"tone.wav");
+    auto& facts=page.entries[0].facts;
+    facts={WavBufferStatus::UnsupportedFormat,48000,1,2,8,true};
+    WavBrowser browser;
+    for(bool pcm8:{false,true}) {
+        browser.Begin("/Samples",pcm8);CHECK(browser.Accept(page));
+        Highlight(browser,"tone.wav");
+        CHECK(browser.SelectedMessage().find(pcm8?"Unsupported rate":"Unsupported bit depth")!=std::string::npos);
+        std::string unchanged;CHECK_EQ(browser.Select(unchanged),0u);
+    }
+    facts={WavBufferStatus::Success,8363,1,2,8,true};
+    browser.Begin("/Samples",true);CHECK(browser.Accept(page));Highlight(browser,"tone.wav");
+    CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 8-bit \xc2\xb7 8.363 kHz \xc2\xb7 Stereo"));
+    std::string chosen;CHECK_EQ(browser.Select(chosen),2u);CHECK_EQ(chosen,std::string("Samples/tone.wav"));
+}

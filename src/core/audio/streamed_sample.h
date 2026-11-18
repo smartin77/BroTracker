@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 namespace BroTracker {
-constexpr bool IsStreamingPcm16Rate(std::uint32_t rate) noexcept {
-    return rate==44100 || rate==22050 || rate==11025 || rate==8000;
+constexpr bool IsStreamingPcmRate(std::uint32_t rate) noexcept {
+    return rate==44100 || rate==22050 || rate==11025 || rate==8363 || rate==8000;
 }
 // Compose an already quantized Q32.32 pitch ratio with the rational rate
 // conversion, rounding to nearest with ties upward. Splitting the quotient
@@ -13,7 +13,7 @@ inline bool ComposeStreamingStep(std::uint64_t pitch,std::uint32_t source_rate,
     std::uint32_t output_rate,std::uint64_t& result) noexcept {
     if(!pitch || !source_rate || !output_rate) return false;
     if(source_rate==output_rate) {result=pitch;return true;}
-    if(output_rate!=44100 || !IsStreamingPcm16Rate(source_rate)) return false;
+    if(output_rate!=44100 || !IsStreamingPcmRate(source_rate)) return false;
     const auto step=(pitch/output_rate)*source_rate+
         ((pitch%output_rate)*source_rate+output_rate/2)/output_rate;
     if(!step) return false;
@@ -50,14 +50,14 @@ struct StreamBufferLayout {
 };
 struct StreamedSample;
 struct StreamedVoiceBuffer {
-    // Native interleaved PCM16, indexed using the source layout in frames.
+    // Aligned backing storage for packed unsigned PCM8 or interleaved PCM16.
     std::int16_t* ring=nullptr;
     std::uint64_t generation=0;
     const StreamedSample* sample=nullptr;
     std::uint32_t begin=0,end=0;
 };
 struct StreamedSample {
-    // Native interleaved PCM16 prefix. The layout describes the byte budget in frames.
+    // Aligned native PCM backing storage. PCM8 is accessed through byte pointers.
     const std::int16_t* start=nullptr;
     std::uint32_t frames=0;
     StreamedVoiceBuffer* voices=nullptr; // independent voice rings, shared start
