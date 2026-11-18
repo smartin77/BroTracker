@@ -8,6 +8,10 @@
 
 namespace BroTracker
 {
+    template<class P,class=void> struct SupportsStereoRender : std::false_type {};
+    template<class P> struct SupportsStereoRender<P,std::void_t<decltype(
+        std::declval<P&>().RenderStereo(nullptr,nullptr,0))>> : std::true_type {};
+
     template<class T,class=void> struct SupportsChannelMute : std::false_type {};
     template<class T> struct SupportsChannelMute<T,std::void_t<decltype(std::declval<T&>().SetMuteMask(0u))>> : std::true_type {};
     constexpr std::size_t kPatternRequestCapacity = 8;
@@ -183,10 +187,8 @@ namespace BroTracker
         // Allocation failure stops/resets time (no rendering or advancement),
         // increments a saturating diagnostic counter, and transmits no block.
         // This is an explicit bring-up fail-stop policy, not a final underrun policy.
-        void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            , std::int16_t* diagnostic_right=nullptr
-#endif
+        void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available,
+            std::int16_t* right=nullptr
         ) noexcept
         {
             // Separate latest slot applies before the transport/publication FIFO.
@@ -268,7 +270,10 @@ namespace BroTracker
             }
             else if (status_.fault == PatternFault::None)
             {
-                const auto result = player_.Render(output, count);
+                auto result=PatternPlayerStatus::InvalidDestination;
+                if constexpr(SupportsStereoRender<Player>::value) {
+                    result=right ? player_.RenderStereo(output,right,count) : player_.Render(output,count);
+                } else if(!right) result=player_.Render(output,count);
                 if (result != PatternPlayerStatus::Success)
                 {
                     Fail(PatternFault::Render, result);
@@ -276,20 +281,12 @@ namespace BroTracker
                 }
             }
             else Zero(output, count);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            if(diagnostic_right) {
-                Zero(diagnostic_right,count);
-                if(storage_available && output && status_.fault==PatternFault::None)
-                    std::copy_n(player_.DiagnosticRight(),count,diagnostic_right);
+            if(right && status_.fault!=PatternFault::None) Zero(right,count);
+            if(storage_available && output) {
+                if(right) {
+                    volume_.ProcessStereo(output,right,count);
+                } else volume_.Process(output,count);
             }
-            // Both outputs use the same ramp positions; advance the live master
-            // once, preserving the original left-channel PCM and gain exactly.
-            auto diagnostic_volume=volume_;
-#endif
-            if(storage_available && output) volume_.Process(output,count); // Combined PCM, exactly once before every route.
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            if(storage_available && output && diagnostic_right)diagnostic_volume.Process(diagnostic_right,count);
-#endif
             CompletePreview();
             CompleteTempo();
             Publish();

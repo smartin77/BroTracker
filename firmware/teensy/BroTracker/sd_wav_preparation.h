@@ -1,6 +1,7 @@
 #pragma once
 #include "sd_wav_buffer_loader.h"
 #include "sd_wav_inspection.h"
+#include "core/audio/variable_rate_voice_block_renderer.h"
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
@@ -8,7 +9,7 @@ namespace BroTracker {
 struct SdWavPreparation {
     bool attempted=false, sd_ready=false;
     SdWavBufferResult result{SdWavBufferStatus::OpenFailed,WavBufferStatus::IoError};
-    Pcm16MonoView view;
+    Pcm16MixedSampleView view;
     bool checksum_valid=false;
     std::uint32_t pcm_checksum=0;
     std::uint64_t capacity=0;

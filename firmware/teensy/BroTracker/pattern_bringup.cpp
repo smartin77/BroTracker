@@ -201,18 +201,12 @@ namespace
 #endif
                 initialized_ = true;
             }
-            audio_block_t* block = allocate();
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            audio_block_t* right=block ? allocate() : nullptr;
-            if(!block || !right)
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            auto [block,right]=AllocateAudioPair([&]{return allocate();},[&](auto* storage){release(storage);});
 #else
-            if (!block)
+            auto* block=allocate();
 #endif
-            {
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                if(block)release(block);
-                if(right)release(right);
-#endif
+            if(!block) {
                 g_control.AudioBlock(nullptr,AUDIO_BLOCK_SAMPLES,false);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                 CollectMidi(render_us);
@@ -222,25 +216,21 @@ namespace
 #endif
                 return; // Fail-stop: no timeline advance and no stale block transmitted.
             }
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true,right->data);
 #else
             g_control.AudioBlock(block->data,AUDIO_BLOCK_SAMPLES,true);
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             const auto audition_state=g_control.Snapshot();
-            const bool audition_rendered=g_audition.Render(block->data,AUDIO_BLOCK_SAMPLES,
+            g_audition.Render(block->data,AUDIO_BLOCK_SAMPLES,
                 audition_state.transport==PatternTransportState::Stopped && audition_state.fault==PatternFault::None,
-                audition_state.volume_percent);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            if(audition_rendered)std::copy_n(block->data,AUDIO_BLOCK_SAMPLES,right->data);
-#endif
-            (void)audition_rendered;
+                audition_state.volume_percent,right->data);
             CollectMidi(render_us);
 #endif
             transmit(block);
             release(block);
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             transmit(right,1);
             release(right);
 #endif
@@ -383,6 +373,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
+        if(advertise_snapshot) (void)QueueLine("BTINS1 WAVSTEREOCAP 1\n");
         if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
 #endif
@@ -522,7 +513,7 @@ namespace
     }
     const char* DirectoryToken(const WavOpenRequest& request,const WavBrowsePage& page) {
         static char token[kPathProtocolCapacity];
-        if(request.version==4){if(!EncodePathToken(page.directory,token,sizeof(token)))return "";return token;}
+        if(request.version>=4){if(!EncodePathToken(page.directory,token,sizeof(token)))return "";return token;}
         return page.directory;
     }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
@@ -621,7 +612,7 @@ namespace
                 unsigned result=7;
                 if(!g_live_visit.Cancelled(g_live_request.request)) {
                     const auto prepared=g_streaming.PreparationResult();
-                    if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedView();result=InstallLive(g_live_request,binding);}
+                    if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedMixedView();result=InstallLive(g_live_request,binding);}
                     else result=prepared==InstrumentAvailability::PathCapacity?9:prepared==InstrumentAvailability::ResourceUnavailable?4:6;
                 }
                 g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result);
@@ -983,6 +974,9 @@ namespace
                 (void)QueueLine(reply);
                 std::snprintf(reply,sizeof(reply),"BTSTREAM1 PATHS %u %u %u %u\n",ResourcePaths().UsedBytes(),ResourcePaths().UniqueCount(),kResourcePathBytes,kResourcePathEntries);(void)QueueLine(reply);
                 std::snprintf(reply,sizeof(reply),"BTSTREAM1 JOBIO %lu %lu\n",(unsigned long)g_live_steps,(unsigned long)g_live_max_us);(void)QueueLine(reply);
+                std::snprintf(reply,sizeof(reply),"BTSTREAM1 AUDIO %lu %u %u\n",
+                    (unsigned long)Snapshot().allocation_failures,unsigned(AudioMemoryUsage()),unsigned(AudioMemoryUsageMax()));
+                (void)QueueLine(reply);
                 for(unsigned i=0;i<kStreamVoiceCount;++i) {
                     const auto state=g_streaming.Snapshot(i);
                     std::snprintf(reply,sizeof(reply),"BTSTREAM1 VOICE %u %lu %lu %lu %lu %lu %lu\n",i,
@@ -1358,7 +1352,11 @@ namespace
         // Early callbacks return while g_audio_ready is false. No retries after activation.
         const bool sd_ready=SD.begin(BUILTIN_SDCARD);
         g_storage_backend.ready=sd_ready;
+        #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        g_wav_inspection.InspectOnce(sd_ready,true);
+#else
         g_wav_inspection.InspectOnce(sd_ready);
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         g_streaming.Prepare(sd_ready,g_stream_memory,g_wav_inspection);
 #else
@@ -1367,7 +1365,7 @@ namespace
 #endif
 #if defined(BROTRACKER_PATTERN_SD_PLAYBACK) && !defined(BROTRACKER_PATTERN_VARIABLE_RATE)
         // Preparation failure leaves an invalid view and the working beeper fixture.
-        const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view,true);
+        const auto selected = SelectPatternBringUpFixture(kBindings,g_preparation.view.Mono(),true);
         g_active_pattern = selected.pattern;
         g_selected_bindings = selected.bindings;
 #endif
@@ -1392,7 +1390,7 @@ namespace
                 // Derive slot bindings from immutable prepared development assets by WAV identity.
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                 const auto restored_bindings=PrepareSessionBindings(g_session.definitions,
-                    [&](unsigned id,const char* path,Pcm16MonoView& sample) {
+                    [&](unsigned id,const char* path,Pcm16MixedSampleView& sample) {
                         return g_sample_availability[id]=g_streaming.PreparePath(path,sample);
                     });
                 const auto& session_bindings=restored_bindings;

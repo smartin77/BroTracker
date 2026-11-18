@@ -17,19 +17,26 @@ namespace BroTracker
     class Pcm16MixedSampleView {
     public:
         Pcm16MixedSampleView()=default;
-        explicit Pcm16MixedSampleView(Pcm16MonoView view) noexcept
-            : data_(view.data),frames_(view.frame_count),rate_(view.sample_rate_hz),stream_(view.streaming) {}
+        Pcm16MixedSampleView(Pcm16MonoView view) noexcept
+            : Pcm16MixedSampleView(view.data,view.frame_count,view.sample_rate_hz,view.streaming) {}
         explicit Pcm16MixedSampleView(Pcm16StereoView view) noexcept
-            : data_(view.data),frames_(view.frame_count),rate_(view.sample_rate_hz),stream_(view.streaming),stereo_(true) {}
-        VariableVoiceStatus Trigger(VariableRateSampleVoice& voice,std::uint64_t step) const noexcept {
-            if(stereo_) return voice.TriggerStereo({data_,frames_,rate_,stream_},step);
-            return voice.Trigger({data_,frames_,rate_,stream_},step);
+            : Pcm16MixedSampleView(view.data,view.frame_count,view.sample_rate_hz,view.streaming) { stereo_=true; }
+        Pcm16MixedSampleView(const std::int16_t* pcm,std::size_t frames,std::uint32_t rate,
+            const StreamedSample* source=nullptr) noexcept
+            : data(pcm),frame_count(frames),sample_rate_hz(rate),streaming(source) {}
+        bool IsStereo() const noexcept { return stereo_; }
+        Pcm16MonoView Mono() const noexcept {
+            return stereo_ ? Pcm16MonoView{} : Pcm16MonoView{data,frame_count,sample_rate_hz,streaming};
         }
+        VariableVoiceStatus Trigger(VariableRateSampleVoice& voice,std::uint64_t step) const noexcept {
+            if(stereo_) return voice.TriggerStereo({data,frame_count,sample_rate_hz,streaming},step);
+            return voice.Trigger({data,frame_count,sample_rate_hz,streaming},step);
+        }
+        const std::int16_t* data=nullptr;
+        std::size_t frame_count=0;
+        std::uint32_t sample_rate_hz=0;
+        const StreamedSample* streaming=nullptr;
     private:
-        const std::int16_t* data_=nullptr;
-        std::size_t frames_=0;
-        std::uint32_t rate_=0;
-        const StreamedSample* stream_=nullptr;
         bool stereo_=false;
     };
     template<class Sample> struct BasicVariableRateVoiceCommand
@@ -136,13 +143,13 @@ namespace BroTracker
         // mutating voices. All steps after preflight are infallible.
         [[nodiscard]] VariableRateBlockStatus RenderStereo(std::int16_t* left,std::int16_t* right,
             std::uint64_t frame_count,const VariableRateMixedVoiceCommandBatch& batch,
-            const Pcm16ChannelGains& gains,VariableRateStereoMixScratch& scratch) noexcept
+            const Pcm16ChannelGains& gains,VariableRateStereoMixScratch& scratch,bool diagnostic=false) noexcept
         {
             if(frame_count>VariableRateStereoMixScratch::kFrameCapacity) return VariableRateBlockStatus::RangeOverflow;
             if(frame_count && (!left || !right || left==right)) return VariableRateBlockStatus::InvalidDestination;
             for(const auto gain:gains.channels)
                 if(gain>kPcm16UnityGain) return VariableRateBlockStatus::InvalidGain;
-            return RenderBlock(StereoOutput{left,right,gains,scratch},frame_count,batch);
+            return RenderBlock(StereoOutput{left,right,gains,scratch,diagnostic},frame_count,batch);
         }
     private:
         struct StereoOutput {
@@ -150,6 +157,7 @@ namespace BroTracker
             std::int16_t* right;
             const Pcm16ChannelGains& gains;
             VariableRateStereoMixScratch& scratch;
+            bool diagnostic;
         };
         static VariableVoiceStatus TriggerSample(VariableRateSampleVoice& voice,Pcm16MonoView sample,
             std::uint64_t step) noexcept { return voice.Trigger(sample,step); }
@@ -251,11 +259,13 @@ namespace BroTracker
 #endif
             }
         }
+    public:
         bool HasDistinctRight(std::size_t channel) const noexcept {
             const auto& state=channels_[channel];
             return voices_[channel].IsStereo() ||
                 (state.transition<state.length && state.from!=state.right_from);
         }
+    private:
         void RenderSpan(const StereoOutput& output,std::size_t start,std::size_t count) noexcept {
             if(!count) return;
             auto& scratch=output.scratch;
@@ -263,7 +273,16 @@ namespace BroTracker
             std::fill_n(scratch.right_minus_left,count,0);
             for(std::size_t channel=0;channel<kRealtimePatternChannelCapacity;++channel) {
                 const auto gain=output.gains.channels[channel];
-                if(HasDistinctRight(channel)) {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                const bool diagnostic=output.diagnostic;
+#else
+                constexpr bool diagnostic=false;
+#endif
+                if(diagnostic || HasDistinctRight(channel)) {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                    if(diagnostic) RenderChannel<true,true>(channel,scratch.left,scratch.right,count);
+                    else
+#endif
                     RenderChannel<true,false>(channel,scratch.left,scratch.right,count);
                     for(std::size_t i=0;i<count;++i) {
                         scratch.left_sum[i]+=std::int64_t(scratch.left[i])*gain;
@@ -300,10 +319,10 @@ namespace BroTracker
                 if(state.transition>=state.length && !state.release) {
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                     if constexpr(Diagnostic) {
-                        state.diagnostic_last=state.diagnostic_excluded ? 0 : left[count-1];
+                        state.diagnostic_last=state.diagnostic_excluded ? 0 : (Stereo ? right[count-1] : left[count-1]);
                         if(right) {
                             if(state.diagnostic_excluded)std::fill_n(right,count,0);
-                            else std::copy_n(left,count,right);
+                            else if constexpr(!Stereo) std::copy_n(left,count,right);
                         }
                     }
 #endif
@@ -318,12 +337,12 @@ namespace BroTracker
                 float other=0;
                 if constexpr(Stereo) other=state.synth ? value : float(right[i]);
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                if constexpr(Diagnostic) other=state.diagnostic_excluded ? 0.0f : float(left[i]);
+                if constexpr(Diagnostic) other=state.diagnostic_excluded ? 0.0f : float(Stereo ? right[i] : left[i]);
 #endif
                 if(state.transition<state.length) {
                     const float weight=SmoothEndpoint(float(state.transition++)/float(state.length-1));
                     value=state.from*(1.0f-weight)+value*weight;
-                    if constexpr(Stereo) other=state.right_from*(1.0f-weight)+other*weight;
+                    if constexpr(Stereo && !Diagnostic) other=state.right_from*(1.0f-weight)+other*weight;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                     if constexpr(Diagnostic) other=state.diagnostic_from*(1.0f-weight)+other*weight;
 #endif
@@ -337,7 +356,7 @@ namespace BroTracker
                     value=other=0;
                 }
                 left[i]=static_cast<std::int16_t>(std::lround(value));
-                if constexpr(Stereo) right[i]=static_cast<std::int16_t>(std::lround(other));
+                if constexpr(Stereo && !Diagnostic) right[i]=static_cast<std::int16_t>(std::lround(other));
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                 if constexpr(Diagnostic) {
                     const auto sample=static_cast<std::int16_t>(std::lround(other));

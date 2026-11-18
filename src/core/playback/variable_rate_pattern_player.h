@@ -50,7 +50,7 @@ namespace BroTracker
     {
     public:
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-        const std::int16_t* DiagnosticRight() const noexcept { return diagnostic_right_; }
+        const std::int16_t* DiagnosticRight() const noexcept { return right_scratch_; }
 #endif
         const VariableRateSampleVoice* SampleVoice(unsigned channel) const noexcept { return renderer_.GetVoice(channel); }
         // Successful render export, consumed once by the platform output adapter.
@@ -364,12 +364,26 @@ namespace BroTracker
         // binding comparisons, <=16 audio commands, 8*128 channel frames + mixing
         // and output copying, plus <=513*64 pending-entry checks and <=512*8
         // absolute OFF-boundary conversions. A preview adds <=31 logical row preparations
-        // once per block and one fixed pattern copy. Fixed 8x128 channel and 128 mono scratch storage.
+        // once per block and one fixed pattern copy. Fixed stereo mixer and 128-frame output spans.
         // Callers MUST handle rejection; no firmware underrun policy or measured
         // Teensy processing budget is established. A smaller retry may succeed;
         // unresolved bindings require reconfiguration or Stop.
         [[nodiscard]] VariableRatePatternPlayerStatus Render(std::int16_t* destination,
-            std::uint64_t frame_count) noexcept
+            std::uint64_t frame_count) noexcept {
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+            return RenderBlock(destination,nullptr,frame_count,true);
+#else
+            return RenderBlock(destination,nullptr,frame_count,false);
+#endif
+        }
+        [[nodiscard]] VariableRatePatternPlayerStatus RenderStereo(std::int16_t* left,std::int16_t* right,
+            std::uint64_t frame_count,bool diagnostic=false) noexcept {
+            if(frame_count && (!right || right==left)) return VariableRatePatternPlayerStatus::InvalidDestination;
+            return RenderBlock(left,right,frame_count,diagnostic);
+        }
+    private:
+        VariableRatePatternPlayerStatus RenderBlock(std::int16_t* destination,std::int16_t* right,
+            std::uint64_t frame_count,bool diagnostic) noexcept
         {
             if (frame_count == 0) return VariableRatePatternPlayerStatus::Success;
             if (!configured_) return VariableRatePatternPlayerStatus::NotConfigured;
@@ -379,9 +393,8 @@ namespace BroTracker
             if (transport_ != VariableRatePatternTransportState::Playing)
             {
                 for (std::size_t i = 0; i < count; ++i) destination[i] = 0;
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                std::fill_n(diagnostic_right_,count,0);
-#endif
+                if(right) std::fill_n(right,count,0);
+                if(diagnostic) std::fill_n(right_scratch_,count,0);
                 return VariableRatePatternPlayerStatus::Success;
             }
             auto cursor = cursor_;
@@ -400,7 +413,7 @@ namespace BroTracker
             if (begin == TickCursorStatus::RangeOverflow) return VariableRatePatternPlayerStatus::RangeOverflow;
             if (begin == TickCursorStatus::ArithmeticExhausted) return VariableRatePatternPlayerStatus::ArithmeticExhausted;
             if (begin != TickCursorStatus::Success) return VariableRatePatternPlayerStatus::ComponentError;
-            VariableRateVoiceCommandBatch commands{};
+            VariableRateMixedVoiceCommandBatch commands{};
             for(unsigned c=0;c<8;++c) if(mute_releases_ & (1u<<c))
                 {commands.commands[commands.count++]={c,0,VariableRateVoiceAction::Release,{}};sounding[c]=kNoInstrumentUpdate;}
             // At most eight pending entries. Emit by absolute sample, then channel;
@@ -473,7 +486,7 @@ namespace BroTracker
                     if (pending.entries[event.channel].active) return VariableRatePatternPlayerStatus::ComponentError;
                     pending.entries[event.channel] = {true, sample, (absolute_row+1)*kTicksPerRow};
                 }
-                VariableRateVoiceCommandBatch prepared{};
+                VariableRateMixedVoiceCommandBatch prepared{};
                 const auto preparation = preparer.Prepare(rows, prepared);
                 if (preparation != VariableSampleCommandStatus::Success) return SampleStatus(preparation);
                 if (prepared.count > kVariableRateVoiceCommandCapacity - commands.count)
@@ -494,27 +507,14 @@ namespace BroTracker
                     PatternPositionStatus::Success) return VariableRatePatternPlayerStatus::ComponentError;
                 position = {true, position.absolute_tick, mapped.pattern_row, mapped.loop_index};
             }
-            VariableRateVoiceOutputs outputs;
-            Pcm16MixInputs inputs;
-            for (std::size_t channel = 0; channel < kRealtimePatternChannelCapacity; ++channel)
-            {
-                outputs.channels[channel] = channel_scratch_[channel];
-                inputs.channels[channel] = channel_scratch_[channel];
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-                outputs.diagnostic_without_synth[channel]=diagnostic_channels_[channel];
-#endif
+            if(!right) {
+                for(unsigned c=0;c<kRealtimePatternChannelCapacity;++c)
+                    if(renderer.HasDistinctRight(c)) return VariableRatePatternPlayerStatus::InvalidSample;
+                for(std::size_t i=0;i<commands.count;++i)
+                    if(commands.commands[i].sample.IsStereo()) return VariableRatePatternPlayerStatus::InvalidSample;
             }
-            if (renderer.Render(outputs, frame_count, commands) != VariableRateBlockStatus::Success)
-                return VariableRatePatternPlayerStatus::ComponentError;
-            if (MixPcm16MonoWithGains(inputs, gains_, mono_scratch_, frame_count) != Pcm16GainMixStatus::Success)
-                return VariableRatePatternPlayerStatus::ComponentError;
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-            Pcm16MixInputs diagnostic_inputs;
-            for(unsigned channel=0;channel<kRealtimePatternChannelCapacity;++channel)
-                diagnostic_inputs.channels[channel]=diagnostic_channels_[channel];
-            if(MixPcm16MonoWithGains(diagnostic_inputs,gains_,diagnostic_right_,frame_count)!=Pcm16GainMixStatus::Success)
-                return VariableRatePatternPlayerStatus::ComponentError;
-#endif
+            if(renderer.RenderStereo(left_scratch_,right_scratch_,frame_count,commands,gains_,mix_scratch_,diagnostic)
+                !=VariableRateBlockStatus::Success) return VariableRatePatternPlayerStatus::ComponentError;
             pattern_ = working_pattern;
             preview_pending_ = preview_pending;
             pending_ = pending;
@@ -523,11 +523,21 @@ namespace BroTracker
             preparer_ = preparer;
             renderer_ = renderer;
             sounding_instrument_=sounding;
-            midi_commands_=commands; midi_cancel_mask_|=mute_releases_; mute_releases_=0;
+            midi_commands_.count=commands.count;
+            for(std::size_t i=0;i<commands.count;++i) {
+                const auto& c=commands.commands[i];
+                auto& target=midi_commands_.commands[i];
+                target={c.channel,c.sample_offset,c.action,c.sample.Mono(),c.step_q32_32,c.synth_note,c.sample_level_percent};
+#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
+                target.instrument=c.instrument;
+#endif
+            }
+            midi_cancel_mask_|=mute_releases_; mute_releases_=0;
             position_ = position;
             // BeginBlock checked the absolute block end for uint64_t overflow.
             next_sample_ += frame_count;
-            for (std::size_t i = 0; i < count; ++i) destination[i] = mono_scratch_[i];
+            for (std::size_t i = 0; i < count; ++i) destination[i] = left_scratch_[i];
+            if(right) std::copy_n(right_scratch_,count,right);
             return VariableRatePatternPlayerStatus::Success;
         }
     private:
@@ -547,7 +557,7 @@ namespace BroTracker
                 if (GenerateRowEvents(tick,pattern,events) != RowEventStatus::Success)
                     return VariableRatePatternPlayerStatus::ComponentError;
                 SuppressRows(events,mask);
-                VariableRateVoiceCommandBatch ignored{};
+                VariableRateMixedVoiceCommandBatch ignored{};
                 const auto result = preparer.Prepare(events,ignored,metadata_only);
                 if (result != VariableSampleCommandStatus::Success) return SampleStatus(result);
             }
@@ -610,11 +620,8 @@ namespace BroTracker
         VariableRatePatternTransportState transport_ = VariableRatePatternTransportState::Stopped;
         std::uint64_t next_sample_ = 0;
         VariableRateConsumedPatternPosition position_;
-        std::int16_t channel_scratch_[kRealtimePatternChannelCapacity][kVariableRatePatternFrameCapacity]{};
-        std::int16_t mono_scratch_[kVariableRatePatternFrameCapacity]{};
-#ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
-        std::int16_t diagnostic_channels_[kRealtimePatternChannelCapacity][kVariableRatePatternFrameCapacity]{};
-        std::int16_t diagnostic_right_[kVariableRatePatternFrameCapacity]{};
-#endif
+        VariableRateStereoMixScratch mix_scratch_;
+        std::int16_t left_scratch_[kVariableRatePatternFrameCapacity]{};
+        std::int16_t right_scratch_[kVariableRatePatternFrameCapacity]{};
     };
 }

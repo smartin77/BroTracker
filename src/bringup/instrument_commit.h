@@ -27,7 +27,13 @@ template<class Prepare> VariableRateSampleBindings PrepareSessionBindings(const 
         const auto* d=definitions.At(id);VariableRateSampleBinding binding;
         binding.instrument=id;binding.type=d->type;
         if(d->type==InstrumentType::Sample) {
-            if(prepare(id,d->resource,binding.sample)!=InstrumentAvailability::Ready)continue;
+            if constexpr(std::is_invocable_v<Prepare&,unsigned,const char*,Pcm16MixedSampleView&>) {
+                if(prepare(id,d->resource,binding.sample)!=InstrumentAvailability::Ready)continue;
+            } else {
+                Pcm16MonoView mono;
+                if(prepare(id,d->resource,mono)!=InstrumentAvailability::Ready)continue;
+                binding.sample=mono;
+            }
             binding.reference_note=60;binding.sample_level_percent=80;
         }
         result.bindings[result.count++]=binding;

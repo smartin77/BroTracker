@@ -343,6 +343,7 @@ add_test(NAME BroTrackerStartupStorageTests COMMAND BroTrackerStartupStorageTest
 # Actual production graph/lifecycle with isolated fake PJRC objects and bus.
 add_executable(BroTrackerProductionAudioTests tests/test_main.cpp tests/test_production_audio_output.cpp
     firmware/teensy/BroTracker/production_audio_output.cpp)
+target_compile_definitions(BroTrackerProductionAudioTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE)
 target_include_directories(BroTrackerProductionAudioTests PRIVATE tests/stubs/production_audio tests ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerProductionAudioTests PRIVATE AUDIO_INTERFACE)
 add_test(NAME BroTrackerProductionAudioTests COMMAND BroTrackerProductionAudioTests)

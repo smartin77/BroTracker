@@ -74,10 +74,10 @@ inline BasicPatternBringUpFixture<Bindings> SelectPatternBringUpFixture(
 // 1=MIDI 02, 2=Synth 03, 3=Sample 04 (test3.wav).
 // Sample 01 uses test2.wav; Sample 05/raw4 uses test.wav when prepared storage is available.
 inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentFixture(
-    Pcm16MonoView test2, Pcm16MonoView test3={}, Pcm16MonoView test={}) noexcept {
+    Pcm16MixedSampleView test2, Pcm16MixedSampleView test3={}, Pcm16MixedSampleView test={}) noexcept {
     BasicPatternBringUpFixture<VariableRateSampleBindings> result{MakeDevelopmentPattern(),{}};
     auto& bindings=result.bindings;
-    const Pcm16MonoView views[]={test2,{},{},test3,test};
+    const Pcm16MixedSampleView views[]={test2,{},{},test3,test};
     // Preserve existing playback binding order/gains/ownership. Only successfully
     // prepared Sample views become playable; definitions never depend on this.
     VariableRateSampleVoice validator; (void)validator.Configure(44100);
@@ -85,7 +85,7 @@ inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentF
         const auto& definition=kDevelopmentInstrumentDefinitions[raw];
         if(definition.type!=InstrumentType::Sample)
             bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),0,{},definition.type};
-        else if(validator.Trigger(views[raw],kSourceFrameStepUnity)==VariableVoiceStatus::Success)
+        else if(views[raw].Trigger(validator,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
             bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),60,views[raw],definition.type,kDevelopmentSampleLevelPercent};
     }
     return result;

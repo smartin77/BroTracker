@@ -35,7 +35,7 @@ public:
         if(f.status!=BroTracker::WavBufferStatus::Success)return "Invalid WAV";
         char resource[BroTracker::kSamplePathMaximum+1];const auto rejection=ValidateResource(*entry,resource);if(!rejection.empty())return rejection;
         char rate[32];std::snprintf(rate,sizeof(rate),"%u.%u kHz",f.sample_rate/1000,(f.sample_rate%1000)/100);
-        return std::string("PCM ")+"\xc2\xb7 "+std::to_string(f.bits)+"-bit "+"\xc2\xb7 "+rate;
+        return std::string("PCM ")+"\xc2\xb7 "+std::to_string(f.bits)+"-bit "+"\xc2\xb7 "+rate+(f.channels==2?" | Stereo":"");
     }
     void Begin(std::string path){requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
     bool Accept(const BroTracker::WavBrowsePage& page) {

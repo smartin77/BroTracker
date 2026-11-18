@@ -19,7 +19,7 @@ TEST_CASE(ProductionRoutesPreserveGraphsAndNeverConstructAlternativeHardware) {
         CHECK_EQ(g.i2s,route==AudioOutputChoice::AudioShield?1u:0u);
         CHECK_EQ(g.memory,8u);CHECK(!g.badGuard);
         CHECK_EQ(g.patches,route==AudioOutputChoice::Bridge?3u:2u);
-        for(unsigned i=0;i<g.patches;++i) {CHECK_EQ(g.patch[i].source,AudioFake::Source);CHECK_EQ(g.patch[i].from,0);}
+        for(unsigned i=0;i<g.patches;++i) {CHECK_EQ(g.patch[i].source,AudioFake::Source);CHECK_EQ(g.patch[i].from,(i+1==g.patches?int(kProductionRightSourceChannel):0));}
         if(route==AudioOutputChoice::Bridge) {
             CHECK_EQ(g.patch[0].output,AudioFake::Mqs);CHECK_EQ(g.patch[0].to,0);
             CHECK_EQ(g.patch[1].output,AudioFake::Usb);CHECK_EQ(g.patch[1].to,0);
@@ -70,5 +70,19 @@ TEST_CASE(ShieldFailuresAreStickyWithoutRetryFallbackOrOtherPinDrivers) {
         CHECK_EQ(std::strcmp(output.Select(AudioOutputChoice::Bridge,source,usb),"restart-required"),0);
         CHECK_EQ(std::strcmp(output.Select(AudioOutputChoice::Pt8211,source,usb),"restart-required"),0);
         CHECK_EQ(g.controls,controls);CHECK_EQ(g.reads,reads);CHECK_EQ(g.enables,1u);
+    }
+}
+TEST_CASE(ProductionAudioPairReleasesPartialAllocationBeforeRendering) {
+    int left=1,right=2;
+    for(unsigned successful=0;successful<=2;++successful) {
+        unsigned attempts=0,releases=0;
+        const auto pair=AllocateAudioPair([&]() -> int* {
+            const auto i=attempts++;
+            return i>=successful ? nullptr : i ? &right : &left;
+        },[&](int* block){CHECK_EQ(block,&left);++releases;});
+        CHECK_EQ(attempts,successful ? 2u : 1u);
+        CHECK_EQ(releases,successful==1 ? 1u : 0u);
+        CHECK_EQ(pair.left,successful==2 ? &left : nullptr);
+        CHECK_EQ(pair.right,successful==2 ? &right : nullptr);
     }
 }

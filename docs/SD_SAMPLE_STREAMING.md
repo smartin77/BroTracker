@@ -1,5 +1,44 @@
 # Production SD sample streaming — 2026-11-07
 
+## Production stereo integration
+
+The development firmware now prepares and streams native interleaved 44.1 kHz
+PCM16 mono or stereo. At the existing 143,360 B stream storage budget, a stereo
+voice has a 1,024-frame shared prefix and 2,048-frame ring. Each 4 KiB refill
+holds 1,024 stereo frames. At unity, each prefix and half-ring holds about
+23.2 ms of stereo audio, and at 2x it holds about 11.6 ms. These are capacity
+calculations. The historical mono tests below do not qualify simultaneous
+stereo starts or sustained stereo throughput.
+
+Normal playback routes genuine L/R through USB bridge, PT8211, and Shield I2S.
+The bridge's MQS update owner retains its left monitor connection. Mono and
+Synth are centered, and the master ramp advances once per output frame.
+Browser audition supports stereo while stopped. Windows P and handheld X trigger audition. WAVOPEN v5 advertises
+stereo eligibility to compatible BTX builds, and existing browser versions keep
+their mono eligibility. Session files continue to save resource paths. The
+opt-in diagnostic right-side exclusion remains separate from the normal mix.
+
+The owner confirmed correct stereo separation in stopped Sample Browser
+audition and when the selected Sample instrument played in a Pattern. These
+are listening observations. The device counters below address streaming
+continuity and do not measure analog channel separation.
+
+USB bridge qualification on the reference card kept eight distinct PCM16 stereo
+files active simultaneously at unity for 61.35 s of device playback. Startup
+and later counters showed zero underruns, SD I/O errors, audio allocation
+failures, and source-callback overruns. The lowest reported ready margin was
+one stereo source frame, about 23 microseconds at unity.
+
+A separate 61.16 s pitched mix with synchronized retriggers and 2x stereo
+completed playback without those errors. Its directory requests did not
+complete during playback, and a pending live edit was cancelled by rollback.
+A 61.11 s pitched mix with stereo at or below unity and mono up to 2x completed
+seven directory page requests, 153 status requests, and live mono-to-stereo
+replacement and rollback during playback. Across the runs, the longest
+observed seek/read was 3.400 ms and peak audio pool use was 3 of 8 blocks.
+The fixed buffers stayed in place. The results cover the tested card, file
+layouts and workloads. PT8211 and Shield hardware measurements remain open.
+
 ## Status
 
 Implemented, built, flashed and hardware-tested on feature/sd-streaming without

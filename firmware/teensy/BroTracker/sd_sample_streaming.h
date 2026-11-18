@@ -61,9 +61,16 @@ public:
     }
     // Stopped foreground only. New immutable sources never replace published PCM.
     InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
+        Pcm16MixedSampleView prepared;
+        const auto result=PreparePath(path,prepared,false);
+        if(result==InstrumentAvailability::Ready) output=prepared.Mono();
+        return result;
+    }
+    InstrumentAvailability PreparePath(const char* path,Pcm16MixedSampleView& output,bool stereo=true) {
         if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
         if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
+            if(!stereo && reports[i].view.IsStereo())return InstrumentAvailability::PreparationFailed;
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
         unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
@@ -82,7 +89,7 @@ public:
         } reader(file);
         WavMetadata metadata;
         StreamedSample source;
-        if(InspectWavMetadata(reader,metadata)!=WavBufferStatus::Success ||
+        if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo)!=WavBufferStatus::Success ||
             !DescribeSource(metadata,metadata.file_bytes,memory_->starts[index],source)) {
             file.close();return InstrumentAvailability::PreparationFailed;
         }
@@ -152,7 +159,7 @@ public:
     }
     bool BeginPrepareAsync(const char* path) {
         if(job_phase_!=JobIdle && job_phase_!=JobDone)return false;
-        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin();
+        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true);
         job_phase_=JobDone;
         if(!sd_ready_ || !memory_){job_result_=InstrumentAvailability::StorageUnavailable;return true;}
         if(!InstrumentDefinitions::ValidResource(path)){job_result_=InstrumentAvailability::NoResource;return true;}
@@ -166,7 +173,8 @@ public:
     }
     bool PreparationDone()const{return job_phase_==JobDone;}
     InstrumentAvailability PreparationResult()const{return job_result_;}
-    Pcm16MonoView PreparedView()const{return job_view_;}
+    Pcm16MonoView PreparedView()const{return job_view_.Mono();}
+    Pcm16MixedSampleView PreparedMixedView()const{return job_view_;}
     void CancelPreparation(){if(job_phase_!=JobIdle && job_phase_!=JobDone)job_phase_=JobClose;}
     // No loop over file chunks: one open, bounded inspection/read, <=512-byte
     // PCM seek/read, or close per foreground turn, after active refills.
@@ -287,7 +295,7 @@ private:
         StreamedSample& output) noexcept {
         const StreamSourceFormat format{metadata.sample_rate,metadata.channels,metadata.bits};
         const auto stride=format.BytesPerFrame();
-        if(metadata.format!=1 || !format.IsPcm16Mono() || format.sample_rate_hz!=44100 ||
+        if(metadata.format!=1 || (format.bits_per_sample!=16 || !stride) || format.sample_rate_hz!=44100 ||
             metadata.block_align!=stride || metadata.byte_rate!=std::uint64_t(format.sample_rate_hz)*stride ||
             !metadata.frames || metadata.frames>UINT32_MAX || metadata.data_offset>UINT32_MAX) return false;
         // Frame count now fits in 32 bits, so the extent multiplication fits in uint64_t.
@@ -296,7 +304,9 @@ private:
         output={start,static_cast<std::uint32_t>(metadata.frames),buffers_,format};
         return true;
     }
-    static Pcm16MonoView MakeView(const StreamedSample& source) noexcept {
+    static Pcm16MixedSampleView MakeView(const StreamedSample& source) noexcept {
+        if(source.format.channels==2)
+            return Pcm16MixedSampleView(Pcm16StereoView{source.start,source.frames,source.format.sample_rate_hz,&source});
         return {source.start,source.frames,source.format.sample_rate_hz,&source};
     }
     static bool ReadFrames(FsFile& file,std::uint32_t data_offset,const StreamedSample& source,
@@ -320,7 +330,7 @@ private:
     Storage* memory_=nullptr;
     enum JobPhase{JobIdle,JobOpen,JobInspect,JobPcm,JobClose,JobDone};JobPhase job_phase_=JobIdle;
     unsigned job_index_=kSourceCapacity;std::uint32_t job_read_=0;ResourcePathRef job_path_;
-    WavInspectionJob job_inspection_;Pcm16MonoView job_view_{};
+    WavInspectionJob job_inspection_;Pcm16MixedSampleView job_view_{};
     InstrumentAvailability job_result_=InstrumentAvailability::PreparationFailed;unsigned rollback_pins_=0;
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
     bool sd_ready_=false;unsigned count_=3;ResourcePathRef paths_[kSourceCapacity];

@@ -32,11 +32,11 @@ public:
             if(job_id_==id_ && pending_) {
                 pending_=false;result_=stream_.PreparationResult()==InstrumentAvailability::Ready?0:stream_.PreparationResult()==InstrumentAvailability::PathCapacity?9:4;
                 if(!result_) {
-                    const auto view=stream_.PreparedView();
+                    const auto view=stream_.PreparedMixedView();
                     // All currently supported WAVs are 44100 Hz. Unity playback
                     // uses their native rate, with no instrument pitch/tempo input.
                     StreamInterruptGuard guard;
-                    result_=voice_.Trigger(view,kSourceFrameStepUnity)==VariableVoiceStatus::Success?0:4;
+                    result_=view.Trigger(voice_,kSourceFrameStepUnity)==VariableVoiceStatus::Success?0:4;
                     stream_.PublishVoice(8,voice_.StreamSnapshot());
                 }
                 completed_=id_;
@@ -50,11 +50,16 @@ public:
     std::uint32_t TakeResult(unsigned& result){const auto id=completed_;completed_=0;result=result_;return id;}
     // Audio owner. Never start audio here; a transport change also silences an
     // accepted audition even if foreground cancellation has not yet run.
-    bool Render(std::int16_t* pcm,std::size_t count,bool stopped,unsigned volume) {
+    bool Render(std::int16_t* pcm,std::size_t count,bool stopped,unsigned volume,std::int16_t* right=nullptr) {
         if(!stopped)voice_.Stop();
-        const bool rendered=stopped && voice_.IsActive();
+        const bool rendered=stopped && voice_.IsActive() && (right || !voice_.IsStereo());
         if(rendered) {
-            (void)voice_.Render(pcm,count);(void)volume_.Set(volume);volume_.Process(pcm,count);
+            (void)volume_.Set(volume);
+            if(right) {
+                (void)voice_.RenderStereo(pcm,right,count);volume_.ProcessStereo(pcm,right,count);
+            } else {
+                (void)voice_.Render(pcm,count);volume_.Process(pcm,count);
+            }
         }
         stream_.PublishVoice(8,voice_.StreamSnapshot());return rendered;
     }

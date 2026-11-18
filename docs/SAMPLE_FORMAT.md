@@ -2,7 +2,9 @@
 
 ## Status
 
-Draft
+Production streaming accepts integer PCM WAV at 44.1 kHz with 16-bit mono or
+native interleaved stereo frames. Mono and Synth are centered in the normal mix.
+PCM8, other sample rates, and loops remain outside this implementation.
 
 ## Purpose
 
@@ -15,7 +17,7 @@ scope, not a claim that every property is currently implemented:
 
 * PCM audio
 * 16-bit depth
-* mono
+* mono or stereo
 * 44.1 kHz sample rate
 * future lower-rate support (including 8 kHz and 22.05 kHz) and extension to 48 kHz
 * loop start

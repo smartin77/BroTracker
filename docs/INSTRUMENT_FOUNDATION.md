@@ -431,7 +431,10 @@ Preparation is serialized with existing live definition jobs and runs outside
 the audio interrupt guard. The audio owner only renders prepared streaming PCM.
 Auto preview, mouse controls and audition during playback remain deferred.
 
-Manual Windows/ArkOS verification (P/X respectively):
+Manual audition checklist
+
+Windows P and handheld X both trigger audition. Press the same control again
+to retrigger. Leave the browser to cancel.
 
 - Stop Pattern; focus a supported WAV. Navigation alone stays silent. Press P/X;
   verify native pitch/rate, complete EOF playback and unchanged Instrument draft.
