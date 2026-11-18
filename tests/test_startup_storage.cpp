@@ -2444,7 +2444,7 @@ TEST_CASE(SampleBrowserStartupUsesMissingOnlyHostChainAndReusesTheSuccessfulList
     for(unsigned scenario=0;scenario<8;++scenario) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
         wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
-        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,0};
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,5};
         if(scenario==1 || scenario==2)wire->wav_directory_errors["/Samples"]=1;
         if(scenario==2)wire->wav_directory_errors["/BroTracker"]=1;
         if(scenario==3)wire->empty_wav_directories.push_back("/Samples");
@@ -2497,4 +2497,84 @@ TEST_CASE(HostNegotiatesLongSpacedPathsForListingAuditionLiveAssignmentAndRollba
     CHECK(!serial.InstrumentCommitSucceeded());CHECK(serial.InstrumentCommitError().find("path storage full")!=std::string::npos);CHECK_EQ(std::string(wire->definitions.At(0)->resource),path);
     CHECK(serial.ReplaceLiveDefinition(1,1,original.c_str(),5401,true));Pump(serial,271,300,&editor);CHECK(serial.InstrumentCommitSucceeded());CHECK_EQ(std::string(wire->definitions.At(0)->resource),original);
     serial.EndInstrumentVisit();Pump(serial,301,320,&editor);CHECK(!serial.InstrumentVisitActive());
+}
+
+TEST_CASE(SampleBrowserRemembersConfirmedDirectoryOnlyWithinTheInstrumentVisit) {
+    for(const std::string transport:{"IDLE","PAUSED","PLAYING"}) {
+        auto peer=std::make_unique<StoragePeer>();
+        auto* wire=peer.get();
+        wire->define_cap=wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=
+            wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,0};
+        CHECK(wire->definitions.Replace(0,1,"Library/Kit/original.wav"));
+        constexpr static std::int16_t pcm[]={100,-100,50,0};
+        wire->live_prepared={0,60,{pcm,4,44100},InstrumentType::Sample,80};
+        BringUpSerial serial(nullptr,std::move(peer));
+        LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        unsigned tick=0;
+        const auto drive=[&](unsigned count) {
+            for(unsigned n=0;n<count;++n) {
+                controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);++tick;
+            }
+        };
+        const auto act=[&](BringUpAction action){controls.Request(action,"folder memory",tick*20);};
+        const auto request=[&]() {
+            const auto it=std::find_if(wire->commands.rbegin(),wire->commands.rend(),[](const auto& line) {
+                return line.rfind("BTSTORE1 WAVOPEN ",0)==0;
+            });
+            WavOpenRequest parsed;
+            CHECK(it!=wire->commands.rend());
+            if(it!=wire->commands.rend())CHECK(ParseWavOpen(it->data(),it->size(),parsed));
+            return parsed;
+        };
+        drive(100);
+        editor.RestoreCursor({0,0,EditField::Instrument,false});
+        wire->state=transport;wire->rx+="BTTEST1 STATE "+transport+"\n";drive(5);
+        const auto first=wire->commands.size();
+        act(BringUpAction::ScreenUp);drive(60);CHECK(serial.InstrumentVisitReady());
+        wire->hold_list=true;
+        act(BringUpAction::BrowserConfirm);drive(20);
+        const auto initial=request();
+        CHECK_EQ(std::string(initial.directory),std::string("/Library/Kit"));
+        const auto id=std::to_string(initial.request);
+        wire->rx+="BTSTORE1 WAVDIR 3 "+id+" /Library/Kit\nBTSTORE1 WAVINFO 3 "+id+
+            " 0\nBTSTORE1 WAVITEM 3 "+id+" D Nested\nBTSTORE1 WAVEND 3 "+id+" 32 1 1\n";
+        drive(20);
+        act(BringUpAction::BrowserDown);act(BringUpAction::BrowserConfirm);drive(20);
+        CHECK_EQ(std::string(request().directory),std::string("/Library/Kit/Nested"));
+        wire->rx+=wire->list_reply;drive(20);
+        CHECK_EQ(controls.WavDirectory(),std::string("/Library/Kit/Nested"));
+
+        // Cancel while the parent request is pending. Its late reply cannot
+        // replace the last confirmed directory.
+        act(BringUpAction::BrowserConfirm);drive(20);
+        CHECK_EQ(std::string(request().directory),std::string("/Library/Kit"));
+        act(BringUpAction::BrowserCancel);CHECK(!controls.WavPicker());
+        wire->rx+=wire->list_reply;drive(10);
+        wire->hold_list=false;
+        act(BringUpAction::BrowserConfirm);drive(25);
+        CHECK_EQ(controls.WavDirectory(),std::string("/Library/Kit/Nested"));
+        act(BringUpAction::BrowserDown);act(BringUpAction::BrowserConfirm);
+        CHECK(controls.ReplacementConfirming());
+        act(BringUpAction::BrowserConfirm);drive(60);
+        CHECK(!controls.WavPicker());
+        CHECK_EQ(std::string(wire->definitions.At(0)->resource),std::string("Library/Kit/Nested/selected.wav"));
+        act(BringUpAction::BrowserConfirm);drive(25);
+        CHECK_EQ(controls.WavDirectory(),std::string("/Library/Kit/Nested"));
+        act(BringUpAction::BrowserCancel);
+        act(BringUpAction::InstrumentCancel);drive(80);
+        CHECK(!controls.InstrumentScreen());
+        CHECK_EQ(std::string(wire->definitions.At(0)->resource),std::string("Library/Kit/original.wav"));
+
+        act(BringUpAction::ScreenUp);drive(60);
+        act(BringUpAction::BrowserConfirm);drive(25);
+        CHECK_EQ(controls.WavDirectory(),std::string("/Library/Kit"));
+        CHECK_EQ(serial.Paused(),transport=="PAUSED");
+        CHECK_EQ(serial.Playing(),transport=="PLAYING");
+        CHECK(std::none_of(wire->commands.begin()+first,wire->commands.end(),[](const auto& line) {
+            return line=="BTTEST1 STOP" || line=="BTTEST1 START" || line=="BTTEST1 CONTINUE" ||
+                line=="BTTEST1 PAUSE" || line.rfind("BTSTORE1 SAVE",0)==0;
+        }));
+    }
 }

@@ -31,6 +31,25 @@ std::string BringUpControls::BrowserText()const {
     if(browser_ready_)return browser_list_.names.empty()?"No compatible pattern files":"Select a pattern file";
     return serial_.PatternListStatus();
 }
+void BringUpControls::OpenSampleBrowser(std::uint32_t now) {
+    auto directory=wav_visit_directory_;
+    if(directory.empty()) {
+        const auto resource=SavedInstrumentPath();
+        if(resource!="None" && BroTracker::InstrumentDefinitions::ValidResource(resource.c_str())) {
+            directory="/"+resource;
+            directory.erase(std::max<std::size_t>(1,directory.rfind('/')));
+        }
+    }
+    wav_next_startup_root_=0;
+    if(directory.empty())directory=kSampleBrowserStartupRoots[wav_next_startup_root_++];
+    else {
+        const auto root=std::find(kSampleBrowserStartupRoots.begin(),kSampleBrowserStartupRoots.end(),directory);
+        if(root!=kSampleBrowserStartupRoots.end())wav_next_startup_root_=root-kSampleBrowserStartupRoots.begin()+1;
+    }
+    wav_picker_=true;
+    wav_browser_.Reset();
+    OpenWavDirectory(directory,now);
+}
 void BringUpControls::OpenWavDirectory(const std::string& path,std::uint32_t now) {
     serial_.CancelWavDirectory();
     audition_feedback_.clear();
@@ -105,13 +124,17 @@ bool BringUpControls::InstrumentDraftChanged()const {
     return draft_slot_==instrument_number_ && ((definition_draft_.explicit_type &&
         InstrumentDraftTypeCode()!=serial_.InspectedType(instrument_number_)) || !sample_path_.empty());
 }
+void BringUpControls::CloseInstrumentView() {
+    instrument_screen_=false;
+    wav_visit_directory_.clear();
+}
 void BringUpControls::FinishInstrumentVisit() {
     if(serial_.InstrumentVisitActive()) {
         serial_.EndInstrumentVisit();visit_closing_=true;screen_status_="Finishing Instrument visit; retaining sources until device acknowledgement";return;
     }
     visit_closing_=false;
     if(editor_)editor_->RestoreCursor(instrument_entry_.source);
-    instrument_screen_=false;instrument_entry_pattern_.reset();
+    CloseInstrumentView();instrument_entry_pattern_.reset();
     definition_draft_={};sample_path_.clear();draft_slot_=0;
     live_assignment_=assignment_confirm_=assignment_rollback_=false;
     original_types_.fill(0);desired_types_.fill(0);applied_types_.fill(0);
@@ -161,7 +184,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         if(serial_.InstrumentVisitActive()){FinishInstrumentVisit();return;}
         definition_return_=replacement_return_=replace_prompt_=false;definition_draft_={};sample_path_.clear();draft_slot_=0;
-        if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;instrument_screen_=false;
+        if(ScreenPending())serial_.CancelQueuedScreenSave();screen_phase_=ScreenPhase::Idle;CloseInstrumentView();
         if(editor_)editor_->RestoreCursor(instrument_entry_.source);
         instrument_entry_pattern_.reset();
         screen_status_="Instrument cancelled; cell unchanged";return;
@@ -234,7 +257,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(wav_browser_.View().selected!=previous_selection)audition_feedback_.clear();
             if(action==BringUpAction::BrowserConfirm) {
                 std::string path;const auto selection=wav_browser_.Select(path);
-                if(selection==1){wav_startup_candidate_=-1;OpenWavDirectory(path,now);}
+                if(selection==1){wav_next_startup_root_=kSampleBrowserStartupRoots.size();OpenWavDirectory(path,now);}
                 if(selection==2) {
                     serial_.CancelWavAudition();serial_.CancelWavDirectory();wav_collecting_=false;
                     const auto saved=SavedInstrumentPath();
@@ -308,8 +331,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 
         if(action==BringUpAction::BrowserConfirm) {
             if(InstrumentLoadAvailable() && !serial_.PatternListBusy()) {
-                wav_picker_=true;wav_browser_.Reset();wav_startup_candidate_=0;
-                OpenWavDirectory(kSampleBrowserStartupRoots[0],now);screen_status_="Sample Load";
+                OpenSampleBrowser(now);screen_status_="Sample Load";
             } else screen_status_=!serial_.MidiRecoveryStopped()?"WAV Load requires STOP; local Type draft retained":"Sample Load unavailable: select Sample in the trailing slot and synchronize";
             return;
         }
@@ -373,7 +395,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             }
             if(!editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {screen_status_="Assignment blocked; cancel or synchronize";return;}
             serial_.SyncEditor(*editor_,now);
-            instrument_screen_=false;screen_status_.clear();
+            CloseInstrumentView();screen_status_.clear();
         }
         if(action!=BringUpAction::ResetStop)return;
     }
@@ -505,8 +527,8 @@ void BringUpControls::Tick(std::uint32_t now) {
     if(definition_return_ && !serial_.InstrumentCommitPending()) {
         definition_return_=false;
         if(!serial_.InstrumentCommitSucceeded()) {screen_status_=serial_.InstrumentCommitError();replacement_return_=false;}
-        else if(replacement_return_) {replacement_return_=false;instrument_screen_=false;if(editor_)editor_->RestoreCursor(instrument_entry_.source);sample_path_.clear();definition_draft_={};draft_slot_=0;screen_status_="Instrument updated; Pattern references unchanged";}
-        else if(editor_ && editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {serial_.SyncEditor(*editor_,now);instrument_screen_=false;definition_draft_={};draft_slot_=0;screen_status_.clear();}
+        else if(replacement_return_) {replacement_return_=false;CloseInstrumentView();if(editor_)editor_->RestoreCursor(instrument_entry_.source);sample_path_.clear();definition_draft_={};draft_slot_=0;screen_status_="Instrument updated; Pattern references unchanged";}
+        else if(editor_ && editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {serial_.SyncEditor(*editor_,now);CloseInstrumentView();definition_draft_={};draft_slot_=0;screen_status_.clear();}
         else screen_status_="Definition committed; assignment blocked. Retry return or cancel";
     }
     if(exit_after_stop_ && serial_.ExitReady()) {quit_=true;return;}
@@ -533,19 +555,22 @@ void BringUpControls::Tick(std::uint32_t now) {
     if(wav_picker_ && wav_collecting_ && !serial_.PatternListBusy()) {
         if(!serial_.PatternListReady()) {
             if(serial_.WavDirectoryError()==BroTracker::WavDirectoryResult::Missing &&
-                wav_startup_candidate_>=0 && unsigned(wav_startup_candidate_+1)<kSampleBrowserStartupRoots.size()) {
-                ++wav_startup_candidate_;
-                OpenWavDirectory(kSampleBrowserStartupRoots[wav_startup_candidate_],now);
-            } else {wav_startup_candidate_=-1;wav_collecting_=false;wav_browser_.Fail(serial_.WavDirectoryError());}
+                wav_next_startup_root_<kSampleBrowserStartupRoots.size()) {
+                OpenWavDirectory(kSampleBrowserStartupRoots[wav_next_startup_root_++],now);
+            } else {wav_next_startup_root_=kSampleBrowserStartupRoots.size();wav_collecting_=false;wav_browser_.Fail(serial_.WavDirectoryError());}
         }
         else {
             // The successful initial page is the first progressive batch, even
             // when empty. Never probe/reopen it or apply startup policy later.
-            wav_startup_candidate_=-1;
+            wav_next_startup_root_=kSampleBrowserStartupRoots.size();
             const auto& page=serial_.WavDirectoryPage();
+            const bool opening=wav_browser_.Loading();
             if(!wav_browser_.Accept(page)) {wav_collecting_=false;wav_browser_.Fail(BroTracker::WavDirectoryResult::ReadError);}
-            else if(page.done)wav_collecting_=false;
-            else if(!serial_.RequestWavDirectory(page.directory,page.next,false,now)) {wav_collecting_=false;wav_browser_.Fail(BroTracker::WavDirectoryResult::Busy);}
+            else {
+                if(opening)wav_visit_directory_=wav_browser_.Directory();
+                if(page.done)wav_collecting_=false;
+                else if(!serial_.RequestWavDirectory(page.directory,page.next,false,now)) {wav_collecting_=false;wav_browser_.Fail(BroTracker::WavDirectoryResult::Busy);}
+            }
         }
     }
     if(load_save_screen_ && !recovery_screen_) {
