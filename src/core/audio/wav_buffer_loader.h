@@ -1,4 +1,5 @@
 #pragma once
+#include "streamed_sample.h"
 #include "ram_sample_voice.h"
 #include <cstring>
 
@@ -37,7 +38,16 @@ struct WavMetadata {
 };
 constexpr std::uint32_t kWavInspectionChunkLimit=1024;
 namespace WavBufferDetail {
-inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std::uint32_t chunk_limit,bool stereo) noexcept {
+inline bool SupportsPcm16(const WavMetadata& metadata,bool stereo,bool lower_rates) noexcept {
+    return metadata.format==1 && metadata.bits==16 &&
+        (metadata.channels==1 || (stereo && metadata.channels==2)) &&
+        (metadata.sample_rate==44100 || (lower_rates && IsStreamingPcm16Rate(metadata.sample_rate)));
+}
+inline bool ValidPcm16Geometry(const WavMetadata& metadata) noexcept {
+    return metadata.block_align==2*metadata.channels &&
+        metadata.byte_rate==metadata.sample_rate*metadata.block_align;
+}
+inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std::uint32_t chunk_limit,bool stereo,bool lower_rates) noexcept {
     std::uint64_t size=0;
     if(!reader.Size(size)) return WavBufferStatus::IoError;
     metadata.file_bytes=size; metadata.file_known=true;
@@ -70,8 +80,8 @@ inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std
             metadata.format=U16(header); metadata.channels=U16(header+2);
             metadata.sample_rate=U32(header+4); metadata.bits=U16(header+14);
             metadata.block_align=U16(header+12); metadata.byte_rate=U32(header+8); metadata.format_known=true;
-            supported=metadata.format==1 && (metadata.channels==1 || (stereo && metadata.channels==2)) && metadata.sample_rate==44100 && metadata.bits==16;
-            if(supported && (metadata.block_align!=2*metadata.channels || metadata.byte_rate!=88200u*metadata.channels)) return WavBufferStatus::InvalidFormat;
+            supported=SupportsPcm16(metadata,stereo,lower_rates);
+            if(supported && !ValidPcm16Geometry(metadata)) return WavBufferStatus::InvalidFormat;
         } else if(!std::memcmp(header,"data",4)) {
             if(have_data) return WavBufferStatus::DuplicateChunk;
             have_data=true; data_bytes=bytes;
@@ -101,9 +111,9 @@ inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std
 // Output contains only evidence read before rejection; flags identify known fields.
 // Duration is integer microseconds (floor), not tempo or reference pitch.
 inline WavBufferStatus InspectWavMetadata(WavBufferReader& reader,WavMetadata& output,
-    std::uint32_t chunk_limit=kWavInspectionChunkLimit,bool stereo=false) noexcept {
+    std::uint32_t chunk_limit=kWavInspectionChunkLimit,bool stereo=false,bool lower_rates=false) noexcept {
     WavMetadata candidate;
-    const auto status=WavBufferDetail::Inspect(reader,candidate,chunk_limit,stereo);
+    const auto status=WavBufferDetail::Inspect(reader,candidate,chunk_limit,stereo,lower_rates);
     output=candidate; return status;
 }
 // Non-realtime loading into unpublished caller-owned storage. All chunks are

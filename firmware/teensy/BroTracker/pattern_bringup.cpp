@@ -373,7 +373,10 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
-        if(advertise_snapshot) (void)QueueLine("BTINS1 WAVSTEREOCAP 1\n");
+        if(advertise_snapshot) {
+            (void)QueueLine("BTINS1 WAVSTEREOCAP 1\n");
+            (void)QueueLine("BTINS1 WAVRATECAP 1\n");
+        }
         if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
 #endif
@@ -1353,7 +1356,7 @@ namespace
         const bool sd_ready=SD.begin(BUILTIN_SDCARD);
         g_storage_backend.ready=sd_ready;
         #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        g_wav_inspection.InspectOnce(sd_ready,true);
+        g_wav_inspection.InspectOnce(sd_ready,true,true);
 #else
         g_wav_inspection.InspectOnce(sd_ready);
 #endif

@@ -6,7 +6,7 @@ constexpr std::uint64_t kSourceFrameStepUnity = std::uint64_t{1} << 32;
 enum class VariableVoiceStatus { Success, InvalidSampleRate, NotConfigured, InvalidSample,
     SampleRateMismatch, InvalidStep, InvalidDestination, RangeOverflow };
 
-// Non-owning native interleaved L/R PCM16 at 44100 Hz. Counts are stereo frames.
+// Non-owning native interleaved L/R PCM16. Counts are stereo frames.
 // A resident view spans frame_count pairs. A streamed view points to the
 // descriptor's immutable prefix; its published rings also contain interleaved pairs.
 struct Pcm16StereoView {
@@ -86,7 +86,10 @@ private:
         if(!rate_) return VariableVoiceStatus::NotConfigured;
         if(!sample.data || !sample.frame_count || !sample.sample_rate_hz) return VariableVoiceStatus::InvalidSample;
         if(sample.frame_count>kMaximumFrameCount/Channels) return VariableVoiceStatus::RangeOverflow;
-        if(sample.sample_rate_hz!=rate_ || (Channels==2 && rate_!=44100)) return VariableVoiceStatus::SampleRateMismatch;
+        if((Channels==2 && rate_!=44100) ||
+            (sample.sample_rate_hz!=rate_ &&
+                (!sample.streaming || rate_!=44100 || !IsStreamingPcm16Rate(sample.sample_rate_hz))))
+            return VariableVoiceStatus::SampleRateMismatch;
         if(!step) return VariableVoiceStatus::InvalidStep;
         if(const auto* source=sample.streaming) {
             if(!source->start || !source->voices || source->frames!=sample.frame_count ||

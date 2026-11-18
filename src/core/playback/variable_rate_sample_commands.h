@@ -202,6 +202,9 @@ namespace BroTracker
                         return VariableSampleCommandStatus::InvalidNote;
                     if (mapped == NotePlaybackStepStatus::InvalidReferenceNote)
                         return VariableSampleCommandStatus::InvalidReferenceNote;
+                    if(!ComposeStreamingStep(command.step_q32_32,selected->sample.sample_rate_hz,
+                        sample_rate_hz_,command.step_q32_32))
+                        return VariableSampleCommandStatus::SampleRateMismatch;
                     command.action = VariableRateVoiceAction::Trigger;
                     if constexpr(std::is_same_v<Sample,Pcm16MonoView>) {
                         if(selected->sample.IsStereo()) return VariableSampleCommandStatus::InvalidSample;

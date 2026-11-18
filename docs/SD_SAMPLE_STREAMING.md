@@ -1,5 +1,20 @@
 # Production SD sample streaming — 2026-11-07
 
+## Native lower-rate PCM16
+
+Production accepts 22,050, 11,025 and 8,000 Hz mono/stereo alongside 44,100 Hz.
+SD files, prefixes and rings retain their original PCM16 frame geometry. The
+143,360 B PCM allocation and 44,100 Hz output are unchanged. Pattern triggers
+compose note and source-rate ratios once, and stopped P/X audition uses only
+the source-rate ratio. Refill deadlines and background reserve use output-frame
+coverage, with a conservative interpolation lookahead for incomplete spans.
+A complete buffered tail needs no more SD servicing.
+
+BTX negotiates WAVOPEN v6 via WAVRATECAP and path support. WAVOPEN v5 retains
+44,100 Hz mono/stereo eligibility and older versions retain their existing
+eligibility. The session format still stores the original resource path.
+PCM8, optional DSP and other rates are outside this change.
+
 ## Production stereo integration
 
 The development firmware now prepares and streams native interleaved 44.1 kHz

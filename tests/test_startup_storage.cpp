@@ -1732,10 +1732,14 @@ TEST_CASE(RejectedStereoSelectionKeepsBrowserOpenAndPreviousInstrumentDraftUncha
     const auto previous=controls.InstrumentDraftResource();CHECK_EQ(previous,std::string("Samples/selected.wav"));
     controls.Request(BringUpAction::BrowserConfirm,"Load again",4003);drive(201,220);
     controls.Request(BringUpAction::BrowserDown,"mono",4401);controls.Request(BringUpAction::BrowserDown,"stereo",4402);
-    CHECK(controls.BrowserText().find("Stereo WAV not supported")!=std::string::npos);controls.Request(BringUpAction::BrowserConfirm,"reject",4403);
+    CHECK(controls.BrowserText().find("Stereo | Unsupported channels")!=std::string::npos);
+    controls.Request(BringUpAction::BrowserAudition,"reject audition",4403);
+    drive(221,225);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTWAV1 PLAY ",0)==0;}));
+    controls.Request(BringUpAction::BrowserConfirm,"reject",4501);
     CHECK(controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),previous);CHECK(SamePattern(before,*editor.Draft()));CHECK_EQ(serial.InstrumentCollectionSize(),5u);
     CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTINS1 DEFINE ",0)==0 || line.rfind("BTINS1 RELINK ",0)==0;}));
-    controls.Request(BringUpAction::BrowserCancel,"cancel",4404);CHECK(!controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),previous);
+    controls.Request(BringUpAction::BrowserCancel,"cancel",4502);CHECK(!controls.WavPicker());CHECK_EQ(controls.InstrumentDraftResource(),previous);
 }
 
 TEST_CASE(WavMetadataMustBeCorrelatedCompleteAndConsistentBeforePageAcceptance) {

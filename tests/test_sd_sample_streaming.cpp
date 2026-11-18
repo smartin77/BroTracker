@@ -12,6 +12,7 @@
 #include "firmware/teensy/BroTracker/sd_wav_browse_job.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include <array>
+#include <cmath>
 #include <algorithm>
 #include <vector>
 using namespace BroTracker;
@@ -670,7 +671,7 @@ TEST_CASE(CooperativePreparationCancellationFailureAndFullPinnedCacheNeverEvictT
     CHECK(f.producer.BeginPrepareAsync(path));
     for(unsigned i=0;i<5;++i)f.producer.PreparationStep();
     f.producer.CancelPreparation();f.producer.PreparationStep();CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.SourceCount(),3u);
-    FakePatternSd::files[path].bytes=PickerWav(10000,22050);CHECK(f.producer.BeginPrepareAsync(path));
+    FakePatternSd::files[path].bytes=PickerWav(10000,48000);CHECK(f.producer.BeginPrepareAsync(path));
     for(unsigned i=0;i<30 && !f.producer.PreparationDone();++i)f.producer.PreparationStep();
     CHECK(f.producer.PreparationDone());CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);CHECK_EQ(f.producer.SourceCount(),3u);
     VariableRateSampleBindings pins;
@@ -744,7 +745,7 @@ TEST_CASE(ManualAuditionCancellationAndNewerRequestsFenceLatePreparation) {
     CHECK(audition.Request(7,fresh));audition.Service(bindings,true);audition.Cancel();
     for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
     CHECK(!audition.Snapshot().sample);
-    FakePatternSd::files[old].bytes=PickerWav(10000,22050);
+    FakePatternSd::files[old].bytes=PickerWav(10000,48000);
     CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
     CHECK(!audition.Snapshot().sample);
     while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
@@ -883,16 +884,16 @@ std::vector<std::uint8_t> StereoPickerWav(unsigned frames,unsigned rate=44100) {
 TEST_CASE(ProductionStreamingPreparesStereoAndRestoresMonoBindingAfterLiveVisit) {
     Fixture f;
     const char* path="BroTracker/Samples/stereo.wav";
-    FakePatternSd::files[path].bytes=StereoPickerWav(7000);
+    FakePatternSd::files[path].bytes=StereoPickerWav(7000,22050);
     Pcm16MixedSampleView stereo;
     CHECK_EQ(f.producer.PreparePath(path,stereo),InstrumentAvailability::Ready);
-    CHECK(stereo.IsStereo());CHECK_EQ(stereo.frame_count,7000u);
+    CHECK(stereo.IsStereo());CHECK_EQ(stereo.frame_count,7000u);CHECK_EQ(stereo.sample_rate_hz,22050u);
     CHECK_EQ(stereo.streaming->layout.ring_frames,2048u);
     CHECK_EQ(stereo.streaming->PrefixFrames(),1024u);
     CHECK(f.producer.BeginPrepareAsync(path));
     CHECK_EQ(f.producer.PreparedMixedView().streaming,stereo.streaming);
     const char* incremental="BroTracker/Samples/incremental-stereo.wav";
-    FakePatternSd::files[incremental].bytes=StereoPickerWav(7000);
+    FakePatternSd::files[incremental].bytes=StereoPickerWav(7000,22050);
     CHECK(f.producer.BeginPrepareAsync(incremental));
     for(unsigned i=0;i<32 && !f.producer.PreparationDone();++i) f.producer.PreparationStep();
     CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::Ready);
@@ -917,6 +918,8 @@ TEST_CASE(ProductionStreamingPreparesStereoAndRestoresMonoBindingAfterLiveVisit)
     CHECK_EQ(player.GetNextSamplePosition(),0u);CHECK_EQ(left[0],77);CHECK_EQ(right[0],88);
     CHECK_EQ(player.RenderStereo(left,right,128),VariableRatePatternPlayerStatus::Success);
     CHECK_EQ(static_cast<int>(left[0])-right[0],3120);
+    CHECK_EQ(player.SampleVoice(0)->GetStep(),kSourceFrameStepUnity/2);
+    CHECK_EQ(player.SampleVoice(1)->GetStep(),kSourceFrameStepUnity);
     f.producer.Publish(player);f.producer.Service();
     CHECK_EQ(FakePatternSd::reads.back().path,std::string(path));
     CHECK_EQ(FakePatternSd::reads.back().offset,4140u);
@@ -933,4 +936,158 @@ TEST_CASE(ProductionStreamingPreparesStereoAndRestoresMonoBindingAfterLiveVisit)
     CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
     CHECK_EQ(player.RenderStereo(left,right,128),VariableRatePatternPlayerStatus::Success);
     for(unsigned i=0;i<128;++i) CHECK_EQ(left[i],right[i]);
+}
+namespace {
+std::int16_t RateFixtureValue(unsigned frame,unsigned channel) {
+    return Fixture::Pcm(channel+1,frame);
+}
+std::vector<std::uint8_t> RateFixtureWav(unsigned frames,unsigned rate,unsigned channels) {
+    auto bytes=channels==2?StereoPickerWav(frames,rate):PickerWav(frames,rate);
+    for(unsigned i=0;i<frames;++i)for(unsigned c=0;c<channels;++c) {
+        const auto value=static_cast<std::uint16_t>(RateFixtureValue(i,c));
+        bytes[44+2*(i*channels+c)]=value&255;bytes[45+2*(i*channels+c)]=value>>8;
+    }
+    return bytes;
+}
+std::int16_t RateReference(std::uint64_t position,unsigned frames,unsigned channel) {
+    const auto frame=static_cast<unsigned>(position>>32);
+    if(frame>=frames)return 0;
+    const auto fraction=static_cast<std::uint32_t>(position)/4294967296.0L;
+    return static_cast<std::int16_t>(std::llround(
+        (1-fraction)*RateFixtureValue(frame,channel)+fraction*RateFixtureValue(std::min(frame+1,frames-1),channel)));
+}
+}
+TEST_CASE(NativePcm16RatesMatchIndependentReferenceAcrossRefillsAndRetrigger) {
+    constexpr unsigned frames=7201;
+    for(unsigned rate:{8000u,11025u,22050u,44100u})for(unsigned channels:{1u,2u}) {
+        Fixture f;
+        const char* path="BroTracker/Samples/rates.wav";
+        FakePatternSd::files[path].bytes=RateFixtureWav(frames,rate,channels);
+        Pcm16MixedSampleView view;
+        CHECK_EQ(f.producer.PreparePath(path,view),InstrumentAvailability::Ready);
+        CHECK_EQ(view.sample_rate_hz,rate); CHECK_EQ(view.IsStereo(),channels==2);
+        VariableRateSampleBindings bindings{};
+        bindings.count=1; bindings.bindings[0]={0,60,view};
+        VariableRateSampleCommandPreparer commands;
+        CHECK_EQ(commands.Configure(44100,bindings),VariableSampleCommandStatus::Success);
+        for(unsigned note:{48u,60u,67u,84u}) {
+            RowEventBatch events{}; events.count=1;
+            events.events[0]={0,0,0,0,0,0,static_cast<std::uint8_t>(note),0};
+            VariableRateMixedVoiceCommandBatch batch{};
+            CHECK_EQ(commands.Prepare(events,batch),VariableSampleCommandStatus::Success);
+            const auto pitch=std::llround(std::exp2((int(note)-60)/12.0L)*4294967296.0L);
+            const auto step=static_cast<std::uint64_t>((pitch*rate+22050)/44100);
+            CHECK_EQ(batch.commands[0].step_q32_32,step);
+            CHECK_EQ(batch.commands[0].sample.streaming,view.streaming);
+            auto& voice=f.player.voices[0];
+            const auto previous_generation=voice.StreamSnapshot().generation;
+            CHECK_EQ(view.Trigger(voice,batch.commands[0].step_q32_32),VariableVoiceStatus::Success);
+            CHECK(voice.StreamSnapshot().generation!=previous_generation);
+            auto eof=voice.StreamSnapshot().eofs;
+            std::uint64_t position=0;
+            const auto output_frames=((std::uint64_t(frames)<<32)+step-1)/step;
+            for(std::uint64_t i=0;i<output_frames;i+=128) {
+                f.producer.Publish(f.player);
+                f.producer.Service();
+                std::int16_t left[128]{},right[128]{};
+                CHECK_EQ(voice.RenderStereo(left,right,128),VariableVoiceStatus::Success);
+                for(unsigned j=0;j<128;++j,position+=step) {
+                    CHECK_EQ(left[j],RateReference(position,frames,0));
+                    CHECK_EQ(right[j],RateReference(position,frames,channels-1));
+                }
+                if(voice.IsActive()) {
+                    CHECK_EQ(voice.StreamSnapshot().position,position>>32);
+                    CHECK_EQ(voice.StreamSnapshot().phase,static_cast<std::uint32_t>(position));
+                }
+            }
+            CHECK(!voice.IsActive()); CHECK_EQ(voice.StreamSnapshot().eofs,eof+1);
+            CHECK_EQ(voice.StreamSnapshot().underruns,0u);
+        }
+        CHECK_EQ(f.producer.io_errors,0u);
+    }
+}
+TEST_CASE(LowerRateAuditionEndsAtNativeDurationAndInvalidGeometryPreservesBinding) {
+    Fixture f;
+    SdWavAudition audition(f.producer);
+    auto bindings=SelectDevelopmentFixture(f.producer.reports[1].view).bindings;
+    unsigned id=0;
+    for(unsigned rate:{8000u,11025u,22050u}) {
+        const std::string path="BroTracker/Samples/root"+std::to_string(rate)+".wav";
+        FakePatternSd::files[path].bytes=RateFixtureWav(3,rate,2);
+        CHECK(audition.Request(++id,path.c_str()));
+        for(unsigned i=0;i<32 && audition.Busy();++i)audition.Service(bindings,true);
+        unsigned result=99;CHECK_EQ(audition.TakeResult(result),id);CHECK_EQ(result,0u);
+        const auto step=(kSourceFrameStepUnity*rate+22050)/44100;
+        CHECK_EQ(audition.Snapshot().step,step);
+        const auto eof=audition.Snapshot().eofs;
+        const auto count=(3*kSourceFrameStepUnity+step-1)/step;
+        for(unsigned i=0;i<count;++i) {
+            std::int16_t l=0,r=0;
+            CHECK(audition.Render(&l,1,true,100,&r));
+            CHECK_EQ(l,RateReference(i*step,3,0)); CHECK_EQ(r,RateReference(i*step,3,1));
+        }
+        CHECK_EQ(audition.Snapshot().eofs,eof+1);
+        Pcm16MixedSampleView view=f.producer.reports[0].view;
+        const auto* original=view.streaming;
+        const auto invalid=path+"-bad";
+        FakePatternSd::files[invalid].bytes=RateFixtureWav(3,rate,2);
+        FakePatternSd::files[invalid].bytes[28]^=1;
+        CHECK_EQ(f.producer.PreparePath(invalid.c_str(),view),InstrumentAvailability::PreparationFailed);
+        CHECK_EQ(view.streaming,original);
+        CHECK(f.producer.BeginPrepareAsync(invalid.c_str()));
+        for(unsigned i=0;i<32 && !f.producer.PreparationDone();++i)f.producer.PreparationStep();
+        CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);
+        FakePatternSd::files[invalid].bytes=RateFixtureWav(3,48000,2);
+        CHECK_EQ(f.producer.PreparePath(invalid.c_str(),view),InstrumentAvailability::PreparationFailed);
+        CHECK_EQ(view.streaming,original);
+    }
+}
+TEST_CASE(WavBrowserV6AdmitsLowerRatesWithV5EligibilityIntact) {
+    Fixture f;
+    FakePatternSd::files["/BroTracker/Samples"].directory=true;
+    FakePatternSd::files["/BroTracker/Samples/tone.wav"].bytes=RateFixtureWav(32,11025,2);
+    for(unsigned version:{5u,6u}) {
+        const auto command="BTSTORE1 WAVOPEN "+std::to_string(version)+" 1 0 0 @2f42726f547261636b65722f53616d706c6573";
+        WavOpenRequest request;
+        CHECK(ParseWavOpen(command.c_str(),command.size(),request));
+        SdWavBrowseJob job;
+        CHECK(job.Begin(request));
+        for(unsigned i=0;i<32 && !job.Done();++i)job.Step();
+        CHECK(job.Done()); CHECK_EQ(job.Result(),WavDirectoryResult::Ok);
+        CHECK_EQ(job.Page().count,1u);
+        const auto& facts=job.Page().entries[0].facts;
+        CHECK_EQ(facts.channels,2u); CHECK_EQ(facts.sample_rate,11025u);
+        CHECK_EQ(facts.status,version==6?WavBufferStatus::Success:WavBufferStatus::UnsupportedFormat);
+    }
+}
+TEST_CASE(LowerRateStereoGapAdvancesPhaseAndRefillsAtTheNewSourcePosition) {
+    Fixture f;
+    constexpr unsigned rate=8000,frames=4000;
+    const char* path="BroTracker/Samples/rate-gap.wav";
+    FakePatternSd::files[path].bytes=RateFixtureWav(frames,rate,2);
+    Pcm16MixedSampleView view;
+    CHECK_EQ(f.producer.PreparePath(path,view),InstrumentAvailability::Ready);
+    const auto step=(kSourceFrameStepUnity*rate+22050)/44100;
+    auto& voice=f.player.voices[0];
+    CHECK_EQ(view.Trigger(voice,step),VariableVoiceStatus::Success);
+    constexpr unsigned frames_without_refill=7000;
+    std::vector<std::int16_t> left(frames_without_refill),right(frames_without_refill);
+    CHECK_EQ(voice.RenderStereo(left.data(),right.data(),left.size()),VariableVoiceStatus::Success);
+    CHECK_EQ(left.back(),0); CHECK_EQ(right.back(),0);
+    auto snapshot=voice.StreamSnapshot();
+    const auto position=step*frames_without_refill;
+    CHECK_EQ(snapshot.position,position>>32);
+    CHECK_EQ(snapshot.phase,static_cast<std::uint32_t>(position));
+    CHECK(snapshot.underruns>0);
+    f.producer.Publish(f.player);
+    CHECK(!f.producer.BackgroundHeadroom());
+    f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.back().offset,44u+4u*snapshot.position);
+    CHECK(f.producer.BackgroundHeadroom());
+    CHECK_EQ(voice.RenderStereo(left.data(),right.data(),128),VariableVoiceStatus::Success);
+    for(unsigned i=0;i<128;++i) {
+        CHECK_EQ(left[i],RateReference(position+i*step,frames,0));
+        CHECK_EQ(right[i],RateReference(position+i*step,frames,1));
+    }
+    CHECK_EQ(voice.StreamSnapshot().underruns,snapshot.underruns);
 }

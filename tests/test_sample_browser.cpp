@@ -75,11 +75,11 @@ TEST_CASE(SampleBrowserRealMetadataShowsMonoAndRejectedStereoAndScrollsAt640By48
     WavBrowser browser;List(backend,browser);CHECK_EQ(browser.View().names.size(),43u);CHECK_EQ(browser.View().rows,24u);
     CHECK_EQ(browser.View().names[0],std::string(".."));CHECK_EQ(browser.View().names[1],std::string("Nested/"));CHECK(browser.SelectedMessage().empty());
     const auto read_count=FakePatternSd::reads.size();Highlight(browser,"sample_00.wav");
-    CHECK_EQ(browser.SelectedMessage(),std::string("PCM · 16-bit · 44.1 kHz"));Screenshot("mono-metadata-640x480",browser);
+    CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Mono"));Screenshot("mono-metadata-640x480",browser);
     std::string path;CHECK_EQ(browser.Select(path),2u);CHECK_EQ(path,std::string("Samples/sample_00.wav"));
-    Highlight(browser,"z_stereo.WAV");CHECK(browser.View().first>0);CHECK_EQ(browser.SelectedMessage(),std::string("Stereo WAV not supported"));
+    Highlight(browser,"z_stereo.WAV");CHECK(browser.View().first>0);CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Stereo | Unsupported channels"));
     path="previous draft";CHECK_EQ(browser.Select(path),0u);CHECK_EQ(path,std::string("previous draft"));Screenshot("stereo-rejected-scrolled-640x480",browser);
-    Highlight(browser,"sample_39.wav");CHECK_EQ(browser.SelectedMessage(),std::string("PCM · 16-bit · 44.1 kHz"));Screenshot("mono-scrolled-640x480",browser);
+    Highlight(browser,"sample_39.wav");CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Mono"));Screenshot("mono-scrolled-640x480",browser);
     Highlight(browser,"Nested/");CHECK(browser.SelectedMessage().empty());Screenshot("directory-blank-status-640x480",browser);
     CHECK_EQ(FakePatternSd::reads.size(),read_count); // Highlight/render never touch SD.
     for(const auto& read:FakePatternSd::reads)CHECK(read.offset+read.count<=44u); // No PCM read.
@@ -88,16 +88,18 @@ TEST_CASE(SampleBrowserRealMetadataShowsMonoAndRejectedStereoAndScrollsAt640By48
 TEST_CASE(SampleBrowserUsesExactValidatorRejectionMessagesAndKeepsSelectionOpen) {
     SdPatternFiles backend;Begin(backend);
     FakePatternSd::files["/Samples/a_stereo.wav"].bytes=Wave(2);
-    FakePatternSd::files["/Samples/b_float.wav"].bytes=Wave(1,16,44100,3);
+    FakePatternSd::files["/Samples/b_float.wav"].bytes=Wave(1,32,44100,3);
     FakePatternSd::files["/Samples/c_8bit.wav"].bytes=Wave(1,8);
     FakePatternSd::files["/Samples/d_rate.wav"].bytes=Wave(1,16,22050);
     FakePatternSd::files["/Samples/e_invalid.wav"].bytes={1,2,3};
     FakePatternSd::files["/Samples/f_read.wav"].bytes=Wave();FakePatternSd::negative_read_path="/Samples/f_read.wav";
     WavBrowser browser;List(backend,browser);
     const char* names[]={"a_stereo.wav","b_float.wav","c_8bit.wav","d_rate.wav","e_invalid.wav","f_read.wav"};
-    const char* expected[]={"Stereo WAV not supported","WAV format not supported","WAV bit depth not supported","WAV sample rate not supported","Invalid WAV","Unable to read WAV"};
+    const char* expected[]={"PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Stereo | Unsupported channels","IEEE float \xc2\xb7 32-bit \xc2\xb7 44.1 kHz \xc2\xb7 Mono | Unsupported encoding","PCM \xc2\xb7 8-bit \xc2\xb7 44.1 kHz \xc2\xb7 Mono | Unsupported bit depth","PCM \xc2\xb7 16-bit \xc2\xb7 22.05 kHz \xc2\xb7 Mono | Unsupported rate","Invalid WAV","Unable to read WAV"};
     for(unsigned i=0;i<6;++i){Highlight(browser,names[i]);CHECK_EQ(browser.SelectedMessage(),std::string(expected[i]));std::string previous="saved.wav";CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("saved.wav"));CHECK_EQ(browser.Directory(),std::string("/Samples"));}
     Screenshot("read-error-640x480",browser);
+    Highlight(browser,"b_float.wav");Screenshot("unsupported-float-640x480",browser);
+    Highlight(browser,"c_8bit.wav");Screenshot("unsupported-pcm8-640x480",browser);
 }
 TEST_CASE(SampleBrowserSingleLineEmptyNavigationErrorsAndReplacementConfirmation) {
     SdPatternFiles backend;Begin(backend);WavBrowser browser;List(backend,browser,"/Samples/Nested");
@@ -123,8 +125,8 @@ TEST_CASE(SampleBrowserListsLongAndMixedCaseWavNamesButRetainsResourcePathValida
     const auto rejection=std::string("Cannot select test.wav: full SD-relative WAV path exceeds the supported 255-byte limit.");
     CHECK_EQ(browser.SelectedMessage(),rejection); // Format-valid WAV, valid basename, unselectable full path.
     std::string previous="previous.wav";CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("previous.wav"));CHECK_EQ(browser.SelectedMessage(),rejection);
-    Highlight(browser,"bad stereo.wav");CHECK_EQ(browser.SelectedMessage(),std::string("Stereo WAV not supported")); // Audio rejection takes precedence over filename/path.
-    CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("previous.wav"));CHECK_EQ(browser.SelectedMessage(),std::string("Stereo WAV not supported"));
+    Highlight(browser,"bad stereo.wav");CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Stereo | Unsupported channels")); // Audio rejection takes precedence over filename/path.
+    CHECK_EQ(browser.Select(previous),0u);CHECK_EQ(previous,std::string("previous.wav"));CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Stereo | Unsupported channels"));
 }
 
 TEST_CASE(SampleBrowserMetadataInspectionRespectsExistingChunkBudgetAndReadLease) {
@@ -150,4 +152,42 @@ TEST_CASE(SampleBrowserWrapsLongDirectoryAndBuildsSpacedPathWithoutTruncation) {
     std::string selected;CHECK_EQ(browser.Select(selected),2u);CHECK_EQ(selected,directory.substr(1)+"/long sample.wav");
     Screenshot("full-long-spaced-directory-640x480",browser);
     browser.Move(-1);CHECK_EQ(browser.Select(selected),1u);CHECK_EQ(selected,std::string("/Samples/Jungle riddims"));
+}
+
+TEST_CASE(SampleBrowserShowsAvailableHeaderFactsWithoutMakingInvalidFilesSelectable) {
+    WavBrowsePage page;
+    std::strcpy(page.directory,"/Samples");
+    page.done=true;page.count=7;page.scanned=7;
+    const WavFileFacts facts[]={
+        {WavBufferStatus::Success,11025,1,2,16,true},
+        {WavBufferStatus::InvalidFormat,22050,1,2,16,true},
+        {WavBufferStatus::IoError,8000,1,1,0,true},
+        {WavBufferStatus::UnsupportedFormat,48001,0x00fe,6,0,true},
+        {WavBufferStatus::UnsupportedFormat,96000,0xfffe,2,24,true},
+        {WavBufferStatus::Truncated,0,0,0,0,true},
+        {WavBufferStatus::UnsupportedFormat,44100,0x674f,1,16,true},
+    };
+    const char* text[]={
+        "PCM \xc2\xb7 16-bit \xc2\xb7 11.025 kHz \xc2\xb7 Stereo",
+        "PCM \xc2\xb7 16-bit \xc2\xb7 22.05 kHz \xc2\xb7 Stereo | Invalid WAV",
+        "PCM \xc2\xb7 8.0 kHz \xc2\xb7 Mono | Unable to read WAV",
+        "Tag 0x00FE \xc2\xb7 48.001 kHz \xc2\xb7 6 ch | Unsupported encoding",
+        "Extensible \xc2\xb7 24-bit \xc2\xb7 96.0 kHz \xc2\xb7 Stereo | Unsupported encoding",
+        "Invalid WAV",
+        "Ogg Vorbis \xc2\xb7 16-bit \xc2\xb7 44.1 kHz \xc2\xb7 Mono | Unsupported encoding",
+    };
+    WavBrowser browser;browser.Begin("/Samples");
+    for(unsigned i=0;i<page.count;++i) {
+        std::snprintf(page.entries[i].name,sizeof(page.entries[i].name),"facts%u.wav",i);
+        page.entries[i].facts=facts[i];
+    }
+    CHECK(browser.Accept(page));
+    for(unsigned i=0;i<page.count;++i) {
+        Highlight(browser,page.entries[i].name);
+        CHECK_EQ(browser.SelectedMessage(),std::string(text[i]));
+        CHECK(browser.Message().size()<=90u); // Even counting UTF-8 bytes, the audio footer fits.
+        std::string path="unchanged.wav";
+        CHECK_EQ(browser.Select(path),i==0?2u:0u);
+        CHECK_EQ(path,std::string(i==0?"Samples/facts0.wav":"unchanged.wav"));
+    }
 }

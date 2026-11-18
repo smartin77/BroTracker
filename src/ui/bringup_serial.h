@@ -364,7 +364,7 @@ private:
     BroTracker::PatternDirectoryPage list_page_{},list_staging_{};
     bool path_supported_=false;
     unsigned wav_list_version_=3;
-    bool wav_browser_supported_=false,wav_stereo_supported_=false,list_browser_=false;std::string wav_request_path_;
+    bool wav_browser_supported_=false,wav_stereo_supported_=false,wav_rates_supported_=false,list_browser_=false;std::string wav_request_path_;
     bool wav_fallback_=false,wav_dir_received_=false,wav_info_received_=false;
     BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
     BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
