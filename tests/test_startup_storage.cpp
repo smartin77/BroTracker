@@ -2085,7 +2085,8 @@ TEST_CASE(InstrumentLiveSlotSelectionConfirmsOrRollsBackThroughWireAndProduction
         VariableRateSampleBindings bindings;bindings.count=5;
         for(unsigned i=0;i<5;++i) {
             for(auto& value:pcm[i])value=static_cast<std::int16_t>(1000*(i+1));
-            sources[i]={pcm[i],256,buffers};bindings.bindings[i]={static_cast<std::uint8_t>(i),60,{pcm[i],256,100,&sources[i]}};
+            sources[i]={pcm[i],256,buffers,{100,1,16}};
+            bindings.bindings[i]={static_cast<std::uint8_t>(i),60,{pcm[i],256,100,&sources[i]}};
         }
         VariableRatePatternPlayer player;CHECK_EQ(player.Configure(12500,100,original,bindings),VariableRatePatternPlayerStatus::Success);
         BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);

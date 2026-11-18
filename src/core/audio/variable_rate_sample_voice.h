@@ -38,7 +38,9 @@ public:
         if(sample.sample_rate_hz!=rate_) return VariableVoiceStatus::SampleRateMismatch;
         if(!step_q32_32) return VariableVoiceStatus::InvalidStep;
         if(sample.streaming && (!sample.streaming->start || !sample.streaming->voices ||
-            sample.streaming->frames!=sample.frame_count || stream_channel_>=kStreamVoiceCount)) return VariableVoiceStatus::InvalidSample;
+            sample.streaming->frames!=sample.frame_count || !sample.streaming->format.IsPcm16Mono() ||
+            sample.streaming->format.sample_rate_hz!=sample.sample_rate_hz ||
+            stream_channel_>=kStreamVoiceCount)) return VariableVoiceStatus::InvalidSample;
         ++generation_; sample_=sample; position_=0; phase_=0; step_=step_q32_32; hash_=2166136261u;
         return VariableVoiceStatus::Success;
     }
@@ -52,6 +54,10 @@ public:
         if(!count) return VariableVoiceStatus::Success;
         if(!destination) return VariableVoiceStatus::InvalidDestination;
         if(count>kMaximumFrameCount) return VariableVoiceStatus::RangeOverflow;
+        const auto* source=sample_.streaming;
+        const auto prefix=source ? source->PrefixFrames() : 0;
+        const auto* ready=source ? &source->voices[stream_channel_] : nullptr;
+        const bool current=ready && ready->sample==source && ready->generation==generation_;
         for(std::size_t i=0;i<count;++i) {
             if(!IsActive()) { destination[i]=0; continue; }
             const auto next=position_==sample_.frame_count-1 ? position_ : position_+1;
@@ -62,13 +68,11 @@ public:
             constexpr auto unit=static_cast<std::int64_t>(kSourceFrameStepUnity);
             const auto fraction=static_cast<std::int64_t>(phase_);
             std::int16_t a=0,b=0;
-            if(sample_.streaming) {
-                const auto& source=*sample_.streaming;
-                const auto& ready=source.voices[stream_channel_];
+            if(source) {
                 const auto fetch=[&](std::size_t at,std::int16_t& value) {
-                    if(at<kStreamStartFrames) { value=source.start[at]; return true; }
-                    if(ready.sample==&source && ready.generation==generation_ && at>=ready.begin && at<ready.end) {
-                        value=ready.ring[at%kStreamRingFrames]; return true;
+                    if(at<prefix) { value=source->start[at]; return true; }
+                    if(current && at>=ready->begin && at<ready->end) {
+                        value=ready->ring[at%kStreamRingFrames]; return true;
                     }
                     return false;
                 };
@@ -76,16 +80,15 @@ public:
                 const bool second=!phase_ || fetch(next,b);
                 if(!phase_) b=a;
                 if(!first || !second) { a=b=0; ++underruns_; }
-                std::uint32_t end=static_cast<std::uint32_t>(std::min<std::size_t>(kStreamStartFrames,sample_.frame_count));
-                if(ready.sample==&source && ready.generation==generation_ && ready.begin<=end) end=ready.end;
-                else if(position_>=kStreamStartFrames && ready.sample==&source && ready.generation==generation_ && position_>=ready.begin) end=ready.end;
-                const auto available=end>position_ ? end-static_cast<std::uint32_t>(position_) : 0;
+                auto end=std::max(prefix,static_cast<std::uint32_t>(position_));
+                if(current && ready->begin<=end && ready->end>end) end=ready->end;
+                const auto available=end-static_cast<std::uint32_t>(position_);
                 if(end<sample_.frame_count && available<min_ready_) min_ready_=available;
             } else { a=sample_.data[position_]; b=sample_.data[next]; }
             const std::int64_t sum=static_cast<std::int64_t>(a)*(unit-fraction)+
                 static_cast<std::int64_t>(b)*fraction;
             destination[i]=static_cast<std::int16_t>((sum>=0 ? sum+unit/2 : sum-unit/2)/unit);
-            if(sample_.streaming) {
+            if(source) {
                 const auto word=static_cast<std::uint16_t>(destination[i]);
                 hash_=(hash_^(word&255u))*16777619u; hash_=(hash_^(word>>8))*16777619u;
             }

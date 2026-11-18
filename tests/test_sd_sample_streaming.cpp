@@ -24,6 +24,11 @@ StreamInterruptGuard::~StreamInterruptGuard() noexcept { FakeStreamPlatform::pri
 }
 namespace {
 constexpr std::uint32_t DataOffset=44;
+void DescribeMonoWav(WavMetadata& metadata,std::uint32_t frames) {
+    metadata.format=1;metadata.channels=1;metadata.bits=16;metadata.block_align=2;
+    metadata.sample_rate=44100;metadata.byte_rate=88200;
+    metadata.frames=frames;metadata.data_offset=DataOffset;metadata.data_bytes=std::uint64_t(frames)*2;
+}
 void ReadOwned() {
     CHECK_EQ(FakeStreamPlatform::primask,0u); // Seek/read must remain outside the ISR guard.
     const bool acquired=SdAccess::AcquireWrite(); CHECK(!acquired);
@@ -57,7 +62,7 @@ struct Fixture {
             }
             auto& file=inspection.files[source];
             file.open_status=SdWavBufferStatus::Success; file.validation=WavBufferStatus::Success;
-            file.metadata.frames=frames; file.metadata.data_offset=DataOffset;
+            DescribeMonoWav(file.metadata,frames);
         }
         producer.Prepare(true,memory,inspection); // Real preparation, handles and immutable starts.
         for(unsigned i=0;i<8;++i) {
@@ -260,7 +265,7 @@ TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailure
         inspection.attempted=inspection.sd_ready=true;auto& inspected=inspection.files[1];
         inspected.open_status=mode==1?SdWavBufferStatus::OpenFailed:SdWavBufferStatus::Success;
         inspected.validation=mode==1?WavBufferStatus::IoError:WavBufferStatus::Success;
-        inspected.metadata.frames=32;inspected.metadata.data_offset=44;
+        DescribeMonoWav(inspected.metadata,32);
         const auto& definition=*DevelopmentInstrumentDefinition(0);
         if(mode!=1)FakePatternSd::files[definition.resource].bytes.resize(44+64);
         if(mode==2)FakePatternSd::short_read_path=definition.resource;
@@ -273,6 +278,51 @@ TEST_CASE(StreamingPreparationKeepsDefinitionIdentityAcrossMissingAndReadFailure
     }
 }
 
+TEST_CASE(SdStreamPreparationRejectsInvalidSourceLayoutBeforeReadingPcm) {
+    for(unsigned mode=0;mode<6;++mode) {
+        FakePatternSd::Reset();
+        SdSampleStreaming::Storage memory{};
+        SdSampleStreaming producer;
+        DevelopmentWavInspection inspection;
+        auto& found=inspection.files[0];
+        found.validation=WavBufferStatus::Success;
+        DescribeMonoWav(found.metadata,32);
+        auto& bytes=FakePatternSd::files[kDevelopmentWavPaths[0]].bytes;
+        bytes.resize(DataOffset+64);
+        switch(mode) {
+            case 0: ++found.metadata.data_bytes; break;
+            case 1: --found.metadata.byte_rate; break;
+            case 2: ++found.metadata.block_align; break;
+            case 3: bytes.pop_back(); break;
+            case 4: found.metadata.data_offset=UINT64_MAX; break;
+            case 5: found.metadata.frames=std::uint64_t{UINT32_MAX}+1; break;
+        }
+        producer.Prepare(true,memory,inspection);
+        CHECK(producer.reports[0].view.streaming==nullptr);
+        CHECK(FakePatternSd::reads.empty());
+    }
+}
+
+TEST_CASE(SdStreamRefillRecoversBeyondGapWithAReadThatWrapsTheRing) {
+    Fixture f;
+    f.Trigger();
+    f.producer.Service();
+    f.CheckSpan(0,0,2048,4096);
+    f.Consume(0,0,4096);
+    std::vector<std::int16_t> missing(2904);
+    CHECK_EQ(f.player.voices[0].Render(missing.data(),missing.size()),VariableVoiceStatus::Success);
+    for(auto value:missing) CHECK_EQ(value,0);
+    f.producer.Publish(f.player);
+    CHECK(!f.producer.BackgroundHeadroom());
+    f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.back().offset,DataOffset+7000u*2);
+    CHECK_EQ(FakePatternSd::reads.back().count,kStreamReadBytes);
+    f.CheckSpan(0,0,7000,9048);
+    CHECK(f.producer.BackgroundHeadroom());
+    f.Consume(0,0,2048);
+    CHECK_EQ(f.player.voices[0].StreamSnapshot().underruns,2904u);
+}
+
 namespace {
 std::vector<std::uint8_t> PickerWav(unsigned frames=10000,unsigned rate=44100,unsigned source=0) {
     std::vector<std::uint8_t> bytes(44+frames*2);
@@ -282,6 +332,41 @@ std::vector<std::uint8_t> PickerWav(unsigned frames=10000,unsigned rate=44100,un
     bytes[32]=2;bytes[34]=16;std::memcpy(bytes.data()+36,"data",4);PatternFilePut32(bytes.data()+40,frames*2);
     for(unsigned i=0;i<frames;++i) {const auto word=static_cast<std::uint16_t>(Fixture::Pcm(source,i));bytes[44+i*2]=word;bytes[45+i*2]=word>>8;}
     return bytes;
+}
+TEST_CASE(StreamingPreparationUsesPaddedChunkOffsetAndReadsOnlyWholeFrames) {
+    Fixture f;
+    const char* path="BroTracker/Samples/padded.wav";
+    auto bytes=PickerWav(257);
+    bytes.insert(bytes.begin()+36,{'J','U','N','K',1,0,0,0,42,0}); // One data byte and its pad.
+    PatternFilePut32(bytes.data()+4,static_cast<std::uint32_t>(bytes.size()-8));
+    FakePatternSd::files[path].bytes=bytes;
+    CHECK(f.producer.BeginPrepareAsync(path));
+    for(unsigned turn=0;turn<32 && !f.producer.PreparationDone();++turn) f.producer.PreparationStep();
+    CHECK(f.producer.PreparationDone());
+    CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::Ready);
+    const auto view=f.producer.PreparedView();
+    CHECK_EQ(view.frame_count,257u);
+    CHECK(view.streaming!=nullptr);
+    CHECK(FakePatternSd::reads.size()>=2);
+    if(!view.streaming || FakePatternSd::reads.size()<2) return;
+    CHECK_EQ(view.streaming->PrefixFrames(),257u);
+    CHECK_EQ(FakePatternSd::reads[FakePatternSd::reads.size()-2].offset,54u);
+    CHECK_EQ(FakePatternSd::reads[FakePatternSd::reads.size()-2].count,512u);
+    CHECK_EQ(FakePatternSd::reads.back().offset,566u);
+    CHECK_EQ(FakePatternSd::reads.back().count,2u);
+    for(unsigned i=0;i<257;++i) CHECK_EQ(view.data[i],Fixture::Pcm(0,i));
+
+    const char* malformed="BroTracker/Samples/incomplete-frame.wav";
+    PatternFilePut32(bytes.data()+50,513); // The final byte is now RIFF padding.
+    FakePatternSd::files[malformed].bytes=bytes;
+    Pcm16MonoView rejected;
+    CHECK_EQ(f.producer.PreparePath(malformed,rejected),InstrumentAvailability::PreparationFailed);
+    CHECK(rejected.data==nullptr);
+    CHECK(f.producer.BeginPrepareAsync(malformed));
+    for(unsigned turn=0;turn<32 && !f.producer.PreparationDone();++turn) f.producer.PreparationStep();
+    CHECK(f.producer.PreparationDone());
+    CHECK_EQ(f.producer.PreparationResult(),InstrumentAvailability::PreparationFailed);
+    CHECK(f.producer.PreparedView().data==nullptr);
 }
 }
 TEST_CASE(SelectedNonDevelopmentWavUsesRealValidationAndStreamingRefills) {

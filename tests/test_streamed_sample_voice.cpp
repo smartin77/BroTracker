@@ -82,6 +82,41 @@ TEST_CASE(StreamedRefillPriorityAccountsForPitchCapacityAndEof) {
     span.end=f.source.frames; CHECK_EQ(StreamRefillUrgency(slow,span),UINT64_MAX); // final EOF drain
     slow.sample=nullptr; CHECK_EQ(StreamRefillUrgency(slow,span),UINT64_MAX);
 }
+TEST_CASE(StreamSourceGeometryUsesCompleteFramesWithoutEnablingOtherFormats) {
+    const StreamBufferLayout mono16{{44100,1,16}}, stereo16{{44100,2,16}}, mono8{{44100,1,8}};
+    const StreamBufferLayout stereo8{{44100,2,8}}, invalid{{44100,1,12}};
+    CHECK_EQ(mono16.bytes_per_frame,2u);
+    CHECK_EQ(mono16.start_frames,2048u);
+    CHECK_EQ(stereo16.bytes_per_frame,4u);
+    CHECK_EQ(stereo16.ring_frames,2048u);
+    CHECK_EQ(stereo16.read_frames,1024u);
+    CHECK_EQ(mono8.ring_frames,8192u);
+    CHECK_EQ(stereo8.read_frames,2048u);
+    CHECK_EQ(invalid.bytes_per_frame,0u);
+    CHECK_EQ(invalid.ring_frames,0u);
+
+    Fixture f;
+    VariableRateSampleVoice voice;
+    CHECK_EQ(voice.Configure(44100),VariableVoiceStatus::Success);
+    const StreamedSample stereo{f.start.data(),f.source.frames,f.buffers,{44100,2,16}};
+    const StreamedSample lower_rate{f.start.data(),f.source.frames,f.buffers,{22050,1,16}};
+    for(const auto* source:{&stereo,&lower_rate})
+        CHECK_EQ(voice.Trigger({source->start,source->frames,44100,source},kSourceFrameStepUnity),
+            VariableVoiceStatus::InvalidSample);
+}
+TEST_CASE(StreamReadinessStopsAtGapOrStaleSpan) {
+    Fixture f;
+    StreamedVoiceSnapshot voice{&f.source,7,kSourceFrameStepUnity,1024};
+    StreamedVoiceBuffer ready{f.ring.data(),7,&f.source,2304,3072};
+    CHECK_EQ(StreamRefillUrgency(voice,ready),1024u); // only the prefix is reachable
+    voice.position=2048;
+    CHECK_EQ(StreamRefillUrgency(voice,ready),0u);
+    voice.position=2304;
+    CHECK_EQ(StreamRefillUrgency(voice,ready),768u);
+    --ready.generation;
+    CHECK_EQ(StreamReadyEnd(f.source,ready,voice.generation,voice.position),voice.position);
+    CHECK_EQ(StreamRefillUrgency(voice,ready),UINT64_MAX);
+}
 TEST_CASE(StreamedCommandsKeepNoteOffOffsetAndResetGeneration) {
     Fixture f; VariableRateVoiceBlockRenderer renderer; CHECK_EQ(renderer.Configure(44100),VariableRateBlockStatus::Success);
     std::int16_t pcm[8][128]{}; VariableRateVoiceOutputs out; for(unsigned c=0;c<8;++c) out.channels[c]=pcm[c];

@@ -5,6 +5,7 @@
 #include "sd_wav_preparation.h"
 #include "core/audio/streamed_sample.h"
 #include <algorithm>
+#include <cstring>
 #include "bringup/instrument_definition.h"
 #include "core/audio/wav_inspection_job.h"
 namespace BroTracker {
@@ -45,16 +46,17 @@ public:
             auto& source=sources_[i]; auto& report=reports[i];
             report.attempted=true; report.sd_ready=sd_ready; report.capacity=kStreamStartFrames;
             report.address=reinterpret_cast<std::uintptr_t>(memory.starts[i]);
-            if(!sd_ready || found.validation!=WavBufferStatus::Success || !found.metadata.frames ||
-                found.metadata.frames>UINT32_MAX || found.metadata.data_offset>UINT32_MAX) continue;
+            if(!sd_ready || found.validation!=WavBufferStatus::Success) continue;
             SdReadScope ownership; if(!ownership) continue;
             if(!files_[i].open(kDevelopmentWavPaths[i],O_RDONLY)) continue;
-            const auto count=std::min<std::uint64_t>(kStreamStartFrames,found.metadata.frames);
-            if(!files_[i].seekSet(found.metadata.data_offset) || files_[i].read(memory.starts[i],count*2)!=int(count*2)) { files_[i].close(); continue; }
-            offsets_[i]=found.metadata.data_offset;
-            source={memory.starts[i],static_cast<std::uint32_t>(found.metadata.frames),buffers_};
+            StreamedSample candidate;
+            if(!DescribeSource(found.metadata,files_[i].size(),memory.starts[i],candidate) ||
+                !ReadFrames(files_[i],static_cast<std::uint32_t>(found.metadata.data_offset),candidate,0,
+                    candidate.PrefixFrames(),memory.starts[i],kStreamStartBytes)) { files_[i].close(); continue; }
+            offsets_[i]=static_cast<std::uint32_t>(found.metadata.data_offset);
+            source=candidate;
             report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
-            report.view={source.start,source.frames,44100,&source};
+            report.view=MakeView(source);
         }
     }
     // Stopped foreground only. New immutable sources never replace published PCM.
@@ -79,18 +81,20 @@ public:
             std::size_t Read(std::uint8_t* data,std::size_t size)noexcept override {const auto n=file_.read(data,size);return n<0?0:n;}
         } reader(file);
         WavMetadata metadata;
-        if(InspectWavMetadata(reader,metadata)!=WavBufferStatus::Success || !metadata.frames || metadata.frames>UINT32_MAX || metadata.data_offset>UINT32_MAX) {
+        StreamedSample source;
+        if(InspectWavMetadata(reader,metadata)!=WavBufferStatus::Success ||
+            !DescribeSource(metadata,metadata.file_bytes,memory_->starts[index],source)) {
             file.close();return InstrumentAvailability::PreparationFailed;
         }
-        const auto frames=std::min<std::uint64_t>(kStreamStartFrames,metadata.frames);
-        if(!file.seekSet(metadata.data_offset) || file.read(memory_->starts[index],frames*2)!=int(frames*2)) {
+        const auto offset=static_cast<std::uint32_t>(metadata.data_offset);
+        if(!ReadFrames(file,offset,source,0,source.PrefixFrames(),memory_->starts[index],kStreamStartBytes)) {
             file.close();return InstrumentAvailability::PreparationFailed;
         }
-        offsets_[index]=metadata.data_offset;
-        sources_[index]={memory_->starts[index],static_cast<std::uint32_t>(metadata.frames),buffers_};
-        auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
+        offsets_[index]=offset;
+        sources_[index]=source;
+        auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
-        report.view={sources_[index].start,sources_[index].frames,44100,&sources_[index]};
+        report.view=MakeView(sources_[index]);
         paths_[index]=candidate;occupied_[index]=true;last_prepared_=index;++count_;output=report.view;return InstrumentAvailability::Ready;
     }
     // Only the just-prepared, uninstalled candidate is discardable on rejection.
@@ -131,10 +135,8 @@ public:
         for(unsigned i=0;i<kStreamVoiceCount;++i) {
             const auto& s=states_[i];const auto& b=buffers_[i];
             if(!s.sample || !s.step || s.position>=s.sample->frames)continue;
-            const auto consumed=std::max(s.position,kStreamStartFrames);
-            const auto ahead=b.end>consumed?b.end-consumed:0;
-            const auto start=s.position<kStreamStartFrames?std::min(kStreamStartFrames,s.sample->frames)-s.position:0;
-            if(((std::uint64_t(ahead+start)<<32)/s.step)<reserve_frames)return false;
+            const auto ready=StreamReadyEnd(*s.sample,b,s.generation,s.position)-s.position;
+            if(((std::uint64_t(ready)<<32)/s.step)<reserve_frames)return false;
         }
         return true;
     }
@@ -172,7 +174,8 @@ public:
         if(job_phase_==JobIdle || job_phase_==JobDone)return;
         SdReadScope lease;if(!lease)return;
         auto& file=files_[job_index_];
-        if(job_phase_==JobClose){file.close();job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
+        auto& source=sources_[job_index_]; // Reserved foreground slot, unpublished until the prefix is complete.
+        if(job_phase_==JobClose){file.close();source={};job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
         if(job_phase_==JobOpen) {
             if(!file.open(job_path_.Get(),O_RDONLY)){job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
             job_phase_=JobInspect;return;
@@ -188,18 +191,24 @@ public:
             job_inspection_.Step(reader);
             if(job_inspection_.Done()) {
                 const auto& m=job_inspection_.Metadata();
-                if(job_inspection_.Status()!=WavBufferStatus::Success || !m.frames || m.frames>UINT32_MAX || m.data_offset>UINT32_MAX)job_phase_=JobClose;
+                if(job_inspection_.Status()!=WavBufferStatus::Success ||
+                    !DescribeSource(m,m.file_bytes,memory_->starts[job_index_],source))job_phase_=JobClose;
                 else job_phase_=JobPcm;
             }
             return;
         }
-        const auto& m=job_inspection_.Metadata();const auto frames=std::min<std::uint64_t>(kStreamStartFrames,m.frames);
-        const auto n=std::min<std::uint64_t>(256,frames-job_read_);
-        if(!file.seekSet(m.data_offset+job_read_*2) || file.read(memory_->starts[job_index_]+job_read_,n*2)!=int(n*2)){job_phase_=JobClose;return;}
+        const auto offset=static_cast<std::uint32_t>(job_inspection_.Metadata().data_offset);
+        const auto frames=source.PrefixFrames();
+        constexpr std::uint32_t kPreparationReadBytes=512;
+        const auto n=std::min(kPreparationReadBytes/source.layout.bytes_per_frame,frames-job_read_);
+        auto* pcm=reinterpret_cast<unsigned char*>(memory_->starts[job_index_]);
+        if(!ReadFrames(file,offset,source,job_read_,n,pcm+job_read_*source.layout.bytes_per_frame,kPreparationReadBytes)){
+            job_phase_=JobClose;return;
+        }
         job_read_+=n;if(job_read_!=frames)return;
-        offsets_[job_index_]=m.data_offset;sources_[job_index_]={memory_->starts[job_index_],static_cast<std::uint32_t>(m.frames),buffers_};
-        auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=kStreamStartFrames;
-        report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view={sources_[job_index_].start,sources_[job_index_].frames,44100,&sources_[job_index_]};
+        offsets_[job_index_]=offset;
+        auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
+        report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view=MakeView(source);
         paths_[job_index_]=job_path_;job_path_.Reset();occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
         __DMB(); // Publish immutable PCM/source data before the audio binding can reference it.
         job_view_=report.view;job_result_=InstrumentAvailability::Ready;job_index_=kSourceCapacity;job_phase_=JobDone;
@@ -210,7 +219,7 @@ public:
         auto& ready=buffers_[i];
         if(state.generation!=ready.generation || state.sample!=ready.sample) {
             ready.generation=state.generation;ready.sample=state.sample;
-            ready.begin=ready.end=state.sample?std::min(kStreamStartFrames,state.sample->frames):0;
+            ready.begin=ready.end=state.sample?state.sample->PrefixFrames():0;
         }
         states_[i]=state;
     }
@@ -233,14 +242,14 @@ public:
         unsigned source=0;
         while(source<kSourceCapacity && (!occupied_[source] || &sources_[source]!=selected.sample)) ++source;
         if(source==kSourceCapacity) return;
-        const auto at=std::max(span.end,std::max(selected.position,kStreamStartFrames));
-        if(at>=selected.sample->frames) return;
-        const auto count=std::min(kStreamReadFrames,selected.sample->frames-at);
+        const auto& sample=*selected.sample;
+        const auto at=std::max({span.end,selected.position,sample.PrefixFrames()});
+        if(at>=sample.frames) return;
+        const auto count=std::min<std::uint32_t>(sample.layout.read_frames,sample.frames-at);
         const auto started=micros(); bool ok=false;
         {
             SdReadScope ownership; if(!ownership) return; // retry later, no lost save intent
-            ok=files_[source].seekSet(std::uint64_t(offsets_[source])+std::uint64_t(at)*2) &&
-                files_[source].read(memory_->staging,count*2)==int(count*2);
+            ok=ReadFrames(files_[source],offsets_[source],sample,at,count,memory_->staging,kStreamReadBytes);
         }
         const auto elapsed=micros()-started; ++reads; total_read_us+=elapsed;
         max_read_us=std::max(max_read_us,elapsed);
@@ -254,7 +263,13 @@ public:
         if(!ok) { failed_generation_[best]=selected.generation; return; }
         // Writes occupy unretained future ring slots. New generations use only
         // immutable starts until completion is checked and published below.
-        for(unsigned j=0;j<count;++j) memory_->rings[best][(at+j)%kStreamRingFrames]=memory_->staging[j];
+        const auto ring_at=at%sample.layout.ring_frames;
+        const auto first=std::min<std::uint32_t>(count,sample.layout.ring_frames-ring_at);
+        const auto stride=sample.layout.bytes_per_frame;
+        auto* ring=reinterpret_cast<unsigned char*>(memory_->rings[best]);
+        const auto* staging=reinterpret_cast<const unsigned char*>(memory_->staging);
+        std::memcpy(ring+ring_at*stride,staging,first*stride);
+        if(first<count) std::memcpy(ring,staging+first*stride,(count-first)*stride);
         __DMB();
         { StreamInterruptGuard guard;
             if(!PublishStreamRead(buffers_[best],selected,at,count)) ++stale_reads;
@@ -268,6 +283,34 @@ public:
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
+    bool DescribeSource(const WavMetadata& metadata,std::uint64_t file_bytes,const std::int16_t* start,
+        StreamedSample& output) noexcept {
+        const StreamSourceFormat format{metadata.sample_rate,metadata.channels,metadata.bits};
+        const auto stride=format.BytesPerFrame();
+        if(metadata.format!=1 || !format.IsPcm16Mono() || format.sample_rate_hz!=44100 ||
+            metadata.block_align!=stride || metadata.byte_rate!=std::uint64_t(format.sample_rate_hz)*stride ||
+            !metadata.frames || metadata.frames>UINT32_MAX || metadata.data_offset>UINT32_MAX) return false;
+        // Frame count now fits in 32 bits, so the extent multiplication fits in uint64_t.
+        if(metadata.data_bytes!=metadata.frames*stride || metadata.data_offset>file_bytes ||
+            metadata.data_bytes>file_bytes-metadata.data_offset) return false;
+        output={start,static_cast<std::uint32_t>(metadata.frames),buffers_,format};
+        return true;
+    }
+    static Pcm16MonoView MakeView(const StreamedSample& source) noexcept {
+        return {source.start,source.frames,source.format.sample_rate_hz,&source};
+    }
+    static bool ReadFrames(FsFile& file,std::uint32_t data_offset,const StreamedSample& source,
+        std::uint32_t first,std::uint32_t count,void* destination,std::uint32_t capacity) {
+        const auto stride=source.layout.bytes_per_frame;
+        if(!stride || !count || first>source.frames || count>source.frames-first) return false;
+        const auto bytes=std::uint64_t(count)*stride;
+        // These products and their sum fit: frame indices and data_offset are 32-bit,
+        // and DescribeSource has already checked the full data extent.
+        const auto offset=std::uint64_t(data_offset)+std::uint64_t(first)*stride;
+        return bytes<=capacity && bytes<=INT32_MAX && file.seekSet(offset) &&
+            file.read(destination,static_cast<std::size_t>(bytes))==static_cast<int>(bytes);
+    }
+
     // Caller holds foreground SD ownership and has proved this slot unretained.
     void ReleaseSource(unsigned index) {
         if(!files_[index].close()) {reports[index].view={};return;} // uncertain close: do not reuse
@@ -276,7 +319,7 @@ private:
     }
     Storage* memory_=nullptr;
     enum JobPhase{JobIdle,JobOpen,JobInspect,JobPcm,JobClose,JobDone};JobPhase job_phase_=JobIdle;
-    unsigned job_index_=kSourceCapacity;std::uint64_t job_read_=0;ResourcePathRef job_path_;
+    unsigned job_index_=kSourceCapacity;std::uint32_t job_read_=0;ResourcePathRef job_path_;
     WavInspectionJob job_inspection_;Pcm16MonoView job_view_{};
     InstrumentAvailability job_result_=InstrumentAvailability::PreparationFailed;unsigned rollback_pins_=0;
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
