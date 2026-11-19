@@ -14,6 +14,33 @@ FileListView BringUpControls::BrowserList()const {
     if(browser_menu_) {FileListView menu;menu.names={"Load",serial_.PatternSaveAvailable()?"Save":"Save (unavailable)"};menu.selected=browser_action_;return menu;}
     return browser_ready_?browser_list_:FileListView{};
 }
+bool BringUpControls::FileListNavigationAvailable()const {
+    if(quit_ || exit_after_stop_ || serial_.UserActionsBlocked())return false;
+    if(wav_picker_)return !replace_prompt_ && !wav_browser_.Loading();
+    return load_save_screen_ && !recovery_screen_ && !browser_menu_ && !browser_confirm_ &&
+        !browser_loading_ && !browser_saving_ && browser_ready_;
+}
+void BringUpControls::NavigateFileList(std::int64_t steps) {
+    if(!FileListNavigationAvailable() || !steps)return;
+    if(wav_picker_) {
+        const auto previous=wav_browser_.View().selected;
+        wav_browser_.Move(steps);
+        if(wav_browser_.View().selected!=previous)audition_feedback_.clear();
+    } else browser_list_.Move(steps);
+}
+void BringUpControls::ClickFileList(int x,int y,bool confirm,std::uint32_t now) {
+    if(!FileListNavigationAvailable())return;
+    if(wav_picker_) {
+        const auto entry=SampleBrowserListArea(wav_browser_.Directory()).EntryAt(wav_browser_.View(),x,y);
+        if(!entry)return;
+        if(*entry!=wav_browser_.View().selected)audition_feedback_.clear();
+        if(!wav_browser_.Highlight(*entry))return;
+    } else {
+        const auto entry=PatternLoadListArea().EntryAt(browser_list_,x,y);
+        if(!entry || !browser_list_.Highlight(*entry))return;
+    }
+    if(confirm)Request(BringUpAction::BrowserConfirm,"File browser double-click",now);
+}
 std::string BringUpControls::BrowserText()const {
     if(replace_prompt_)return std::string(serial_.LiveEditSupported()?"Replace current Sample WAV?\nOld: ":"Replace saved Sample WAV?\nOld: ")+SavedInstrumentPath()+"\nNew: "+replacement_candidate_+(serial_.LiveEditSupported()?"\n\nEnter / A: prepare and apply\nEscape / B: keep current path":"\n\nEnter / A: stage replacement\nEscape / B: keep saved path");
     if(wav_picker_)return !audition_feedback_.empty()?audition_feedback_:
@@ -251,10 +278,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             return;
         }
         if(!serial_.UserActionsBlocked() && !wav_browser_.Loading()) {
-            const auto previous_selection=wav_browser_.View().selected;
-            if(action==BringUpAction::BrowserUp)wav_browser_.Move(-1);
-            if(action==BringUpAction::BrowserDown)wav_browser_.Move(1);
-            if(wav_browser_.View().selected!=previous_selection)audition_feedback_.clear();
+            if(action==BringUpAction::BrowserUp)NavigateFileList(-1);
+            if(action==BringUpAction::BrowserDown)NavigateFileList(1);
             if(action==BringUpAction::BrowserConfirm) {
                 std::string path;const auto selection=wav_browser_.Select(path);
                 if(selection==1){wav_next_startup_root_=kSampleBrowserStartupRoots.size();OpenWavDirectory(path,now);}
@@ -420,8 +445,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         if(browser_confirm_) {if(action==BringUpAction::BrowserConfirm)LoadSelected(now);return;}
         if(!browser_ready_ || browser_collecting_)return;
-        if(action==BringUpAction::BrowserUp)browser_list_.Move(-1);
-        if(action==BringUpAction::BrowserDown)browser_list_.Move(1);
+        if(action==BringUpAction::BrowserUp)NavigateFileList(-1);
+        if(action==BringUpAction::BrowserDown)NavigateFileList(1);
         if(action==BringUpAction::BrowserConfirm && !browser_list_.names.empty()) {
             if(confirm_load_replace_)browser_confirm_=true;else LoadSelected(now);
         }

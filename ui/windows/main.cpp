@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include "input.h"
+#include "ui/sdl/file_browser_input.h"
 #include "serial_service_limits.h"
 #include "ui/host_config.h"
 #include "ui/sdl/host_paths.h"
@@ -123,6 +124,9 @@ int main(int argc, char* argv[]) try {
                 const char* source=event.type==SDL_QUIT?"window close":"Ctrl+X";
                 WindowsDiagnostic(log_file,"Transport input",source);controls.Request(BringUpAction::Exit,source,SDL_GetTicks());continue;
             }
+            if(HandleFileBrowserInput(event,controls,SDL_GetTicks(),[&](int x,int y,int& fx,int& fy) {
+                return display.MouseEventToFramebuffer(x,y,fx,fy);
+            }))continue;
             if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {
                 editor_input.Cancel();tempo_input.Cancel();
                 // Track physical releases/presses against an unready sink; never mutate the retained editor.
@@ -152,7 +156,7 @@ int main(int argc, char* argv[]) try {
             }
             int mouse_x=0,mouse_y=0;
             const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
-            const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
+            const bool mapped=mouse && display.MouseEventToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
             const int header=header_input.Handle(event,mouse_x,mouse_y,mapped,&editor);
             if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {

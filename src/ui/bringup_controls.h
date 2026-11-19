@@ -10,6 +10,9 @@ class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
     void Request(BringUpAction action, const char* source, std::uint32_t now);
+    bool FileListNavigationAvailable()const;
+    void NavigateFileList(std::int64_t steps);
+    void ClickFileList(int x,int y,bool confirm,std::uint32_t now);
     void ObserveEditor(LocalPatternEditor& editor) { editor_=&editor; }
     bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}

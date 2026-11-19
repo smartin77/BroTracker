@@ -23,6 +23,7 @@
 #include "ui/sdl/host_diagnostics.h"
 #include "ui/bringup_controls.h"
 #include "ui/arkos/input.h"
+#include "ui/sdl/file_browser_input.h"
 
 #include "core/constants.h"
 #include "core/logger.h"
@@ -376,6 +377,9 @@ int main(int argc, char* argv[])
                 break;
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
+            if(HandleFileBrowserInput(event,controls,SDL_GetTicks(),[&](int x,int y,int& fx,int& fy) {
+                return display.MouseEventToFramebuffer(x,y,fx,fy);
+            }))continue;
             LocalPatternEditor blocked_editor;
             const bool blocked=serial.UserActionsBlocked() || controls.PatternInputBlocked();
             if(blocked)editor_input.Cancel();

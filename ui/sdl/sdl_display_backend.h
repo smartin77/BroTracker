@@ -34,7 +34,7 @@ public:
     bool Present(
         const Framebuffer& framebuffer) override;
 
-    bool WindowToFramebuffer(int x,int y,int& fx,int& fy) const;
+    bool MouseEventToFramebuffer(int x,int y,int& fx,int& fy) const;
 
 private:
     void Shutdown();

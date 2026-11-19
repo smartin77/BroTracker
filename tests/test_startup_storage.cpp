@@ -7,6 +7,7 @@
 #ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
 #include "ui/windows/input.h"
 #include "ui/arkos/input.h"
+#include "ui/sdl/file_browser_input.h"
 #endif
 #include "bringup/pattern_file_store.h"
 #include "bringup/pattern_control.h"
@@ -888,6 +889,27 @@ TEST_CASE(PatternLoadConfigOptOutAndStoppedGateAndListTimeout) {
     wire->hold_list=false;CHECK(serial.RequestPatternList(0,13001));Pump(serial,651,680,&editor);CHECK(serial.PatternListReady());
 }
 
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+namespace {
+bool BrowserKey(BringUpControls& controls,SDL_Keycode key) {
+    SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=key;
+    return HandleFileBrowserInput(event,controls,0,[](int,int,int&,int&){return false;});
+}
+bool BrowserWheel(BringUpControls& controls,int y,bool flipped=false) {
+    SDL_Event event{};event.type=SDL_MOUSEWHEEL;event.wheel.y=y;
+    event.wheel.direction=flipped?SDL_MOUSEWHEEL_FLIPPED:SDL_MOUSEWHEEL_NORMAL;
+    return HandleFileBrowserInput(event,controls,0,[](int,int,int&,int&){return false;});
+}
+bool BrowserClick(BringUpControls& controls,FileListArea area,int row,unsigned clicks,std::uint32_t now) {
+    SDL_Event event{};event.type=SDL_MOUSEBUTTONDOWN;event.button.button=SDL_BUTTON_LEFT;
+    event.button.clicks=clicks;event.button.x=2*area.left;event.button.y=2*(area.top+row*area.row_height);
+    return HandleFileBrowserInput(event,controls,now,[](int x,int y,int& fx,int& fy) {
+        fx=x/2;fy=y/2;return true;
+    });
+}
+}
+#endif
+
 TEST_CASE(PatternBrowserSortsAllPagesAndMovesContinuousViewport) {
     for(unsigned total:{16u,18u})for(bool backwards:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->list_cap=true;wire->hold_list=true;
@@ -915,8 +937,24 @@ TEST_CASE(PatternBrowserSortsAllPagesAndMovesContinuousViewport) {
             view=controls.BrowserList();CHECK_EQ(view.selected,total-1);CHECK_EQ(view.first,12u);
             const auto last=view.Indicator(108);CHECK_EQ(last.offset+last.length,108u);
         }
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+        const auto area=PatternLoadListArea();
+        CHECK(BrowserKey(controls,SDLK_HOME));CHECK_EQ(controls.BrowserList().first,0u);
+        CHECK(BrowserWheel(controls,-8));CHECK_EQ(controls.BrowserList().selected,8u);
+        CHECK(BrowserWheel(controls,-2,true));CHECK_EQ(controls.BrowserList().selected,6u);
+        CHECK(BrowserKey(controls,SDLK_END));
+        CHECK_EQ(controls.BrowserList().selected,total-1);CHECK_EQ(controls.BrowserList().first,12u);
+        CHECK(BrowserClick(controls,area,-1,2,tick*20));CHECK(!controls.BrowserConfirming());
+        CHECK(BrowserClick(controls,area,0,1,tick*20));CHECK_EQ(controls.BrowserList().selected,12u);
+        CHECK(!controls.BrowserConfirming());CHECK_EQ(wire->Loads(),0u);
+        const auto selected=controls.BrowserList().names[13];
+        CHECK(BrowserClick(controls,area,1,2,tick*20));CHECK(controls.BrowserConfirming());
+        CHECK(!BrowserClick(controls,area,1,2,tick*20));CHECK(controls.BrowserConfirming());
+#else
         const auto selected=view.names[view.selected];
-        controls.Request(BringUpAction::BrowserConfirm,"prompt",tick*20);CHECK(controls.BrowserText().find(selected)!=std::string::npos);
+        controls.Request(BringUpAction::BrowserConfirm,"prompt",tick*20);
+#endif
+        CHECK(controls.BrowserText().find(selected)!=std::string::npos);
         CHECK_EQ(wire->Loads(),0u);controls.Request(BringUpAction::BrowserConfirm,"load",tick*20);drive();drive();
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 LOAD 1 "+selected)!=wire->commands.end());
         CHECK(!controls.LoadSaveScreen());CHECK_EQ(editor.Cursor().row,0u);CHECK_EQ(editor.Cursor().channel,0u);
@@ -2432,9 +2470,25 @@ TEST_CASE(ProgressiveBrowserControllerAcceptsFileOrFolderWhileNextBatchIsPending
         controls.Request(BringUpAction::InstrumentNextField,"Load",3201);controls.Request(BringUpAction::InstrumentActivate,"browse",3202);drive(161,200);
         wire->rx+="BTSTORE1 WAVDIR 3 1 /Samples\nBTSTORE1 WAVINFO 3 1 0\nBTSTORE1 WAVITEM 3 1 D Sub\nBTSTORE1 WAVITEM 3 1 F early.wav\nBTSTORE1 WAVMETA 3 1 1 0 1 1 16 44100\nBTSTORE1 WAVEND 3 1 64 0 2\n";
         drive(201,220);CHECK(controls.WavPicker());CHECK(serial.PatternListBusy());CHECK_EQ(controls.BrowserList().names.size(),3u);CHECK(controls.BrowserText().find("1 samples read")!=std::string::npos);
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+        const auto area=SampleBrowserListArea(controls.WavDirectory());
+        CHECK(BrowserKey(controls,SDLK_END));CHECK_EQ(controls.BrowserList().selected,2u);
+        CHECK(BrowserWheel(controls,2));CHECK_EQ(controls.BrowserList().selected,0u);
+        CHECK(BrowserClick(controls,area,3,2,4401));CHECK_EQ(controls.BrowserList().selected,0u);
+        CHECK(BrowserClick(controls,area,folder?1:2,1,4402));
+        CHECK_EQ(controls.BrowserList().selected,folder?1u:2u);CHECK(!controls.ReplacementConfirming());
+        CHECK(BrowserClick(controls,area,folder?1:2,2,4403));
+        if(!folder) {
+            CHECK(controls.ReplacementConfirming());
+            CHECK(!BrowserClick(controls,area,2,2,4404));
+        }
+#else
         controls.Request(BringUpAction::BrowserDown,"navigate before complete",4401);
         if(!folder)controls.Request(BringUpAction::BrowserDown,"early WAV",4402);
-        controls.Request(BringUpAction::BrowserConfirm,"select before complete",4403);drive(221,240);
+        controls.Request(BringUpAction::BrowserConfirm,"select before complete",4403);
+#endif
+        drive(221,240);
+        CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 PLAY",0)==0;}));
         if(folder) {
             CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c=="BTSTORE1 WAVOPEN 3 3 0 0 /Samples/Sub";}));
             wire->rx+="BTSTORE1 WAVDIR 3 2 /Samples\nBTSTORE1 WAVINFO 3 2 0\nBTSTORE1 WAVEND 3 2 64 1 0\nBTSTORE1 WAVDIR 3 3 /Samples/Sub\nBTSTORE1 WAVINFO 3 3 0\nBTSTORE1 WAVEND 3 3 0 1 0\n";drive(241,260);

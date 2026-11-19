@@ -3,6 +3,7 @@
 #include "ui/pattern_screen.h"
 #include "firmware/teensy/BroTracker/sd_pattern_storage.h"
 #include <array>
+#include <limits>
 using namespace BroTracker;
 namespace {
 std::vector<std::uint8_t> Wave(unsigned channels=1,unsigned bits=16,unsigned rate=44100,unsigned format=1) {
@@ -53,8 +54,8 @@ void Screenshot(const char* name,const WavBrowser& browser,bool confirming=false
     CHECK(actual.SaveBMP(std::filesystem::path(BROTRACKER_BROWSER_SCREENSHOTS)/(std::string(name)+".bmp")));
     if(!confirming && !browser.View().names.empty()) {
         const auto row=browser.View().selected-browser.View().first;
-        const auto header_lines=std::max<std::size_t>(1,(browser.Directory().size()+89)/90);
-        const auto pixel=actual.PixelData()[(header_lines*kSampleBrowserLineHeight+row*kSampleBrowserLineHeight+1)*640+620];
+        const auto area=SampleBrowserListArea(browser.Directory());
+        const auto pixel=actual.PixelData()[(area.top+row*area.row_height+1)*640+620];
         CHECK_EQ(pixel.r,153u);CHECK_EQ(pixel.g,153u);CHECK_EQ(pixel.b,153u); // Selection spans former diagnostics area.
     }
 }
@@ -209,4 +210,48 @@ TEST_CASE(PackedPcmBrowserRejectionReflectsNegotiatedBitDepth) {
     browser.Begin("/Samples",true);CHECK(browser.Accept(page));Highlight(browser,"tone.wav");
     CHECK_EQ(browser.SelectedMessage(),std::string("PCM \xc2\xb7 8-bit \xc2\xb7 8.363 kHz \xc2\xb7 Stereo"));
     std::string chosen;CHECK_EQ(browser.Select(chosen),2u);CHECK_EQ(chosen,std::string("Samples/tone.wav"));
+}
+
+TEST_CASE(FileListNavigationClampsScrollsAndIgnoresEmptyRows) {
+    FileListView view;
+    const auto area=PatternLoadListArea();
+    view.Move(std::numeric_limits<std::int64_t>::max());
+    CHECK_EQ(view.selected,0u);CHECK_EQ(view.first,0u);
+    CHECK(!area.EntryAt(view,area.left,area.top));
+    view.names.resize(15);
+    view.Move(13);
+    CHECK_EQ(view.selected,13u);CHECK_EQ(view.first,12u);
+    CHECK_EQ(area.EntryAt(view,area.left,area.top+2*area.row_height).value_or(99),14u);
+    CHECK(!area.EntryAt(view,area.left,area.top+3*area.row_height));
+    CHECK(!area.EntryAt(view,area.left,area.top-1));
+    CHECK(!area.EntryAt(view,area.left+area.width,area.top));
+    view.Move(std::numeric_limits<std::int64_t>::min());
+    CHECK_EQ(view.selected,0u);CHECK_EQ(view.first,0u);
+}
+
+TEST_CASE(SampleBrowserEndKeepsItsScrolledSelectionWhenBatchesAppend) {
+    WavBrowser browser;
+    const std::string directory="/"+std::string(90,'a');
+    const auto area=SampleBrowserListArea(directory);
+    CHECK(area.top>kSampleBrowserLineHeight);
+    browser.Begin(directory);
+    WavBrowsePage page;
+    std::strcpy(page.directory,directory.c_str());
+    page.done=false;page.count=kPatternListPageSize;
+    for(unsigned i=0;i<page.count;++i) {
+        page.entries[i].kind=WavEntryKind::Directory;
+        std::snprintf(page.entries[i].name,sizeof(page.entries[i].name),"folder_%02u",i);
+    }
+    for(unsigned batch=0;batch<4;++batch)CHECK(browser.Accept(page));
+    browser.Move(std::numeric_limits<std::int64_t>::max());
+    const auto selected=browser.View().selected,first=browser.View().first;
+    CHECK_EQ(selected,4*kPatternListPageSize);
+    CHECK(first>0u);
+    CHECK_EQ(area.EntryAt(browser.View(),area.left,area.top+(selected-first)*area.row_height).value_or(99),selected);
+    page.done=true;
+    CHECK(browser.Accept(page));
+    CHECK_EQ(browser.View().selected,selected);CHECK_EQ(browser.View().first,first);
+    CHECK(!area.EntryAt(browser.View(),area.left,area.top+area.rows*area.row_height));
+    browser.Move(std::numeric_limits<std::int64_t>::max());
+    CHECK_EQ(browser.View().selected,5*kPatternListPageSize);
 }

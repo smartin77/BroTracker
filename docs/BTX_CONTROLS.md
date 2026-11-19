@@ -112,6 +112,14 @@ New batches append without moving the highlight or scroll position. The footer
 shows `NN samples read` for WAV entries in this directory only (including rejected
 WAVs), excluding folders and `..`, alongside selected-file metadata or useful errors.
 The final count remains after loading. Changing folders or leaving ignores old replies.
+
+In both file lists, Home highlights the first entry, and End highlights the
+last entry currently shown by the list. Sample Browser can receive more entries
+after End without moving the highlight. Mouse-wheel steps move the highlight
+and keep it visible. A left click highlights a visible entry. A double-click
+opens the folder or selects the file through the same validation and
+confirmation as Enter/A. Keyboard and mouse controls also work with peripherals
+connected to ArkOS.
 Paths up to 255 ASCII bytes, including ordinary spaces in folder/file names, are
 supported with long-path firmware. Long directory headers wrap to show the full
 path. Over-limit paths and exhausted shared storage are rejected without replacing
@@ -181,6 +189,8 @@ path and returns to Instrument.
 
 Save writes the source of the last successful Pattern Load; it is unavailable
 without a known source. Load stays stopped and returns to Pattern after success.
+Load shows its sorted filenames once the scan completes. Home, End, wheel and
+click navigation apply to that file list.
 
 ## Recovery, warnings and listening volume
 
