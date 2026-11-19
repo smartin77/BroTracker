@@ -1,7 +1,6 @@
 #pragma once
 #include "sd_sample_streaming.h"
 #include "core/audio/variable_rate_sample_voice.h"
-#include "core/audio/master_volume.h"
 namespace BroTracker {
 // Foreground owns preparation and file lifetime. Voice and span publication are
 // bounded under the audio exclusion guard; the ISR only renders prepared PCM.
@@ -9,22 +8,32 @@ namespace BroTracker {
 class SdWavAudition {
 public:
     explicit SdWavAudition(SdSampleStreaming& stream):stream_(stream) {
-        voice_.SetStreamChannel(8);(void)voice_.Configure(44100);volume_.Configure(44100);
+        voice_.SetStreamChannel(kAuditionStreamChannel);(void)voice_.Configure(44100);
     }
     void Cancel() {
-        pending_=false;path_[0]=0;
+        pending_=false;path_[0]=0;completed_=0;active_id_=0;
         if(preparing_)stream_.CancelPreparation();
-        StreamInterruptGuard guard;voice_.Stop();stream_.PublishVoice(8,voice_.StreamSnapshot());
+        StreamInterruptGuard guard;voice_.Stop();stream_.PublishVoice(kAuditionStreamChannel,voice_.StreamSnapshot());
     }
     bool Request(std::uint32_t id,const char* path) {
         if(!id || !InstrumentDefinitions::ValidResource(path))return false;
         Cancel();id_=id;std::strcpy(path_,path);pending_=true;return true;
     }
+    void CancelThrough(std::uint32_t id) {if(id>=id_)Cancel();}
+    // Foreground: terminate only the audition if its low-priority refill misses.
+    void CheckPlayback() {
+        if(!active_id_)return;
+        StreamInterruptGuard guard;
+        const auto state=voice_.StreamSnapshot();
+        if(state.underruns!=start_underruns_) {
+            voice_.Stop();stream_.PublishVoice(kAuditionStreamChannel,voice_.StreamSnapshot());
+            completed_=active_id_;result_=8;active_id_=0;
+        } else if(!state.sample)active_id_=0;
+    }
     bool Busy()const{return pending_ || preparing_;}
     // Called before any other owner of BeginPrepareAsync. Drains cancelled work
     // before beginning the latest request; a superseded result is never triggered.
-    template<class Bindings> void Service(const Bindings& bindings,bool stopped) {
-        if(!stopped)Cancel();
+    template<class Bindings> void Service(const Bindings& bindings) {
         if(preparing_) {
             stream_.PreparationStep();
             if(!stream_.PreparationDone())return;
@@ -38,7 +47,9 @@ public:
                     else {
                         StreamInterruptGuard guard;
                         result_=view.Trigger(voice_,step)==VariableVoiceStatus::Success?0:4;
-                        stream_.PublishVoice(8,voice_.StreamSnapshot());
+                        const auto state=voice_.StreamSnapshot();
+                        if(!result_){active_id_=id_;start_underruns_=state.underruns;}
+                        stream_.PublishVoice(kAuditionStreamChannel,state);
                     }
                 }
                 completed_=id_;
@@ -50,25 +61,30 @@ public:
         }
     }
     std::uint32_t TakeResult(unsigned& result){const auto id=completed_;completed_=0;result=result_;return id;}
-    // Audio owner. Never start audio here; a transport change also silences an
-    // accepted audition even if foreground cancellation has not yet run.
-    bool Render(std::int16_t* pcm,std::size_t count,bool stopped,unsigned volume,std::int16_t* right=nullptr) {
-        if(!stopped)voice_.Stop();
-        const bool rendered=stopped && voice_.IsActive() && (right || !voice_.IsStereo());
-        if(rendered) {
-            (void)volume_.Set(volume);
-            if(right) {
-                (void)voice_.RenderStereo(pcm,right,count);volume_.ProcessStereo(pcm,right,count);
-            } else {
-                (void)voice_.Render(pcm,count);volume_.Process(pcm,count);
-            }
+    // Audio owner, independent of Pattern transport. Both channels share phase.
+    bool Render(std::int16_t* pcm,std::size_t count,std::int16_t* right=nullptr) {
+        if(!voice_.IsActive() || (!right && voice_.IsStereo()))return false;
+        if(right)(void)voice_.RenderStereo(pcm,right,count);
+        else (void)voice_.Render(pcm,count);
+        stream_.PublishVoice(kAuditionStreamChannel,voice_.StreamSnapshot());
+        return true;
+    }
+    // Add to the Pattern bus before its shared master ramp. No audio-pool blocks
+    // or Pattern channel slots are used by the audition.
+    template<std::size_t Count>
+    void Mix(std::int16_t (&left)[Count],std::int16_t (&right)[Count]) {
+        if(!voice_.IsActive())return;
+        std::int16_t audition_left[Count],audition_right[Count];
+        if(!Render(audition_left,Count,audition_right))return;
+        for(std::size_t i=0;i<Count;++i) {
+            left[i]=std::clamp(int(left[i])+audition_left[i],-32768,32767);
+            right[i]=std::clamp(int(right[i])+audition_right[i],-32768,32767);
         }
-        stream_.PublishVoice(8,voice_.StreamSnapshot());return rendered;
     }
     StreamedVoiceSnapshot Snapshot()const{return voice_.StreamSnapshot();}
 private:
-    SdSampleStreaming& stream_;VariableRateSampleVoice voice_;MasterVolume volume_;
+    SdSampleStreaming& stream_;VariableRateSampleVoice voice_;
     char path_[kSamplePathMaximum+1]{};bool pending_=false,preparing_=false;
-    std::uint32_t id_=0,job_id_=0,completed_=0;unsigned result_=0;
+    std::uint32_t id_=0,job_id_=0,completed_=0,active_id_=0,start_underruns_=0;unsigned result_=0;
 };
 }

@@ -25,7 +25,8 @@ constexpr std::uint32_t kStreamRingBytes=8192, kStreamStartBytes=4096, kStreamRe
 constexpr std::uint32_t kStreamRingFrames=kStreamRingBytes/sizeof(std::int16_t),
     kStreamStartFrames=kStreamStartBytes/sizeof(std::int16_t),
     kStreamReadFrames=kStreamReadBytes/sizeof(std::int16_t);
-constexpr unsigned kStreamVoiceCount=9; // eight Pattern voices plus independent WAV audition
+constexpr unsigned kAuditionStreamChannel=8;
+constexpr unsigned kStreamVoiceCount=kAuditionStreamChannel+1;
 struct StreamSourceFormat {
     std::uint32_t sample_rate_hz=44100;
     std::uint16_t channels=1,bits_per_sample=16;

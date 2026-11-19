@@ -221,7 +221,7 @@ void BringUpSerial::Disconnect(const char* reason)
     define_reconcile_required_=define_reconcile_required_ || define_pending_;
     replace_supported_=relink_supported_=false;
     path_supported_=false;
-    audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
+    audition_live_supported_=audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
     define_supported_=define_pending_=define_queued_=define_success_=false;live_type_supported_=live_edit_supported_=false;visit_ready_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
@@ -492,7 +492,6 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
-    CancelWavAudition();
     if(UserActionsBlocked())return false;
     if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
@@ -803,8 +802,15 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTINS1 REPLACECAP 1")){replace_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 LIVETYPECAP 1")){live_type_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTWAV1 CAP 1")){audition_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTWAV1 CAP 2")){audition_live_supported_=audition_supported_=connected_;return;}
+    {std::uint32_t f[2]{};
+        if(BroTracker::SnapshotFields(line_,std::strlen(line_),"BTWAV1 QUEUED ",f,2) && f[0]==1) {
+            if(f[1]==audition_id_ && !audition_path_.empty())audition_error_="Audition waiting for SD headroom";
+            return;
+        }
+    }
     {std::uint32_t f[3]{};if(BroTracker::SnapshotFields(line_,std::strlen(line_),"BTWAV1 RESULT ",f,3) && f[0]==1) {
-        if(f[1]==audition_id_ && !audition_path_.empty())audition_error_=f[2]==9?"Sample path storage full":f[2]?"WAV audition unavailable or preparation failed":std::string{};
+        if(f[1]==audition_id_ && !audition_path_.empty())audition_error_=f[2]==9?"Sample path storage full":f[2]==8?"Audition stopped for streaming headroom":f[2]==3?"Audition unavailable while device is busy":f[2]?"WAV audition unavailable or preparation failed":std::string{};
         return;
     }}
     if(!std::strcmp(line_,"BTINS1 LIVEEDITCAP 1")){live_edit_supported_=connected_;return;}

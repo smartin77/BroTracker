@@ -93,7 +93,7 @@ PCM8 stays packed and is widened to the signed PCM16 domain as it is rendered.
 Stored bytes 0, 128 and 255 map to -32768, 0 and 32512 respectively.
 Trigger preparation applies the source/output rate ratio once to the existing
 Q32.32 note ratio, rounding to the nearest Q32.32 step with ties upward. The
-output stays at 44,100 Hz. A reference-note trigger and stopped audition preserve
+output stays at 44,100 Hz. A reference-note trigger and manual audition preserve
 source pitch and duration to Q32.32 and output-frame precision. The renderer
 continues to use linear interpolation. See [production streaming](SD_SAMPLE_STREAMING.md).
 

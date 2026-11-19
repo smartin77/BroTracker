@@ -218,7 +218,7 @@ public:
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
     bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
     bool RequestWavAudition(const std::string& path) {
-        if(!ResourceWireAvailable(path.c_str()) || !connected_ || !audition_supported_ || !MidiRecoveryStopped() || UserActionsBlocked() ||
+        if(!ResourceWireAvailable(path.c_str()) || !connected_ || !audition_supported_ || (!MidiRecoveryStopped() && !(audition_live_supported_ && (Playing() || Paused()))) || UserActionsBlocked() ||
             FilePending() || PublicationBusy() || TransportPending() || InstrumentCommitPending() ||
             !BroTracker::InstrumentDefinitions::ValidResource(path.c_str()) || audition_id_==UINT32_MAX)return false;
         ++audition_id_;audition_path_=path;audition_queued_=true;audition_cancel_=false;audition_error_.clear();return true;
@@ -227,6 +227,7 @@ public:
         audition_queued_=false;audition_path_.clear();audition_error_.clear();
         if(audition_supported_ && audition_id_)audition_cancel_=true;
     }
+    bool LiveWavAuditionSupported()const{return audition_live_supported_;}
     const std::string& WavAuditionError()const{return audition_error_;}
     bool ResourceWireAvailable(const char* path) {
         if(path && (!BroTracker::InstrumentDefinitions::ValidResource(path) ||
@@ -488,7 +489,7 @@ private:
     bool tx_publication_ = false;
     // Zero reported bytes may still mean the asynchronous worker owns the line.
     bool tx_write_attempted_=false;
-    bool audition_supported_=false,audition_queued_=false,audition_cancel_=false;
+    bool audition_supported_=false,audition_live_supported_=false,audition_queued_=false,audition_cancel_=false;
     std::uint32_t audition_id_=0;std::string audition_path_,audition_error_;
     char tx_[BroTracker::kPathProtocolCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;

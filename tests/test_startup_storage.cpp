@@ -2370,7 +2370,7 @@ TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRo
     }
 }
 
-TEST_CASE(ManualWavAuditionIsStoppedOnlyAndIndependentOfBrowserSelectionAndDraft) {
+TEST_CASE(ManualWavAuditionNegotiatesLiveTransportAndPreservesBrowserDraft) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
     wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
     wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,0};
@@ -2395,10 +2395,16 @@ TEST_CASE(ManualWavAuditionIsStoppedOnlyAndIndependentOfBrowserSelectionAndDraft
     wire->state="PAUSED";wire->rx+="BTTEST1 STATE PAUSED\n";drive(261,270);
     controls.Request(BringUpAction::BrowserAudition,"blocked paused",5401);drive(271,280);CHECK_EQ(plays(),1);
     CHECK_EQ(controls.BrowserText(),std::string("Audition requires confirmed STOP and audition-capable firmware"));
-    wire->state="IDLE";wire->rx+="BTTEST1 STATE IDLE\n";drive(281,290);
-    controls.Request(BringUpAction::BrowserAudition,"restart",5801);drive(291,300);CHECK_EQ(plays(),2);
-    CHECK(controls.BrowserText().find("Audition requires")==std::string::npos);
-    controls.Request(BringUpAction::BrowserCancel,"leave",6001);drive(301,320);CHECK(!controls.WavPicker());
+    wire->rx+="BTWAV1 CAP 2\n";drive(281,290);
+    controls.Request(BringUpAction::BrowserAudition,"paused",5801);drive(291,300);CHECK_EQ(plays(),2);
+    wire->rx+="BTWAV1 QUEUED 1 2\n";drive(301,310);
+    CHECK(controls.BrowserText().find("waiting for SD headroom")!=std::string::npos);
+    wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";drive(311,320);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 CANCEL",0)==0;}));
+    controls.Request(BringUpAction::BrowserAudition,"playing restart",6401);drive(321,330);CHECK_EQ(plays(),3);
+    wire->rx+="BTWAV1 RESULT 1 2 8\n";drive(331,340);
+    CHECK(controls.BrowserText().find("stopped for streaming")==std::string::npos);
+    controls.Request(BringUpAction::BrowserCancel,"leave",6801);drive(341,360);CHECK(!controls.WavPicker());
     CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 CANCEL",0)==0;}));
     CHECK(controls.InstrumentDraftResource().empty());CHECK(SamePattern(before,*editor.Draft()));
 }

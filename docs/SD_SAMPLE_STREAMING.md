@@ -19,7 +19,7 @@ Previous WAVOPEN versions retain their existing eligibility rules.
 Production accepts 22,050, 11,025 and 8,000 Hz mono/stereo alongside 44,100 Hz.
 SD files, prefixes and rings retain their original PCM16 frame geometry. The
 143,360 B PCM allocation and 44,100 Hz output are unchanged. Pattern triggers
-compose note and source-rate ratios once, and stopped P/X audition uses only
+compose note and source-rate ratios once, and manual P/X audition uses only
 the source-rate ratio. Refill deadlines and background reserve use output-frame
 coverage, with a conservative interpolation lookahead for incomplete spans.
 A complete buffered tail needs no more SD servicing.
@@ -42,7 +42,14 @@ stereo starts or sustained stereo throughput.
 Normal playback routes genuine L/R through USB bridge, PT8211, and Shield I2S.
 The bridge's MQS update owner retains its left monitor connection. Mono and
 Synth are centered, and the master ramp advances once per output frame.
-Browser audition supports stereo while stopped. Windows P and handheld X trigger audition. WAVOPEN v5 advertises
+Manual Windows P / handheld X audition uses the dedicated ninth streaming ring
+while Stopped, Paused or Playing. Its stereo output is added once to the
+Pattern stereo bus with saturating addition before the shared master ramp.
+Pattern refills have priority. Audition preparation and reads require Pattern
+output-time reserve, and an audition underrun stops the audition voice.
+`BTWAV1 CAP 2` advertises live audition. `CAP 1` retains stopped-only compatibility.
+
+WAVOPEN v5 advertises
 stereo eligibility to compatible BTX builds, and existing browser versions keep
 their mono eligibility. Session files continue to save resource paths. The
 opt-in diagnostic right-side exclusion remains separate from the normal mix.

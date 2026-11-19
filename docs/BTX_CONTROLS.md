@@ -89,14 +89,19 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 | Visible action | Windows | Handheld |
 |---|---|---|
 | Move selection | Up / Down | D-pad Up / Down |
-| Audition selected supported WAV (confirmed STOP only) | P | X |
+| Audition highlighted supported WAV (Stopped, Paused, Playing) | P | X |
 | Open folder, including `..` | Enter | A |
 | Choose supported WAV and return to Instrument | Enter | A |
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
 | Cancel via existing screen-navigation chord | Ctrl+Left / Right | Select+D-pad Left / Right |
 
 Production accepts PCM8 and PCM16 mono/stereo at 8, 8.363, 11.025, 22.05 and 44.1 kHz.
-Stopped audition plays at the file's original pitch and speed.
+Audition plays once at the file's original pitch and speed. Press P/X again to
+restart the highlighted WAV, including while preparation is queued. Navigation
+is silent, and leaving the browser cancels audition. Pattern transport continues
+independently. Pattern SD reads take priority, so audition can wait for headroom
+or stop if its own buffer runs dry. Older audition-capable firmware supports
+this shortcut only while Stopped.
 
 The confirmed SD directory is at the top. The list fills the middle; one bottom
 line shows selected-file metadata, rejection, empty state or folder error. All

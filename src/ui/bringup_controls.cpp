@@ -167,8 +167,7 @@ bool BringUpControls::InstrumentLoadAvailable()const {
 void BringUpControls::Request(BringUpAction action, const char* source, std::uint32_t now) {
     if (action == BringUpAction::None || quit_) return;
     if(action==BringUpAction::Exit && wav_picker_) {serial_.CancelWavDirectory();wav_collecting_=false;}
-    if(action==BringUpAction::Exit || action==BringUpAction::Start || action==BringUpAction::PatternToggle ||
-        action==BringUpAction::ResetStop)serial_.CancelWavAudition();
+    if(action==BringUpAction::Exit)serial_.CancelWavAudition();
     if(instrument_screen_ && !wav_picker_ && (action==BringUpAction::BrowserCancel || action==BringUpAction::BrowserBack))action=BringUpAction::InstrumentCancel;
     if(action==BringUpAction::InstrumentCancel && !exit_after_stop_ && InstrumentCancellationAvailable()) {
         if(visit_closing_)return;
@@ -246,7 +245,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             std::string path;
             if(!replace_prompt_ && wav_browser_.Select(path)==2) {
                 if(serial_.RequestWavAudition(path))audition_feedback_.clear();
-                else audition_feedback_="Audition requires confirmed STOP and audition-capable firmware";
+                else audition_feedback_=serial_.LiveWavAuditionSupported()?"Audition unavailable while device is busy":
+                    "Audition requires confirmed STOP and audition-capable firmware";
             }
             return;
         }
