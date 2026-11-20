@@ -88,7 +88,6 @@ int main(int argc, char* argv[]) try {
     }
     BringUpSerial serial(log_file);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
-    serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
@@ -192,12 +191,13 @@ int main(int argc, char* argv[]) try {
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         if(controls.Exiting())panel.publication_status=controls.ExitStatus();
         panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
-        if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
         panel.text=warning_text;
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
         panel.instrument_modified=controls.InstrumentVisitModified();
         panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=controls.InstrumentAssignedResource();
+        panel.instrument_name=controls.CacheInstrumentName(panel.instrument_resource);
+        panel.instrument_midi_channel=controls.InstrumentMidiChannel();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
@@ -212,7 +212,7 @@ int main(int argc, char* argv[]) try {
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"Enter: Browse | ":
-                panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
+                panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
             panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+"Ctrl+Down: Keep | Esc: Roll back";
         }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;

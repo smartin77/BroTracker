@@ -25,7 +25,8 @@ struct WorkingSession {
 };
 inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t n,WorkingSession& out) noexcept {
     if(b && n>=32 && !std::memcmp(b,"BTM1",4)) {
-        if(b[4]==2) {
+        if(b[4]==2 || b[4]==3) {
+            const bool with_channel=b[4]==3;
             if(b[5] || b[6]!=24 || b[7] || PatternFileU32(b+20)!=PatternFileCrc(b,n))return PatternFileResult::Invalid;
             const auto a=PatternFileU32(b+8),count=PatternFileU32(b+12),paths=PatternFileU32(b+16);
             if(a>kPatternFileCapacity || count>99 || paths>99 || n>kWorkingSessionCapacity || n<32+a+count*3)return PatternFileResult::Invalid;
@@ -43,9 +44,13 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
             if(at!=n-8)return PatternFileResult::Invalid;
             InstrumentDefinitions definitions(false);
             for(unsigned i=0;i<count;++i){const auto* d=b+records+i*3;const auto id=unsigned(d[1])+(unsigned(d[2])<<8);
-                if(id>paths || (d[0]==1)!=bool(id))return PatternFileResult::Invalid;
-                if(id && !ResourcePaths().CanAcquire(resources[id-1]))return PatternFileResult::ResourceCapacity;
-                if(!definitions.Append(i,d[0],id?resources[id-1]:nullptr))return PatternFileResult::Invalid;
+                const bool midi=d[0]==2;
+                const auto path=d[0]==1?id:0u;
+                if(midi && with_channel) {if(id<1 || id>16)return PatternFileResult::Invalid;}
+                else if(id>paths || (d[0]==1)!=bool(id))return PatternFileResult::Invalid;
+                if(path && !ResourcePaths().CanAcquire(resources[path-1]))return PatternFileResult::ResourceCapacity;
+                if(!definitions.Append(i,d[0],path?resources[path-1]:nullptr,
+                    midi?(with_channel?id:kLegacyMidiInstrumentChannel):0))return PatternFileResult::Invalid;
             }
             const auto* m=b+n-8;if(m[5]||m[6]||m[7] || ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
             DecodePatternFile(PatternFileKind::Session,b+24,a,out.working,out.working_tempo);
@@ -63,7 +68,7 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
             if(!end)return PatternFileResult::Invalid;
             for(const char* c=end;c<r+64;++c)if(*c)return PatternFileResult::Invalid;
             if(d[0]==1 && InstrumentDefinitions::ValidResource(r) && !ResourcePaths().CanAcquire(r))return PatternFileResult::ResourceCapacity;
-            if(!definitions.Append(i,d[0],*r?r:nullptr))return PatternFileResult::Invalid;
+            if(!definitions.Append(i,d[0],*r?r:nullptr,d[0]==2?kLegacyMidiInstrumentChannel:0))return PatternFileResult::Invalid;
         }
         const auto* m=b+n-8;if(m[5] || m[6] || m[7])return PatternFileResult::Invalid;
         if(ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
@@ -86,7 +91,7 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
     r=ValidatePatternFile(PatternFileKind::Session,b+24+a,c);if(r!=PatternFileResult::Ok)return r;
     DecodePatternFile(PatternFileKind::Session,b+24,a,out.published,out.published_tempo);
     DecodePatternFile(PatternFileKind::Session,b+24+a,c,out.working,out.working_tempo);
-    out.definitions.Reset();out.view={};out.mute_mask=0;
+    out.definitions.Reset(true,kLegacyMidiInstrumentChannel);out.view={};out.mute_mask=0;
     if(b[4]==2) {
         const auto* m=b+24+a+c;
         out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];
@@ -107,7 +112,7 @@ public:
         std::size_t a=0;
         auto r=EncodePatternFile(PatternFileKind::Session,s.working,s.working_tempo,bytes_+24,kPatternFileCapacity,a);
         if(r!=PatternFileResult::Ok)return r;
-        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=2;bytes_[6]=24;
+        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=3;bytes_[6]=24;
         PatternFilePut32(bytes_+8,a);PatternFilePut32(bytes_+12,s.definitions.Count());
         const char* paths[99]{};unsigned path_count=0;std::size_t at=24+a+s.definitions.Count()*3;
         for(unsigned i=0;i<s.definitions.Count();++i) {
@@ -118,6 +123,7 @@ public:
                     paths[path_count++]=d->resource;bytes_[at++]=length&255;bytes_[at++]=length>>8;std::memcpy(bytes_+at,d->resource,length+1);at+=length+1;}
                 ++id;
             }
+            if(d->type==InstrumentType::MIDI)id=d->midi_channel;
             record[1]=id&255;record[2]=id>>8;
         }
         PatternFilePut32(bytes_+16,path_count);
@@ -160,7 +166,7 @@ private:
         // Legacy sessions had one published record, hence no unpublished state to recover.
         if(n>=4 && !std::memcmp(bytes_,"BTSS",4)) {
             r=DecodePatternFile(PatternFileKind::Session,bytes_,n,s.published,s.published_tempo);
-            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;s.definitions.Reset();s.view={};s.mute_mask=0;}return r;
+            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;s.definitions.Reset(true,kLegacyMidiInstrumentChannel);s.view={};s.mute_mask=0;}return r;
         }
         return DecodeWorkingSession(bytes_,n,s);
     }

@@ -44,6 +44,7 @@ Pattern Load/Save retains STOP and session-save entry coordination.
 |---|---|---|
 | Previous / next actionable field | Up / Down (also Shift+Tab / Tab) | D-pad Up / Down |
 | Previous / next defined slot (focus Instrument slot) | Left / Right | D-pad Left / Right |
+| Edit MIDI Channel 1?16, on Channel | Left / Right | D-pad Left / Right |
 | Cycle Type backward / forward | Left / Right on Type | D-pad Left / Right on Type |
 | Open Sample Browser | Enter on Load | A on Load |
 | Keep visit changes and return to Pattern | Ctrl+Down | Select+D-pad Down |
@@ -59,7 +60,7 @@ binding alongside keep and rollback. Preparation and errors appear above the
 waveform area.
 
 Entry focuses Type. The orange frame marks focus; field navigation cycles Type,
-available Load WAV, and Instrument slot. Left/Right on slot clamps to 01-N (at
+available Load WAV or MIDI Channel, and Instrument slot. Left/Right on slot clamps to 01-N (at
 most 99). Browsing leaves the captured Pattern cell unchanged. Keep assigns
 a different browsed slot. Keeping the resolved entry slot preserves its raw
 assignment, including an empty source cell. `*` marks outstanding visit changes.

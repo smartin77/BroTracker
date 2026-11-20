@@ -834,7 +834,8 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
     const int slot_x=inset+HostBitmap::Measure(bold,instrument_label).width+space+triangle_reach;
     const auto slot=FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
     const int slot_end=slot_x+measure(slot);
-    focus(2,slot_x-7,header_y-3,slot_end-slot_x+14,row_pitch);
+    constexpr int slot_focus_padding=3;
+    focus(2,slot_x-slot_focus_padding,header_y-3,slot_end-slot_x+2*slot_focus_padding,row_pitch);
     // Preserve a full blank space outside each triangle.
     for(int offset=0;offset<3;++offset) {
         fb.VerticalLine(slot_x-triangle_reach+offset,header_y+6-offset,header_y+6+offset,dim);
@@ -861,11 +862,37 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
             bounds.width+2*x_padding,bounds.bottom-bounds.top+2*y_padding,editing_frame);
     }
     text(type_x,type_y,identity,header_value);
+    const auto edit_arrows=[&](int x,int y,int value_width,bool left_visible,bool right_visible) {
+        for(int offset=0;offset<3;++offset) {
+            if(left_visible)fb.VerticalLine(x-8+offset,y+6-offset,y+6+offset,dim);
+            if(right_visible)fb.VerticalLine(x+value_width+7-offset,y+6-offset,y+6+offset,dim);
+        }
+    };
+    edit_arrows(type_x,type_y,measure(identity),true,true);
     const auto save=host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable);
     text(width-inset-measure(save),type_y,save,dim);
 
+    text(inset,name_y,"Name",row_header_bright);
+    if(sample) {
+        auto filename=host.instrument_name;
+        const auto columns=std::size_t((width-type_x-inset)/face.cell);
+        if(filename.size()>columns)filename=filename.substr(0,columns-3)+"...";
+        text(type_x,name_y,filename,header_value);
+    } else if(host.instrument_identity=="MIDI") {
+        const int channel_y=name_y+row_pitch;
+        text(inset,channel_y,"Channel",row_header_bright);
+        const auto value=host.instrument_midi_channel?std::to_string(host.instrument_midi_channel):std::string{};
+        constexpr int channel_x=80;
+        if(host.instrument_focus==3)focus(3,channel_x-4,channel_y-2,24,row_pitch);
+        text(channel_x,channel_y,value,header_value);
+        if(host.instrument_midi_channel)edit_arrows(channel_x,channel_y,2*face.cell,
+            host.instrument_midi_channel>1,host.instrument_midi_channel<16);
+    }
+
     fb.Rectangle(left,sample_top,panel_width,waveform_top-layout.frame_gap-sample_top,border);
-    text(inset,sample_heading,sample?"Sample WAV":"Availability",header_name);
+    const std::string section=sample?"Sample WAV":"Availability";
+    text(inset,sample_heading,section,header_name);
+    HostBitmap::Text(fb,small,inset+measure(section)+24,sample_heading+1+small.ascent,host.instrument_availability,header_value);
     const auto browse=host.text.Get(WarningText::Load)+" WAV";
     const int browse_x=width-inset-measure(browse);
     if(sample) {
@@ -887,20 +914,12 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
         return y+4;
     };
     const int status_top=waveform_top-47;
+    // Descriptive fields have no title source yet.
+    text(inset,separator+10,"Description:",header_name);
     if(sample) {
-        HostBitmap::Text(fb,small,inset+104,sample_heading+1+small.ascent,host.instrument_availability,header_value);
-        text(inset,name_y,"Name",row_header_bright);
-        if(host.instrument_resource!="Unknown" && host.instrument_resource!="None" && !host.instrument_resource.empty()) {
-            auto filename=host.instrument_resource.substr(host.instrument_resource.find_last_of('/')+1);
-            const auto columns=std::size_t((width-type_x-inset)/face.cell);
-            if(filename.size()>columns)filename=filename.substr(0,columns-3)+"...";
-            text(type_x,name_y,filename,header_value);
-        }
-        // The current WAV inspection and device facts expose no embedded title.
-        text(inset,separator+10,"Description:",header_name);
         const auto staged_top=detail(separator+30,status_top,"Path: "+host.instrument_resource,header_value);
         if(!host.instrument_candidate.empty())detail(staged_top,status_top,"Staged: "+host.instrument_candidate,editing_frame);
-    } else detail(separator+12,status_top,host.instrument_availability,header_value);
+    }
 
     int status_y=status_top;
     if(!host.instrument_status.empty())status_y=detail(status_y,waveform_top-10,host.instrument_status,editing_frame);

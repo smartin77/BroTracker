@@ -62,13 +62,18 @@ struct StoragePeer:SerialTransport {
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
     bool path_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
+    bool midi_instrument_cap=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
-    void EditReply(unsigned id,unsigned result){const auto reply="BTINS1 REPLACED 1 "+std::to_string(id)+" "+std::to_string(result)+" "+std::to_string(definitions.Count())+"\n";if(hold_define)define_reply+=reply;else rx+=reply;}
+    void EditReply(unsigned id,unsigned result,unsigned slot=99) {
+        char reply[128];
+        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap?slot:99);
+        (hold_define?define_reply:rx)+=reply;
+    }
     void ApplyEdit(const InstrumentDefineRequest& request) {
         const auto result=visit.Cancelled(request.request)?7u:reject_wav && request.type==1?6u:
             ReplaceInstrumentDefinition(definitions,definition_bindings,request,live_prepared,true,[&](const auto& b){return !definition_player || definition_player->ReplaceLiveInstrumentBinding(b);});
-        EditReply(request.request,result);
+        EditReply(request.request,result,request.expected);
     }
     void CompleteEdit(){CHECK(edit_pending);edit_pending=false;ApplyEdit(pending_edit);}
     VariableRatePatternPlayer* definition_player=nullptr;
@@ -106,6 +111,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && replace_cap)rx+="BTINS1 REPLACECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_type_cap)rx+="BTINS1 LIVETYPECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_edit_cap)rx+="BTINS1 LIVEEDITCAP 1\n";
+            if(line=="BTTEST1 HELLO" && midi_instrument_cap)rx+="BTINS1 MIDICHANNELCAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
             if(line=="BTTEST1 HELLO" && path_cap)rx+="BTPATH1 CAP 1 255 8192\n";
             if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
@@ -119,7 +125,6 @@ struct StoragePeer:SerialTransport {
                 rx+="BTPREVIEW1 NEXT 1 "+std::to_string(simulate_working?simulated_preview.NextIdentity():1)+"\nBTPREVIEW1 STATE 1 1 "+std::to_string(simulated_revision)+" 0\n";
             }
         }else if(line=="BTAUDIO1 SET 1 default")rx+="BTAUDIO1 SELECTED 1 bridge\n";
-        else if(line=="BTMIDI1 SET 1 12")rx+="BTMIDI1 SELECTED 1 12\n";
         else if(line.rfind("BTMUTE1 SET 1 ",0)==0) {
             CHECK_EQ(std::sscanf(line.c_str(),"BTMUTE1 SET 1 %u %u",&mute_id,&mute_mask),2);
             const auto reply="BTMUTE1 STATE 1 "+std::to_string(mute_id)+" "+std::to_string(mute_id+1)+" "+std::to_string(mute_mask)+"\n";
@@ -197,7 +202,7 @@ struct StoragePeer:SerialTransport {
         else if(line.rfind("BTINS1 RESTORE ",0)==0) {
             std::uint32_t f[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTINS1 RESTORE ",f,3));
             const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){return !definition_player || (b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id));});
-            EditReply(f[1],result);
+            EditReply(f[1],result,f[2]);
         }
         else if(line.rfind("BTINS1 EDIT ",0)==0) {
             InstrumentDefineRequest request;CHECK(ParseInstrumentEdit(line.data(),line.size(),request));CHECK(visit.Active());
@@ -222,6 +227,9 @@ struct StoragePeer:SerialTransport {
                 const auto* definition=define_cap?definitions.At(id):DevelopmentInstrumentDefinition(id);
                 auto availability=definition && definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:definition && definition->type==InstrumentType::Synth?InstrumentAvailability::Ready:facts_availability;
                 char reply[kPathProtocolCapacity];if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,definition,availability),reply,sizeof(reply),path_cap?3:2)) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
+                if(midi_instrument_cap && definition && definition->type==InstrumentType::MIDI)
+                    (hold_identity?identity_reply:rx)+="BTINS1 CHANNEL 1 "+std::to_string(id)+" "+
+                        std::to_string(definition->midi_channel)+"\n";
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -356,7 +364,7 @@ TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern(selection);serial.RequestFile(BringUpSerial::FileAction::Test,0);
         CHECK(!serial.Start());Pump(serial);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);
         const auto load=std::find(wire->commands.begin(),wire->commands.end(),std::string("BTSTORE1 LOAD 1 ")+selection);CHECK(load!=wire->commands.end());
-        CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")!=load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
+        CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")==load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
         const auto view=serial.PlaybackView(1600);CHECK(view);CHECK(view->device_pattern);CHECK_EQ(view->device_pattern->tempo_hundredths,std::string(selection)=="none"?12500u:15500u);
         CHECK_EQ(view->device_pattern->pattern.cells[0][4].note,(std::string(selection)=="patern3" || (std::string(selection)=="patern4" || std::string(selection)=="patern4.btdev"))?36:NOTE_EMPTY);CHECK(!serial.Playing());
@@ -2256,6 +2264,107 @@ TEST_CASE(SampleLoadBrowserRequestAndCancellationWorkStoppedButAreBlockedPlaying
     }
 }
 
+TEST_CASE(ConvertingSlotSixToMidiPublishesAuthoritativeChannelOnAcknowledgement) {
+    for(bool keep:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->define_cap=wire->path_cap=
+            wire->live_edit_cap=wire->preview_cap=wire->simulate_working=wire->midi_instrument_cap=true;
+        while(wire->definitions.Count()<6)
+            CHECK(wire->definitions.Append(wire->definitions.Count(),3,nullptr));
+        wire->collection_count=6;
+        auto& bindings=wire->definition_bindings;
+        auto& binding=bindings.bindings[bindings.count++];
+        binding.instrument=5;binding.type=InstrumentType::Synth;binding.reference_note=48;
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,5};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"convert slot 06",tick*20);};
+        drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);
+        CHECK_EQ(controls.InstrumentNumber(),6u);
+        CHECK(controls.InstrumentDraftType()=="Sine Synth");CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        CHECK(!controls.InstrumentVisitModified());
+        wire->hold_define=wire->hold_identity=true;
+        act(BringUpAction::InstrumentDecrease);drive(20);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(binding.midi_channel,1u);
+        CHECK_EQ(wire->definitions.At(5)->midi_channel,1u);
+        CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        const auto split=wire->define_reply.find('\n');
+        CHECK(split!=std::string::npos);
+        wire->rx+=wire->define_reply.substr(0,split+1);drive(5);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        wire->rx+=wire->define_reply.substr(split+1);wire->define_reply.clear();
+        wire->hold_define=false;drive(20);
+        CHECK(controls.InstrumentDraftType()=="MIDI");CHECK_EQ(controls.InstrumentMidiChannel(),1u);
+        CHECK(controls.InstrumentVisitModified());CHECK(!wire->identity_reply.empty());
+        act(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentFocus(),3);
+        act(BringUpAction::InstrumentIncrease);drive(20);
+        CHECK_EQ(controls.InstrumentMidiChannel(),2u);CHECK_EQ(binding.midi_channel,2u);
+        act(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(45);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(wire->simulated_working.cells[0][0].instrument,5u);
+        CHECK_EQ(binding.type,keep?InstrumentType::MIDI:InstrumentType::Synth);
+        CHECK_EQ(binding.midi_channel,keep?2u:0u);
+        CHECK_EQ(wire->definitions.At(5)->type,binding.type);
+        if(!keep) {
+            CHECK_EQ(binding.reference_note,48u);
+        } else {
+            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+            std::int16_t audio[128]{};
+            CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+            const auto midi=player.TakeMidiCommands();
+            CHECK(midi.count>0);CHECK_EQ(midi.commands[0].midi_channel,2u);
+        }
+    }
+}
+
+TEST_CASE(MidiInstrumentChannelIsBoundedAcknowledgedAndKeptOrRestored) {
+    for(bool keep:{false,true})for(unsigned start:{1u,16u}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->define_cap=
+            wire->live_edit_cap=wire->preview_cap=wire->simulate_working=wire->midi_instrument_cap=true;
+        auto* binding=std::find_if(wire->definition_bindings.bindings,wire->definition_bindings.bindings+wire->definition_bindings.count,
+            [](const VariableRateSampleBinding& b){return b.instrument==1;});
+        CHECK(binding!=wire->definition_bindings.bindings+wire->definition_bindings.count);
+        binding->midi_channel=start;
+        CHECK(wire->definitions.Replace(1,2,nullptr,start));
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,1};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,wire->definition_bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"MIDI channel",tick*20);};
+        drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());
+        act(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentFocus(),3);
+        CHECK_EQ(controls.InstrumentMidiChannel(),start);CHECK(!controls.InstrumentVisitModified());
+        act(start==1?BringUpAction::InstrumentDecrease:BringUpAction::InstrumentIncrease);
+        CHECK(!serial.InstrumentCommitPending());CHECK(!controls.InstrumentVisitModified());
+        const auto changed=start==1?2u:15u;
+        wire->hold_define=true;
+        act(start==1?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease);drive(20);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(binding->midi_channel,changed);
+        CHECK_EQ(controls.InstrumentMidiChannel(),start);CHECK(controls.InstrumentVisitModified());
+        wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(25);
+        CHECK_EQ(controls.InstrumentMidiChannel(),changed);CHECK(controls.InstrumentVisitModified());
+        act(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(45);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(binding->midi_channel,keep?changed:start);
+        CHECK_EQ(wire->definitions.At(1)->midi_channel,keep?changed:start);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+        std::int16_t audio[128]{};
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        const auto midi=player.TakeMidiCommands();
+        CHECK(midi.count>0);CHECK_EQ(midi.commands[0].midi_channel,keep?changed:start);
+    }
+}
 TEST_CASE(InstrumentModificationMarkerWaitsForRestorationAcknowledgement) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
     wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_type_cap=wire->preview_cap=wire->simulate_working=true;

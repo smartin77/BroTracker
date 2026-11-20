@@ -21,6 +21,9 @@ Detailed Teensy audio architecture is documented in [TEENSY_AUDIO_ARCHITECTURE.m
 
 Detailed Teensy memory architecture is documented in [TEENSY_MEMORY_ARCHITECTURE.md](TEENSY_MEMORY_ARCHITECTURE.md).
 
+See [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority)
+for playback authority, terminal assistance and cached non-realtime information.
+
 ## Subsystem Architecture
 
 The BroTracker runtime is composed of multiple logical subsystems integrated into a single application.

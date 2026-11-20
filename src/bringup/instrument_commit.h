@@ -9,7 +9,7 @@ inline VariableRateSampleBindings RestoreInstrumentBindings(const InstrumentDefi
     VariableRateSampleBindings restored{};
     for(unsigned id=0;id<definitions.Count();++id) {
         const auto* d=definitions.At(id);
-        VariableRateSampleBinding binding;bool ready=d->type!=InstrumentType::Sample;binding.type=d->type;
+        VariableRateSampleBinding binding;bool ready=d->type!=InstrumentType::Sample;binding.type=d->type;binding.midi_channel=d->midi_channel;
         if(d->type==InstrumentType::Sample)for(unsigned j=0;j<assets.count;++j) {
             const auto& asset=assets.bindings[j];const auto* source=DevelopmentInstrumentDefinition(asset.instrument);
             if(asset.type==InstrumentType::Sample && source && source->resource && !std::strcmp(source->resource,d->resource)) {
@@ -25,7 +25,7 @@ template<class Prepare> VariableRateSampleBindings PrepareSessionBindings(const 
     VariableRateSampleBindings result;
     for(unsigned id=0;id<definitions.Count();++id) {
         const auto* d=definitions.At(id);VariableRateSampleBinding binding;
-        binding.instrument=id;binding.type=d->type;
+        binding.instrument=id;binding.type=d->type;binding.midi_channel=d->midi_channel;
         if(d->type==InstrumentType::Sample) {
             if constexpr(std::is_invocable_v<Prepare&,unsigned,const char*,Pcm16MixedSampleView&>) {
                 if(prepare(id,d->resource,binding.sample)!=InstrumentAvailability::Ready)continue;
@@ -50,6 +50,7 @@ unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableR
     if(!ready)return 3;
     const char* resource=nullptr;bool playable=request.type!=1;VariableRateSampleBinding binding;
     binding.instrument=request.expected;binding.type=request.type==1?InstrumentType::Sample:request.type==2?InstrumentType::MIDI:InstrumentType::Synth;
+    if(request.type==2)binding.midi_channel=kNewMidiInstrumentChannel;
     if(request.type==1)for(unsigned i=0;i<definitions.Count();++i) {
         const auto* definition=definitions.At(i);
         if(definition->resource && !std::strcmp(definition->resource,request.resource)) {
@@ -114,8 +115,13 @@ template<class Install> unsigned ReplaceInstrumentDefinition(InstrumentDefinitio
     if(request.type==1 && index<bindings.count && bindings.bindings[index].type==InstrumentType::Sample) {
         candidate.reference_note=bindings.bindings[index].reference_note;candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
     }
+    if(request.type==2) {
+        if(request.midi_channel>16 || (request.midi_channel && previous->type!=InstrumentType::MIDI))return 4;
+        candidate.midi_channel=request.midi_channel?request.midi_channel:
+            previous->type==InstrumentType::MIDI?previous->midi_channel:kNewMidiInstrumentChannel;
+    }
     if(!install(candidate))return 5;
-    (void)definitions.Replace(request.expected,request.type,resource);
+    (void)definitions.Replace(request.expected,request.type,resource,candidate.midi_channel);
     if(index==bindings.count)++bindings.count;bindings.bindings[index]=candidate;return 0;
 }
 }

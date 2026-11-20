@@ -23,8 +23,6 @@ struct HostConfig {
     bool bridge_audible_test_invalid = false;
     RowNumbering row_numbering = RowNumbering::D1;
     bool row_numbering_invalid = false;
-    unsigned midi_output_channel = 12;
-    bool midi_output_invalid = false;
     AudioOutputChoice audio_output = AudioOutputChoice::Default;
     bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
     unsigned midi_delay_ms=0;
@@ -50,7 +48,6 @@ enum class HostConfigStatus { Loaded, Missing, SafeDefaults, Invalid, TooLarge, 
 // Optional [audio] capture_holdback_frames=0..128; absent/invalid uses 0.
 // Linux ALSA capture reserve only; Windows parses but ignores it.
 // Optional [midi]: output_channel=decimal 1..16; absent/empty uses 12.
-// Invalid nonempty MIDI channel warns once at startup and uses 12.
 // Optional [diagnostics]: bridge_audible_test=yes/on/true/1 or no/off/false/0.
 // Missing/empty defaults disabled; invalid warns and disables this field only.
 // Linux bridge only; Windows recognizes configuration but does not record.

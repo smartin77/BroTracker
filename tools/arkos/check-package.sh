@@ -35,7 +35,11 @@ done
 cmp "$repo/third_party/nanosvg/LICENSE.txt" "$package/licenses/NanoSVG.txt"
 cmp "$repo/tools/arkos/launch.sh" "$package/launch.sh"
 # Test the shipped executable's embedded protocol, in addition to ARM64 functional tests.
-strings "$package/BroTrackerTerminal" | grep -F 'BTMIDI1 SET 1 %u' >/dev/null
+strings "$package/BroTrackerTerminal" | grep -F 'BTINS1 EDIT 3 %u %u 2 %u' >/dev/null
+if strings "$package/BroTrackerTerminal" | grep -F 'BTMIDI1 SET 1 %u' >/dev/null; then
+    echo 'Obsolete terminal-wide MIDI channel command in delivery' >&2
+    exit 1
+fi
 python3 - "$package" "$repo" <<'PY'
 import hashlib, json, sys
 from pathlib import Path

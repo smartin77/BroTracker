@@ -135,7 +135,7 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     MidiOutput g_midi;
     IntervalTimer g_midi_timer;
-    bool g_midi_timer_ready=false, g_midi_session=false;
+    bool g_midi_timer_ready=false;
     void ServiceMidi() {
         // Same priority as AudioStream software update (208): neither preempts
         // the other. Only the USB ring reservation/submission excludes USB IRQ.
@@ -370,13 +370,13 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
         QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 2\n");
         if(advertise_snapshot) (void)QueueLine("BTMIDIDELAY1 CAP 1\n");
         QueueMidiOutput(true);
         if(advertise_snapshot) {
             (void)QueueLine("BTINS1 WAVSTEREOCAP 1\nBTINS1 WAVRATECAP 1\nBTINS1 WAVPCM8CAP 1\n");
         }
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -515,8 +515,21 @@ namespace
         return page.directory;
     }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-    void LiveReply(unsigned request,unsigned result) {
-        char reply[80];std::snprintf(reply,sizeof(reply),"BTINS1 REPLACED 1 %u %u %u\n",request,result,g_instrument_definitions.Count());(void)QueueLine(reply);
+    void CaptureSessionDefinitions() {
+        g_session.definitions=g_instrument_definitions;
+        if(!g_live_visit.Active())return;
+        const auto& original=g_live_visit.OriginalDefinitions();
+        for(unsigned i=0;i<original.Count();++i) {
+            const auto* saved=g_session.definitions.At(i);
+            const auto* before=original.At(i);
+            if(saved && (saved->type==InstrumentType::MIDI || before->type==InstrumentType::MIDI))
+                (void)g_session.definitions.Replace(i,InstrumentTypeCode(before->type),before->resource,before->midi_channel);
+        }
+    }
+    void LiveReply(unsigned request,unsigned result,unsigned slot=99) {
+        char reply[128];
+        FormatLiveInstrumentReply(reply,request,result,g_instrument_definitions,slot);
+        (void)QueueLine(reply);
     }
     unsigned InstallLive(const InstrumentDefineRequest& request,const VariableRateSampleBinding& prepared) {
         InterruptGuard guard;
@@ -566,7 +579,10 @@ namespace
         }
         if(SnapshotFields(line,length,"BTINS1 VISIT END ",fields,2) && fields[0]==1 && fields[1]) {
             const bool ok=!g_live_pending && (g_live_visit.Identity()==fields[1] || !g_live_visit.Active());
-            if(ok){(void)g_live_visit.End(fields[1]);g_streaming.UnpinRollback();}
+            if(ok){
+                if(g_live_visit.MidiChannelsChanged(g_instrument_definitions))g_session_save.Changed();
+                (void)g_live_visit.End(fields[1]);g_streaming.UnpinRollback();
+            }
             std::snprintf(reply,sizeof(reply),"BTINS1 VISIT %s 1 %lu\n",ok?"ENDED":"BUSY",(unsigned long)fields[1]);(void)QueueLine(reply);return true;
         }
         if(SnapshotFields(line,length,"BTINS1 CANCEL ",fields,2) && fields[0]==1 && fields[1]) {
@@ -585,21 +601,22 @@ namespace
             {InterruptGuard guard;result=g_live_visit.Restore(fields[2],g_instrument_definitions,g_selected_bindings,
                 [&](unsigned slot,const VariableRateSampleBinding* binding){auto& player=g_control.OutputPlayer().MidiPlayer();return binding?player.ReplaceLiveInstrumentBinding(*binding):player.RemoveLiveInstrumentBinding(slot);});
                 if(!result){g_sample_availability[fields[2]]=g_visit_availability[fields[2]];g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());}}
-            LiveReply(fields[1],result);return true;
+            LiveReply(fields[1],result,fields[2]);return true;
         }
         if(std::strncmp(line,"BTINS1 EDIT ",12))return false;
         InstrumentDefineRequest request;
         if(!ParseInstrumentEdit(line,length,request)){LiveReply(0,1);return true;}
         if(!g_protocol_connected || !g_live_visit.Active() || !g_instrument_definitions.At(request.expected)){LiveReply(request.request,2);return true;}
         if(g_live_visit.Cancelled(request.request)){LiveReply(request.request,7);return true;}
-        if(request.request==g_last_live_request.request && request.expected==g_last_live_request.expected && request.type==g_last_live_request.type && !std::strcmp(request.resource,g_last_live_request.resource)) {
-            LiveReply(request.request,g_last_live_result);return true;
+        if(request.request==g_last_live_request.request && request.expected==g_last_live_request.expected && request.type==g_last_live_request.type && request.midi_channel==g_last_live_request.midi_channel && !std::strcmp(request.resource,g_last_live_request.resource)) {
+            LiveReply(request.request,g_last_live_result,request.expected);return true;
         }
         if(g_live_pending){if(request.request!=g_live_request.request)LiveReply(request.request,3);return true;}
         if(!g_audio_ready || Snapshot().fault!=PatternFault::None){LiveReply(request.request,3);return true;}
         if(request.type==1){g_live_request=request;g_live_pending=true;g_live_preparing=false;return true;}
         VariableRateSampleBinding unused;
-        g_last_live_request=request;g_last_live_result=InstallLive(request,unused);LiveReply(request.request,g_last_live_result);return true;
+        g_last_live_request=request;g_last_live_result=InstallLive(request,unused);
+        LiveReply(request.request,g_last_live_result,request.expected);return true;
     }
     unsigned BackgroundReserve() {
         return std::max<std::uint32_t>(1024,(std::uint64_t(std::max(g_live_max_us,g_streaming.max_read_us))*44100+999999)/1000000+256);
@@ -747,7 +764,7 @@ namespace
                 g_session.working=work;g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
                 if(snapshot)g_session.view=ValidatedSessionView({static_cast<std::uint8_t>(view[0]),static_cast<std::uint8_t>(view[1]),static_cast<std::uint8_t>(view[2]),static_cast<std::uint8_t>(view[3])},work);
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-                g_session.definitions=g_instrument_definitions;
+                CaptureSessionDefinitions();
 #endif
                 result=g_session_files.Save(g_storage_backend,g_session);g_session_result=result;
                 g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true;
@@ -946,7 +963,7 @@ namespace
             g_session.working=g_working.pending_id?g_working.pending:g_working.working;
             g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-            g_session.definitions=g_instrument_definitions;
+            CaptureSessionDefinitions();
 #endif
             g_session_result=g_session_files.Save(g_storage_backend,g_session);
             g_session_save.Completed(g_session_result);if(g_session_result==PatternFileResult::Ok)g_session_saved_valid=true; // Failures are explicit; no unbounded retry loop.
@@ -1101,7 +1118,13 @@ namespace
                         }
                     }
                     char reply[kPathProtocolCapacity];
-                    if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability),reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2))(void)QueueLine(reply);
+                    const auto facts=InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability);
+                    if(FormatInstrumentFacts(facts,reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2))(void)QueueLine(reply);
+                    if(facts.type==2) {
+                        std::snprintf(reply,sizeof(reply),"BTINS1 CHANNEL 1 %u %u\n",id,
+                            unsigned(g_instrument_definitions.At(id)->midi_channel));
+                        (void)QueueLine(reply);
+                    }
                 } else if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {
                     const auto type=InstrumentBindingIdentity(g_selected_bindings,id);
                     char reply[64];std::snprintf(reply,sizeof(reply),"BTINS1 STATE 1 %lu %u\n",(unsigned long)id,type);(void)QueueLine(reply);
@@ -1142,18 +1165,7 @@ namespace
                         (unsigned long)c.disconnect,(unsigned long)c.max_lateness_us,(unsigned long)c.cleanup_submitted,
                         (unsigned long)c.transport_failure,(unsigned long)c.transfers);
                 } else {
-                    uint32_t channel=0;
-                    const bool parsed=SnapshotFields(line,used,"BTMIDI1 SET 1 ",&channel,1);
-                    const char* error=nullptr;
-                    if(!parsed || channel<1 || channel>16) error="invalid-channel";
-                    else if(!g_protocol_connected) error="not-connected";
-                    else {
-                        InterruptGuard guard;
-                        if(g_midi.Select(channel)==MidiOutput::Selection::RestartRequired) error="restart-required";
-                        else g_midi_session=true;
-                    }
-                    if(error) std::snprintf(reply,sizeof(reply),"BTMIDI1 ERROR 1 %s\n",error);
-                    else std::snprintf(reply,sizeof(reply),"BTMIDI1 SELECTED 1 %lu\n",(unsigned long)channel);
+                    std::snprintf(reply,sizeof(reply),"BTMIDI1 ERROR 1 unsupported\n");
                 }
                 (void)QueueLine(reply);
             }
@@ -1307,15 +1319,11 @@ namespace
                     !std::strcmp(line,"BTTEST1 PAUSE") ? PatternRequest::Pause :
                     !std::strcmp(line,"BTTEST1 CONTINUE") ? PatternRequest::Continue : PatternRequest::Stop;
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-                if(request==PatternRequest::Start && g_midi_session) {
+                if(request==PatternRequest::Start) {
                     InterruptGuard guard;
                     // Never recover during a running/paused song, on reconnect,
                     // or while old cleanup/DMA cancellation is unresolved.
                     (void)g_midi.Recover(g_control.Snapshot().transport==PatternTransportState::Stopped);
-                }
-                if((request==PatternRequest::Start || request==PatternRequest::Continue) && !g_midi_session) {
-                    (void)QueueLine("BTTEST1 ERROR midi-not-ready-or-restart-required\n");
-                    used=0; overflow=false; break;
                 }
 #endif
                 if(!g_output.Ready()) {

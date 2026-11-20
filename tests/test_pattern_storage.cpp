@@ -510,6 +510,7 @@ TEST_CASE(LegacyBtwsVersionsAndBtssUseDevelopmentDefinitionsAndMigrateWorkingInt
         }
         FakePatternSd::files[kSessionPath].bytes=bytes;WorkingSession target;target.definitions.Reset(false);
         CHECK_EQ(store.Load(backend,target),PatternFileResult::Ok);CHECK_EQ(target.definitions.Count(),5u);
+        CHECK_EQ(target.definitions.At(1)->midi_channel,12u);
         Same(target.published,pattern);CHECK_EQ(target.published_tempo,15500u);
         CHECK_EQ(target.working.cells[0][0].note,version?61u:pattern.cells[0][0].note);
         CHECK_EQ(target.working_tempo,version?12753u:15500u);
@@ -580,7 +581,7 @@ TEST_CASE(TemporaryBtmMalformedDefinitionsAndIoRestorePreserveActiveSession) {
         if(fault==3)PatternFilePut32(bad.data()+16,100);
         if(fault==4){bad[paths]=0;bad[paths+1]=1;} // Over-limit path length.
         if(fault==5)bad[paths+2+length]='x'; // No terminator.
-        if(fault==6)bad[offset+3+1]=1; // MIDI must have no resource.
+        if(fault==6)bad[offset+3+1]=17; // MIDI channel exceeds 16.
         if(fault==7)PatternFilePut32(bad.data()+12,100);
         PatternFilePut32(bad.data()+20,PatternFileCrc(bad.data(),bad.size()));
         FakePatternSd::files[kSessionPath].bytes=bad;
@@ -720,17 +721,21 @@ TEST_CASE(TemporaryBtmPreservesNoteWithoutInstrumentThroughSessionSaveRestore) {
     CHECK_EQ(restored.working_tempo,13725u);
 }
 
-TEST_CASE(BtmVersionTwoStoresUniqueFullPathsAndStillReadsVersionOne) {
+TEST_CASE(BtmVersionThreeStoresUniqueFullPathsAndStillReadsVersionOne) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
     WorkingSession s;s.working=MakeDevelopmentPattern();s.definitions.Reset(false);
     const auto path="Samples/Jungle riddims/"+std::string(90,'d')+"/long sample.wav";
     CHECK(s.definitions.Append(0,1,path.c_str()));CHECK(s.definitions.Append(1,1,path.c_str()));CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
-    const auto bytes=FakePatternSd::files[kSessionPath].bytes;CHECK_EQ(bytes[4],2u);CHECK_EQ(PatternFileU32(bytes.data()+16),1u);
+    const auto bytes=FakePatternSd::files[kSessionPath].bytes;CHECK_EQ(bytes[4],3u);CHECK_EQ(PatternFileU32(bytes.data()+16),1u);
     WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(std::string(loaded.definitions.At(0)->resource),path);CHECK_EQ(loaded.definitions.At(0)->resource,loaded.definitions.At(1)->resource);
     std::size_t size=0;std::vector<std::uint8_t> old(kWorkingSessionCapacity);CHECK_EQ(EncodePatternFile(PatternFileKind::Session,s.working,12500,old.data()+24,kPatternFileCapacity,size),PatternFileResult::Ok);
     std::memcpy(old.data(),"BTM1",4);old[4]=1;old[6]=24;PatternFilePut32(old.data()+8,size);PatternFilePut32(old.data()+12,1);
-    old[24+size]=1;std::strcpy(reinterpret_cast<char*>(old.data()+25+size),"Samples/legacy.wav");old.resize(32+size+65);PatternFilePut32(old.data()+20,PatternFileCrc(old.data(),old.size()));
-    CHECK_EQ(DecodeWorkingSession(old.data(),old.size(),loaded),PatternFileResult::Ok);CHECK_EQ(std::string(loaded.definitions.At(0)->resource),std::string("Samples/legacy.wav"));
+    old[24+size]=1;std::strcpy(reinterpret_cast<char*>(old.data()+25+size),"Samples/legacy.wav");
+    old[24+size+65]=2;old.resize(32+size+2*65);PatternFilePut32(old.data()+12,2);
+    PatternFilePut32(old.data()+20,PatternFileCrc(old.data(),old.size()));
+    CHECK_EQ(DecodeWorkingSession(old.data(),old.size(),loaded),PatternFileResult::Ok);
+    CHECK_EQ(std::string(loaded.definitions.At(0)->resource),std::string("Samples/legacy.wav"));
+    CHECK_EQ(loaded.definitions.At(1)->midi_channel,12u);
 }
 
 TEST_CASE(SessionResourceCapacityFailureIsVisibleAndPreservesTheActiveSession) {
@@ -745,4 +750,55 @@ TEST_CASE(SessionResourceCapacityFailureIsVisibleAndPreservesTheActiveSession) {
     CHECK_EQ(target.working.cells[0][0].note,71u);CHECK_EQ(target.definitions.Count(),DevelopmentInstrumentCount());
     CHECK_EQ(std::string(PatternFileResultName(PatternFileResult::ResourceCapacity)),std::string("resource-capacity"));
     pressure.clear();CHECK_EQ(store.Load(backend,target),PatternFileResult::Ok);CHECK_EQ(std::string(target.definitions.At(0)->resource),path);
+}
+
+TEST_CASE(SessionRoundTripAndLegacyMidiChannelMigration) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession original;original.working=MakeDevelopmentPattern();original.definitions.Reset(false);
+    CHECK(original.definitions.Append(0,2,nullptr));CHECK_EQ(original.definitions.At(0)->midi_channel,1u);
+    CHECK(original.definitions.Append(1,2,nullptr,16));
+    CHECK_EQ(store.Save(backend,original),PatternFileResult::Ok);
+    WorkingSession restored;CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    CHECK_EQ(restored.definitions.At(0)->midi_channel,1u);CHECK_EQ(restored.definitions.At(1)->midi_channel,16u);
+    const auto bindings=PrepareSessionBindings(restored.definitions,[](unsigned,const char*,Pcm16MixedSampleView&){return InstrumentAvailability::NotPrepared;});
+    CHECK_EQ(bindings.bindings[0].midi_channel,1u);CHECK_EQ(bindings.bindings[1].midi_channel,16u);
+    auto legacy=FakePatternSd::files[kSessionPath].bytes;
+    const auto records=24+PatternFileU32(legacy.data()+8);
+    legacy[4]=2;legacy[records+1]=legacy[records+4]=0;
+    PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
+    CHECK_EQ(DecodeWorkingSession(legacy.data(),legacy.size(),restored),PatternFileResult::Ok);
+    CHECK_EQ(restored.definitions.At(0)->midi_channel,12u);CHECK_EQ(restored.definitions.At(1)->midi_channel,12u);
+    legacy[4]=3;PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
+    CHECK_EQ(DecodeWorkingSession(legacy.data(),legacy.size(),restored),PatternFileResult::Invalid);
+}
+
+TEST_CASE(ConvertedLegacyNonMidiSlotPersistsEditedChannel) {
+    FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;
+    WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession session;session.working=MakeDevelopmentPattern();session.definitions.Reset(false);
+    CHECK(session.definitions.Append(0,2,nullptr));
+    for(unsigned slot=1;slot<6;++slot)CHECK(session.definitions.Append(slot,3,nullptr));
+    CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+    auto& legacy=FakePatternSd::files[kSessionPath].bytes;
+    const auto records=24+PatternFileU32(legacy.data()+8);
+    legacy[4]=2;legacy[records+1]=0;
+    PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
+    CHECK_EQ(store.Load(backend,session),PatternFileResult::Ok);
+    CHECK_EQ(session.definitions.At(0)->midi_channel,12u);
+    CHECK_EQ(session.definitions.At(5)->midi_channel,0u);
+    const auto prepare=[](unsigned,const char*,Pcm16MixedSampleView&){return InstrumentAvailability::NotPrepared;};
+    auto bindings=PrepareSessionBindings(session.definitions,prepare);
+    InstrumentDefineRequest edit;edit.expected=5;edit.type=2;
+    const auto install=[](const auto&){return true;};
+    CHECK_EQ(ReplaceInstrumentDefinition(session.definitions,bindings,edit,{},true,install),0u);
+    CHECK_EQ(bindings.bindings[5].midi_channel,1u);
+    edit.midi_channel=2;
+    CHECK_EQ(ReplaceInstrumentDefinition(session.definitions,bindings,edit,{},true,install),0u);
+    CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+    WorkingSession reloaded;
+    CHECK_EQ(store.Load(backend,reloaded),PatternFileResult::Ok);
+    const auto restored=PrepareSessionBindings(reloaded.definitions,prepare);
+    CHECK_EQ(restored.bindings[0].midi_channel,12u);
+    CHECK_EQ(restored.bindings[5].type,InstrumentType::MIDI);
+    CHECK_EQ(restored.bindings[5].midi_channel,2u);
 }

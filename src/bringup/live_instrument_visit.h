@@ -11,6 +11,15 @@ public:
         if(!id_){original_definitions_=definitions;original_bindings_=bindings;id_=id;cancelled_=0;}
         return true;
     }
+    bool MidiChannelsChanged(const InstrumentDefinitions& definitions)const {
+        if(!Active())return false;
+        for(unsigned i=0;i<definitions.Count();++i) {
+            const auto* previous=original_definitions_.At(i);
+            if(previous && previous->midi_channel!=definitions.At(i)->midi_channel)return true;
+        }
+        return false;
+    }
+    const InstrumentDefinitions& OriginalDefinitions()const{return original_definitions_;}
     bool Active()const{return id_!=0;}
     std::uint32_t Identity()const{return id_;}
     const VariableRateSampleBindings& OriginalBindings()const{return original_bindings_;}
@@ -25,7 +34,7 @@ public:
         unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=slot)++index;
         if(original){if(index==bindings.count)++bindings.count;bindings.bindings[index]=*original;}
         else if(index<bindings.count){for(unsigned i=index+1;i<bindings.count;++i)bindings.bindings[i-1]=bindings.bindings[i];--bindings.count;}
-        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource);return 0;
+        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource,d->midi_channel);return 0;
     }
 private:
     InstrumentDefinitions original_definitions_{false};VariableRateSampleBindings original_bindings_{};

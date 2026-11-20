@@ -33,6 +33,8 @@ struct HostPanelInformation
     bool instrument_modified=false;
     std::string instrument_identity="Unknown (identity unavailable)";
     std::string instrument_availability="Unknown",instrument_resource="Unknown";
+    std::string instrument_name;
+    unsigned instrument_midi_channel=0;
     int instrument_focus=-1;std::string instrument_load_warning,instrument_candidate,instrument_status,instrument_transport;
     std::string browser_directory;
     bool sample_browser_confirmation=false;

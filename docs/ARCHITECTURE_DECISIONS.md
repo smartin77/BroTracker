@@ -1113,6 +1113,19 @@ The core system must remain deterministic and functional on the minimum supporte
 
 **Host helps Teensy; Teensy never waits for the host.**
 
+Teensy remains the application authority and realtime playback engine. Supported
+PC, Mac and handheld terminals are assumed to have more general-purpose
+computing resources. Use them for presentation, descriptive metadata processing,
+caching and other suitable auxiliary work. Playback-critical state and timing
+remain authoritative on Teensy and playback continues independently of terminal
+response time.
+
+Cache descriptive information in the terminal and reuse it. Nonessential
+exchange must yield to playback. Future device metadata exchange, if needed,
+must be deferred, bounded and batched. Evaluate work placement primarily by
+Teensy playback performance and resource use. Use terminal resources to reduce
+Teensy work wherever this preserves correctness.
+
 ## D0042 — Instrument Module Architecture
 
 BroTracker shall use a modular instrument architecture.

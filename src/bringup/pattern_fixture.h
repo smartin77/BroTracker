@@ -84,7 +84,7 @@ inline BasicPatternBringUpFixture<VariableRateSampleBindings> SelectDevelopmentF
     for(const unsigned raw:{1u,2u,0u,3u,4u}) {
         const auto& definition=kDevelopmentInstrumentDefinitions[raw];
         if(definition.type!=InstrumentType::Sample)
-            bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),0,{},definition.type};
+            bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),0,{},definition.type,100,definition.midi_channel};
         else if(views[raw].Trigger(validator,kSourceFrameStepUnity)==VariableVoiceStatus::Success)
             bindings.bindings[bindings.count++]={static_cast<std::uint8_t>(raw),60,views[raw],definition.type,kDevelopmentSampleLevelPercent};
     }

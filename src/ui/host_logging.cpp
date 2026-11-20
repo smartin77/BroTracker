@@ -167,7 +167,6 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
     HostLogf(file,HostLogLevel::Basic,"Configuration","audio.bridge.midi_delay_ms=%u (configured intent; effective value requires Teensy verification)",config.config.midi_delay_ms);
     if(config.config.midi_delay_ms_invalid)HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [audio.bridge] midi_delay_ms: expected whole integer 0..160; START/CONTINUE blocked until corrected; other config retained");
-    HostLogf(file,HostLogLevel::Basic,"Configuration","midi.output_channel=%u",config.config.midi_output_channel);
     HostLogf(file,HostLogLevel::Basic,"Configuration","development.startup_pattern=%s",DevelopmentPatternName(config.config.startup_pattern));
     if(config.config.startup_pattern_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [development] startup_pattern: expected 1-24 ASCII letters/digits/underscore/hyphen, optional .btdev (or exact none); valid session takes precedence; absent/invalid session uses configured blank-pattern length");
@@ -181,7 +180,6 @@ void LogHostStartup(FILE* file,const char* platform,const HostConfigResolution& 
         "Invalid [diagnostics] bridge_audible_test: expected yes/on/true/1 or no/off/false/0; disabled");
     if(config.config.bridge_audible_test) HostLog(file,HostLogLevel::Basic,"Configuration",
         "bridge_audible_test enabled for Linux bridge only; ignored by Windows");
-    if(config.config.midi_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration","Invalid [midi] output_channel; using 12 (expected decimal 1-16)");
     if(config.config.audio_output_invalid) HostLog(file,HostLogLevel::Basic,"Configuration",
         "Invalid [audio] output: expected bridge, pt8211 or audio_shield (lowercase); ignoring audio override, retaining firmware default");
     HostLogf(file,HostLogLevel::Basic,"Logging","mode=%s preserve_last=%u; %s; timestamps describe host observation, not physical audio timing",

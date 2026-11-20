@@ -452,3 +452,31 @@ to retrigger. Leave the browser to cancel.
   verify silence with no late restart. Start Pattern playback during a pending or
   active audition and verify only Pattern audio remains. Check repeated browsing,
   audition and cancellation do not exhaust stream resources.
+
+## MIDI channel and descriptive fields
+
+Channel is editable from 1 through 16 on a defined MIDI instrument with
+compatible firmware. Field navigation includes Channel, and Left/Right clamps
+at the endpoints. The displayed channel is the acknowledged device value.
+Changes use the existing live visit, acknowledgement, Keep and rollback.
+Keep retains the channel and schedules a normal session save. Cancel restores
+the exact entry channel and binding. A new MIDI definition, including a Type
+conversion, starts at channel 1 on Teensy. Successful live MIDI edits return
+the applied channel with the acknowledgement so Channel is editable even
+while the general instrument readback is pending. Legacy MIDI definitions
+without a stored channel migrate to the former default of 12. See
+[BTM version 3](FILE_FORMATS.md#btm-version-3-midi-channels). Future Tune and Project
+formats must carry each MIDI instrument's channel.
+
+Name is the instrument name. Sample currently derives it from the acknowledged
+WAV filename. MIDI and Sine Synth Name values are undefined. Description is
+short informational text. Future Sample Description may use WAV Title, and
+MIDI/Synth descriptions may use device identity, bank or patch information.
+Unavailable values are empty and do not affect modification markers.
+
+BTX caches the filename derived from the existing resource readback, reusing
+it until the acknowledged resource changes, becomes unavailable or refreshes
+after reconnect. These fields add no metadata polling, SD reads or audio
+callback text processing. There is no transfer for empty metadata. See
+[D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority)
+for playback priority and terminal assistance.
