@@ -982,6 +982,7 @@ TEST_CASE(ProductionStreamingPreparesStereoAndRestoresMonoBindingAfterLiveVisit)
     for(unsigned i=0;i<128;++i) CHECK_EQ(left[i],right[i]);
 }
 namespace {
+constexpr unsigned kTestNativeRates[]={7040,8000,8363,10000,11025,14019,16000,17500,20000,22050,32000,44100};
 unsigned RateFixtureByte(unsigned frame,unsigned channel) {
     constexpr unsigned edge_values[]={0,128,255};
     if(frame%7<3)return edge_values[(frame+channel)%3];
@@ -1020,7 +1021,7 @@ std::int16_t RateReference(std::uint64_t position,unsigned frames,unsigned chann
 }
 TEST_CASE(NativePcmRatesMatchIndependentReferenceAcrossRefillsAndRetrigger) {
     constexpr unsigned frames=14501;
-    for(unsigned bits:{8u,16u})for(unsigned rate:{8000u,8363u,11025u,22050u,44100u})for(unsigned channels:{1u,2u}) {
+    for(unsigned bits:{8u,16u})for(unsigned rate:kTestNativeRates)for(unsigned channels:{1u,2u}) {
         Fixture f;
         const char* path="BroTracker/Samples/rates.wav";
         FakePatternSd::files[path].bytes=RateFixtureWav(frames,rate,channels,bits);
@@ -1081,7 +1082,7 @@ TEST_CASE(LowerRateAuditionEndsAtNativeDurationAndInvalidGeometryPreservesBindin
     SdWavAudition audition(f.producer);
     auto bindings=SelectDevelopmentFixture(f.producer.reports[1].view).bindings;
     unsigned id=0;
-    for(unsigned bits:{8u,16u})for(unsigned rate:{8000u,8363u,11025u,22050u,44100u}) {
+    for(unsigned bits:{8u,16u})for(unsigned rate:kTestNativeRates) {
         const std::string path="BroTracker/Samples/root"+std::to_string(rate)+"-"+std::to_string(bits)+".wav";
         FakePatternSd::files[path].bytes=RateFixtureWav(3,rate,2,bits);
         CHECK(audition.Request(++id,path.c_str()));
@@ -1162,12 +1163,12 @@ TEST_CASE(LowerRateStereoGapAdvancesPhaseAndRefillsAtTheNewSourcePosition) {
     CHECK_EQ(voice.StreamSnapshot().underruns,snapshot.underruns);
 }
 
-TEST_CASE(BrowserV7EnablesPackedPcmAnd8363WithoutChangingOldEligibility) {
-    for(unsigned bits:{8u,16u})for(unsigned rate:{8363u,22050u}) {
+TEST_CASE(BrowserV8AddsLibraryRatesWithoutChangingOldEligibility) {
+    for(unsigned bits:{8u,16u})for(unsigned rate:kTestNativeRates) {
         Fixture f;
         FakePatternSd::files["/BroTracker/Samples"].directory=true;
         FakePatternSd::files["/BroTracker/Samples/tone.wav"].bytes=RateFixtureWav(33,rate,2,bits);
-        for(unsigned version:{5u,6u,7u}) {
+        for(unsigned version:{5u,6u,7u,8u}) {
             SdWavBrowseJob job;WavOpenRequest request;
             const auto message="BTSTORE1 WAVOPEN "+std::to_string(version)+" 1 0 0 @2f42726f547261636b65722f53616d706c6573";
             CHECK(ParseWavOpen(message.c_str(),message.size(),request));
@@ -1176,7 +1177,9 @@ TEST_CASE(BrowserV7EnablesPackedPcmAnd8363WithoutChangingOldEligibility) {
             CHECK(job.Done());CHECK_EQ(job.Result(),WavDirectoryResult::Ok);
             const auto& facts=job.Page().entries[0].facts;
             CHECK_EQ(facts.sample_rate,rate);CHECK_EQ(facts.bits,bits);
-            const bool accepted=version==7 || (version==6 && bits==16 && rate==22050);
+            const bool legacy_rate=rate==44100 || rate==22050 || rate==11025 || rate==8000;
+            const bool accepted=version==8 || (version==7 && (legacy_rate || rate==8363)) ||
+                (bits==16 && (version==6?legacy_rate:rate==44100));
             CHECK_EQ(facts.status,accepted?WavBufferStatus::Success:WavBufferStatus::UnsupportedFormat);
         }
     }

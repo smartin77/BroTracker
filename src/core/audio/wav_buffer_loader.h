@@ -38,21 +38,40 @@ struct WavMetadata {
 };
 constexpr std::uint32_t kWavInspectionChunkLimit=1024;
 namespace WavBufferDetail {
+inline bool SupportsPcmRate(std::uint32_t rate,bool lower_rates,bool pcm8_and_8363,bool library_rates) noexcept {
+    if(rate==44100)return true;
+    if(rate==8363)return pcm8_and_8363;
+    if(IsLibraryPcmRate(rate))return library_rates;
+    return lower_rates && IsStreamingPcmRate(rate);
+}
 inline bool SupportsIntegerPcm(unsigned format,unsigned channels,unsigned bits,std::uint32_t rate,
-    bool stereo,bool lower_rates,bool pcm8_and_8363) noexcept {
+    bool stereo,bool lower_rates,bool pcm8_and_8363,bool library_rates=false) noexcept {
     return format==1 && (bits==16 || (pcm8_and_8363 && bits==8)) &&
         (channels==1 || (stereo && channels==2)) &&
-        (rate==44100 || (rate==8363 ? pcm8_and_8363 : lower_rates && IsStreamingPcmRate(rate)));
+        SupportsPcmRate(rate,lower_rates,pcm8_and_8363,library_rates);
 }
-inline bool SupportsIntegerPcm(const WavMetadata& metadata,bool stereo,bool lower_rates,bool pcm8_and_8363) noexcept {
-    return SupportsIntegerPcm(metadata.format,metadata.channels,metadata.bits,metadata.sample_rate,
-        stereo,lower_rates,pcm8_and_8363);
+inline WavBufferStatus ValidateWavData(WavMetadata& metadata,bool stereo,bool lower_rates,
+    bool pcm8_and_8363,bool library_rates) noexcept {
+    if(!metadata.format_known || !metadata.data_known)return WavBufferStatus::MissingChunk;
+    if(!metadata.data_bytes)return WavBufferStatus::InvalidData;
+    if(metadata.format==1 || metadata.format==3) {
+        const auto align=std::uint64_t(metadata.channels)*((metadata.bits+7)/8);
+        if(!align || !metadata.sample_rate || metadata.block_align!=align ||
+            metadata.byte_rate!=std::uint64_t(metadata.sample_rate)*align ||
+            (metadata.format==3 && metadata.bits!=32 && metadata.bits!=64))
+            return WavBufferStatus::InvalidFormat;
+        if(metadata.data_bytes%align)return WavBufferStatus::InvalidData;
+        metadata.frames=metadata.data_bytes/align;
+        metadata.duration_us=metadata.frames*1000000/metadata.sample_rate;
+        metadata.duration_known=true;
+    }
+    if(!SupportsIntegerPcm(metadata.format,metadata.channels,metadata.bits,metadata.sample_rate,
+        stereo,lower_rates,pcm8_and_8363,library_rates))return WavBufferStatus::UnsupportedFormat;
+    metadata.required_pcm_bytes=metadata.data_bytes;
+    return WavBufferStatus::Success;
 }
-inline bool ValidPcmGeometry(const WavMetadata& metadata) noexcept {
-    return metadata.block_align==metadata.channels*(metadata.bits/8) &&
-        metadata.byte_rate==metadata.sample_rate*metadata.block_align;
-}
-inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std::uint32_t chunk_limit,bool stereo,bool lower_rates,bool pcm8_and_8363) noexcept {
+inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std::uint32_t chunk_limit,
+    bool stereo,bool lower_rates,bool pcm8_and_8363,bool library_rates) noexcept {
     std::uint64_t size=0;
     if(!reader.Size(size)) return WavBufferStatus::IoError;
     metadata.file_bytes=size; metadata.file_known=true;
@@ -63,10 +82,7 @@ inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std
     const std::uint64_t end=std::uint64_t(U32(header+4))+8; // promotion before addition
     if(end<12) return WavBufferStatus::InvalidContainer;
     if(end>size) return WavBufferStatus::Truncated;
-    bool have_format=false, have_data=false;
-    std::uint64_t data_bytes=0;
     std::uint32_t chunks=0;
-    bool supported=false;
     for(std::uint64_t offset=12; offset<end;) {
         if(chunks++>=chunk_limit) return WavBufferStatus::ChunkLimit;
         if(end-offset<8) return WavBufferStatus::InvalidChunk;
@@ -77,48 +93,29 @@ inline WavBufferStatus Inspect(WavBufferReader& reader,WavMetadata& metadata,std
         const auto padding=bytes&1;
         if(padding>end-payload-bytes) return WavBufferStatus::InvalidChunk;
         if(!std::memcmp(header,"fmt ",4)) {
-            if(have_format) return WavBufferStatus::DuplicateChunk;
-            have_format=true;
+            if(metadata.format_known) return WavBufferStatus::DuplicateChunk;
             if(bytes<16 || bytes==17) return WavBufferStatus::InvalidFormat;
             if(!ReadAt(reader,payload,header,bytes==16 ? 16 : 18)) return WavBufferStatus::IoError;
             if(bytes!=16 && U16(header+16)!=bytes-18) return WavBufferStatus::InvalidFormat;
             metadata.format=U16(header); metadata.channels=U16(header+2);
             metadata.sample_rate=U32(header+4); metadata.bits=U16(header+14);
             metadata.block_align=U16(header+12); metadata.byte_rate=U32(header+8); metadata.format_known=true;
-            supported=SupportsIntegerPcm(metadata,stereo,lower_rates,pcm8_and_8363);
-            if(supported && !ValidPcmGeometry(metadata)) return WavBufferStatus::InvalidFormat;
         } else if(!std::memcmp(header,"data",4)) {
-            if(have_data) return WavBufferStatus::DuplicateChunk;
-            have_data=true; data_bytes=bytes;
+            if(metadata.data_known) return WavBufferStatus::DuplicateChunk;
             metadata.data_offset=payload; metadata.data_bytes=bytes; metadata.data_known=true;
         }
         offset=payload+bytes+padding; // each addition bounded by container end
     }
-    if(!have_format || !have_data) return WavBufferStatus::MissingChunk;
-    if(!data_bytes) return WavBufferStatus::InvalidData;
-    const std::uint64_t expected_align=std::uint64_t(metadata.channels)*((metadata.bits+7)/8);
-    const bool layout=metadata.format==1 && metadata.channels && metadata.bits && metadata.bits%8==0 &&
-        metadata.sample_rate && metadata.block_align==expected_align &&
-        std::uint64_t(metadata.byte_rate)==std::uint64_t(metadata.sample_rate)*expected_align;
-    if(layout) {
-        if(data_bytes%metadata.block_align) return WavBufferStatus::InvalidData;
-        metadata.frames=data_bytes/metadata.block_align;
-        // RIFF data bytes <= UINT32_MAX; multiplication fits uint64_t.
-        metadata.duration_us=metadata.frames*1000000/metadata.sample_rate;
-        metadata.duration_known=true;
-    }
-    if(!supported) return WavBufferStatus::UnsupportedFormat;
-    if(data_bytes%metadata.block_align) return WavBufferStatus::InvalidData;
-    metadata.required_pcm_bytes=data_bytes;
-    return WavBufferStatus::Success;
+    return ValidateWavData(metadata,stereo,lower_rates,pcm8_and_8363,library_rates);
 }
 } // namespace WavBufferDetail
 // Output contains only evidence read before rejection; flags identify known fields.
 // Duration is integer microseconds (floor), not tempo or reference pitch.
 inline WavBufferStatus InspectWavMetadata(WavBufferReader& reader,WavMetadata& output,
-    std::uint32_t chunk_limit=kWavInspectionChunkLimit,bool stereo=false,bool lower_rates=false,bool pcm8_and_8363=false) noexcept {
+    std::uint32_t chunk_limit=kWavInspectionChunkLimit,bool stereo=false,bool lower_rates=false,
+    bool pcm8_and_8363=false,bool library_rates=false) noexcept {
     WavMetadata candidate;
-    const auto status=WavBufferDetail::Inspect(reader,candidate,chunk_limit,stereo,lower_rates,pcm8_and_8363);
+    const auto status=WavBufferDetail::Inspect(reader,candidate,chunk_limit,stereo,lower_rates,pcm8_and_8363,library_rates);
     output=candidate; return status;
 }
 // Non-realtime loading into unpublished caller-owned storage. All chunks are

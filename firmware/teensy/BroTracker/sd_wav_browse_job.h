@@ -59,7 +59,7 @@ public:
                 (!directory && !(request_.version>=3?WavFilename(name):CompatibleWavName(name)))){phase_=CloseEntry;return;}
             auto& e=page_.entries[page_.count++];std::strcpy(e.name,name);e.kind=directory?WavEntryKind::Directory:WavEntryKind::File;
             finish_page_|=page_.count>=kPatternListPageSize;
-            if(!directory && request_.version>=3){inspection_.Begin(request_.version>=5,request_.version>=6,request_.version>=7);phase_=Inspect;}
+            if(!directory && request_.version>=3){inspection_.Begin(request_.version>=5,request_.version>=6,request_.version>=7,request_.version>=8);phase_=Inspect;}
             else phase_=CloseEntry;
             return;
         }

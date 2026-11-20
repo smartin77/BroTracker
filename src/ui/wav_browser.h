@@ -39,7 +39,7 @@ public:
         }
         return detail;
     }
-    void Begin(std::string path,bool pcm8_and_8363=false){pcm8_and_8363_=pcm8_and_8363;requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
+    void Begin(std::string path,unsigned version=3){version_=version;requested_=std::move(path);pending_directory_.clear();seen_=0;fallback_=0;loading_=awaiting_first_=true;message_.clear();}
     bool Accept(const BroTracker::WavBrowsePage& page) {
         if(!loading_ || !BroTracker::ValidWavDirectory(page.directory) || page.count>BroTracker::kPatternListPageSize || page.fallback>2)return false;
         if(!pending_directory_.empty() && pending_directory_!=page.directory)return false;
@@ -129,12 +129,18 @@ private:
             case WavBufferStatus::Success:return "";
             case WavBufferStatus::IoError:return "Unable to read WAV";
             case WavBufferStatus::ChunkLimit:return "WAV inspection limit";
+            case WavBufferStatus::Truncated:return "Truncated WAV";
+            case WavBufferStatus::InvalidChunk:return "Invalid WAV chunk size or padding";
+            case WavBufferStatus::DuplicateChunk:return "Duplicate WAV chunk";
+            case WavBufferStatus::MissingChunk:return "Missing WAV format or data";
+            case WavBufferStatus::InvalidFormat:return "Invalid WAV format header";
+            case WavBufferStatus::InvalidData:return "Empty or partial WAV frames";
             case WavBufferStatus::UnsupportedFormat:
                 if(f.format && f.format!=1)return "Unsupported encoding";
-                if(f.bits && f.bits!=16 && !(pcm8_and_8363_ && f.bits==8))return "Unsupported bit depth";
-                // Older negotiated browser versions can reject a lower rate or stereo.
-                if(f.sample_rate && f.sample_rate!=44100)return "Unsupported rate";
-                if(f.channels && f.channels!=1)return "Unsupported channels";
+                if(f.bits && f.bits!=16 && !(version_>=7 && f.bits==8))return "Unsupported bit depth";
+                if(f.sample_rate && !BroTracker::WavBufferDetail::SupportsPcmRate(f.sample_rate,
+                    version_>=6,version_>=7,version_>=8))return "Unsupported rate";
+                if(f.channels && f.channels!=1 && !(version_>=5 && f.channels==2))return "Unsupported channels";
                 return "Unsupported WAV";
             default:return "Invalid WAV";
         }
@@ -152,5 +158,5 @@ private:
     }
     std::string directory_,requested_,pending_directory_,message_;
     FileListView view_;std::vector<BroTracker::WavDirectoryEntry> entries_;
-    unsigned seen_=0,fallback_=0,samples_=0;bool loading_=false,awaiting_first_=false,pcm8_and_8363_=false;
+    unsigned seen_=0,fallback_=0,samples_=0,version_=3;bool loading_=false,awaiting_first_=false;
 };

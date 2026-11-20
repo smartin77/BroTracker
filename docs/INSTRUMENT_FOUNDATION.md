@@ -415,8 +415,8 @@ key/button hold and repeat do not retrigger.
 Audition uses the existing Teensy SD streaming engine with a separate ninth voice
 ring (4096 frames), the bounded immutable start (2048 frames) and bounded refill
 reads. It does not load an entire file or truncate playback to a preview duration.
-All currently supported WAVs are PCM16 mono 44100 Hz; unity-rate playback runs
-through EOF without instrument tuning or Pattern tempo input. Listening volume
+Supported [WAV formats](SAMPLE_FORMAT.md) play through EOF at their original
+pitch and duration without instrument tuning or Pattern tempo input. Listening volume
 still applies. Audition never changes bindings, source-cell assignments, WAV drafts
 or Pattern transport. Leaving the browser or starting Pattern playback cancels
 active and pending work; cancelled or superseded preparation cannot start audio.

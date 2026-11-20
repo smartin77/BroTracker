@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "core/audio/wav_buffer_loader.h"
+#include "core/audio/wav_inspection_job.h"
 #include <vector>
 #include <algorithm>
 using namespace BroTracker;
@@ -60,10 +61,10 @@ TEST_CASE(WavBufferMalformedChunksAndUnsupportedFormats) {
         if(mode==3) { Chunk(bytes,"fmt ",Format()); Put32(bytes,4,bytes.size()-8); status=WavBufferStatus::DuplicateChunk; }
         if(mode==4) { bytes=Wave(Format(),{}); status=WavBufferStatus::InvalidData; }
         if(mode==5) { bytes=Wave(Format(),{0}); status=WavBufferStatus::InvalidData; }
-        if(mode==6) { bytes[20]=3; status=WavBufferStatus::UnsupportedFormat; }
-        if(mode==7) { bytes[22]=2; status=WavBufferStatus::UnsupportedFormat; }
-        if(mode==8) { bytes[24]=0; status=WavBufferStatus::UnsupportedFormat; }
-        if(mode==9) { bytes[34]=8; status=WavBufferStatus::UnsupportedFormat; }
+        if(mode==6) { bytes[20]=3; status=WavBufferStatus::InvalidFormat; }
+        if(mode==7) { bytes[22]=2; status=WavBufferStatus::InvalidFormat; }
+        if(mode==8) { bytes[24]=0; status=WavBufferStatus::InvalidFormat; }
+        if(mode==9) { bytes[34]=8; status=WavBufferStatus::InvalidFormat; }
         if(mode==10) { bytes[32]=4; status=WavBufferStatus::InvalidFormat; }
         if(mode==11) { bytes[28]=0; status=WavBufferStatus::InvalidFormat; }
         Reject(bytes,status);
@@ -76,6 +77,33 @@ TEST_CASE(WavBufferMalformedChunksAndUnsupportedFormats) {
     Reject(Bytes(11),WavBufferStatus::Truncated);
     auto extension=Format(); extension.insert(extension.end(),{1,0}); Reject(Wave(extension),WavBufferStatus::InvalidFormat);
     auto bad=Wave(); bad[0]='X'; Reject(bad,WavBufferStatus::InvalidContainer);
+}
+TEST_CASE(InspectionSeparatesValidUnsupportedEncodingFromMalformedLibraryHeaders) {
+    auto fmt=Format();
+    fmt[0]=3;fmt[12]=4;fmt[14]=32;Put32(fmt,8,176400);
+    auto float32=Wave(fmt);
+    fmt[12]=1;fmt[14]=8;Put32(fmt,8,44100);
+    auto invalid_float=Wave(fmt);
+    auto invalid_pad=Wave(fmt,{128});
+    invalid_pad[20]=1;invalid_pad.pop_back();Put32(invalid_pad,4,invalid_pad.size()-8);
+    auto truncated=Wave();
+    truncated.pop_back();
+    auto adpcm=Wave();
+    adpcm[20]=17;adpcm[34]=4;
+    const Bytes* samples[]={&float32,&invalid_float,&invalid_pad,&truncated,&adpcm};
+    const WavBufferStatus expected[]={WavBufferStatus::UnsupportedFormat,WavBufferStatus::InvalidFormat,
+        WavBufferStatus::InvalidChunk,WavBufferStatus::Truncated,WavBufferStatus::UnsupportedFormat};
+    for(unsigned i=0;i<5;++i) {
+        Reader reader(*samples[i]);
+        reader.short_at=44; // Header inspection must seek past the payload.
+        WavMetadata metadata;
+        CHECK_EQ(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,true,true,true,true),expected[i]);
+        WavInspectionJob job;job.Begin(true,true,true,true);
+        for(unsigned step=0;step<16 && !job.Done();++step)job.Step(reader);
+        CHECK(job.Done());CHECK_EQ(job.Status(),expected[i]);
+        CHECK_EQ(job.Metadata().duration_known,metadata.duration_known);
+        CHECK_EQ(job.Metadata().frames,metadata.frames);
+    }
 }
 TEST_CASE(WavBufferIoFailureMetadataAndPartialCopyContract) {
     std::int16_t out[200]; std::fill_n(out,200,9); Pcm16MonoView metadata{out,99,123};

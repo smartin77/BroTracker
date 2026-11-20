@@ -2,9 +2,12 @@
 
 ## Status
 
-Production streaming accepts integer PCM WAV at 44.1, 22.05, 11.025, 8.363 and 8 kHz
-with unsigned 8-bit or signed 16-bit mono or native interleaved stereo frames. Mono and Synth are centered in the normal mix.
-Other depths, rates, encodings, and loops remain outside this implementation.
+Production streaming accepts unsigned PCM8 and signed PCM16 in standard RIFF
+WAV, mono or interleaved stereo, at 7,040, 8,000, 8,363, 10,000, 11,025, 14,019,
+16,000, 17,500, 20,000, 22,050, 32,000 and 44,100 Hz. The seven additional
+rates came from the Wav-LQ library inventory. Mono and Synth are centered.
+IEEE float, extensible WAV, other rates/depths, compressed WAV and loops
+remain outside the production streaming subset.
 
 ## Purpose
 
@@ -19,7 +22,7 @@ scope, not a claim that every property is currently implemented:
 * 8-bit or 16-bit depth
 * mono or stereo
 * 44.1 kHz sample rate
-* 8, 8.363, 11.025 and 22.05 kHz sample rates
+* additional production rates listed above
 * future extension to 48 kHz
 * loop start
 * loop end

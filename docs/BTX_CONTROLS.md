@@ -106,7 +106,8 @@ Modified Left/Right does not change slots. Enter/A on Type or slot does nothing.
 | Cancel and retain previous Instrument draft | Escape / Backspace | B |
 | Cancel via existing screen-navigation chord | Ctrl+Left / Right | Select+D-pad Left / Right |
 
-Production accepts PCM8 and PCM16 mono/stereo at 8, 8.363, 11.025, 22.05 and 44.1 kHz.
+Production accepts PCM8 and PCM16 mono/stereo at 7.040, 8, 8.363, 10, 11.025,
+14.019, 16, 17.5, 20, 22.05, 32 and 44.1 kHz with current firmware.
 Audition plays once at the file's original pitch and speed. Press P/X again to
 restart the highlighted WAV, including while preparation is queued. Navigation
 is silent, and leaving the browser cancels audition. Pattern transport continues

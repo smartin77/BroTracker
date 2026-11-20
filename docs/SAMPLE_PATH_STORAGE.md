@@ -8,7 +8,8 @@ traversal, repeated-separator, control/non-ASCII and reserved-punctuation compon
 are rejected; components cannot start/end with a space or end with a dot. Directory
 paths are absolute; stored sample resources are SD-relative. The complete combined
 sample path must fit, even if the directory and filename each fit separately.
-Rejected paths are never truncated. WAV format support remains PCM16 mono 44100 Hz.
+Rejected paths are never truncated. Supported WAV formats are listed in
+[Sample Format Specification](SAMPLE_FORMAT.md).
 
 ## Ownership and budget
 

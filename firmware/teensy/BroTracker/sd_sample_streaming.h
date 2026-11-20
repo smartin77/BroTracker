@@ -63,17 +63,18 @@ public:
     // Stopped foreground only. New immutable sources never replace published PCM.
     InstrumentAvailability PreparePath(const char* path,Pcm16MonoView& output) {
         Pcm16MixedSampleView prepared;
-        const auto result=PreparePath(path,prepared,false,false,false);
+        const auto result=PreparePath(path,prepared,false,false,false,false);
         if(result==InstrumentAvailability::Ready) output=prepared.Mono();
         return result;
     }
-    InstrumentAvailability PreparePath(const char* path,Pcm16MixedSampleView& output,bool stereo=true,bool lower_rates=true,bool pcm8_and_8363=true) {
+    InstrumentAvailability PreparePath(const char* path,Pcm16MixedSampleView& output,bool stereo=true,
+        bool lower_rates=true,bool pcm8_and_8363=true,bool library_rates=true) {
         if(!sd_ready_ || !memory_)return InstrumentAvailability::StorageUnavailable;
         if(!InstrumentDefinitions::ValidResource(path))return InstrumentAvailability::NoResource;
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
             const auto& format=sources_[i].format;
             if(!WavBufferDetail::SupportsIntegerPcm(1,format.channels,format.bits_per_sample,format.sample_rate_hz,
-                stereo,lower_rates,pcm8_and_8363))return InstrumentAvailability::PreparationFailed;
+                stereo,lower_rates,pcm8_and_8363,library_rates))return InstrumentAvailability::PreparationFailed;
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
         unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
@@ -92,7 +93,7 @@ public:
         } reader(file);
         WavMetadata metadata;
         StreamedSample source;
-        if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo,lower_rates,pcm8_and_8363)!=WavBufferStatus::Success ||
+        if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo,lower_rates,pcm8_and_8363,library_rates)!=WavBufferStatus::Success ||
             !DescribeSource(metadata,metadata.file_bytes,memory_->starts[index],source)) {
             file.close();return InstrumentAvailability::PreparationFailed;
         }
@@ -162,7 +163,7 @@ public:
     }
     bool BeginPrepareAsync(const char* path) {
         if(job_phase_!=JobIdle && job_phase_!=JobDone)return false;
-        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true,true,true);
+        job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true,true,true,true);
         job_phase_=JobDone;
         if(!sd_ready_ || !memory_){job_result_=InstrumentAvailability::StorageUnavailable;return true;}
         if(!InstrumentDefinitions::ValidResource(path)){job_result_=InstrumentAvailability::NoResource;return true;}
