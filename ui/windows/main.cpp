@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include "input.h"
+#include "ui/sdl/file_browser_input.h"
 #include "serial_service_limits.h"
 #include "ui/host_config.h"
 #include "ui/sdl/host_paths.h"
@@ -87,7 +88,6 @@ int main(int argc, char* argv[]) try {
     }
     BringUpSerial serial(log_file);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
-    serial.SetMidiOutputChannel(host_config.config.midi_output_channel);
     serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
@@ -123,6 +123,9 @@ int main(int argc, char* argv[]) try {
                 const char* source=event.type==SDL_QUIT?"window close":"Ctrl+X";
                 WindowsDiagnostic(log_file,"Transport input",source);controls.Request(BringUpAction::Exit,source,SDL_GetTicks());continue;
             }
+            if(HandleFileBrowserInput(event,controls,SDL_GetTicks(),[&](int x,int y,int& fx,int& fy) {
+                return display.MouseEventToFramebuffer(x,y,fx,fy);
+            }))continue;
             if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {
                 editor_input.Cancel();tempo_input.Cancel();
                 // Track physical releases/presses against an unready sink; never mutate the retained editor.
@@ -152,7 +155,7 @@ int main(int argc, char* argv[]) try {
             }
             int mouse_x=0,mouse_y=0;
             const bool mouse=event.type==SDL_MOUSEBUTTONDOWN || event.type==SDL_MOUSEBUTTONUP;
-            const bool mapped=mouse && display.WindowToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
+            const bool mapped=mouse && display.MouseEventToFramebuffer(event.button.x,event.button.y,mouse_x,mouse_y);
             const int header=header_input.Handle(event,mouse_x,mouse_y,mapped,&editor);
             if(header>=0) {if(editor.SelectHeader(unsigned(header))) (void)serial.ToggleChannelMute(unsigned(header));continue;}
             if(tempo_input.Handle(event,SDL_GetTicks(),serial.TempoAvailable())) {
@@ -188,25 +191,30 @@ int main(int argc, char* argv[]) try {
             "Space: START/RESTART | Enter: STOP | Ctrl+X: EXIT | KP +/-: BPM | Ctrl+Left: Load/Save", serial.PublicationStatus(), diagnostic_gains.Status(), serial.MidiStatus()};
         if(controls.Exiting())panel.publication_status=controls.ExitStatus();
         panel.midi_status+=std::string(" | ")+serial.MidiDelayStatus();
-        if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
         panel.text=warning_text;
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
+        panel.instrument_modified=controls.InstrumentVisitModified();
         panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
-        panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
+        panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=controls.InstrumentAssignedResource();
+        panel.instrument_name=controls.CacheInstrumentName(panel.instrument_resource);
+        panel.instrument_midi_channel=controls.InstrumentMidiChannel();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
-        if(!controls.InstrumentDraftResource().empty()) {
-            if(controls.SavedInstrumentPath().empty())panel.instrument_resource=controls.InstrumentDraftResource();
-            else panel.instrument_candidate=controls.InstrumentDraftResource();
-        }
+        panel.instrument_candidate=controls.InstrumentDraftResource();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Up/Down: field | Left/Right: value | Enter: Load | Ctrl+Down: confirm | Esc: cancel";
+        if(panel.instrument_number) {
+            panel.instrument_status=controls.ScreenStatus();
+            panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
+            const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"Enter: Browse | ":
+                panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
+            panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+"Ctrl+Down: Keep | Esc: Roll back";
+        }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         panel.row_numbering=host_config.config.row_numbering;

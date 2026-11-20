@@ -45,7 +45,7 @@ public:
         if(!pending_directory_.empty() && pending_directory_!=page.directory)return false;
         if(awaiting_first_) {
             entries_.clear();samples_=0;directory_=page.directory;pending_directory_=page.directory;
-            view_={};view_.rows=SampleBrowserRows(480,std::max<std::size_t>(1,(directory_.size()+89)/90));
+            view_={};view_.rows=SampleBrowserListArea(directory_).rows;
             if(directory_!="/")view_.names.push_back("..");
             awaiting_first_=false;
         }
@@ -64,7 +64,11 @@ public:
         loading_=awaiting_first_=false;
         message_=result==BroTracker::WavDirectoryResult::Missing?"Folder not found":"Unable to read folder";
     }
-    void Move(int direction){if(!awaiting_first_){message_.clear();view_.Move(direction);}}
+    void Move(std::int64_t steps){if(!awaiting_first_){message_.clear();view_.Move(steps);}}
+    bool Highlight(unsigned index) {
+        if(awaiting_first_ || !view_.Highlight(index))return false;
+        message_.clear();return true;
+    }
     // 0=no action/error, 1=directory, 2=file. Paths come from the confirmed CWD.
     unsigned Select(std::string& path) {
         if(awaiting_first_ || view_.names.empty() || view_.selected>=view_.names.size())return 0;

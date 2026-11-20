@@ -430,34 +430,19 @@ power loss or upload cannot deliver cleanup afterward; stop first where possible
 Fresh boot cannot know an external synth's retained voices. A STOPPED engine ACK
 is not an assertion of completed USB cleanup or external release.
 
-## Shared configuration and negotiation
+## Per-instrument channel and compatibility
 
-Add to the existing shared host `config.ini` (keep its required `[btx]` section):
+Teensy owns each MIDI instrument's channel. New MIDI definitions use channel 1.
+Keep commits the acknowledged channel to the existing session save path. The
+obsolete [midi] output_channel configuration key is accepted and ignored.
+Current firmware advertises `BTMIDI1 CAP 2` for endpoint health and accepts
+START/Continue without a terminal channel handshake. Pair the current terminal
+with this firmware for playback. MIDI faults remain scoped to MIDI output.
 
-```ini
-[midi]
-output_channel=12
-```
-
-Windows and ArkOS/dArkOS use the same bounded parser. Decimal 1-16 is accepted;
-valid explicit configuration takes precedence over firmware fallback 12.
-Missing section/key or empty value uses 12. Invalid nonempty values produce one
-startup warning and use 12 while retaining the other valid settings. Duplicate
-keys/sections and unknown settings retain the parser's normal rejection policy.
-Safe config bypasses external settings. The example is updated; user files are
-never rewritten. Channel numbering changes only inside USB MIDI packing.
-
-New firmware advertises `BTMIDI1 CAP 1`. BTX sends `BTMIDI1 SET 1 channel` only
-when supported and requires matching `BTMIDI1 SELECTED 1 channel` before START
-or Continue. Firmware gates these commands on accepted channel setup. A timer or
-MIDI backend failure is an isolated output fault, not a transport gate. First valid selection activates the channel for this boot; repeated same
-selection, including reconnect, is idempotent and does not start playback.
-Another channel returns `BTMIDI1 ERROR 1 restart-required`. Malformed/range input
-returns `invalid-channel` without changing selection. Host mismatch/rejection
-and missing acknowledgment block playback; there is no blind automatic retry
-within that connection. Reconnect repeats the resolved configuration safely.
-Older firmware stays usable and exposes an explicit MIDI-unsupported status.
-No instrument channel editor or channel persistence on Teensy is added.
+Older sessions stored no channel data. These migrate to channel 12, the prior
+firmware fallback and development configuration default. A custom former INI
+value cannot be recovered from the session. Set the desired channel on the
+instrument in that case.
 
 ## Approved direction: shared MIDI scheduling and selectable backends
 
@@ -494,8 +479,7 @@ Conceptual setting groups only; no new INI keys or commands are defined here:
 
 A future application setting or shared config may request these without changing
 tracker data. Teensy must validate and acknowledge the request and remains
-authoritative for active routing and scheduling. Current `[midi] output_channel`
-parsing, fallback, acknowledgment and channel-change restart rules are unchanged.
+authoritative for active routing and scheduling. MIDI channel remains part of the current instrument definition.
 Start with **one explicitly selected output backend**. Simultaneous output/fan-out
 is a later feature requiring its own ownership, timing and cleanup rules. No
 automatic fallback may silently redirect notes to a different instrument.
@@ -860,8 +844,8 @@ Manual checklist:
   Sample/Synth replacement and documented identical-note sharing limits.
 - Exercise live tempo, looping, Pause/Continue, STOP/START and reconnect; confirm
   no automatic START and check `BTMIDI1 GET 1` for faults/pending cleanup.
-- Change channel in config, restart BTX, confirm restart-required, then restart
-  Teensy and confirm the new acknowledgment before playback.
+- Change an instrument channel during playback and verify old-channel release,
+  Keep across session reload, and Cancel restoring the original channel.
 - Perform the two-channel measurement above before claiming measured alignment
   or choosing compensation; topology-specific listening acceptance is recorded above.
 - Keep remaining handheld checks separate from Windows results; neither ArkOS
@@ -885,3 +869,14 @@ Protocol identities reset only at a detected connection/session boundary. Withou
 a boot/session identity, an undetected device reboot on a surviving host connection
 cannot reliably establish a new protocol session. Explicit disconnect and fresh
 negotiation/readback remain required; no protocol change is implemented.
+
+## Per-instrument channel overrides
+
+A defined MIDI instrument can use an acknowledged channel from 1–16 for
+the current session. New definitions use channel 1 and migrated legacy
+definitions use channel 12. A channel edit uses the Instrument visit
+transaction and releases affected notes on their original MIDI channels.
+Queued events and note ownership retain the channel needed for output and
+cleanup. Keep and rollback follow the Instrument visit rules documented in
+[Instrument foundation](INSTRUMENT_FOUNDATION.md#midi-channel-and-descriptive-fields).
+Session version 3 persists the setting, as described in [File formats](FILE_FORMATS.md#btm-version-3-midi-channels).

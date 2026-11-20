@@ -229,8 +229,13 @@ void SdlDisplayBackend::Shutdown()
     height_ = 0;
 }
 
-bool SdlDisplayBackend::WindowToFramebuffer(int x,int y,int& fx,int& fy) const {
+bool SdlDisplayBackend::MouseEventToFramebuffer(int x,int y,int& fx,int& fy) const {
     if(!window_ || !renderer_) return false;
+    // SDL has already scaled mouse events when the renderer uses logical size.
+    if(fullscreen_) {
+        if(x<0 || y<0 || unsigned(x)>=width_ || unsigned(y)>=height_)return false;
+        fx=x;fy=y;return true;
+    }
     int ww,wh,ow,oh;SDL_Rect viewport;
     SDL_GetWindowSize(window_,&ww,&wh);
     if(SDL_GetRendererOutputSize(renderer_,&ow,&oh)) return false;

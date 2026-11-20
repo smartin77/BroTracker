@@ -52,11 +52,6 @@ output=bridge
 ; Restart BTX.
 capture_holdback_frames=0
 
-[midi]
-; USB device output channel: decimal 1..16; built-in/empty/missing: 12.
-; Channel changes need Teensy restart. Reconnect never starts playback.
-output_channel=12
-
 [diagnostics]
 ; yes/on/true/1 or no/off/false/0; built-in/empty/missing no. Invalid warns/disables.
 ; Linux listening evidence only; Windows accepts but ignores. Async PCM/disk cost.

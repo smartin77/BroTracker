@@ -17,6 +17,7 @@ namespace BroTracker
         InstrumentType type = InstrumentType::Sample;
         // Optional binding attenuation; ordinary instruments remain exact unity.
         std::uint8_t sample_level_percent = 100;
+        std::uint8_t midi_channel = 0; // Zero uses the existing output default.
     };
     struct VariableRateSampleBindings
     {
@@ -190,6 +191,7 @@ namespace BroTracker
                     }
                     if(selected->type == InstrumentType::MIDI) {
                         command.action=VariableRateVoiceAction::TriggerMidi; command.synth_note=event.note;
+                        command.midi_channel=selected->midi_channel;
                         result.commands[result.count++]=command; continue;
                     }
                     if(selected->type == InstrumentType::Synth) {

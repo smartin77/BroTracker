@@ -134,15 +134,15 @@ public:
             if(bindings.bindings[j].sample.streaming==&sources_[i])rollback_pins_|=1u<<i;
     }
     void UnpinRollback(){rollback_pins_=0;}
-    bool RefillNeeded()const {
+    bool RefillNeeded(unsigned channels=kStreamVoiceCount)const {
         StreamInterruptGuard guard;
-        for(unsigned i=0;i<kStreamVoiceCount;++i)if(states_[i].sample && states_[i].step && buffers_[i].end<states_[i].sample->frames &&
+        for(unsigned i=0;i<channels;++i)if(states_[i].sample && states_[i].step && buffers_[i].end<states_[i].sample->frames &&
             failed_generation_[i]!=states_[i].generation && StreamRefillUrgency(states_[i],buffers_[i])!=UINT64_MAX)return true;
         return false;
     }
-    bool BackgroundHeadroom(unsigned reserve_frames=1024)const {
+    bool BackgroundHeadroom(unsigned reserve_frames=1024,unsigned channels=kStreamVoiceCount)const {
         StreamInterruptGuard guard;
-        for(unsigned i=0;i<kStreamVoiceCount;++i) {
+        for(unsigned i=0;i<channels;++i) {
             const auto& s=states_[i];const auto& b=buffers_[i];
             if(!s.sample || !s.step || s.position>=s.sample->frames)continue;
             const auto end=StreamReadyEnd(*s.sample,b,s.generation,s.position);
@@ -237,16 +237,18 @@ public:
     template<class Player> void Publish(const Player& player) noexcept {
         for(unsigned i=0;i<8;++i)PublishVoice(i,player.SampleVoice(i)->StreamSnapshot());
     }
-    void Service() {
+    void Service(unsigned audition_reserve=1024) {
         if(!memory_) return;
         int best=-1; std::uint64_t least=UINT64_MAX;
         StreamedVoiceSnapshot selected; StreamedVoiceBuffer span;
         { StreamInterruptGuard guard;
         for(unsigned i=0;i<kStreamVoiceCount;++i) {
+            if(i==kAuditionStreamChannel && best>=0)break;
             const auto& state=states_[i]; const auto& ready=buffers_[i];
             if(!state.sample || !state.step || ready.end>=state.sample->frames || failed_generation_[i]==state.generation) continue;
             const auto until=StreamRefillUrgency(state,ready);
-            if(until<least) { best=i; least=until; selected=state; span=ready; }
+            if(until<least && (i!=kAuditionStreamChannel ||
+                BackgroundHeadroom(audition_reserve,kAuditionStreamChannel))) { best=i; least=until; selected=state; span=ready; }
         }
         }
         if(best<0) return;

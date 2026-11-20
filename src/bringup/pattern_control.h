@@ -187,8 +187,9 @@ namespace BroTracker
         // Allocation failure stops/resets time (no rendering or advancement),
         // increments a saturating diagnostic counter, and transmits no block.
         // This is an explicit bring-up fail-stop policy, not a final underrun policy.
+        template<class Mix=std::nullptr_t>
         void AudioBlock(std::int16_t* output, std::size_t count, bool storage_available,
-            std::int16_t* right=nullptr
+            std::int16_t* right=nullptr,Mix mix=nullptr
         ) noexcept
         {
             // Separate latest slot applies before the transport/publication FIFO.
@@ -283,6 +284,9 @@ namespace BroTracker
             else Zero(output, count);
             if(right && status_.fault!=PatternFault::None) Zero(right,count);
             if(storage_available && output) {
+                if constexpr(!std::is_same_v<Mix,std::nullptr_t>) {
+                    if(status_.fault==PatternFault::None)mix();
+                }
                 if(right) {
                     volume_.ProcessStereo(output,right,count);
                 } else volume_.Process(output,count);

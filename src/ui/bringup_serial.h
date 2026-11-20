@@ -33,8 +33,12 @@ public:
     void Tick(std::uint32_t now);
     void InspectInstrument(unsigned number) {
         if(number<1 || number>255 || (number>99 && !InstrumentCollectionSupported()) || number==identity_number_)return;
-        identity_number_=number;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
+        identity_number_=number;identity_midi_channel_=0;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
     }
+    unsigned InspectedMidiChannel(unsigned number)const {
+        return MidiInstrumentChannelSupported() && InspectedType(number)==2?identity_midi_channel_:0;
+    }
+    bool MidiInstrumentChannelSupported()const{return connected_ && midi_instrument_channel_supported_;}
     std::string InstrumentIdentity() const {
         if(!connected_)return "Unknown (identity unavailable)";
         if(collection_ready_ && identity_number_>collection_count_)return "Not defined yet";
@@ -121,15 +125,16 @@ public:
     void CancelLiveDefinition(){if(define_pending_ && define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}}
     bool InstrumentCommitCancelled()const{return define_cancelled_;}
     unsigned InstrumentCommitResult()const{return define_result_;}
-    bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false) {
+    bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false,unsigned midi_channel=0) {
         if(type==1 && !ResourceWireAvailable(resource))return false;
         if(!InstrumentVisitReady() || visit_ending_ || (define_reconcile_required_ && !restore) || !number || number>collection_count_ ||
             UserActionsBlocked() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX ||
-            type<1 || type>3 || (!restore && type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
+            type<1 || type>3 || (midi_channel && (type!=2 || midi_channel>16 || !MidiInstrumentChannelSupported())) || (!restore && type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
             define_error_="Live instrument update unavailable: synchronize the retained Instrument visit";return false;
         }
         ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;
-        define_relink_=false;define_replace_=true;define_edit_=true;define_restore_=restore;define_cancelled_=false;
+        define_relink_=false;define_replace_=true;define_edit_=true;define_midi_channel_=midi_channel;define_restore_=restore;define_cancelled_=false;
+        define_applied_channel_=0;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1 && resource?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -143,6 +148,7 @@ public:
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
     bool InstrumentCommitSucceeded() const {return define_success_;}
+    unsigned InstrumentCommitMidiChannel() const {return define_success_ && define_edit_?define_applied_channel_:0;}
     const std::string& InstrumentCommitError() const {return define_error_;}
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
@@ -203,7 +209,6 @@ public:
     bool ChannelGainsSynchronized() const { return connected_ && gains_.Synchronized(); }
     const char* ChannelGainStatus() const { return gains_.Status(); }
     // Set once at host startup, before the first Tick. Default sends no override.
-    void SetMidiOutputChannel(unsigned value) { midi_channel_=value; }
     // App config resolution always calls this, including missing/empty => None.
     // Standalone protocol clients may omit startup initialization entirely.
     void SetStartupPattern(std::string_view value) { startup_configured_=true;startup_pattern_valid_=startup_pattern_.Assign(value); }
@@ -218,7 +223,7 @@ public:
     PatternLoadState PatternLoadResult()const {return pattern_load_state_==PatternLoadState::Pending && startup_failed_?PatternLoadState::Failed:pattern_load_state_;}
     bool RequestPatternList(std::uint32_t offset,std::uint32_t now,bool wav=false);
     bool RequestWavAudition(const std::string& path) {
-        if(!ResourceWireAvailable(path.c_str()) || !connected_ || !audition_supported_ || !MidiRecoveryStopped() || UserActionsBlocked() ||
+        if(!ResourceWireAvailable(path.c_str()) || !connected_ || !audition_supported_ || (!MidiRecoveryStopped() && !(audition_live_supported_ && (Playing() || Paused()))) || UserActionsBlocked() ||
             FilePending() || PublicationBusy() || TransportPending() || InstrumentCommitPending() ||
             !BroTracker::InstrumentDefinitions::ValidResource(path.c_str()) || audition_id_==UINT32_MAX)return false;
         ++audition_id_;audition_path_=path;audition_queued_=true;audition_cancel_=false;audition_error_.clear();return true;
@@ -227,6 +232,7 @@ public:
         audition_queued_=false;audition_path_.clear();audition_error_.clear();
         if(audition_supported_ && audition_id_)audition_cancel_=true;
     }
+    bool LiveWavAuditionSupported()const{return audition_live_supported_;}
     const std::string& WavAuditionError()const{return audition_error_;}
     bool ResourceWireAvailable(const char* path) {
         if(path && (!BroTracker::InstrumentDefinitions::ValidResource(path) ||
@@ -274,9 +280,8 @@ public:
         return h;
     }
     const char* MidiStatus() const {
-        if(midi_failed_)return "MIDI rejected/restart required";
         if(connected_ && midi_supported_ && midi_output_state_==UINT32_MAX)
-            return midi_confirmed_?"MIDI channel acknowledged; endpoint health unknown":"MIDI awaiting acknowledgment";
+            return "MIDI endpoint health unknown";
         BroTracker::FormatMidiHealth(MidiHealth(diagnostic_now_),MidiRecoveryStopped(),midi_output_status_,sizeof(midi_output_status_));
         return midi_output_status_;
     }
@@ -348,6 +353,8 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    bool midi_instrument_channel_supported_=false;
+    unsigned identity_midi_channel_=0,define_midi_channel_=0,define_applied_channel_=0;
     BroTracker::HostMidiNoteDelay midi_delay_;
     char logged_midi_delay_[256]{};
     bool device_facts_supported_=false,device_facts_valid_=false;
@@ -357,7 +364,7 @@ private:
     void (*observer_)(void*,const char*,std::uint32_t)=nullptr;
     void* observer_context_=nullptr;
     void Observe(const char* event,std::uint32_t now){if(observer_)observer_(observer_context_,event,now);}
-    enum class Command { None, List, Hello, Status, Start, Stop, Pause, Continue, Audio, Midi, StorageReady, Storage, File };
+    enum class Command { None, List, Hello, Status, Start, Stop, Pause, Continue, Audio, StorageReady, Storage, File };
     BroTracker::DevelopmentPattern startup_pattern_;
     bool startup_pattern_valid_=true,load_rejected_=false,startup_configured_=false,initial_sync_ready_=false,draft_deferred_=false;
     BroTracker::DevelopmentPattern file_pattern_;
@@ -427,11 +434,10 @@ private:
     char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
-    unsigned midi_channel_=12;
     mutable char midi_output_status_[192]{};
     std::uint32_t midi_health_at_=0;
     unsigned midi_output_state_=UINT32_MAX;
-    bool midi_supported_=false,midi_sent_=false,midi_confirmed_=false,midi_failed_=false;
+    bool midi_supported_=false;
     bool audio_supported_=false, audio_sent_=false, audio_confirmed_=false, audio_failed_=false;
     char audio_active_[16]="unknown";
     const char* audio_failure_reason_="rejected";
@@ -488,7 +494,7 @@ private:
     bool tx_publication_ = false;
     // Zero reported bytes may still mean the asynchronous worker owns the line.
     bool tx_write_attempted_=false;
-    bool audition_supported_=false,audition_queued_=false,audition_cancel_=false;
+    bool audition_supported_=false,audition_live_supported_=false,audition_queued_=false,audition_cancel_=false;
     std::uint32_t audition_id_=0;std::string audition_path_,audition_error_;
     char tx_[BroTracker::kPathProtocolCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;

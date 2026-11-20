@@ -189,7 +189,7 @@ void BringUpSerial::Disconnect(const char* reason)
     storage_supported_=false;working_storage_supported_=false;storage_ready_supported_=false;
     Observe("DISCONNECT",diagnostic_now_);
     Log("disconnected/error:", reason);
-    midi_supported_=midi_sent_=midi_confirmed_=midi_failed_=false;
+    midi_supported_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
     device_facts_supported_=device_facts_valid_=false;device_facts_={};
@@ -221,10 +221,11 @@ void BringUpSerial::Disconnect(const char* reason)
     define_reconcile_required_=define_reconcile_required_ || define_pending_;
     replace_supported_=relink_supported_=false;
     path_supported_=false;
-    audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
+    audition_live_supported_=audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
     define_supported_=define_pending_=define_queued_=define_success_=false;live_type_supported_=live_edit_supported_=false;visit_ready_=false;define_error_="Disconnected; definition outcome unconfirmed";
     collection_supported_=collection_request_=collection_ready_=false;collection_count_=0;
     identity_supported_=identity_ready_=identity_extended_=identity_facts_ready_=snapshot_metadata_supported_=false;identity_resource_[0]=0;
+    midi_instrument_channel_supported_=false;identity_midi_channel_=0;
     identity_request_=identity_number_!=0 && identity_number_<=99;restore_view_pending_=false;
     stopped_ = false;
     pending_ = Command::None;
@@ -492,13 +493,11 @@ bool BringUpSerial::Publish(LocalPatternEditor& editor, std::uint32_t now)
 
 bool BringUpSerial::Start()
 {
-    CancelWavAudition();
     if(UserActionsBlocked())return false;
     if(file_action_!=FileAction::None || !StartupPatternReady() || continuity_pending_) return false;
     if (!connected_ || TransportPending() || PublicationBusy()) return false;
     if(!AudioTransportReady()) return false;
     if(!MidiDelayReady())return false;
-    if(midi_supported_ && !midi_confirmed_) return false;
     start_queued_ = true;
     ClearPosition();
     start_cancelled_ = start_unconfirmed_ = false;
@@ -534,7 +533,6 @@ bool BringUpSerial::QueueTransport(Command command) {
     if (!connected_ || !transport_supported_ || TransportPending() || PublicationBusy()) return false;
     if ((command == Command::Pause && !Playing()) || (command == Command::Continue && !Paused())) return false;
     if(command==Command::Continue && (continuity_pending_ || file_action_!=FileAction::None || !StartupPatternReady())) return false;
-    if(command==Command::Continue && midi_supported_ && !midi_confirmed_) return false;
     if(command==Command::Continue && !AudioTransportReady()) return false;
     if(command==Command::Continue && !MidiDelayReady())return false;
     transport_queued_ = command; stopped_ = false; return true;
@@ -572,10 +570,8 @@ const char* BringUpSerial::Status() const
     }
     if(!AudioTransportReady()) return AudioReadinessStatus();
     if(!MidiDelayReady())return MidiDelayStatus();
-    if(midi_failed_) return "MIDI setup failed - see log; restart Teensy if required";
     if(startup_failed_) return "SD startup pattern failed/uncertain - see log; no automatic retry";
     if(!StartupPatternReady()) return "Loading SD development pattern (playback stopped)";
-    if(midi_supported_ && !midi_confirmed_) return "Waiting for MIDI channel acknowledgment";
     if (stop_queued_ || pending_ == Command::Stop) return "Connected - stopping";
     if (start_queued_ || pending_ == Command::Start) return "Connected - starting";
     if (transport_queued_ == Command::Pause || pending_ == Command::Pause) return "Connected - pausing";
@@ -592,11 +588,8 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
     const char* verb = command == Command::Hello ? "HELLO" :
                        command == Command::Status ? "STATUS" :
                        command == Command::Start ? "START" :
-                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Midi ? "MIDI" : command == Command::Storage ? "SD LOAD" : command==Command::File ? "SD SAVE" : command==Command::StorageReady ? "SD READY" : "STOP";
+                       command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Storage ? "SD LOAD" : command==Command::File ? "SD SAVE" : command==Command::StorageReady ? "SD READY" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
-    if(command==Command::Midi) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTMIDI1 SET 1 %u\n",midi_channel_); midi_sent_=true;
-    }
     if(command==Command::Audio) {
         tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
         audio_sent_=true;
@@ -803,14 +796,31 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strcmp(line_,"BTINS1 REPLACECAP 1")){replace_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTINS1 LIVETYPECAP 1")){live_type_supported_=connected_;return;}
     if(!std::strcmp(line_,"BTWAV1 CAP 1")){audition_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTWAV1 CAP 2")){audition_live_supported_=audition_supported_=connected_;return;}
+    {std::uint32_t f[2]{};
+        if(BroTracker::SnapshotFields(line_,std::strlen(line_),"BTWAV1 QUEUED ",f,2) && f[0]==1) {
+            if(f[1]==audition_id_ && !audition_path_.empty())audition_error_="Audition waiting for SD headroom";
+            return;
+        }
+    }
     {std::uint32_t f[3]{};if(BroTracker::SnapshotFields(line_,std::strlen(line_),"BTWAV1 RESULT ",f,3) && f[0]==1) {
-        if(f[1]==audition_id_ && !audition_path_.empty())audition_error_=f[2]==9?"Sample path storage full":f[2]?"WAV audition unavailable or preparation failed":std::string{};
+        if(f[1]==audition_id_ && !audition_path_.empty())audition_error_=f[2]==9?"Sample path storage full":f[2]==8?"Audition stopped for streaming headroom":f[2]==3?"Audition unavailable while device is busy":f[2]?"WAV audition unavailable or preparation failed":std::string{};
         return;
     }}
     if(!std::strcmp(line_,"BTINS1 LIVEEDITCAP 1")){live_edit_supported_=connected_;return;}
     {std::uint32_t v[2]{};
         if(BroTracker::SnapshotFields(line_,used_,"BTINS1 VISIT READY ",v,2) && v[0]==1 && v[1]==visit_id_){visit_ready_=true;visit_begin_queued_=false;return;}
         if(BroTracker::SnapshotFields(line_,used_,"BTINS1 VISIT ENDED ",v,2) && v[0]==1 && v[1]==visit_id_){visit_id_=0;visit_ready_=visit_ending_=visit_end_queued_=false;return;}
+    }
+    {
+        std::uint32_t fields[4]{};
+        if(define_pending_ && define_edit_ && define_type_==2 && MidiInstrumentChannelSupported() &&
+            BroTracker::SnapshotFields(line_,used_,"BTINS1 APPLIEDCHANNEL ",fields,4) &&
+            fields[0]==1 && fields[1]==define_id_ && fields[2]==define_slot_ &&
+            fields[3]>=1 && fields[3]<=16) {
+            define_applied_channel_=fields[3];
+            return;
+        }
     }
     const bool replace_reply=!std::strncmp(line_,"BTINS1 REPLACED ",15);
     const bool relink_reply=!std::strncmp(line_,"BTINS1 RELINKED ",15);
@@ -824,7 +834,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(connected_ && define_pending_ && define_relink_==relink_reply && define_replace_==replace_reply && parsed && request==define_id_) {
             define_pending_=false;define_cancelled_=result==7;define_result_=result;
             if(!result && define_edit_ && define_restore_)define_reconcile_required_=false;
-            if(!result && count==define_expected_+((relink_reply || replace_reply)?0:1)) {collection_count_=count;collection_ready_=true;define_success_=true;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
+            if(!result && count==define_expected_+((relink_reply || replace_reply)?0:1)) {collection_count_=count;collection_ready_=true;define_success_=true;identity_midi_channel_=0;identity_ready_=identity_facts_ready_=false;identity_request_=identity_number_>0 && identity_number_<=99;}
             else {define_success_=false;define_error_=result==9?"Sample path storage full; previous binding retained":result==7?"Instrument preparation cancelled":result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: PCM16 mono 44.1 kHz required; check file/read/source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
         }return;
     }
@@ -835,6 +845,19 @@ void BringUpSerial::OnLine(std::uint32_t now)
     if(!std::strncmp(line_,"BTINS1 COLLECTION STATE ",24)) {
         unsigned count=0;if(connected_ && collection_supported_ && !collection_ready_ &&
             BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;define_reconcile_required_=false;}
+        return;
+    }
+    if(!std::strcmp(line_,"BTINS1 MIDICHANNELCAP 1")) {
+        if(connected_ && !midi_instrument_channel_supported_) {
+            midi_instrument_channel_supported_=true;identity_request_=identity_number_>0 && identity_number_<=99;
+        }
+        return;
+    }
+    if(!std::strncmp(line_,"BTINS1 CHANNEL ",15)) {
+        std::uint32_t fields[3]{};
+        if(MidiInstrumentChannelSupported() && BroTracker::SnapshotFields(line_,used_,"BTINS1 CHANNEL ",fields,3) &&
+            fields[0]==1 && fields[1]<99 && fields[1]+1==identity_number_ && fields[2]>=1 && fields[2]<=16)
+            identity_midi_channel_=fields[2];
         return;
     }
     if(!std::strcmp(line_,"BTINS1 CAP 2")) {
@@ -920,16 +943,9 @@ void BringUpSerial::OnLine(std::uint32_t now)
         }
         return;
     }
-    if(!std::strcmp(line_,"BTMIDI1 CAP 1")) { if(connected_) midi_supported_=true; return; }
-    if(pending_==Command::Midi && !std::strncmp(line_,"BTMIDI1 SELECTED 1 ",18)) {
-        std::uint32_t channel=0;
-        midi_confirmed_=BroTracker::SnapshotFields(line_,used_,"BTMIDI1 SELECTED 1 ",&channel,1) && channel==midi_channel_;
-        midi_failed_=!midi_confirmed_; pending_=Command::None;
-        if(midi_failed_) start_queued_=false;
-        Log(MidiStatus()); return;
-    }
-    if(pending_==Command::Midi && (!std::strncmp(line_,"BTMIDI1 ERROR ",14) || !std::strncmp(line_,"BTTEST1 ERROR ",14))) {
-        midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR:",line_); return;
+    if(!std::strcmp(line_,"BTMIDI1 CAP 1") || !std::strcmp(line_,"BTMIDI1 CAP 2")) {
+        if(connected_)midi_supported_=true;
+        return;
     }
     if(!std::strcmp(line_,"BTMIDIDELAY1 CAP 1")) {if(connected_)midi_delay_.Capability();return;}
     if(!std::strncmp(line_,"BTMIDIDELAY1 ",13)) {if(connected_)(void)midi_delay_.Response(line_,used_,now);return;}
@@ -1262,9 +1278,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     // for its reply. STATE received during transport is ignored above; ACKs differ.
     if (pending_ == Command::Status && (transport_queued_ != Command::None || stop_queued_ || start_queued_) && tx_offset_ == tx_size_)
         pending_ = Command::None;
-    if(pending_==Command::Midi && now-sent_at_>=6000 && tx_offset_==tx_size_) {
-        midi_failed_=true; start_queued_=false; pending_=Command::None; Log("MIDI setup ERROR: acknowledgment timeout; not retrying this session");
-    }
+
     if(pending_==Command::Audio && now-sent_at_>=6000 && tx_offset_==tx_size_) {
         audio_confirmed_=false;audio_failed_=true;audio_failure_reason_="acknowledgment timeout; not retrying this connection";
         start_queued_=false;pending_=Command::None;Log("audio selection ERROR: acknowledgment timeout; not retrying this session");
@@ -1326,13 +1340,12 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
             Send(Command::Audio,now);
         }
-        else if(connected_ && midi_supported_ && !midi_sent_ && !stop_queued_ && transport_queued_==Command::None) { Send(Command::Midi,now); }
         else if(connected_ && !stop_queued_ && transport_queued_==Command::None &&
             midi_delay_.Begin(now,audio_confirmed_ || (!midi_delay_.Supported() && AudioTransportReady()),!std::strcmp(audio_active_,"bridge")?BroTracker::AudioOutputChoice::Bridge:BroTracker::AudioOutputChoice::Default,MidiRecoveryStopped())) {
             std::size_t size=0;if(midi_delay_.FormatLine(tx_,sizeof(tx_),size)){tx_size_=size;tx_offset_=0;}
         }
         else if(connected_ && MidiDelayReady() && startup_selection_enabled_ && !startup_attempted_ && !startup_failed_) {
-            if((startup_fallback_ && startup_pattern_.IsNone() && !new_pattern_supported_) || !storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || (midi_supported_ && !midi_confirmed_) || snapshot_version_!=2) {
+            if((startup_fallback_ && startup_pattern_.IsNone() && !new_pattern_supported_) || !storage_supported_ || !storage_ready_supported_ || !audio_confirmed_ || snapshot_version_!=2) {
                 startup_failed_=true;Log("SD startup pattern ERROR: readiness-capable storage, setup and stopped v2 firmware required");
             } else if(!startup_stop_sent_) {
                 startup_stop_sent_=true;stopped_=false;Send(Command::Stop,now);
@@ -1406,6 +1419,8 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         }
         else if(connected_ && define_queued_ && !pattern_assembler_.Active()) {
             if(define_restore_)tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 RESTORE 1 %u %u\n",define_id_,define_slot_);
+            else if(define_edit_ && define_midi_channel_)tx_size_=std::snprintf(tx_,sizeof(tx_),
+                "BTINS1 EDIT 3 %u %u 2 %u\n",define_id_,define_slot_,define_midi_channel_);
             else {char path[BroTracker::kPathProtocolCapacity];if(path_supported_)BroTracker::EncodePathToken(define_resource_,path,sizeof(path));else std::strcpy(path,define_resource_);
                 tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 %s %u %u %u %u %s\n",define_edit_?"EDIT":define_replace_?"REPLACE":define_relink_?"RELINK":"DEFINE",path_supported_?2:1,define_id_,(define_relink_ || define_replace_)?define_slot_:define_expected_,define_type_,path);}
             tx_offset_=0;define_queued_=false;

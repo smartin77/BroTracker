@@ -27,29 +27,15 @@ struct MidiHarness {
     }
 };
 }
-TEST_CASE(MidiConfigurationDecimalFallbackAndExplicitPrecedence) {
+TEST_CASE(ObsoleteMidiConfigChannelDoesNotPreventStartup) {
     const std::string header="[btx]\nschema_version=1\nnew_pattern_length=32\n[midi]\noutput_channel=";
-    for(unsigned channel=1;channel<=16;++channel) {
-        HostConfig c; CHECK_EQ(ParseHostConfig(header+std::to_string(channel),c),HostConfigStatus::Loaded);
-        CHECK_EQ(c.midi_output_channel,channel); CHECK(!c.midi_output_invalid);
+    for(const auto value:{"","1","12","16","0","17","abc"}) {
+        HostConfig config;CHECK_EQ(ParseHostConfig(header+value,config),HostConfigStatus::Loaded);
     }
-    for(const auto value:{"","0","17","-1","12.0","abc","4294967296"}) {
-        HostConfig c; CHECK_EQ(ParseHostConfig(header+value,c),HostConfigStatus::Loaded);
-        CHECK_EQ(c.midi_output_channel,12); CHECK_EQ(c.midi_output_invalid,std::string(value)!="");
-    }
-    HostConfig c; CHECK_EQ(c.midi_output_channel,12);
-    CHECK_EQ(ParseHostConfig(header+"1\noutput_channel=2",c),HostConfigStatus::Invalid);
-    MidiOutput out; CHECK_EQ(out.Channel(),12); CHECK(!out.Activated());
-    CHECK_EQ(out.Select(1),MidiOutput::Selection::Selected);
-    CHECK_EQ(out.Select(1),MidiOutput::Selection::Selected);
-    CHECK_EQ(out.Select(16),MidiOutput::Selection::RestartRequired); CHECK_EQ(out.Channel(),1);
-    CHECK_EQ(out.Select(0),MidiOutput::Selection::Invalid);
-    for(unsigned ch=1;ch<=16;++ch) { MidiOutput m; CHECK_EQ(m.Select(ch),MidiOutput::Selection::Selected);
-        CHECK_EQ(m.Pack(true,69),9u|((0x90u+ch-1)<<8)|(69u<<16)|(100u<<24)); }
 }
 TEST_CASE(MidiRawPitchRetriggerDuplicateOwnershipAndReplacement) {
-    MidiHarness h; h.Send(0,69); CHECK_EQ(h.words.size(),1); CHECK_EQ(h.words[0],0x64459b09u);
-    h.Send(0,69); CHECK_EQ(h.words.size(),3); CHECK_EQ(h.words[1],0x00458b08u);
+    MidiHarness h; h.Send(0,69); CHECK_EQ(h.words.size(),1); CHECK_EQ(h.words[0],0x64459009u);
+    h.Send(0,69); CHECK_EQ(h.words.size(),3); CHECK_EQ(h.words[1],0x00458008u);
     h.Send(1,69); CHECK_EQ(h.words.size(),3); // Shared note holds, no ambiguous stack.
     h.Send(0,69); CHECK_EQ(h.words.size(),3); // Shared retrigger cannot release peer.
     h.Send(0,72); CHECK_EQ(h.words.size(),4); CHECK_EQ(h.words.back(),h.output.Pack(true,72));
@@ -176,10 +162,9 @@ TEST_CASE(MidiFailureRecoveryDropsBacklogAndKeepsUncertainOwnershipAcrossDisconn
         CHECK_EQ(h.words.size(),n+1); CHECK_EQ(h.words.back(),h.output.Pack(false,69));
         h.output.TakeAbortRequest();
         CHECK(!h.output.Recover(false)); CHECK(h.output.Recover(true));
-        CHECK_EQ(h.output.Select(16),MidiOutput::Selection::Selected); // Not yet activated in harness.
-        CHECK_EQ(h.output.Select(12),MidiOutput::Selection::RestartRequired);
-        CHECK(h.output.Enqueue(Command(1,72),1000,12000)); h.Service(12000);
-        CHECK_EQ(h.words.size(),n+2); CHECK_EQ(h.words.back(),h.output.Pack(true,72));
+        auto channel16=Command(1,72);channel16.commands[0].midi_channel=16;
+        CHECK(h.output.Enqueue(channel16,1000,12000));h.Service(12000);
+        CHECK_EQ(h.words.size(),n+2);CHECK_EQ(h.words.back(),h.output.Pack(true,72,16));
     }
 }
 
@@ -279,4 +264,17 @@ TEST_CASE(LiveMidiTypeReplacementCancelsSoundingAndDelayedNotesWithoutReleasingP
         CHECK(!h.output.Faulted());
         replacement.type=InstrumentType::Sample;CHECK(!player.ReplaceLiveInstrumentType(replacement));
     }
+}
+
+TEST_CASE(MidiOutputOwnsIdenticalNotesSeparatelyAcrossInstrumentChannels) {
+    MidiHarness h;
+    auto one=Command(0,69),two=Command(1,69);
+    one.commands[0].midi_channel=1;two.commands[0].midi_channel=16;
+    CHECK(h.output.Enqueue(one,0,0));CHECK(h.output.Enqueue(two,0,0));h.Service(0);
+    CHECK_EQ(h.words.size(),2u);
+    CHECK_EQ(h.words[0],0x64459009u);CHECK_EQ(h.words[1],0x64459f09u);
+    h.output.CancelChannels(1);h.Service(0);
+    CHECK_EQ(h.words.size(),3u);CHECK_EQ(h.words.back(),0x00458008u);
+    h.output.Reset();h.Service(0);
+    CHECK_EQ(h.words.size(),4u);CHECK_EQ(h.words.back(),0x00458f08u);
 }

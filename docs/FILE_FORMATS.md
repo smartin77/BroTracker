@@ -591,7 +591,7 @@ metadata/listing replies use version 4; GET/STATE facts use version 3;
 DEFINE/RELINK/REPLACE/EDIT and audition PLAY use version 2 for encoded path tokens.
 Legacy versions retain their original 63-byte, whitespace-free tokens.
 
-The session magic remains `BTM1`; byte 4 is now **2**. Header size remains 24,
+The session magic remains `BTM1`; byte 4 is **2** for this legacy version. Header size remains 24,
 with embedded Pattern byte count at offset 8, definition count at offset 12,
 unique path count at offset 16 and the existing whole-file CRC at offset 20.
 The embedded BTSS record follows the header. Each definition uses three bytes:
@@ -608,3 +608,18 @@ BTM version 1 (fixed 65-byte definition records), BTWS v1/v2 and single BTSS rea
 remain supported. Candidate/previous atomic save and recovery rules are unchanged.
 There is no separate implemented instrument-file browser/format to migrate; saved
 instrument definitions in existing sessions retain their slot numbers and paths.
+
+## BTM version 3 MIDI channels
+
+BTM1 version 3 retains the version 2 header, three-byte definition records,
+path table, trailer and checksum. For MIDI records (Type 2), the uint16
+previously reserved for a zero path index contains the channel, 1?16.
+Sample and Synth records retain their existing interpretation.
+
+BTM1 v1/v2 records contained Type and a path or path index. BTWS/BTSS held
+only Pattern/session state and reconstructed development definitions. None
+encoded the MIDI output channel, which came from a separate terminal setting.
+All of these legacy MIDI definitions migrate to channel 12, the prior built-in
+default. Saved custom terminal channels cannot be recovered from those files.
+The next normal save writes v3. Future Tune and Project formats must preserve
+the same per-instrument channel.

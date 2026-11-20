@@ -55,12 +55,6 @@ public:
         if(!stopped || !connected_ || cleanup_ || abort_) return false;
         fault_=false; reason_=Fault::None; cleanup_blocked_=false; return true;
     }
-    enum class Selection { Selected, Invalid, RestartRequired };
-    Selection Select(unsigned channel) noexcept {
-        if(channel<1 || channel>16) return Selection::Invalid;
-        if(activated_ && channel!=channel_) return Selection::RestartRequired;
-        channel_=channel; activated_=true; return Selection::Selected;
-    }
     void TransportFailure(bool stalled=false) noexcept {
         if(fault_ && !cleanup_sent_) return;
         Increment(counters.transport_failure);
@@ -71,8 +65,6 @@ public:
         cleanup_blocked_=already_failed;
     }
     void TimerFailure() noexcept { Fail(Fault::Timer); }
-    unsigned Channel() const noexcept { return channel_; }
-    bool Activated() const noexcept { return activated_; }
     bool Faulted() const noexcept { return fault_; }
     bool PendingCleanup() const noexcept { return cleanup_; }
     unsigned Queued() const noexcept { return count_; }
@@ -104,10 +96,10 @@ public:
     void ConfirmTransfers() noexcept {
         if(cleanup_) {
             if(cleanup_blocked_ || !cleanup_all_submitted_) return;
-            for(auto& bits:uncertain_) bits=0;
+            ClearOwnership();
             cleanup_=false;
         } else if(!fault_) {
-            for(auto& bits:uncertain_) bits=0;
+            ClearOwnership();
             for(auto note:notes_) if(note>=0) Mark(static_cast<unsigned>(note));
         }
     }
@@ -131,7 +123,7 @@ public:
             const bool midi=c.action==VariableRateVoiceAction::TriggerMidi;
             const bool valid_action=midi || c.action==VariableRateVoiceAction::Release || c.action==VariableRateVoiceAction::Stop ||
                 c.action==VariableRateVoiceAction::Trigger || c.action==VariableRateVoiceAction::TriggerSynth;
-            if(!valid_action || (midi && !IsPitchedPatternNote(c.synth_note)) ||
+            if(!valid_action || (midi && (!IsPitchedPatternNote(c.synth_note) || c.midi_channel>16)) ||
                c.channel>=8 || c.sample_offset>=128 || base>UINT64_MAX-c.sample_offset ||
                (count_ && base+c.sample_offset<queue_[(head_+count_-1)%Capacity].sample) ||
                (i && c.sample_offset<batch.commands[i-1].sample_offset)) { Fail(Fault::Invalid); return false; }
@@ -141,7 +133,7 @@ public:
             auto& e=queue_[(head_+count_++)%Capacity];
             e={base+c.sample_offset,render_us+static_cast<std::uint32_t>(c.sample_offset*1000000u/44100u)+delay_us_,
                static_cast<std::uint8_t>(c.channel),static_cast<std::uint8_t>(c.synth_note),
-               c.action==VariableRateVoiceAction::TriggerMidi};
+               c.action==VariableRateVoiceAction::TriggerMidi, c.midi_channel};
             Increment(counters.submitted);
         }
         return true;
@@ -154,14 +146,17 @@ public:
         if(cleanup_) {
             if(cleanup_blocked_ || cleanup_all_submitted_) return; // Await backend completion, not just acceptance.
             unsigned cursor=cleanup_cursor_;
-            while(cursor<128 && n<ServiceBudget) {
-                if(uncertain_[cursor/32] & (1u<<(cursor%32))) words[n++]=Pack(false,cursor);
+            while(cursor<2048 && n<ServiceBudget) {
+                const auto remaining=uncertain_[cursor/32] >> (cursor%32);
+                if(!remaining){cursor=(cursor/32+1)*32;continue;}
+                cursor+=unsigned(__builtin_ctz(remaining));
+                words[n++]=PackOwned(false,cursor);
                 ++cursor;
             }
             if(n && !try_submit(words,n)) { Increment(counters.busy); return; }
             if(n) { Increment(counters.transfers); Increment(counters.cleanup_submitted); cleanup_sent_=true; }
             cleanup_cursor_=cursor;
-            if(cursor==128) {
+            if(cursor==2048) {
                 for(auto& note:notes_) note=-1;
                 cleanup_all_submitted_=true;
             }
@@ -171,12 +166,12 @@ public:
         if(cancel_mask_) {
             for(unsigned c=0;c<8;++c)if(cancel_mask_&(1u<<c))tentative[c]=-1;
             for(unsigned c=0;c<8;++c)if((cancel_mask_&(1u<<c)) && notes_[c]>=0 && !Contains(tentative,notes_[c])) {
-                const auto word=Pack(false,notes_[c]);
+                const auto word=PackOwned(false,notes_[c]);
                 bool duplicate=false;for(unsigned i=0;i<n;++i)duplicate|=words[i]==word;
                 if(!duplicate)words[n++]=word;
             }
             if(n && !try_submit(words,n)) {Increment(counters.busy);return;}
-            if(n) {Increment(counters.transfers);for(unsigned i=0;i<n;++i)Mark((words[i]>>16)&127u);}
+            if(n) {Increment(counters.transfers);for(unsigned i=0;i<n;++i)Mark(((words[i]>>8)&15u)*128u+((words[i]>>16)&127u));}
             for(unsigned c=0;c<8;++c)notes_[c]=tentative[c];
             cancel_mask_=0;return; // At most one transfer and eight urgent OFFs.
         }
@@ -188,10 +183,11 @@ public:
             if(static_cast<std::uint32_t>(lateness)>counters.max_lateness_us) counters.max_lateness_us=lateness;
             if(static_cast<std::uint32_t>(lateness)>DeadlineUs) { Increment(counters.late); Fail(Fault::Deadline); return; }
             const int old=tentative[e.tracker]; tentative[e.tracker]=-1;
-            if(old>=0 && !Contains(tentative,old)) words[n++]=Pack(false,old);
+            if(old>=0 && !Contains(tentative,old)) words[n++]=PackOwned(false,old);
             if(e.on) {
-                if(!Contains(tentative,e.note)) words[n++]=Pack(true,e.note);
-                tentative[e.tracker]=e.note;
+                const unsigned owned=(unsigned(e.midi_channel?e.midi_channel:1u)-1)*128u+e.note;
+                if(!Contains(tentative,owned)) words[n++]=PackOwned(true,owned);
+                tentative[e.tracker]=owned;
             }
             ++consumed;
         }
@@ -200,34 +196,49 @@ public:
         if(n) Increment(counters.transfers);
         // Include OFFs until the backend confirms completion: a failed final
         // OFF must remain recoverable after its logical owner has gone away.
-        for(unsigned i=0;i<n;++i) Mark((words[i]>>16)&127u);
+        for(unsigned i=0;i<n;++i) Mark(((words[i]>>8)&15u)*128u+((words[i]>>16)&127u));
         for(unsigned c=0;c<8;++c) notes_[c]=tentative[c];
         head_=(head_+consumed)%Capacity; count_-=consumed;
     }
     // Channel numbering is converted only here, at the USB MIDI adapter.
-    std::uint32_t Pack(bool on,unsigned note) const noexcept {
-        return (on?9u:8u) | (((on?0x90u:0x80u)|(channel_-1u))<<8) |
-            (note<<16) | ((on?100u:0u)<<24);
+    std::uint32_t Pack(bool on,unsigned note,unsigned channel=1) const noexcept {
+        return PackOwned(on,(channel-1u)*128u+note);
     }
 private:
+    static std::uint32_t PackOwned(bool on,unsigned owned) noexcept {
+        return (on?9u:8u) | (((on?0x90u:0x80u)|(owned/128u))<<8) |
+            ((owned%128u)<<16) | ((on?100u:0u)<<24);
+    }
     static void Increment(std::uint32_t& n) noexcept { if(n!=UINT32_MAX) ++n; }
     static bool Contains(const int* notes,int note) noexcept {
         for(unsigned c=0;c<8;++c) if(notes[c]==note) return true;
         return false;
     }
-    void Mark(unsigned note) noexcept { uncertain_[note/32] |= 1u<<(note%32); }
-    bool HasNotes() const noexcept { for(auto bits:uncertain_) if(bits) return true; return false; }
+    void Mark(unsigned note) noexcept {
+        const unsigned word=note/32;
+        uncertain_[word]|=1u<<(note%32);
+        ownership_words_|=std::uint64_t(1)<<word;
+    }
+    void ClearOwnership() noexcept {
+        while(ownership_words_) {
+            const auto word=unsigned(__builtin_ctzll(ownership_words_));
+            uncertain_[word]=0;
+            ownership_words_&=ownership_words_-1;
+        }
+    }
+    bool HasNotes() const noexcept {return ownership_words_!=0;}
     void Fail(Fault reason) noexcept { if(!fault_) reason_=reason; fault_=true; Reset(); }
     struct Event { std::uint64_t sample=0; // Musical sample position, never shifted.
         std::uint32_t release_us=0; // Delivery deadline, including fixed delay.
-        std::uint8_t tracker=0,note=0; bool on=false; };
+        std::uint8_t tracker=0,note=0; bool on=false; std::uint8_t midi_channel=0; };
     Event queue_[Capacity]{};
     int notes_[8]={-1,-1,-1,-1,-1,-1,-1,-1};
-    std::uint32_t uncertain_[4]{};
+    std::uint32_t uncertain_[64]{};
+    std::uint64_t ownership_words_=0;
     unsigned cleanup_cursor_=0;
     bool cleanup_all_submitted_=false,cleanup_sent_=false;
-    unsigned head_=0,count_=0,channel_=12;
-    bool activated_=false,connected_=false,cleanup_=false,fault_=false,abort_=false,cleanup_blocked_=false;
+    unsigned head_=0,count_=0;
+    bool connected_=false,cleanup_=false,fault_=false,abort_=false,cleanup_blocked_=false;
     Fault reason_=Fault::None;
     std::uint32_t generation_=0;
     std::uint32_t delay_us_=0;

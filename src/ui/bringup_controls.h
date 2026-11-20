@@ -10,19 +10,27 @@ class BringUpControls {
 public:
     BringUpControls(BringUpSerial& serial, FILE* log) : serial_(serial), log_(log) {}
     void Request(BringUpAction action, const char* source, std::uint32_t now);
+    bool FileListNavigationAvailable()const;
+    void NavigateFileList(std::int64_t steps);
+    void ClickFileList(int x,int y,bool confirm,std::uint32_t now);
     void ObserveEditor(LocalPatternEditor& editor) { editor_=&editor; }
     bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     const BroTracker::RealtimePattern* InstrumentEntryPattern()const{return instrument_entry_pattern_?&*instrument_entry_pattern_:nullptr;}
-    unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
+    bool InstrumentVisitModified()const;
+    unsigned OriginalInstrumentNumber()const{return instrument_entry_.number;}
     unsigned InstrumentDraftTypeCode()const;
     std::string InstrumentDraftType()const;
     bool InstrumentTypeEditable()const;
     unsigned InstrumentField()const{return instrument_field_;}
-    int InstrumentFocus()const{return instrument_field_==2?2:InstrumentTypeEditable()?int(instrument_field_):serial_.InspectedSample(instrument_number_)?1:-1;}
+    unsigned InstrumentMidiChannel()const;
+    bool InstrumentMidiChannelEditable()const;
+    int InstrumentFocus()const{return instrument_field_==3?(InstrumentMidiChannelEditable()?3:-1):instrument_field_==2?2:InstrumentTypeEditable()?int(instrument_field_):serial_.InspectedSample(instrument_number_)?1:-1;}
     bool ReplacementConfirming()const{return replace_prompt_;}
     std::string InstrumentLoadWarning()const;
     std::string SavedInstrumentPath()const;
+    std::string InstrumentAssignedResource()const;
+    const std::string& CacheInstrumentName(const std::string& resource);
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);
     void SetConfirmLoadReplace(bool value){confirm_load_replace_=value;}
@@ -79,9 +87,12 @@ private:
     bool live_assignment_=false,assignment_confirm_=false,assignment_rollback_=false;
     // MIDI/Synth definitions have no Sample resource. First-touch originals,
     // latest desired values, and acknowledged values stay separate for rollback.
+    std::array<unsigned,99> original_channels_{},desired_channels_{},applied_channels_{};
+    unsigned live_channel_sent_=0;
     std::array<unsigned,99> original_types_{},desired_types_{},applied_types_{};
     std::array<std::string,99> original_resources_{},desired_resources_{},applied_resources_{};
     std::string live_resource_sent_;
+    std::string cached_name_resource_,cached_instrument_name_;
     bool visit_closing_=false;
     bool live_type_inflight_=false,live_type_failed_=false;
     unsigned live_type_slot_=0,live_type_sent_=0;

@@ -704,13 +704,13 @@ TEST_CASE(ManualAuditionStreamsLongWavToEofAndRetriggersFromZeroWithoutPatternBi
     FakePatternSd::files[path].bytes=PickerWav(frames,44100,4);
     const auto prepare=[&](unsigned id) {
         CHECK(audition.Request(id,path));
-        for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
+        for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
         CHECK(!audition.Busy());CHECK(audition.Snapshot().sample);CHECK_EQ(audition.Snapshot().position,0u);
         CHECK_EQ(audition.Snapshot().step,kSourceFrameStepUnity);
     };
     const auto consume=[&](unsigned at,unsigned count) {
         f.producer.Service();std::int16_t pcm[128]{};
-        CHECK(audition.Render(pcm,count,true,100));
+        CHECK(audition.Render(pcm,count));
         for(unsigned i=0;i<count;++i)CHECK_EQ(pcm[i],Fixture::Pcm(4,at+i));
     };
     prepare(1);for(unsigned at=0;at<8192;at+=128)consume(at,128);
@@ -727,28 +727,49 @@ TEST_CASE(ManualAuditionCancellationAndNewerRequestsFenceLatePreparation) {
     FakePatternSd::files[old].bytes=PickerWav(10000,44100,5);
     FakePatternSd::files[fresh].bytes=PickerWav(10000,44100,6);
     CHECK(audition.Request(1,old));
-    for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
+    for(unsigned i=0;i<5;++i)audition.Service(bindings);
     CHECK(audition.Request(2,fresh));
-    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,true);
-    std::int16_t pcm[128]{};CHECK(audition.Render(pcm,128,true,100));CHECK_EQ(pcm[0],Fixture::Pcm(6,0));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
+    std::int16_t pcm[128]{};CHECK(audition.Render(pcm,128));CHECK_EQ(pcm[0],Fixture::Pcm(6,0));
     audition.Cancel();CHECK(!audition.Snapshot().sample);
-    CHECK(audition.Request(3,old));for(unsigned i=0;i<5;++i)audition.Service(bindings,true);
-    audition.Cancel();for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(audition.Request(3,old));for(unsigned i=0;i<5;++i)audition.Service(bindings);
+    audition.Cancel();for(unsigned i=0;i<100;++i)audition.Service(bindings);
     CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
     CHECK(audition.Request(4,fresh));
-    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings,false);
+    audition.CancelThrough(4);
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
     CHECK(!audition.Snapshot().sample);CHECK(!audition.Busy());
-    CHECK(audition.Request(5,fresh));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
-    CHECK(audition.Snapshot().sample);CHECK(!audition.Render(pcm,128,false,100));CHECK(!audition.Snapshot().sample);
+    CHECK(audition.Request(5,fresh));for(unsigned i=0;i<100;++i)audition.Service(bindings);
+    CHECK(audition.Snapshot().sample);audition.CancelThrough(4);CHECK(audition.Render(pcm,128));audition.CancelThrough(5);CHECK(!audition.Snapshot().sample);
     // Cached preparation can complete immediately. Cancellation before its
     // publication turn still prevents that successful result from starting PCM.
-    CHECK(audition.Request(7,fresh));audition.Service(bindings,true);audition.Cancel();
-    for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(audition.Request(7,fresh));audition.Service(bindings);audition.Cancel();
+    for(unsigned i=0;i<100;++i)audition.Service(bindings);
     CHECK(!audition.Snapshot().sample);
     FakePatternSd::files[old].bytes=PickerWav(10000,48000);
-    CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings,true);
+    CHECK(audition.Request(8,old));for(unsigned i=0;i<100;++i)audition.Service(bindings);
     CHECK(!audition.Snapshot().sample);
     while(f.producer.ReclaimOne(bindings)){}CHECK_EQ(f.producer.SourceCount(),3u);
+}
+
+TEST_CASE(AuditionRefillYieldsToPatternAndWaitsForItsReserve) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    const char* path="BroTracker/Samples/preview.wav";
+    FakePatternSd::files[path].bytes=PickerWav();
+    CHECK(audition.Request(1,path));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
+    std::int16_t preview[128]{};
+    CHECK(audition.Render(preview,128));
+    f.Trigger();
+    FakePatternSd::reads.clear();
+    f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.size(),1u);
+    CHECK_EQ(FakePatternSd::reads.back().path,std::string(kDevelopmentWavPaths[0]));
+    f.producer.Service(8192);
+    CHECK_EQ(FakePatternSd::reads.size(),1u);
+    f.producer.Service();
+    CHECK_EQ(FakePatternSd::reads.size(),2u);
+    CHECK_EQ(FakePatternSd::reads.back().path,std::string(path));
 }
 
 TEST_CASE(ProgressiveBrowserPublishesUsableBatchesBefore306FileScanCompletesAndNeverMovesSelection) {
@@ -867,7 +888,30 @@ TEST_CASE(ResourceEntryLimitAndFreedGapReuseRemainBoundedBelowByteBudget) {
     CHECK_EQ(std::string(pool.Resolve(ids[51])),std::string("Samples/s51.wav"));
 }
 namespace {
-std::vector<std::uint8_t> StereoPickerWav(unsigned frames,unsigned rate=44100) {
+std::vector<std::uint8_t> StereoPickerWav(unsigned frames,unsigned rate=44100);
+TEST_CASE(AuditionAddsOnceToEachPatternChannelWithSaturationAndStopsAtEof) {
+    Fixture f;SdWavAudition audition(f.producer);VariableRateSampleBindings bindings;
+    const char* path="BroTracker/Samples/stereo-preview.wav";
+    FakePatternSd::files[path].bytes=StereoPickerWav(2);
+    CHECK(audition.Request(1,path));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
+    std::int16_t left[4]{1200,32000,1234,-5678},right[4]{1000,-31000,-2345,6789};
+    std::int16_t preview_l[4]{},preview_r[4]{};
+    CHECK(audition.Render(preview_l,4,preview_r));
+    CHECK(!audition.Snapshot().sample);
+    CHECK(audition.Request(2,path));
+    for(unsigned i=0;i<200 && audition.Busy();++i)audition.Service(bindings);
+    audition.Mix(left,right);
+    CHECK_EQ(left[0],std::clamp(1200+preview_l[0],-32768,32767));
+    CHECK_EQ(left[1],32767);
+    CHECK_EQ(right[0],std::clamp(1000+preview_r[0],-32768,32767));
+    CHECK_EQ(right[1],-32768);
+    CHECK_EQ(left[2],1234);CHECK_EQ(left[3],-5678);
+    CHECK_EQ(right[2],-2345);CHECK_EQ(right[3],6789);
+    CHECK(!audition.Snapshot().sample);
+}
+
+std::vector<std::uint8_t> StereoPickerWav(unsigned frames,unsigned rate) {
     auto wav=PickerWav(frames,rate);
     wav.resize(44+4*frames);
     PatternFilePut32(wav.data()+4,36+4*frames);
@@ -1041,7 +1085,7 @@ TEST_CASE(LowerRateAuditionEndsAtNativeDurationAndInvalidGeometryPreservesBindin
         const std::string path="BroTracker/Samples/root"+std::to_string(rate)+"-"+std::to_string(bits)+".wav";
         FakePatternSd::files[path].bytes=RateFixtureWav(3,rate,2,bits);
         CHECK(audition.Request(++id,path.c_str()));
-        for(unsigned i=0;i<32 && audition.Busy();++i)audition.Service(bindings,true);
+        for(unsigned i=0;i<32 && audition.Busy();++i)audition.Service(bindings);
         unsigned result=99;CHECK_EQ(audition.TakeResult(result),id);CHECK_EQ(result,0u);
         const auto step=(kSourceFrameStepUnity*rate+22050)/44100;
         CHECK_EQ(audition.Snapshot().step,step);
@@ -1049,7 +1093,7 @@ TEST_CASE(LowerRateAuditionEndsAtNativeDurationAndInvalidGeometryPreservesBindin
         const auto count=(3*kSourceFrameStepUnity+step-1)/step;
         for(unsigned i=0;i<count;++i) {
             std::int16_t l=0,r=0;
-            CHECK(audition.Render(&l,1,true,100,&r));
+            CHECK(audition.Render(&l,1,&r));
             CHECK_EQ(l,RateReference(i*step,3,0,bits)); CHECK_EQ(r,RateReference(i*step,3,1,bits));
         }
         CHECK_EQ(audition.Snapshot().eofs,eof+1);

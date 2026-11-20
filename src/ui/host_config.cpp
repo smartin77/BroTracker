@@ -32,7 +32,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     bool pattern=false,confirm_load=false,holdback=false;
     bool audio_bridge=false,midi_delay=false;
     bool development=false,startup_pattern=false,language=false;
-    bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false,midi_channel=false;
+    bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
         auto line=Trim(text.substr(0,end));
@@ -75,12 +75,8 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
             else if(raw=="h1") candidate.row_numbering=RowNumbering::H1;
             else if(raw=="h0") candidate.row_numbering=RowNumbering::H0;
             else if(!raw.empty() && raw!="d1") candidate.row_numbering_invalid=true;
-        } else if(section==5 && key=="output_channel" && !midi_channel) {
-            midi_channel=true;
-            if(!raw.empty()) {
-                if(Decimal(raw,value) && value>=1 && value<=16) candidate.midi_output_channel=value;
-                else candidate.midi_output_invalid=true;
-            }
+        } else if(section==5 && key=="output_channel") {
+            // Former terminal-wide setting. Per-instrument channels are restored on Teensy.
         } else if(section==4 && key=="capture_holdback_frames" && !holdback) {
             holdback=true;
             if(Decimal(raw,value) && value<=128)candidate.capture_holdback_frames=value;

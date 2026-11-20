@@ -48,6 +48,7 @@ namespace BroTracker
         std::uint64_t step_q32_32 = kSourceFrameStepUnity;
         Note synth_note = 69; // Raw Synth/MIDI pitch; never the display octave convention.
         std::uint8_t sample_level_percent = 100;
+        std::uint8_t midi_channel = 0;
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
         std::uint8_t instrument = kNoInstrumentUpdate; // Raw binding identity, not channel or PCM address.
 #endif

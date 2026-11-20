@@ -798,6 +798,138 @@ namespace
     }
 }
 
+// Instrument owns the entire canvas. The lower panel is reserved for sample data.
+static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& host,
+    const std::optional<LivePlaybackView>& live) {
+    static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+    static const auto bold=HostBitmap::Bdf("assets/fonts/terminus/ter-u14b.bdf");
+    static const auto small=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
+    constexpr Color dim{143,143,159};
+    constexpr int left=layout.pattern_x, inset=layout.content_padding;
+    const int width=fb.Width(), height=fb.Height(), panel_width=width-2*left;
+    constexpr int header_y=9, row_pitch=18, type_y=header_y+row_pitch+row_pitch/2, name_y=type_y+row_pitch, line_height=14;
+    constexpr int common_height=122+line_height;
+    constexpr int sample_top=common_height+layout.frame_gap;
+    const int waveform_top=2*height/3+line_height, footer_top=height-25;
+    const int sample_heading=sample_top+12, separator=sample_top+34;
+    fb.Rectangle(left,0,panel_width,common_height,border);
+    const auto text=[&](int x,int y,const std::string& value,Color color) {
+        HostBitmap::Text(fb,face,x,y+face.ascent,value,color);
+    };
+    const auto measure=[&](const std::string& value){return HostBitmap::Measure(face,value).width;};
+    const auto focus=[&](int field,int x,int y,int w,int h=24) {
+        if(host.instrument_focus==field)fb.Rectangle(x,y,w,h,editing_frame);
+    };
+    if(live && live->tempo_hundredths) {
+        const auto tenth=BroTracker::TempoTenths(live->tempo_hundredths);
+        const auto tempo="BPM "+std::to_string(tenth/10)+"."+std::to_string(tenth%10);
+        text((width-measure(tempo))/2,header_y,tempo,header_value);
+    }
+    text(width-inset-measure(host.instrument_transport),header_y,host.instrument_transport,row_header_bright);
+
+    const auto instrument_label=host.text.Get(WarningText::Instrument);
+    HostBitmap::Text(fb,bold,inset,header_y+face.ascent,instrument_label,row_header_bright);
+    constexpr int triangle_reach=6;
+    const int space=measure(" ");
+    const int slot_x=inset+HostBitmap::Measure(bold,instrument_label).width+space+triangle_reach;
+    const auto slot=FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
+    const int slot_end=slot_x+measure(slot);
+    constexpr int slot_focus_padding=3;
+    focus(2,slot_x-slot_focus_padding,header_y-3,slot_end-slot_x+2*slot_focus_padding,row_pitch);
+    // Preserve a full blank space outside each triangle.
+    for(int offset=0;offset<3;++offset) {
+        fb.VerticalLine(slot_x-triangle_reach+offset,header_y+6-offset,header_y+6+offset,dim);
+        fb.VerticalLine(slot_end+triangle_reach-offset,header_y+6-offset,header_y+6+offset,dim);
+    }
+    text(slot_x,header_y,slot,header_value);
+    if(host.instrument_modified || (host.instrument_original_number && host.instrument_original_number!=host.instrument_number)) {
+        std::string marker="*";
+        if(host.instrument_original_number && host.instrument_original_number!=host.instrument_number)
+            marker+=" ["+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]";
+        text(slot_end+triangle_reach+1+space,header_y,marker,row_header_bright);
+    }
+    const bool sample=host.instrument_identity=="Sample";
+    const auto identity=sample?host.text.Get(WarningText::Sample):
+        host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):
+        host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
+    const auto type_label=host.text.Get(WarningText::Type);
+    text(inset,type_y,type_label,row_header_bright);
+    const int type_x=inset+measure(type_label)+16;
+    if(host.instrument_focus==0) {
+        const auto bounds=HostBitmap::Measure(face,identity);
+        constexpr int x_padding=4,y_padding=2;
+        fb.Rectangle(type_x-x_padding,type_y+face.ascent+bounds.top-y_padding,
+            bounds.width+2*x_padding,bounds.bottom-bounds.top+2*y_padding,editing_frame);
+    }
+    text(type_x,type_y,identity,header_value);
+    const auto edit_arrows=[&](int x,int y,int value_width,bool left_visible,bool right_visible) {
+        for(int offset=0;offset<3;++offset) {
+            if(left_visible)fb.VerticalLine(x-8+offset,y+6-offset,y+6+offset,dim);
+            if(right_visible)fb.VerticalLine(x+value_width+7-offset,y+6-offset,y+6+offset,dim);
+        }
+    };
+    edit_arrows(type_x,type_y,measure(identity),true,true);
+    const auto save=host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable);
+    text(width-inset-measure(save),type_y,save,dim);
+
+    text(inset,name_y,"Name",row_header_bright);
+    if(sample) {
+        auto filename=host.instrument_name;
+        const auto columns=std::size_t((width-type_x-inset)/face.cell);
+        if(filename.size()>columns)filename=filename.substr(0,columns-3)+"...";
+        text(type_x,name_y,filename,header_value);
+    } else if(host.instrument_identity=="MIDI") {
+        const int channel_y=name_y+row_pitch;
+        text(inset,channel_y,"Channel",row_header_bright);
+        const auto value=host.instrument_midi_channel?std::to_string(host.instrument_midi_channel):std::string{};
+        constexpr int channel_x=80;
+        if(host.instrument_focus==3)focus(3,channel_x-4,channel_y-2,24,row_pitch);
+        text(channel_x,channel_y,value,header_value);
+        if(host.instrument_midi_channel)edit_arrows(channel_x,channel_y,2*face.cell,
+            host.instrument_midi_channel>1,host.instrument_midi_channel<16);
+    }
+
+    fb.Rectangle(left,sample_top,panel_width,waveform_top-layout.frame_gap-sample_top,border);
+    const std::string section=sample?"Sample WAV":"Availability";
+    text(inset,sample_heading,section,header_name);
+    HostBitmap::Text(fb,small,inset+measure(section)+24,sample_heading+1+small.ascent,host.instrument_availability,header_value);
+    const auto browse=host.text.Get(WarningText::Load)+" WAV";
+    const int browse_x=width-inset-measure(browse);
+    if(sample) {
+        focus(1,browse_x-6,sample_heading-5,measure(browse)+12);
+        text(browse_x,sample_heading,browse,host.instrument_load_available?header_value:dim);
+    }
+    fb.HorizontalLine(inset,width-inset-1,separator,border);
+    const auto detail=[&](int y,int bottom,const std::string& value,Color color) {
+        const auto columns=std::size_t((width-2*inset)/small.cell);
+        for(std::size_t start=0; start<value.size() && y+line_height<=bottom; y+=line_height) {
+            auto end=std::min(start+columns,value.size());
+            if(end<value.size()) {
+                const auto space=value.rfind(' ',end);
+                if(space!=std::string::npos && space>=start+columns/2)end=space+1;
+            }
+            HostBitmap::Text(fb,small,inset,y+small.ascent,value.substr(start,end-start),color);
+            start=end;
+        }
+        return y+4;
+    };
+    const int status_top=waveform_top-47;
+    // Descriptive fields have no title source yet.
+    text(inset,separator+10,"Description:",header_name);
+    if(sample) {
+        const auto staged_top=detail(separator+30,status_top,"Path: "+host.instrument_resource,header_value);
+        if(!host.instrument_candidate.empty())detail(staged_top,status_top,"Staged: "+host.instrument_candidate,editing_frame);
+    }
+
+    int status_y=status_top;
+    if(!host.instrument_status.empty())status_y=detail(status_y,waveform_top-10,host.instrument_status,editing_frame);
+    if(!host.instrument_load_warning.empty())status_y=detail(status_y,waveform_top-10,host.instrument_load_warning,editing_frame);
+    if(host.instrument_transport.empty())detail(status_y,waveform_top-10,host.connection_status,dim);
+
+    fb.Rectangle(left,waveform_top,panel_width,footer_top-waveform_top,border);
+    HostBitmap::Text(fb,small,inset,footer_top+6+small.ascent,host.transport_hints,header_value);
+}
+
 static void RenderPatternScreen(
     Framebuffer& framebuffer,
     const Tune& tune,
@@ -812,6 +944,8 @@ static void RenderPatternScreen(
         return;
     }
 
+    if(host.instrument_number) {DrawInstrumentScreen(framebuffer,host,live);return;}
+
     const auto display = ResolvePatternDisplay(live, !live);
     // Never show a draft against unrelated or unavailable device dimensions.
     if (editor && (!display.device_pattern || !editor->Ready() ||
@@ -823,44 +957,10 @@ static void RenderPatternScreen(
         tune,
         pattern, display, live);
 
-    if(host.instrument_number) {
-        static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
-        const int x=layout.pattern_x+8, width=layout.pattern_width-16;
-        int y=layout.pattern_y+12;
-        const auto line=[&](const std::string& text) {
-            HostBitmap::Text(framebuffer,face,x,y+face.ascent,text,header_name);y+=52;
-        };
-        const auto title=host.text.Get(WarningText::Instrument)+" "+FormatInstrument(static_cast<std::uint8_t>(host.instrument_number-1));
-        line(title);
-        if(host.instrument_focus==2)framebuffer.Rectangle(x-3,y-52-4,width,face.ascent+face.descent+8,editing_frame);
-        if(host.instrument_original_number) {
-            const bool original=host.instrument_original_number==host.instrument_number;
-            HostBitmap::Text(framebuffer,face,x+HostBitmap::Measure(face,title).width+(original?0:16),y-52+face.ascent,
-                original?"*":"[*"+FormatInstrument(static_cast<std::uint8_t>(host.instrument_original_number-1))+"]",row_header_bright);
-        }
-        const auto identity=host.instrument_identity=="Sample"?host.text.Get(WarningText::Sample):host.instrument_identity=="MIDI"?host.text.Get(WarningText::Midi):host.instrument_identity=="Sine Synth"?host.text.Get(WarningText::SineSynth):host.instrument_identity;
-        const int type_y=y;
-        line(host.text.Get(WarningText::Type)+": "+identity);
-        if(host.instrument_focus==0)framebuffer.Rectangle(x-3,type_y-4,width,face.ascent+face.descent+8,editing_frame);
-        const int availability_y=y;
-        line("Availability: "+host.instrument_availability);
-        if(!host.instrument_load_warning.empty())DrawWrappedFixedText(framebuffer,x,availability_y+18,width,32,host.instrument_load_warning,editing_frame);
-        const int resource_height=DrawWrappedFixedText(framebuffer,x,y,width,72,"Resource: "+host.instrument_resource,header_name);
-        y+=std::max(52,resource_height+8);
-        if(!host.instrument_candidate.empty()){
-            const int staged_height=DrawWrappedFixedText(framebuffer,x,y,width,72,"Staged: "+host.instrument_candidate,editing_frame);
-            y+=std::max(36,staged_height+8);
-        }
-        const int load_y=y;
-        line(host.text.Get(WarningText::Load)+": "+(host.instrument_load_available?"[Load WAV]":host.text.Get(WarningText::Unavailable)));
-        if(host.instrument_focus==1)framebuffer.Rectangle(x-3,load_y-4,width,face.ascent+face.descent+8,editing_frame);
-        line(host.text.Get(WarningText::Save)+": "+host.text.Get(WarningText::Unavailable));
-        line(host.text.Get(WarningText::FineTune)+": "+host.text.Get(WarningText::Unavailable));
-    } else if(host.load_save_screen) {
+    if(host.load_save_screen) {
         static const auto heading=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
         static const auto filename=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
-        DrawFileList(framebuffer,host.pattern_browser_list,layout.pattern_x+8,layout.pattern_y+8,
-            layout.pattern_width-16,heading,filename,"Pattern Load/Save");
+        DrawFileList(framebuffer,host.pattern_browser_list,heading,filename,"Pattern Load/Save");
         DrawWrappedFixedText(framebuffer,layout.pattern_x+8,layout.pattern_y+164,
             layout.pattern_width-16,static_cast<int>(::SCREEN_HEIGHT)-layout.pattern_y-172,host.pattern_browser_text,header_name);
     } else DrawPattern(

@@ -527,7 +527,7 @@ namespace BroTracker
             for(std::size_t i=0;i<commands.count;++i) {
                 const auto& c=commands.commands[i];
                 auto& target=midi_commands_.commands[i];
-                target={c.channel,c.sample_offset,c.action,c.sample.Mono(),c.step_q32_32,c.synth_note,c.sample_level_percent};
+                target={c.channel,c.sample_offset,c.action,c.sample.Mono(),c.step_q32_32,c.synth_note,c.sample_level_percent,c.midi_channel};
 #ifdef BROTRACKER_DIAGNOSTIC_SYNTH_LEFT
                 target.instrument=c.instrument;
 #endif

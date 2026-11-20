@@ -128,19 +128,19 @@ resolved focus policy; see the contradictions below.
 
 ### 3. Instrument foundation
 
-Pattern opens one specific instrument directly; no Inventory screen or menu exists.
-The implemented text foundation shows decimal 01-99 and read-only authoritative
-binding type (Sample, MIDI, Sine Synth), or an honest unknown/unbound state.
-Common Type, Name, separate Load and Save destinations, and Fine Tune have stable
-space; only Type has backing identity today. All editor operations are deferred,
-including type mutation and Transpose. Future Sample content accommodates waveform
-and parameters together; Synth may later use graphical controls.
+Pattern opens the Instrument editor directly. The editor uses the full 640?480
+canvas, with edge-to-edge one-pixel frames, the selected slot and its existing
+change marker, Type, and Save availability
+in the top group. Sample Name shows the acknowledged WAV filename. Description
+is blank because BTX has no embedded WAV title metadata. For Sample, a full-width resource section shows the assigned
+WAV path, any staged path, and Load WAV to open Sample Browser. MIDI and Sine Synth
+use the same slot, Type, and status layout. Preparation, rollback and errors
+appear above the empty lower third reserved for the future waveform.
 
-See [current controls](BTX_CONTROLS.md#instrument-entry) for provisional previous,
-next and return bindings, entry exclusions, STOP/save sequencing and preserved
-Pattern context. Normal return confirms selection to the captured cell through
-editor history/preview; browsing alone and closing BTX never assign. The original
-explicit source ID has a separate header marker; inherited selection does not.
+The bottom line gives the focused action and the platform's keep/rollback
+bindings. The OPT/INS/MIX sidebar stays on Pattern. The Instrument editor
+shows the current working fields and omits unimplemented parameters.
+See [current controls](BTX_CONTROLS.md#instrument) for entry, focus and return.
 
 ### 4. Future Instrument editing
 

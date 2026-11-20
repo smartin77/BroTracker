@@ -7,6 +7,7 @@
 #ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
 #include "ui/windows/input.h"
 #include "ui/arkos/input.h"
+#include "ui/sdl/file_browser_input.h"
 #endif
 #include "bringup/pattern_file_store.h"
 #include "bringup/pattern_control.h"
@@ -61,13 +62,18 @@ struct StoragePeer:SerialTransport {
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
     bool path_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
+    bool midi_instrument_cap=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
-    void EditReply(unsigned id,unsigned result){const auto reply="BTINS1 REPLACED 1 "+std::to_string(id)+" "+std::to_string(result)+" "+std::to_string(definitions.Count())+"\n";if(hold_define)define_reply+=reply;else rx+=reply;}
+    void EditReply(unsigned id,unsigned result,unsigned slot=99) {
+        char reply[128];
+        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap?slot:99);
+        (hold_define?define_reply:rx)+=reply;
+    }
     void ApplyEdit(const InstrumentDefineRequest& request) {
         const auto result=visit.Cancelled(request.request)?7u:reject_wav && request.type==1?6u:
             ReplaceInstrumentDefinition(definitions,definition_bindings,request,live_prepared,true,[&](const auto& b){return !definition_player || definition_player->ReplaceLiveInstrumentBinding(b);});
-        EditReply(request.request,result);
+        EditReply(request.request,result,request.expected);
     }
     void CompleteEdit(){CHECK(edit_pending);edit_pending=false;ApplyEdit(pending_edit);}
     VariableRatePatternPlayer* definition_player=nullptr;
@@ -105,6 +111,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && replace_cap)rx+="BTINS1 REPLACECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_type_cap)rx+="BTINS1 LIVETYPECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_edit_cap)rx+="BTINS1 LIVEEDITCAP 1\n";
+            if(line=="BTTEST1 HELLO" && midi_instrument_cap)rx+="BTINS1 MIDICHANNELCAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
             if(line=="BTTEST1 HELLO" && path_cap)rx+="BTPATH1 CAP 1 255 8192\n";
             if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
@@ -118,7 +125,6 @@ struct StoragePeer:SerialTransport {
                 rx+="BTPREVIEW1 NEXT 1 "+std::to_string(simulate_working?simulated_preview.NextIdentity():1)+"\nBTPREVIEW1 STATE 1 1 "+std::to_string(simulated_revision)+" 0\n";
             }
         }else if(line=="BTAUDIO1 SET 1 default")rx+="BTAUDIO1 SELECTED 1 bridge\n";
-        else if(line=="BTMIDI1 SET 1 12")rx+="BTMIDI1 SELECTED 1 12\n";
         else if(line.rfind("BTMUTE1 SET 1 ",0)==0) {
             CHECK_EQ(std::sscanf(line.c_str(),"BTMUTE1 SET 1 %u %u",&mute_id,&mute_mask),2);
             const auto reply="BTMUTE1 STATE 1 "+std::to_string(mute_id)+" "+std::to_string(mute_id+1)+" "+std::to_string(mute_mask)+"\n";
@@ -196,7 +202,7 @@ struct StoragePeer:SerialTransport {
         else if(line.rfind("BTINS1 RESTORE ",0)==0) {
             std::uint32_t f[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTINS1 RESTORE ",f,3));
             const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){return !definition_player || (b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id));});
-            EditReply(f[1],result);
+            EditReply(f[1],result,f[2]);
         }
         else if(line.rfind("BTINS1 EDIT ",0)==0) {
             InstrumentDefineRequest request;CHECK(ParseInstrumentEdit(line.data(),line.size(),request));CHECK(visit.Active());
@@ -221,6 +227,9 @@ struct StoragePeer:SerialTransport {
                 const auto* definition=define_cap?definitions.At(id):DevelopmentInstrumentDefinition(id);
                 auto availability=definition && definition->type==InstrumentType::MIDI?InstrumentAvailability::ExternalUnknown:definition && definition->type==InstrumentType::Synth?InstrumentAvailability::Ready:facts_availability;
                 char reply[kPathProtocolCapacity];if(FormatInstrumentFacts(InstrumentDefinitionFacts(id,definition,availability),reply,sizeof(reply),path_cap?3:2)) {if(hold_identity)identity_reply+=reply;else rx+=reply;}
+                if(midi_instrument_cap && definition && definition->type==InstrumentType::MIDI)
+                    (hold_identity?identity_reply:rx)+="BTINS1 CHANNEL 1 "+std::to_string(id)+" "+
+                        std::to_string(definition->midi_channel)+"\n";
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -355,7 +364,7 @@ TEST_CASE(HostStartupSdLoadSetupReadbackAndNoAutomaticStart) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();BringUpSerial serial(nullptr,std::move(peer));serial.SetStartupPattern(selection);serial.RequestFile(BringUpSerial::FileAction::Test,0);
         CHECK(!serial.Start());Pump(serial);CHECK(serial.StartupPatternReady());CHECK_EQ(wire->Loads(),1u);
         const auto load=std::find(wire->commands.begin(),wire->commands.end(),std::string("BTSTORE1 LOAD 1 ")+selection);CHECK(load!=wire->commands.end());
-        CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")!=load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
+        CHECK(std::find(wire->commands.begin(),load,"BTMIDI1 SET 1 12")==load);CHECK(std::find(wire->commands.begin(),load,"BTAUDIO1 SET 1 default")!=load);
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
         const auto view=serial.PlaybackView(1600);CHECK(view);CHECK(view->device_pattern);CHECK_EQ(view->device_pattern->tempo_hundredths,std::string(selection)=="none"?12500u:15500u);
         CHECK_EQ(view->device_pattern->pattern.cells[0][4].note,(std::string(selection)=="patern3" || (std::string(selection)=="patern4" || std::string(selection)=="patern4.btdev"))?36:NOTE_EMPTY);CHECK(!serial.Playing());
@@ -888,6 +897,27 @@ TEST_CASE(PatternLoadConfigOptOutAndStoppedGateAndListTimeout) {
     wire->hold_list=false;CHECK(serial.RequestPatternList(0,13001));Pump(serial,651,680,&editor);CHECK(serial.PatternListReady());
 }
 
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+namespace {
+bool BrowserKey(BringUpControls& controls,SDL_Keycode key) {
+    SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=key;
+    return HandleFileBrowserInput(event,controls,0,[](int,int,int&,int&){return false;});
+}
+bool BrowserWheel(BringUpControls& controls,int y,bool flipped=false) {
+    SDL_Event event{};event.type=SDL_MOUSEWHEEL;event.wheel.y=y;
+    event.wheel.direction=flipped?SDL_MOUSEWHEEL_FLIPPED:SDL_MOUSEWHEEL_NORMAL;
+    return HandleFileBrowserInput(event,controls,0,[](int,int,int&,int&){return false;});
+}
+bool BrowserClick(BringUpControls& controls,FileListArea area,int row,unsigned clicks,std::uint32_t now) {
+    SDL_Event event{};event.type=SDL_MOUSEBUTTONDOWN;event.button.button=SDL_BUTTON_LEFT;
+    event.button.clicks=clicks;event.button.x=2*area.left;event.button.y=2*(area.top+row*area.row_height);
+    return HandleFileBrowserInput(event,controls,now,[](int x,int y,int& fx,int& fy) {
+        fx=x/2;fy=y/2;return true;
+    });
+}
+}
+#endif
+
 TEST_CASE(PatternBrowserSortsAllPagesAndMovesContinuousViewport) {
     for(unsigned total:{16u,18u})for(bool backwards:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->list_cap=true;wire->hold_list=true;
@@ -915,8 +945,24 @@ TEST_CASE(PatternBrowserSortsAllPagesAndMovesContinuousViewport) {
             view=controls.BrowserList();CHECK_EQ(view.selected,total-1);CHECK_EQ(view.first,12u);
             const auto last=view.Indicator(108);CHECK_EQ(last.offset+last.length,108u);
         }
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+        const auto area=PatternLoadListArea();
+        CHECK(BrowserKey(controls,SDLK_HOME));CHECK_EQ(controls.BrowserList().first,0u);
+        CHECK(BrowserWheel(controls,-8));CHECK_EQ(controls.BrowserList().selected,8u);
+        CHECK(BrowserWheel(controls,-2,true));CHECK_EQ(controls.BrowserList().selected,6u);
+        CHECK(BrowserKey(controls,SDLK_END));
+        CHECK_EQ(controls.BrowserList().selected,total-1);CHECK_EQ(controls.BrowserList().first,12u);
+        CHECK(BrowserClick(controls,area,-1,2,tick*20));CHECK(!controls.BrowserConfirming());
+        CHECK(BrowserClick(controls,area,0,1,tick*20));CHECK_EQ(controls.BrowserList().selected,12u);
+        CHECK(!controls.BrowserConfirming());CHECK_EQ(wire->Loads(),0u);
+        const auto selected=controls.BrowserList().names[13];
+        CHECK(BrowserClick(controls,area,1,2,tick*20));CHECK(controls.BrowserConfirming());
+        CHECK(!BrowserClick(controls,area,1,2,tick*20));CHECK(controls.BrowserConfirming());
+#else
         const auto selected=view.names[view.selected];
-        controls.Request(BringUpAction::BrowserConfirm,"prompt",tick*20);CHECK(controls.BrowserText().find(selected)!=std::string::npos);
+        controls.Request(BringUpAction::BrowserConfirm,"prompt",tick*20);
+#endif
+        CHECK(controls.BrowserText().find(selected)!=std::string::npos);
         CHECK_EQ(wire->Loads(),0u);controls.Request(BringUpAction::BrowserConfirm,"load",tick*20);drive();drive();
         CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTSTORE1 LOAD 1 "+selected)!=wire->commands.end());
         CHECK(!controls.LoadSaveScreen());CHECK_EQ(editor.Cursor().row,0u);CHECK_EQ(editor.Cursor().channel,0u);
@@ -1278,7 +1324,7 @@ TEST_CASE(InstrumentReconnectMismatchKeepsCapturedSlotSeparateFromExplicitRecove
     }
 }
 
-TEST_CASE(InstrumentSelectorReturnAssignsCapturedCellThroughPreviewAndUndo) {
+TEST_CASE(KeepingTheResolvedEntryPreservesTheCapturedCellWithoutUndo) {
     for(auto field:{EditField::Note,EditField::Instrument})for(bool explicit_id:{false,true})for(bool browse:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
         wire->metadata_cap=wire->preview_cap=wire->simulate_working=true;
@@ -1289,17 +1335,16 @@ TEST_CASE(InstrumentSelectorReturnAssignsCapturedCellThroughPreviewAndUndo) {
         auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
         drive(0,100);editor.RestoreCursor({2,1,field,false});const auto before=*editor.Draft();
         controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());
-        CHECK_EQ(controls.OriginalInstrumentNumber(),explicit_id?3u:0u);CHECK_EQ(controls.InstrumentNumber(),explicit_id?3u:5u);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),explicit_id?3u:5u);CHECK_EQ(controls.InstrumentNumber(),explicit_id?3u:5u);
         if(browse)controls.Request(BringUpAction::ScreenRight,"next",3600);
         CHECK(SamePattern(before,*editor.Draft()));CHECK(SamePattern(before,wire->simulated_working));
-        auto assigned=before;assigned.cells[2][1].instrument=controls.InstrumentNumber()-1;
+        const auto assigned=before;
         editor.RestoreCursor({6,4,EditField::Note,false}); // Later cursor movement cannot retarget confirmation.
         controls.Request(BringUpAction::ScreenDown,"return",3601);drive(181,260);
         CHECK(!controls.InstrumentScreen());CHECK(SamePattern(assigned,*editor.Draft()));CHECK(SamePattern(assigned,wire->simulated_working));
         CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==field);
-        CHECK_EQ(editor.CanUndo(),!explicit_id);
-        if(!explicit_id) {CHECK(editor.Undo());drive(261,340);CHECK(SamePattern(before,wire->simulated_working));}
-        else CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
+        CHECK(!editor.CanUndo());
+        CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
     }
 }
 TEST_CASE(InstrumentSelectorKeepsSelectionUnderEditorBarrierAndExitDoesNotConfirm) {
@@ -1957,7 +2002,7 @@ TEST_CASE(PlayingInstrumentEntryCapturesRamWithoutStorageOrTransportAndCancelPre
         CHECK(controls.InstrumentScreen());CHECK(!controls.ScreenPending());
         CHECK(controls.InstrumentEntryPattern());CHECK(SamePattern(before,*controls.InstrumentEntryPattern()));
         CHECK_EQ(controls.InstrumentEntryPattern()->cells[3][1].instrument,raw);
-        CHECK_EQ(controls.OriginalInstrumentNumber(),raw==255?0u:raw+1);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),raw==255?controls.InstrumentNumber():raw+1);
         CHECK(!controls.InstrumentTypeEditable());CHECK(!controls.InstrumentLoadAvailable());
         controls.Request(BringUpAction::InstrumentIncrease,"blocked live Type",2003);
         controls.Request(BringUpAction::BrowserConfirm,"blocked live WAV",2004);
@@ -2015,7 +2060,7 @@ TEST_CASE(InstrumentCommonTypeDraftEscapeAndNoOpReturnPreserveExplicitCellInBoth
         controls.Request(BringUpAction::InstrumentPreviousField,"up",3602);CHECK_EQ(controls.InstrumentFocus(),0);
         if(escape) {
             controls.Request(BringUpAction::InstrumentIncrease,"right",3603);
-            CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);CHECK(SamePattern(before,*editor.Draft()));
+            CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);CHECK(controls.InstrumentVisitModified());CHECK(SamePattern(before,*editor.Draft()));
             if(playing) {
                 controls.Request(BringUpAction::ScreenDown,"pending Type is not no-op",3604);
                 CHECK(controls.InstrumentScreen());CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);
@@ -2045,7 +2090,7 @@ TEST_CASE(InstrumentCommonTypeDraftEscapeAndNoOpReturnPreserveExplicitCellInBoth
     }
 }
 
-TEST_CASE(PlayingEmptyRawAssignmentCannotConfirmAsInheritedOrDefaultNoOp) {
+TEST_CASE(PlayingKeepPreservesInheritedAndDefaultRawAssignment) {
     for(bool inherited:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
         wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=true;
@@ -2058,11 +2103,9 @@ TEST_CASE(PlayingEmptyRawAssignmentCannotConfirmAsInheritedOrDefaultNoOp) {
         CHECK(editor.RecoverDraft(fixture));editor.RestoreCursor({3,1,EditField::Instrument,false});
         const auto before=*editor.Draft();wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);
         const auto from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"empty entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentNumber(),inherited?2u:1u);CHECK_EQ(controls.OriginalInstrumentNumber(),0u);
-        controls.Request(BringUpAction::ScreenDown,"would assign raw slot",3601);
-        CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
-        CHECK(std::string(controls.ScreenStatus()).find("assignment change requires STOP")!=std::string::npos);
-        controls.Request(BringUpAction::InstrumentCancel,"cancel",3602);drive(181,200);
+        CHECK_EQ(controls.InstrumentNumber(),inherited?2u:1u);CHECK_EQ(controls.OriginalInstrumentNumber(),inherited?2u:1u);
+        CHECK(!controls.InstrumentVisitModified());
+        controls.Request(BringUpAction::ScreenDown,"keep inherited/default",3601);drive(181,200);
         CHECK(!controls.InstrumentScreen());CHECK_EQ(editor.Cursor().row,3u);CHECK_EQ(editor.Cursor().channel,1u);
         CHECK(editor.Cursor().field==EditField::Instrument);CHECK(SamePattern(before,*editor.Draft()));CHECK(serial.Playing());
         for(auto it=wire->commands.begin()+from;it!=wire->commands.end();++it) {
@@ -2114,30 +2157,28 @@ TEST_CASE(InstrumentLiveSlotSelectionConfirmsOrRollsBackThroughWireAndProduction
         drive(0,100);editor.RestoreCursor({1,0,EditField::Instrument,false});
         if(playing){wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);}
         const auto entry_from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.OriginalInstrumentNumber(),empty?0u:1u);
+        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.OriginalInstrumentNumber(),1u);
         controls.Request(BringUpAction::InstrumentPreviousField,"Up to slot",3601);CHECK_EQ(controls.InstrumentFocus(),2);
         controls.Request(BringUpAction::InstrumentIncrease,"Right selects 02",3602);
-        CHECK_EQ(editor.Draft()->cells[1][0].instrument,1u);CHECK_EQ(controls.InstrumentNumber(),2u);
+        CHECK(SamePattern(original,*editor.Draft()));CHECK_EQ(controls.InstrumentNumber(),2u);
         CHECK_EQ(editor.Draft()->cells[1][0].note,60u);CHECK(editor.Draft()->note_off_timing[1][0]==NoteOffTiming::EndOfPosition);
-        CHECK_EQ(editor.Cursor().row,1u);CHECK_EQ(controls.OriginalInstrumentNumber(),empty?0u:1u);
-        drive(181,260);CHECK(controls.InstrumentScreen());CHECK_EQ(wire->simulated_working.cells[1][0].instrument,1u);
-        if(playing){CHECK_EQ(last_trigger_slot,1u);CHECK_EQ(first_trigger_slot,1u);}
+        CHECK_EQ(editor.Cursor().row,1u);CHECK_EQ(controls.OriginalInstrumentNumber(),1u);
+        drive(181,260);CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,wire->simulated_working));
+        if(playing)CHECK_EQ(last_trigger_slot,0u);
         const auto return_from=wire->commands.size();
         if(cancel) {
-            // Commit a newer frozen selection on the wire but delay its ACK.
-            // Escape must queue the original AFTER that revision, not mistake
-            // an earlier matching readback for completed rollback.
+            // Keep applies the browsed slot. Escape restores the original even
+            // while the assignment is still being sent or awaiting its reply.
             wire->hold_preview_response=true;
             if(partial)wire->write_limit=1;
-            controls.Request(BringUpAction::InstrumentIncrease,"rapid Right 03",5201);drive(261,270);
+            controls.Request(BringUpAction::ScreenDown,"Keep 02",5201);drive(261,270);
             if(partial)CHECK(!wire->tx.empty());else CHECK(!wire->preview_response.empty());
-            controls.Request(BringUpAction::InstrumentDecrease,"rapid Left 02",5401);
             controls.Request(BringUpAction::InstrumentCancel,"Escape",5402);
             CHECK(controls.InstrumentScreen());CHECK_EQ(editor.Draft()->cells[1][0].instrument,empty?255u:0u);
             drive(271,280);CHECK(controls.InstrumentScreen());
             wire->hold_preview_response=false;wire->write_limit=UINT32_MAX;wire->rx+=wire->preview_response;wire->preview_response.clear();
             drive(281,380);CHECK(SamePattern(original,*editor.Draft()));CHECK(SamePattern(original,wire->simulated_working));
-            if(playing){CHECK_EQ(last_trigger_slot,0u);CHECK_EQ(first_trigger_slot,0u);}
+            if(playing)CHECK_EQ(last_trigger_slot,0u);
         } else {
             controls.Request(BringUpAction::ScreenDown,"Ctrl+Down",5201);drive(261,340);
             CHECK_EQ(wire->simulated_working.cells[1][0].instrument,1u);CHECK_EQ(editor.Draft()->cells[1][0].instrument,1u);
@@ -2150,6 +2191,44 @@ TEST_CASE(InstrumentLiveSlotSelectionConfirmsOrRollsBackThroughWireAndProduction
             CHECK(it->rfind("BTTEST1 STOP",0)!=0);CHECK(it->rfind("BTTEST1 PAUSE",0)!=0);CHECK(it->rfind("BTTEST1 START",0)!=0);
             CHECK(it->rfind("BTTEST1 CONTINUE",0)!=0);CHECK(it->rfind("BTSTORE1 SAVE",0)!=0);CHECK(it->rfind("BTSTORE1 READY",0)!=0);
         }
+        controls.Request(BringUpAction::ScreenUp,"re-enter",8801);drive(441,500);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),cancel?1u:2u);
+    }
+}
+
+TEST_CASE(InstrumentBrowsingMarksOnlyDifferencesFromTheResolvedEntry) {
+    for(unsigned mode=0;mode<3;++mode) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->preview_cap=wire->simulate_working=true;
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,static_cast<std::uint8_t>(mode==2?255:2)};
+        wire->simulated_working.cells[1][0]={60,static_cast<std::uint8_t>(mode==0?2:255)};
+        const auto original=wire->simulated_working;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"slot marker",tick*20);};
+        drive(100);editor.RestoreCursor({1,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());
+        act(BringUpAction::InstrumentPreviousField);CHECK_EQ(controls.InstrumentFocus(),2);
+        const auto expect=[&](unsigned number){
+            drive(12);
+            CHECK_EQ(controls.InstrumentNumber(),number);
+            CHECK_EQ(controls.OriginalInstrumentNumber(),mode==2?1u:3u);
+            CHECK_EQ(controls.InstrumentVisitModified(),number!=(mode==2?1u:3u));
+            CHECK(SamePattern(original,*editor.Draft()));
+            CHECK(SamePattern(original,wire->simulated_working));
+        };
+        expect(mode==2?1u:3u);
+        if(mode==2) {act(BringUpAction::InstrumentIncrease);act(BringUpAction::InstrumentIncrease);}
+        act(BringUpAction::InstrumentIncrease);expect(4);
+        for(unsigned i=0;i<3;++i)act(BringUpAction::InstrumentDecrease);
+        expect(1);
+        for(unsigned i=0;i<2;++i)act(BringUpAction::InstrumentIncrease);
+        expect(3);
+        act(mode==2?BringUpAction::InstrumentCancel:BringUpAction::ScreenDown);drive(30);
+        CHECK(!controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
     }
 }
 
@@ -2185,6 +2264,131 @@ TEST_CASE(SampleLoadBrowserRequestAndCancellationWorkStoppedButAreBlockedPlaying
     }
 }
 
+TEST_CASE(ConvertingSlotSixToMidiPublishesAuthoritativeChannelOnAcknowledgement) {
+    for(bool keep:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->define_cap=wire->path_cap=
+            wire->live_edit_cap=wire->preview_cap=wire->simulate_working=wire->midi_instrument_cap=true;
+        while(wire->definitions.Count()<6)
+            CHECK(wire->definitions.Append(wire->definitions.Count(),3,nullptr));
+        wire->collection_count=6;
+        auto& bindings=wire->definition_bindings;
+        auto& binding=bindings.bindings[bindings.count++];
+        binding.instrument=5;binding.type=InstrumentType::Synth;binding.reference_note=48;
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,5};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"convert slot 06",tick*20);};
+        drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);
+        CHECK_EQ(controls.InstrumentNumber(),6u);
+        CHECK(controls.InstrumentDraftType()=="Sine Synth");CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        CHECK(!controls.InstrumentVisitModified());
+        wire->hold_define=wire->hold_identity=true;
+        act(BringUpAction::InstrumentDecrease);drive(20);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(binding.midi_channel,1u);
+        CHECK_EQ(wire->definitions.At(5)->midi_channel,1u);
+        CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        const auto split=wire->define_reply.find('\n');
+        CHECK(split!=std::string::npos);
+        wire->rx+=wire->define_reply.substr(0,split+1);drive(5);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(controls.InstrumentMidiChannel(),0u);
+        wire->rx+=wire->define_reply.substr(split+1);wire->define_reply.clear();
+        wire->hold_define=false;drive(20);
+        CHECK(controls.InstrumentDraftType()=="MIDI");CHECK_EQ(controls.InstrumentMidiChannel(),1u);
+        CHECK(controls.InstrumentVisitModified());CHECK(!wire->identity_reply.empty());
+        act(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentFocus(),3);
+        act(BringUpAction::InstrumentIncrease);drive(20);
+        CHECK_EQ(controls.InstrumentMidiChannel(),2u);CHECK_EQ(binding.midi_channel,2u);
+        act(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(45);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(wire->simulated_working.cells[0][0].instrument,5u);
+        CHECK_EQ(binding.type,keep?InstrumentType::MIDI:InstrumentType::Synth);
+        CHECK_EQ(binding.midi_channel,keep?2u:0u);
+        CHECK_EQ(wire->definitions.At(5)->type,binding.type);
+        if(!keep) {
+            CHECK_EQ(binding.reference_note,48u);
+        } else {
+            CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+            std::int16_t audio[128]{};
+            CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+            const auto midi=player.TakeMidiCommands();
+            CHECK(midi.count>0);CHECK_EQ(midi.commands[0].midi_channel,2u);
+        }
+    }
+}
+
+TEST_CASE(MidiInstrumentChannelIsBoundedAcknowledgedAndKeptOrRestored) {
+    for(bool keep:{false,true})for(unsigned start:{1u,16u}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->define_cap=
+            wire->live_edit_cap=wire->preview_cap=wire->simulate_working=wire->midi_instrument_cap=true;
+        auto* binding=std::find_if(wire->definition_bindings.bindings,wire->definition_bindings.bindings+wire->definition_bindings.count,
+            [](const VariableRateSampleBinding& b){return b.instrument==1;});
+        CHECK(binding!=wire->definition_bindings.bindings+wire->definition_bindings.count);
+        binding->midi_channel=start;
+        CHECK(wire->definitions.Replace(1,2,nullptr,start));
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,1};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,wire->definition_bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"MIDI channel",tick*20);};
+        drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());
+        act(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentFocus(),3);
+        CHECK_EQ(controls.InstrumentMidiChannel(),start);CHECK(!controls.InstrumentVisitModified());
+        act(start==1?BringUpAction::InstrumentDecrease:BringUpAction::InstrumentIncrease);
+        CHECK(!serial.InstrumentCommitPending());CHECK(!controls.InstrumentVisitModified());
+        const auto changed=start==1?2u:15u;
+        wire->hold_define=true;
+        act(start==1?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease);drive(20);
+        CHECK(serial.InstrumentCommitPending());CHECK_EQ(binding->midi_channel,changed);
+        CHECK_EQ(controls.InstrumentMidiChannel(),start);CHECK(controls.InstrumentVisitModified());
+        wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(25);
+        CHECK_EQ(controls.InstrumentMidiChannel(),changed);CHECK(controls.InstrumentVisitModified());
+        act(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(45);
+        CHECK(!controls.InstrumentScreen());CHECK_EQ(binding->midi_channel,keep?changed:start);
+        CHECK_EQ(wire->definitions.At(1)->midi_channel,keep?changed:start);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+        std::int16_t audio[128]{};
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        const auto midi=player.TakeMidiCommands();
+        CHECK(midi.count>0);CHECK_EQ(midi.commands[0].midi_channel,keep?changed:start);
+    }
+}
+TEST_CASE(InstrumentModificationMarkerWaitsForRestorationAcknowledgement) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_type_cap=wire->preview_cap=wire->simulate_working=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,1};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    unsigned tick=0;
+    auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+    auto act=[&](BringUpAction action){controls.Request(action,"marker acknowledgement",tick*20);};
+    drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());CHECK(!controls.InstrumentVisitModified());
+    act(BringUpAction::BrowserConfirm);CHECK(!controls.InstrumentVisitModified()); // Unavailable Load is only a status error.
+    wire->hold_define=true;
+    act(BringUpAction::InstrumentIncrease);CHECK(controls.InstrumentVisitModified());drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    CHECK(!serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=true;
+    act(BringUpAction::InstrumentDecrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    CHECK(!serial.InstrumentCommitPending());CHECK(!controls.InstrumentVisitModified());
+}
+
 TEST_CASE(LiveMidiSynthTypeAppliesBeforeReturnAndRollbackWaitsForInFlightAcknowledgement) {
     for(bool playing:{false,true})for(bool was_midi:{false,true})for(bool cancel:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
@@ -2216,10 +2420,10 @@ TEST_CASE(LiveMidiSynthTypeAppliesBeforeReturnAndRollbackWaitsForInFlightAcknowl
         drive(0,100);editor.RestoreCursor({0,0,EditField::Instrument,false});
         if(playing){wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);}
         const auto entry_from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.InstrumentDraftTypeCode(),original_type);
+        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.InstrumentDraftTypeCode(),original_type);CHECK(!controls.InstrumentVisitModified());
         const auto from=wire->commands.size();wire->hold_define=cancel;
         controls.Request(was_midi?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease,"live Type",3601);drive(181,220);
-        CHECK(controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(slot)->type),new_type);
+        CHECK(controls.InstrumentScreen());CHECK(controls.InstrumentVisitModified());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(slot)->type),new_type);
         if(playing){CHECK_EQ(first_trigger,new_type);CHECK_EQ(last_trigger,new_type);CHECK(player.GetTransportState()==VariableRatePatternTransportState::Playing);}
         if(cancel) {
             CHECK(serial.InstrumentCommitPending());CHECK(!wire->define_reply.empty());
@@ -2267,11 +2471,13 @@ TEST_CASE(EscapeRestoresEveryLiveTypeAndExplicitOrEmptyLiveAssignment) {
         wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
         const auto from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
         controls.Request(BringUpAction::InstrumentPreviousField,"slot",3601);controls.Request(BringUpAction::InstrumentIncrease,"slot03",3602);drive(181,220);
-        CHECK_EQ(wire->simulated_working.cells[1][0].instrument,2u);
+        CHECK(SamePattern(original,wire->simulated_working));
         controls.Request(BringUpAction::InstrumentNextField,"Type",4401);controls.Request(BringUpAction::InstrumentDecrease,"Synth to MIDI",4402);drive(221,260);
         CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::MIDI);
         controls.Request(BringUpAction::InstrumentPreviousField,"slot",5201);controls.Request(BringUpAction::InstrumentDecrease,"slot02",5202);drive(261,300);
+        CHECK_EQ(controls.InstrumentNumber(),controls.OriginalInstrumentNumber());CHECK(controls.InstrumentVisitModified());
         controls.Request(BringUpAction::InstrumentNextField,"Type",6001);controls.Request(BringUpAction::InstrumentIncrease,"MIDI to Synth",6002);drive(301,340);
+        CHECK(controls.InstrumentVisitModified());
         CHECK_EQ(wire->definitions.At(1)->type,InstrumentType::Synth);CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::MIDI);
         controls.Request(BringUpAction::InstrumentCancel,"Escape all visit edits",6801);drive(341,440);
         CHECK(!controls.InstrumentScreen());CHECK_EQ(wire->definitions.At(1)->type,InstrumentType::MIDI);CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::Synth);
@@ -2325,10 +2531,12 @@ TEST_CASE(AllSixLiveTypeTransitionsUseProductionTriggersAndConfirmOrRestoreExact
             controls.Request(BringUpAction::InstrumentActivate,"reopen Load",3802);drive(191,220);
             wire->hold_prepare=true;controls.Request(BringUpAction::BrowserDown,"selected.wav",4401);controls.Request(BringUpAction::BrowserConfirm,"prepare WAV",4402);drive(221,260);
             CHECK(wire->edit_pending);CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),from);
+            CHECK_EQ(controls.InstrumentAssignedResource(),std::string("None"));
             if(playing)CHECK_EQ(last_trigger,from); // proposal alone did not change the engine
             wire->hold_prepare=false;wire->CompleteEdit();drive(261,340);
         } else drive(161,340);
         CHECK(controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),to);
+        CHECK_EQ(controls.InstrumentAssignedResource(),std::string(to==1?wire->definitions.At(0)->resource:"None"));
         if(playing){CHECK_EQ(first_trigger,to);CHECK_EQ(last_trigger,to);if(to==1)CHECK_EQ(last_sample,new_pcm);}
         controls.Request(cancel?BringUpAction::InstrumentCancel:BringUpAction::ScreenDown,"finish",6801);drive(341,440);
         CHECK(!controls.InstrumentScreen());CHECK(!wire->visit.Active());CHECK(!serial.InstrumentVisitActive());
@@ -2363,6 +2571,7 @@ TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRo
         wire->hold_prepare=true;controls.Request(BringUpAction::BrowserDown,"file",4001);controls.Request(BringUpAction::BrowserConfirm,"file select",4002);
         if(controls.ReplacementConfirming())controls.Request(BringUpAction::BrowserConfirm,"accept replacement",4003);
         drive(201,240);CHECK(wire->edit_pending);const auto delayed=wire->pending_edit;
+        CHECK_EQ(controls.InstrumentAssignedResource(),std::string(original_sample?"Samples/test2.wav":"None"));
         controls.Request(BringUpAction::InstrumentCancel,"Escape during load",4801);drive(241,320);
         CHECK(!wire->edit_pending);CHECK(!controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),original_sample?1u:2u);
         wire->ApplyEdit(delayed);drive(321,340);CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),original_sample?1u:2u);
@@ -2370,7 +2579,7 @@ TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRo
     }
 }
 
-TEST_CASE(ManualWavAuditionIsStoppedOnlyAndIndependentOfBrowserSelectionAndDraft) {
+TEST_CASE(ManualWavAuditionNegotiatesLiveTransportAndPreservesBrowserDraft) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
     wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_edit_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
     wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;wire->simulated_working.cells[0][0]={60,0};
@@ -2395,10 +2604,16 @@ TEST_CASE(ManualWavAuditionIsStoppedOnlyAndIndependentOfBrowserSelectionAndDraft
     wire->state="PAUSED";wire->rx+="BTTEST1 STATE PAUSED\n";drive(261,270);
     controls.Request(BringUpAction::BrowserAudition,"blocked paused",5401);drive(271,280);CHECK_EQ(plays(),1);
     CHECK_EQ(controls.BrowserText(),std::string("Audition requires confirmed STOP and audition-capable firmware"));
-    wire->state="IDLE";wire->rx+="BTTEST1 STATE IDLE\n";drive(281,290);
-    controls.Request(BringUpAction::BrowserAudition,"restart",5801);drive(291,300);CHECK_EQ(plays(),2);
-    CHECK(controls.BrowserText().find("Audition requires")==std::string::npos);
-    controls.Request(BringUpAction::BrowserCancel,"leave",6001);drive(301,320);CHECK(!controls.WavPicker());
+    wire->rx+="BTWAV1 CAP 2\n";drive(281,290);
+    controls.Request(BringUpAction::BrowserAudition,"paused",5801);drive(291,300);CHECK_EQ(plays(),2);
+    wire->rx+="BTWAV1 QUEUED 1 2\n";drive(301,310);
+    CHECK(controls.BrowserText().find("waiting for SD headroom")!=std::string::npos);
+    wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";drive(311,320);
+    CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 CANCEL",0)==0;}));
+    controls.Request(BringUpAction::BrowserAudition,"playing restart",6401);drive(321,330);CHECK_EQ(plays(),3);
+    wire->rx+="BTWAV1 RESULT 1 2 8\n";drive(331,340);
+    CHECK(controls.BrowserText().find("stopped for streaming")==std::string::npos);
+    controls.Request(BringUpAction::BrowserCancel,"leave",6801);drive(341,360);CHECK(!controls.WavPicker());
     CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 CANCEL",0)==0;}));
     CHECK(controls.InstrumentDraftResource().empty());CHECK(SamePattern(before,*editor.Draft()));
 }
@@ -2426,9 +2641,25 @@ TEST_CASE(ProgressiveBrowserControllerAcceptsFileOrFolderWhileNextBatchIsPending
         controls.Request(BringUpAction::InstrumentNextField,"Load",3201);controls.Request(BringUpAction::InstrumentActivate,"browse",3202);drive(161,200);
         wire->rx+="BTSTORE1 WAVDIR 3 1 /Samples\nBTSTORE1 WAVINFO 3 1 0\nBTSTORE1 WAVITEM 3 1 D Sub\nBTSTORE1 WAVITEM 3 1 F early.wav\nBTSTORE1 WAVMETA 3 1 1 0 1 1 16 44100\nBTSTORE1 WAVEND 3 1 64 0 2\n";
         drive(201,220);CHECK(controls.WavPicker());CHECK(serial.PatternListBusy());CHECK_EQ(controls.BrowserList().names.size(),3u);CHECK(controls.BrowserText().find("1 samples read")!=std::string::npos);
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+        const auto area=SampleBrowserListArea(controls.WavDirectory());
+        CHECK(BrowserKey(controls,SDLK_END));CHECK_EQ(controls.BrowserList().selected,2u);
+        CHECK(BrowserWheel(controls,2));CHECK_EQ(controls.BrowserList().selected,0u);
+        CHECK(BrowserClick(controls,area,3,2,4401));CHECK_EQ(controls.BrowserList().selected,0u);
+        CHECK(BrowserClick(controls,area,folder?1:2,1,4402));
+        CHECK_EQ(controls.BrowserList().selected,folder?1u:2u);CHECK(!controls.ReplacementConfirming());
+        CHECK(BrowserClick(controls,area,folder?1:2,2,4403));
+        if(!folder) {
+            CHECK(controls.ReplacementConfirming());
+            CHECK(!BrowserClick(controls,area,2,2,4404));
+        }
+#else
         controls.Request(BringUpAction::BrowserDown,"navigate before complete",4401);
         if(!folder)controls.Request(BringUpAction::BrowserDown,"early WAV",4402);
-        controls.Request(BringUpAction::BrowserConfirm,"select before complete",4403);drive(221,240);
+        controls.Request(BringUpAction::BrowserConfirm,"select before complete",4403);
+#endif
+        drive(221,240);
+        CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTWAV1 PLAY",0)==0;}));
         if(folder) {
             CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c=="BTSTORE1 WAVOPEN 3 3 0 0 /Samples/Sub";}));
             wire->rx+="BTSTORE1 WAVDIR 3 2 /Samples\nBTSTORE1 WAVINFO 3 2 0\nBTSTORE1 WAVEND 3 2 64 1 0\nBTSTORE1 WAVDIR 3 3 /Samples/Sub\nBTSTORE1 WAVINFO 3 3 0\nBTSTORE1 WAVEND 3 3 0 1 0\n";drive(241,260);
