@@ -54,10 +54,11 @@ Pattern Load/Save retains STOP and session-save entry coordination.
 The full-width editor groups slot and Type above the Sample WAV section, which
 shows the assigned path and opens Sample Browser via Load WAV. In the top group,
 Name shows the acknowledged filename. Description stays blank until embedded WAV
-title metadata is available. Save is
-dimmed and the waveform area is empty. The footer shows the current field's
-binding alongside keep and rollback. Preparation and errors appear above the
-waveform area.
+title metadata is available. Save is dimmed. The footer shows the current
+field's binding alongside keep and rollback. Preparation and errors appear in
+the middle frame. Sample shows the same locally bundled waveform in every slot.
+Preview, Zoom 1x, Fit, Set Start, Set End and the orange endpoints are visual
+placeholders. See the [fixed-fixture mockup](INSTRUMENT_FOUNDATION.md#sample-waveform-mockup).
 
 Entry focuses Type. The orange frame marks focus; field navigation cycles Type,
 available Load WAV or MIDI Channel, and Instrument slot. Left/Right on slot clamps to 01-N (at

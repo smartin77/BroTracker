@@ -3,6 +3,7 @@
 #include "ui/editor_repeat.h"
 #include "ui/editor_step_input.h"
 #include "ui/pattern_screen.h"
+#include "ui/sample_waveform.h"
 #include "ui/text_renderer.h"
 #include "ui/instrument_formatter.h"
 #include "bringup/instrument_commit.h"
@@ -957,7 +958,7 @@ TEST_CASE(InstrumentModificationMarkerUsesActualRendererAndFrozenResolvedSlot) {
     RenderMainScreen(fb,tune,pattern,view,&editor,panel);expect_marker("");
 }
 
-TEST_CASE(InstrumentViewportKeepsTheWaveformInteriorEmptyAndIgnoresSidebarText) {
+TEST_CASE(InstrumentViewportSwapsFrameHeightsAndIgnoresSidebarText) {
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
     Framebuffer first(640,480),second(640,480);Tune tune;Pattern pattern;
     const auto view=ConnectedDraft();
@@ -968,20 +969,14 @@ TEST_CASE(InstrumentViewportKeepsTheWaveformInteriorEmptyAndIgnoresSidebarText) 
     panel.instrument_transport="PLAYING";
     panel.transport_hints="Enter: Browse | Ctrl+Down: Keep | Esc: Roll back";
     RenderMainScreen(first,tune,pattern,view,nullptr,panel);
-    const auto blank=first.PixelData()[335*640+9];
-    bool empty=true;
-    for(unsigned y=335;y<448;++y)for(unsigned x=9;x<631;++x) {
-        const auto pixel=first.PixelData()[y*640+x];
-        empty=empty && pixel.r==blank.r && pixel.g==blank.g && pixel.b==blank.b;
-    }
-    CHECK(empty);
-    const auto frame=first.PixelData()[334*640];
+    const auto blank=first.PixelData()[456*640+9];
+    const auto frame=first.PixelData()[263*640];
     CHECK(frame.r!=blank.r || frame.g!=blank.g || frame.b!=blank.b);
-    for(unsigned y:{0u,139u,334u}) {
+    for(unsigned y:{0u,135u,139u,259u,263u,454u}) {
         const auto edge=first.PixelData()[y*640+639];
         CHECK(edge.r==frame.r && edge.g==frame.g && edge.b==frame.b);
     }
-    for(unsigned y:{136u,137u,138u,331u,332u,333u})CHECK(std::memcmp(first.PixelData()+y*640,first.PixelData()+456*640,640*sizeof(Color))==0);
+    for(unsigned y:{136u,137u,138u,260u,261u,262u})CHECK(std::memcmp(first.PixelData()+y*640,first.PixelData()+456*640,640*sizeof(Color))==0);
     CHECK(std::memcmp(first.PixelData()+455*640,first.PixelData()+456*640,640*sizeof(Color))==0);
     panel.publication_status="Sidebar only";panel.diagnostic_status="Sidebar diagnostic";
     RenderMainScreen(second,tune,pattern,view,nullptr,panel);
@@ -989,6 +984,78 @@ TEST_CASE(InstrumentViewportKeepsTheWaveformInteriorEmptyAndIgnoresSidebarText) 
     panel.instrument_status="Preparation failed; previous binding retained";
     RenderMainScreen(second,tune,pattern,view,nullptr,panel);
     CHECK(std::memcmp(first.PixelData(),second.PixelData(),640*480*sizeof(Color))!=0);
+}
+
+TEST_CASE(InstrumentWaveformRendersLocalFixtureAndReusesItAcrossVisits) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    const std::filesystem::path screenshots="diagnostics/sample-waveform";
+    std::filesystem::create_directories(screenshots);
+    Framebuffer fb(640,480);
+    Tune tune;
+    Pattern pattern;
+    auto view=ConnectedDraft();
+    view->position.running=true;
+    view->position.valid=true;
+    view->fresh=true;
+    view->tempo_hundredths=12753;
+    HostPanelInformation panel;
+    panel.instrument_number=1;
+    panel.instrument_identity="Sample";
+    panel.instrument_availability="Prepared";
+    panel.instrument_resource="Samples/test2.wav";
+    panel.instrument_name="test2.wav";
+    panel.instrument_transport="PLAYING";
+    panel.instrument_focus=0;
+    panel.transport_hints="Up/Down: Field | Left/Right: Type | Ctrl+Down: Keep | Esc: Roll back";
+    BroTracker::SampleWaveformCache cache;
+    panel.sample_waveform=&cache;
+    using State=BroTracker::SampleWaveformCache::State;
+    for(int step=0;step<12 && !cache.FramesLoaded();++step)cache.Step();
+    CHECK_EQ(cache.Status(),State::Loading);
+    CHECK(cache.FramesLoaded()>0);
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"01-sample-loading.bmp"));
+    const auto loading=fb;
+
+    for(int step=0;step<40 && cache.Status()==State::Loading;++step)cache.Step();
+    CHECK_EQ(cache.Status(),State::Ready);
+    CHECK_EQ(cache.FramesLoaded(),68284u);
+    CHECK_EQ(cache.Metadata().sample_rate,44100u);
+    CHECK_EQ(cache.Metadata().channels,1u);
+    CHECK_EQ(cache.Metadata().bits,16u);
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"02-sample-ready.bmp"));
+    const auto ready=fb;
+    constexpr int waveform_start=263*640;
+    constexpr int waveform_pixels=(455-263)*640;
+    CHECK(std::memcmp(ready.PixelData()+waveform_start,loading.PixelData()+waveform_start,
+        waveform_pixels*sizeof(Color))!=0);
+
+    for(const auto identity:{"MIDI","Sine Synth"}) {
+        panel.instrument_identity=identity;
+        panel.instrument_number=2;
+        panel.instrument_availability=panel.instrument_identity=="MIDI"?"External device":"Ready";
+        panel.instrument_midi_channel=panel.instrument_identity=="MIDI"?3:0;
+        RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+        CHECK(fb.SaveBMP(screenshots/(panel.instrument_identity=="MIDI"?"03-midi.bmp":"04-synth.bmp")));
+        const auto blank=fb.PixelData()[456*640+9];
+        bool empty=true;
+        for(int y=264;y<454;++y)for(int x=1;x<639;++x) {
+            const auto pixel=fb.PixelData()[y*640+x];
+            empty=empty && pixel.r==blank.r && pixel.g==blank.g && pixel.b==blank.b;
+        }
+        CHECK(empty);
+    }
+    panel.instrument_number=0;
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    panel.instrument_identity="Sample";
+    panel.instrument_number=4;
+    panel.instrument_resource="Samples/another.wav";
+    panel.instrument_name="another.wav";
+    cache.Step();
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK_EQ(std::memcmp(fb.PixelData()+waveform_start,ready.PixelData()+waveform_start,
+        waveform_pixels*sizeof(Color)),0);
 }
 
 TEST_CASE(InstrumentIdentityProductionParsersAcceptZeroAndKeepStrictValidation) {

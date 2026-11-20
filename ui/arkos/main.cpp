@@ -30,6 +30,7 @@
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
+#include "ui/sample_waveform.h"
 #include "ui/host_warning.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
@@ -344,6 +345,7 @@ int main(int argc, char* argv[])
         "entering event loop");
 
     LinuxVolumeInput volume_input;
+    BroTracker::SampleWaveformCache waveform;
     DiagnosticCancelInput diagnostic_cancel;
     while (!controls.Quit() && !diagnostic.Exit())
     {
@@ -439,6 +441,10 @@ int main(int argc, char* argv[])
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
         if(panel.instrument_number) {
+            if(panel.instrument_identity=="Sample") {
+                waveform.Step();
+                panel.sample_waveform=&waveform;
+            }
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"A: Browse | ":

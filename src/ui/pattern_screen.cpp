@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <string>
 #include <iomanip>
+#include <locale>
 #include <sstream>
 
 #include "core/constants.h"
@@ -21,6 +22,7 @@
 #include "renderer/color.h"
 #include "text_renderer.h"
 #include "instrument_formatter.h"
+#include "sample_waveform.h"
 
 namespace
 {
@@ -798,7 +800,66 @@ namespace
     }
 }
 
-// Instrument owns the entire canvas. The lower panel is reserved for sample data.
+static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
+    const BroTracker::SampleWaveformCache* cache, const HostBitmap::Face& face,
+    const HostBitmap::Face& small, Color dim) {
+    using State = BroTracker::SampleWaveformCache::State;
+    const int width=fb.Width(), inset=layout.content_padding;
+    const int left=inset, right=width-inset-1, middle=(left+right+1)/2;
+    const int plot_top=top+30, plot_bottom=bottom-57, center=(plot_top+plot_bottom)/2;
+    const int axis=plot_bottom+10;
+    constexpr Color plot_background{20,44,45};
+    const auto text=[&](int x,int y,const std::string& value,Color ink) {
+        HostBitmap::Text(fb,small,x,y+small.ascent,value,ink);
+    };
+    const auto measure=[&](const std::string& value){return HostBitmap::Measure(small,value).width;};
+    HostBitmap::Text(fb,face,inset,top+8+face.ascent,"Edit Sample",header_name);
+    fb.HorizontalLine(left,right,top+26,border);
+    fb.FilledRectangle(left,plot_top,right-left+1,plot_bottom-plot_top+1,plot_background);
+    fb.HorizontalLine(left,right,center,row_header_normal);
+    fb.VerticalLine(left,plot_top,plot_bottom,editing_frame);
+    fb.VerticalLine(right,plot_top,plot_bottom,editing_frame);
+    fb.HorizontalLine(left,right,axis,row_marker);
+    for(const int x:{left,middle,right})fb.VerticalLine(x,axis-3,axis+3,row_marker);
+
+    if(cache && cache->Status()==State::Ready) {
+        const auto& wav=cache->Metadata();
+        std::ostringstream summary;
+        summary.imbue(std::locale::classic());
+        summary << wav.sample_rate/1000.0 << " kHz | " << wav.bits << "-bit | "
+            << (wav.channels==1?"Mono":"Stereo") << " | "
+            << std::fixed << std::setprecision(2) << double(wav.frames)/wav.sample_rate << " s";
+        const auto format=summary.str();
+        text(width-inset-measure(format),top+9,format,dim);
+        const auto to_y=[&](int value) {
+            return value>=0 ? center-value*(center-plot_top)/32767
+                            : center-value*(plot_bottom-center)/32768;
+        };
+        const auto plot_columns=std::size_t(right-left-1);
+        for(int x=left+1;x<right;++x) {
+            const auto& peak=cache->Column(std::size_t(x-left-1)*cache->Columns()/plot_columns);
+            fb.VerticalLine(x,to_y(peak.maximum),to_y(peak.minimum),row_header_bright);
+        }
+        const auto midpoint=std::to_string(wav.frames/2);
+        const auto end=std::to_string(wav.frames)+" frames";
+        text(left,axis+6,"0",header_value);
+        text(middle-measure(midpoint)/2,axis+6,midpoint,header_value);
+        text(right+1-measure(end),axis+6,end,header_value);
+    } else {
+        const std::string status=cache && cache->Status()==State::Unavailable
+            ?"Waveform unavailable":"Loading waveform";
+        fb.FilledRectangle(middle-measure(status)/2-5,center-8,measure(status)+10,16,plot_background);
+        text(middle-measure(status)/2,center-6,status,header_value);
+    }
+
+    const char* controls[]={"Preview","Zoom 1x","Fit","Set Start","Set End"};
+    constexpr int control_inset=20;
+    for(int i=0;i<5;++i) {
+        const int x=control_inset+(i+1)*(width-2*control_inset-1)/6;
+        text(x-measure(controls[i])/2,bottom-19,controls[i],header_value);
+    }
+}
+
 static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& host,
     const std::optional<LivePlaybackView>& live) {
     static const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
@@ -810,7 +871,9 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
     constexpr int header_y=9, row_pitch=18, type_y=header_y+row_pitch+row_pitch/2, name_y=type_y+row_pitch, line_height=14;
     constexpr int common_height=122+line_height;
     constexpr int sample_top=common_height+layout.frame_gap;
-    const int waveform_top=2*height/3+line_height, footer_top=height-25;
+    const int footer_top=height-25;
+    const int previous_waveform_top=2*height/3+line_height;
+    const int waveform_top=sample_top+(footer_top-previous_waveform_top)+layout.frame_gap;
     const int sample_heading=sample_top+12, separator=sample_top+34;
     fb.Rectangle(left,0,panel_width,common_height,border);
     const auto text=[&](int x,int y,const std::string& value,Color color) {
@@ -900,10 +963,30 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
         text(browse_x,sample_heading,browse,host.instrument_load_available?header_value:dim);
     }
     fb.HorizontalLine(inset,width-inset-1,separator,border);
-    const auto detail=[&](int y,int bottom,const std::string& value,Color color) {
+    // Share the shorter frame among the active details, reserving a line for
+    // each following item so lengthy paths cannot hide warnings or status.
+    std::vector<std::pair<std::string,Color>> details;
+    if(sample) {
+        details.emplace_back("Path: "+host.instrument_resource,header_value);
+        if(!host.instrument_candidate.empty())details.emplace_back("Staged: "+host.instrument_candidate,editing_frame);
+    }
+    if(!host.instrument_status.empty())details.emplace_back(host.instrument_status,editing_frame);
+    if(!host.instrument_load_warning.empty())details.emplace_back(host.instrument_load_warning,editing_frame);
+    if(host.instrument_transport.empty() && !host.connection_status.empty())details.emplace_back(host.connection_status,dim);
+    text(inset,separator+5,"Description:",header_name);
+    constexpr int detail_pitch=13;
+    int y=separator+19;
+    for(std::size_t i=0;i<details.size();++i) {
+        const auto& [value,color]=details[i];
+        const int bottom=waveform_top-layout.frame_gap-2-int(details.size()-i-1)*detail_pitch;
         const auto columns=std::size_t((width-2*inset)/small.cell);
-        for(std::size_t start=0; start<value.size() && y+line_height<=bottom; y+=line_height) {
+        for(std::size_t start=0; start<value.size() && y+detail_pitch<=bottom; y+=detail_pitch) {
             auto end=std::min(start+columns,value.size());
+            if(end<value.size() && y+2*detail_pitch>bottom) {
+                HostBitmap::Text(fb,small,inset,y+small.ascent,value.substr(start,columns-3)+"...",color);
+                y+=detail_pitch;
+                break;
+            }
             if(end<value.size()) {
                 const auto space=value.rfind(' ',end);
                 if(space!=std::string::npos && space>=start+columns/2)end=space+1;
@@ -911,23 +994,14 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
             HostBitmap::Text(fb,small,inset,y+small.ascent,value.substr(start,end-start),color);
             start=end;
         }
-        return y+4;
-    };
-    const int status_top=waveform_top-47;
-    // Descriptive fields have no title source yet.
-    text(inset,separator+10,"Description:",header_name);
-    if(sample) {
-        const auto staged_top=detail(separator+30,status_top,"Path: "+host.instrument_resource,header_value);
-        if(!host.instrument_candidate.empty())detail(staged_top,status_top,"Staged: "+host.instrument_candidate,editing_frame);
     }
 
-    int status_y=status_top;
-    if(!host.instrument_status.empty())status_y=detail(status_y,waveform_top-10,host.instrument_status,editing_frame);
-    if(!host.instrument_load_warning.empty())status_y=detail(status_y,waveform_top-10,host.instrument_load_warning,editing_frame);
-    if(host.instrument_transport.empty())detail(status_y,waveform_top-10,host.connection_status,dim);
-
     fb.Rectangle(left,waveform_top,panel_width,footer_top-waveform_top,border);
-    HostBitmap::Text(fb,small,inset,footer_top+6+small.ascent,host.transport_hints,header_value);
+    if(sample)DrawSampleWaveform(fb,waveform_top,footer_top,host.sample_waveform,face,small,dim);
+    const int help_baseline=sample
+        ? height-2-HostBitmap::Measure(small,host.transport_hints).bottom
+        : footer_top+6+small.ascent;
+    HostBitmap::Text(fb,small,inset,help_baseline,host.transport_hints,header_value);
 }
 
 static void RenderPatternScreen(

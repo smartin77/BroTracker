@@ -285,7 +285,7 @@ sample data and bounded metadata/chunk traversal. Current filenames may contain 
 validated full SD-relative path is bounded at 255 ASCII bytes. Folder navigation,
 audition, assignment and persistence use the same bound. Legacy WAVLIST retains
 its original filename rules. See [path storage](SAMPLE_PATH_STORAGE.md). The Teensy browser supports directory
-navigation; waveform and sample parameter editing remain deferred.
+navigation. Sample parameter editing remains deferred.
 Replacing a saved Sample path requires the explicit confirmation below. Temporary BTM stores the path
 unchanged. Boot prepares it again by path; missing or failed resources keep their
 slot, definition and Pattern references, report unavailable, and never substitute
@@ -480,3 +480,35 @@ after reconnect. These fields add no metadata polling, SD reads or audio
 callback text processing. There is no transfer for empty metadata. See
 [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority)
 for playback priority and terminal assistance.
+
+## Sample waveform mockup
+
+BTX embeds the original `assets/waveform/test3.wav` fixture in the Windows and
+ArkOS executables. It is a byte-for-byte copy of
+`F:\_back_up\_teensy_sd1\Samples\test3.wav` with SHA-256
+`04ab4b286d29650cb04ad54cef496a4cd1af3fe477456c717734adf9bf6f7b74`.
+Every Sample slot displays this same fixture independently of its assigned WAV.
+MIDI and Sine Synth leave the waveform frame empty. Existing bindings,
+preparation and playback continue through the usual Instrument flow.
+
+The panel derives its format and axis from the fixture. It shows 44.1 kHz,
+16-bit mono and 1.55 s, with frame boundaries at 0, 34,142 and 68,284.
+A stereo frame is one time position across both channels. When aggregating
+stereo, the cache includes both channels in each bucket's extrema. The controls
+and endpoint markers are display-only. Editing, preview, zoom, slicing and
+looping are deferred.
+
+After input and transport service, the terminal advances the cache by at most
+one step per loop while the Sample screen is visible. The shared RIFF inspector
+limits each header read to 18 bytes and the scan to 1,024 container chunks.
+PCM work reads up to 4,096 bytes per step (2,048 frames for this fixture) into
+temporary scratch space. It processes all 68,284 frames across 34 PCM steps,
+keeping 598 signed 16-bit min/max pairs (2,392 bytes plus metadata and progress
+state). The completed cache survives slot changes and screen visits for the
+life of BTX. Render calls only consume the cache.
+
+The fixture uses local executable data. Future Teensy waveform transfers must
+follow D0041 and be bounded, batched, deferred and subordinate to playback.
+This mockup supplies no device-side waveform generation, SD scan or sample
+transfer. Its terminal checks do not measure Teensy transport or playback
+performance.

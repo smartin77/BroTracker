@@ -12,6 +12,19 @@ option(
 
 option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
 option(BROTRACKER_WINDOWS_EMPTY_TITLE "Use an empty Windows Terminal window title" OFF)
+
+# Embed the portable local fixture in host binaries. Runtime decoding remains
+# incremental and needs no external assets or device I/O.
+set(waveform_fixture "${CMAKE_CURRENT_SOURCE_DIR}/assets/waveform/test3.wav")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${waveform_fixture}")
+file(READ "${waveform_fixture}" waveform_hex HEX)
+string(REGEX REPLACE "(................................................................)" "\\1\n" waveform_hex "${waveform_hex}")
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," waveform_bytes "${waveform_hex}")
+configure_file(src/ui/sample_waveform_fixture.inc.in sample_waveform_fixture.inc @ONLY)
+unset(waveform_hex)
+unset(waveform_bytes)
+add_library(BroTrackerSampleWaveform STATIC src/ui/sample_waveform.cpp)
+target_include_directories(BroTrackerSampleWaveform PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
 if(BROTRACKER_BUILD_ARKOS_UI AND BROTRACKER_BUILD_WINDOWS_TERMINAL)
     message(FATAL_ERROR "Select one platform build for BroTrackerTerminal")
 endif()
@@ -108,7 +121,7 @@ if(BROTRACKER_BUILD_ARKOS_UI)
     )
 
     target_link_libraries(BroTrackerTerminal PRIVATE
-        BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
+        BroTrackerCore BroTrackerBringUp BroTrackerHostSvg BroTrackerSampleWaveform
         ${BROTRACKER_SDL2_MAIN_TARGET}
         ${BROTRACKER_SDL2_TARGET}
     )
@@ -129,7 +142,7 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
     target_compile_definitions(BroTrackerTerminal PRIVATE
         BROTRACKER_WINDOWS_EMPTY_TITLE=$<BOOL:${BROTRACKER_WINDOWS_EMPTY_TITLE}>)
     target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
+    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerHostSvg BroTrackerSampleWaveform
         ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}
         setupapi advapi32 ole32 uuid avrt Threads::Threads)
 endif()
@@ -226,7 +239,7 @@ add_executable(BroTrackerTests
     libraries/scheduler/src/pattern_position.cpp
 )
 
-target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp)
+target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerSampleWaveform)
 target_include_directories(BroTrackerTests PRIVATE src tests libraries/scheduler/src)
 
 add_test(

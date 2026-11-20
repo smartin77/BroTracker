@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "core/audio/wav_buffer_loader.h"
 #include "core/audio/wav_inspection_job.h"
+#include "ui/sample_waveform.h"
 #include <vector>
 #include <algorithm>
 using namespace BroTracker;
@@ -19,11 +20,13 @@ Bytes Wave(const Bytes& fmt=Format(),const Bytes& pcm={0,0,0xff,0x7f,0,0x80,0xff
 }
 struct Reader : WavBufferReader {
     Bytes bytes; std::uint64_t at=0; bool size_fail=false,seek_fail=false;
+    std::size_t reads=0, last_request=0;
     std::uint64_t short_at=UINT64_MAX;
     explicit Reader(Bytes b):bytes(std::move(b)) {}
     bool Size(std::uint64_t& n) noexcept override { n=bytes.size(); return !size_fail; }
     bool Seek(std::uint64_t n) noexcept override { at=n; return !seek_fail && n<=bytes.size(); }
     std::size_t Read(std::uint8_t* out,std::size_t n) noexcept override {
+        ++reads; last_request=n;
         n=std::min<std::size_t>(n,bytes.size()-at); if(at>=short_at && n) --n;
         std::copy_n(bytes.data()+at,n,out); at+=n; return n;
     }
@@ -35,6 +38,71 @@ void Reject(Bytes bytes,WavBufferStatus expected) {
     for(auto x:out) CHECK_EQ(x,7);
 }
 }
+TEST_CASE(WaveformCacheConsumesBoundedChunksAndRetainsBothStereoPeaks) {
+    constexpr std::size_t frames=2051;
+    auto fmt=Format();
+    fmt[2]=2;
+    fmt[12]=4;
+    Put32(fmt,8,44100*4);
+    Bytes pcm(frames*4);
+    // The two sides of the first chunk boundary fall in the same bucket.
+    pcm[1023*4+3]=0x80;
+    pcm[1024*4]=0xff;
+    pcm[1024*4+1]=0x7f;
+    pcm[(frames-1)*4+3]=0x40;
+    Reader reader(Wave(fmt,pcm,true));
+    SampleWaveformCache cache;
+    int pcm_steps=0;
+    for(int step=0;step<20 && cache.Status()==SampleWaveformCache::State::Loading;++step) {
+        const auto reads=reader.reads;
+        const auto loaded=cache.FramesLoaded();
+        cache.Step(reader);
+        CHECK(reader.reads-reads<=1);
+        if(cache.FramesLoaded()!=loaded) {
+            ++pcm_steps;
+            CHECK(reader.last_request<=SampleWaveformCache::kChunkBytes);
+            CHECK_EQ((cache.FramesLoaded()-loaded)*4,reader.last_request);
+        }
+    }
+    CHECK_EQ(pcm_steps,3);
+    CHECK_EQ(cache.Status(),SampleWaveformCache::State::Ready);
+    CHECK_EQ(cache.Metadata().channels,2u);
+    CHECK_EQ(cache.FramesLoaded(),frames);
+    CHECK_EQ(cache.Columns(),SampleWaveformCache::kColumns);
+    const auto bucket=1023*cache.Columns()/frames;
+    CHECK_EQ(bucket,1024*cache.Columns()/frames);
+    CHECK_EQ(cache.Column(bucket).minimum,-32768);
+    CHECK_EQ(cache.Column(bucket).maximum,32767);
+    CHECK_EQ(cache.Column(cache.Columns()-1).maximum,16384);
+    CHECK_EQ(cache.Column(0).minimum,0);
+    CHECK_EQ(cache.Column(0).maximum,0);
+    const auto reads=reader.reads;
+    reader.seek_fail=true;
+    for(int revisit=0;revisit<3;++revisit)cache.Step(reader);
+    CHECK_EQ(reader.reads,reads);
+    CHECK_EQ(cache.Status(),SampleWaveformCache::State::Ready);
+}
+
+TEST_CASE(WaveformCacheHandlesEightBitSamplesAndShortReads) {
+    auto fmt=Format();
+    fmt[12]=1;fmt[14]=8;
+    Put32(fmt,8,44100);
+    Reader reader(Wave(fmt,{0,128,255}));
+    SampleWaveformCache cache;
+    for(int step=0;step<16 && cache.Status()==SampleWaveformCache::State::Loading;++step)cache.Step(reader);
+    CHECK_EQ(cache.Status(),SampleWaveformCache::State::Ready);
+    CHECK_EQ(cache.Columns(),3u);
+    CHECK_EQ(cache.Column(0).minimum,-32768);
+    CHECK_EQ(cache.Column(1).minimum,0);
+    CHECK_EQ(cache.Column(2).maximum,32512);
+    Reader broken(Wave());
+    broken.short_at=44;
+    SampleWaveformCache failed;
+    for(int step=0;step<16 && failed.Status()==SampleWaveformCache::State::Loading;++step)failed.Step(broken);
+    CHECK_EQ(failed.Status(),SampleWaveformCache::State::Unavailable);
+    CHECK_EQ(failed.FramesLoaded(),0u);
+}
+
 TEST_CASE(WavBufferExactPcmMetadataCapacityAndExtraChunks) {
     for(bool extras:{false,true}) {
         Reader reader(Wave(Format(),{0,0,0xff,0x7f,0,0x80,0xff,0xff},extras));

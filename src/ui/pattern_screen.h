@@ -17,7 +17,9 @@
 #include "file_list.h"
 #include "warning_text.h"
 
-// Caller-owned presentation strings only; no transport/input work in rendering.
+namespace BroTracker { class SampleWaveformCache; }
+
+// Caller-owned presentation data; no transport/input work in rendering.
 struct HostPanelInformation
 {
     std::string connection_status;
@@ -41,6 +43,7 @@ struct HostPanelInformation
     bool load_save_screen=false,sample_picker=false,instrument_load_available=false;
     std::string pattern_browser_text{};
     FileListView pattern_browser_list{};
+    const BroTracker::SampleWaveformCache* sample_waveform = nullptr;
 };
 
 void RenderMainScreen(
