@@ -21,16 +21,21 @@ NOTE_OFF timing fields cannot open Instrument; note-only cells can.
 Collection-capable firmware permits inspection of out-of-collection references,
 including received IDs beyond 99; legacy entry rejects IDs outside 01-99.
 
-The turquoise * marks the source cell's original explicit slot; on another slot,
-[*NN] identifies it. Inherited/default selection has no original marker.
+An untouched visit shows the resolved slot alone. A star indicates an outstanding
+assignment or definition change anywhere in the visit. When the browsed slot
+differs from the resolved entry slot, the suffix is ` * [NN]`. Local drafts,
+pending writes and acknowledged differences count. Returning to the entry slot
+removes the bracketed number. The star clears when no differences remain,
+including acknowledgement of any restoration. An error alone adds no marker.
+Keep on the resolved entry slot preserves an empty raw assignment.
 
 See [exact controls](BTX_CONTROLS.md#instrument). Entry focuses Type. Up/Down
 (or Windows Shift+Tab/Tab) cycles Type, available Load WAV, and Instrument slot;
 the orange frame identifies focus. Left/Right on slot clamps to **01 through N**
-(maximum 99), without wrapping or selecting N+1. It immediately assigns that
-existing slot to the captured Pattern cell and synchronizes through normal live
-Pattern editing. Note/timing data and source field are preserved; an empty cell
-becomes an instrument-only event. Byte-identical assignment adds no history or
+(maximum 99), without wrapping or selecting N+1. Browsing keeps the original
+resolved slot frozen and leaves the captured cell unchanged. Keep assigns the
+browsed slot through normal live Pattern editing. Note/timing data and source
+field are preserved. An empty cell becomes an instrument-only event. Byte-identical assignment adds no history or
 preview work. Slot stepping requires a known collection, synchronized live Pattern
 editing and an unlocked editor. Pending file/publication/transport operations,
 disconnect/recovery barriers, a retained Type/WAV draft, or unsettled/failed live
@@ -63,10 +68,8 @@ the old binding; Load can retry or Escape can restore. An unconfirmed outcome is
 reported separately and Escape restores the retained snapshot. Do not infer success
 from a locally displayed desired Type or path.
 
-If no live assignment or definition change occurred, confirmed return still assigns
-the selected reference, including inherited/default selection. A changed reference
-in this fallback path requires STOP; an unchanged explicit reference can return
-without STOP. There is no queued automatic assignment across safety barriers.
+Outside the live slot Keep path, a changed reference requires STOP. Keeping an
+unchanged resolved entry slot preserves its raw assignment. There is no queued automatic assignment across safety barriers.
 
 ## Definitions and read-only availability
 

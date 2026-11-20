@@ -50,9 +50,20 @@ Pattern Load/Save retains STOP and session-save entry coordination.
 | Restore visit baseline and return to Pattern | Escape (also Backspace) | B |
 | Exit without confirming Instrument draft | Ctrl+X or close window | L1+Start |
 
+The full-width editor groups slot and Type above the Sample WAV section, which
+shows the assigned path and opens Sample Browser via Load WAV. In the top group,
+Name shows the acknowledged filename. Description stays blank until embedded WAV
+title metadata is available. Save is
+dimmed and the waveform area is empty. The footer shows the current field's
+binding alongside keep and rollback. Preparation and errors appear above the
+waveform area.
+
 Entry focuses Type. The orange frame marks focus; field navigation cycles Type,
 available Load WAV, and Instrument slot. Left/Right on slot clamps to 01-N (at
-most 99), immediately assigning that defined slot to the captured Pattern cell.
+most 99). Browsing leaves the captured Pattern cell unchanged. Keep assigns
+a different browsed slot. Keeping the resolved entry slot preserves its raw
+assignment, including an empty source cell. `*` marks outstanding visit changes.
+` * [NN]` also identifies the resolved entry slot when browsing a different slot.
 It cannot select N+1. Slot changes wait for known collection and live Pattern
 synchronization, an unlocked editor, no pending file/publication/transport work,
 no recovery barrier, no retained Type/WAV draft and settled live acknowledgements.
@@ -77,8 +88,7 @@ return requires STOP: without a WAV its default Sample stays undefined and its
 reference is assigned; explicit MIDI/Synth or a selected WAV can qualify for DEFINE.
 Only successful acknowledgement advances N and exposes the next trailing slot.
 Failure retains the draft, source cell and count. Escape/B discards the draft.
-An untouched inherited/default selection also requires STOP to assign on return;
-a matching explicit reference can return without STOP.
+An untouched inherited/default selection keeps its empty raw reference on return.
 
 PgUp/PgDn, L1 value stepping, 1/2/3 and X do not change Instrument Type. Ctrl/Select
 is used only for confirmed return within this editor (Ctrl+X remains global exit).
@@ -143,16 +153,11 @@ application is possible only if confirmed return reaches the fallback path. If
 the visit already has a live assignment or tracked live definition edits,
 Ctrl+Down / Select+Down can reject the unapplied draft even after STOP.
 
-Press P (Windows) or X (ArkOS) to audition the selected supported WAV only with
-confirmed stopped Pattern transport. Each new press starts at frame zero and
-replaces any active or pending audition; holding the control does not repeat.
-The WAV streams from Teensy SD at its native rate through EOF, independently of
-instrument tuning and Pattern tempo, with no duration limit or whole-file RAM load.
-Directories and unsupported WAVs stay silent. Navigation, hover and row selection
-stay silent in every transport state. Enter/A retains Load/open-folder behavior.
-Leaving the browser (including choosing a WAV) or starting Pattern playback cancels
-active and pending audition. Audition changes no assignment, WAV draft or Pattern
-transport state. Auto preview, mouse controls and audition during playback are deferred.
+Press P (Windows) or X (ArkOS) in Sample Browser to audition the highlighted
+supported WAV. Current firmware supports this while Stopped, Paused or Playing.
+A new press restarts at frame zero. Leaving the browser cancels audition.
+Navigation remains silent, and audition is independent of Pattern transport
+and Instrument assignments.
 
 The separate instrument-file Load action has no browser yet. Its intended,
 independent startup chain is `/Instruments` -> `/BroTracker` -> `/`, with the same

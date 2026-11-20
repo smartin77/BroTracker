@@ -927,7 +927,7 @@ TEST_CASE(InstrumentSelectorAssignmentPreservesNoteTimingFieldAndUsesHistory) {
     CHECK(editor.AssignInstrumentAt({0,0,EditField::Note,false},1));CHECK(!editor.CanUndo());
     BroTracker::SparsePreviewCell cell;CHECK(!editor.TakeCapturedCell(0,cell));
 }
-TEST_CASE(InstrumentOriginalMarkerUsesActualRendererAndIsAbsentWithoutExplicitId) {
+TEST_CASE(InstrumentModificationMarkerUsesActualRendererAndFrozenResolvedSlot) {
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));std::filesystem::create_directories("diagnostics/instrument-collection");
     Framebuffer fb(640,480);Tune tune;Pattern pattern;auto view=ConnectedDraft();LocalPatternEditor editor;editor.Sync(view);
     HostPanelInformation panel;panel.instrument_number=4;panel.instrument_original_number=3;
@@ -936,17 +936,59 @@ TEST_CASE(InstrumentOriginalMarkerUsesActualRendererAndIsAbsentWithoutExplicitId
     view->position.running=true;view->position.valid=true;view->fresh=true;
     CHECK(ResolvePatternDisplay(view).playback_highlight);
     RenderMainScreen(fb,tune,pattern,view,&editor,panel);
-    auto turquoise=[&](){unsigned count=0;for(unsigned y=35;y<66;++y)for(unsigned x=100;x<435;++x) {auto c=fb.PixelData()[y*640+x];if(c.r==76 && c.g==195 && c.b==201)++count;}return count;};
-    CHECK(turquoise()>0);
-    // Compact marker ends before x=180; no orange edit-frame pixels in the title.
-    for(unsigned y=35;y<66;++y)for(unsigned x=100;x<435;++x) {
-        const auto c=fb.PixelData()[y*640+x];CHECK(!(c.r==255 && c.g==160 && c.b==64));
-        if(x>=180)CHECK(!(c.r==76 && c.g==195 && c.b==201));
+    const auto expect_marker=[&](const char* suffix) {
+        const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+        Framebuffer expected(640,480);
+        expected.Clear(Color{0,0,0});
+        const Color ink{76,195,201};
+        HostBitmap::Text(expected,face,133,21,suffix,ink);
+        for(unsigned y=9;y<23;++y)for(unsigned x=133;x<190;++x) {
+            const auto mask=[&](const Framebuffer& bitmap) {
+                const auto c=bitmap.PixelData()[y*640+x];
+                return c.r==ink.r && c.g==ink.g && c.b==ink.b;
+            };
+            CHECK_EQ(mask(fb),mask(expected));
+        }
+    };
+    expect_marker("* [03]");
+    panel.instrument_number=3;panel.instrument_modified=true;
+    RenderMainScreen(fb,tune,pattern,view,&editor,panel);expect_marker("*");
+    panel.instrument_modified=false;
+    RenderMainScreen(fb,tune,pattern,view,&editor,panel);expect_marker("");
+}
+
+TEST_CASE(InstrumentViewportKeepsTheWaveformInteriorEmptyAndIgnoresSidebarText) {
+    CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
+    Framebuffer first(640,480),second(640,480);Tune tune;Pattern pattern;
+    const auto view=ConnectedDraft();
+    HostPanelInformation panel;panel.instrument_number=3;panel.instrument_identity="Sample";
+    panel.instrument_resource="Samples/"+std::string(237,'a')+".wav";
+    panel.instrument_candidate="Samples/"+std::string(234,'b')+".wav";
+    panel.instrument_status="Preparing/applying instrument in Teensy RAM";
+    panel.instrument_transport="PLAYING";
+    panel.transport_hints="Enter: Browse | Ctrl+Down: Keep | Esc: Roll back";
+    RenderMainScreen(first,tune,pattern,view,nullptr,panel);
+    const auto blank=first.PixelData()[335*640+9];
+    bool empty=true;
+    for(unsigned y=335;y<448;++y)for(unsigned x=9;x<631;++x) {
+        const auto pixel=first.PixelData()[y*640+x];
+        empty=empty && pixel.r==blank.r && pixel.g==blank.g && pixel.b==blank.b;
     }
-    const auto marker_pixels=turquoise();CHECK(fb.SaveBMP("diagnostics/instrument-collection/selected-04-original-03.bmp"));
-    panel.instrument_number=3;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK(turquoise()>0);CHECK(turquoise()<marker_pixels);CHECK(fb.SaveBMP("diagnostics/instrument-collection/selected-original-03.bmp"));
-    panel.instrument_original_number=0;RenderMainScreen(fb,tune,pattern,view,&editor,panel);CHECK_EQ(turquoise(),0u);
-    CHECK(fb.SaveBMP("diagnostics/instrument-collection/inherited-03-no-original.bmp"));
+    CHECK(empty);
+    const auto frame=first.PixelData()[334*640];
+    CHECK(frame.r!=blank.r || frame.g!=blank.g || frame.b!=blank.b);
+    for(unsigned y:{0u,139u,334u}) {
+        const auto edge=first.PixelData()[y*640+639];
+        CHECK(edge.r==frame.r && edge.g==frame.g && edge.b==frame.b);
+    }
+    for(unsigned y:{136u,137u,138u,331u,332u,333u})CHECK(std::memcmp(first.PixelData()+y*640,first.PixelData()+456*640,640*sizeof(Color))==0);
+    CHECK(std::memcmp(first.PixelData()+455*640,first.PixelData()+456*640,640*sizeof(Color))==0);
+    panel.publication_status="Sidebar only";panel.diagnostic_status="Sidebar diagnostic";
+    RenderMainScreen(second,tune,pattern,view,nullptr,panel);
+    CHECK_EQ(std::memcmp(first.PixelData(),second.PixelData(),640*480*sizeof(Color)),0);
+    panel.instrument_status="Preparation failed; previous binding retained";
+    RenderMainScreen(second,tune,pattern,view,nullptr,panel);
+    CHECK(std::memcmp(first.PixelData(),second.PixelData(),640*480*sizeof(Color))!=0);
 }
 
 TEST_CASE(InstrumentIdentityProductionParsersAcceptZeroAndKeepStrictValidation) {

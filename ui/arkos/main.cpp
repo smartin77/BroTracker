@@ -425,22 +425,26 @@ int main(int argc, char* argv[])
         if(controls.InstrumentScreen())serial.InspectInstrument(controls.InstrumentNumber());
         panel.text=warning_text;
         panel.instrument_original_number=controls.OriginalInstrumentNumber();
+        panel.instrument_modified=controls.InstrumentVisitModified();
         panel.instrument_identity=controls.InstrumentDraftType().empty()?serial.InstrumentIdentity():controls.InstrumentDraftType();
-        panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=serial.InstrumentResource();
+        panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=controls.InstrumentAssignedResource();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
-        if(!controls.InstrumentDraftResource().empty()) {
-            if(controls.SavedInstrumentPath().empty())panel.instrument_resource=controls.InstrumentDraftResource();
-            else panel.instrument_candidate=controls.InstrumentDraftResource();
-        }
+        panel.instrument_candidate=controls.InstrumentDraftResource();
         panel.load_save_screen=controls.LoadSaveScreen();
         panel.pattern_browser_text=controls.BrowserText();
         panel.pattern_browser_list=controls.BrowserList();
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
-        if(controls.InstrumentScreen() && !controls.WavPicker())panel.transport_hints="Up/Down: field | Left/Right: value | A: Load | Select+Down: confirm | B: cancel";
+        if(panel.instrument_number) {
+            panel.instrument_status=controls.ScreenStatus();
+            panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
+            const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"A: Browse | ":
+                panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
+            panel.transport_hints=std::string("D-pad U/D: Field | ")+focus_hint+"Select+Down: Keep | B: Roll back";
+        }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();
         if(serial.VolumeAvailable() && !volume_input.Captured())panel.volume_status+=" (OS keys)";

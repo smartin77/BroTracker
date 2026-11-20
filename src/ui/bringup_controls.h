@@ -17,7 +17,8 @@ public:
     bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
     const BroTracker::RealtimePattern* InstrumentEntryPattern()const{return instrument_entry_pattern_?&*instrument_entry_pattern_:nullptr;}
-    unsigned OriginalInstrumentNumber()const{return instrument_entry_.original==0xff?0u:unsigned(instrument_entry_.original)+1;}
+    bool InstrumentVisitModified()const;
+    unsigned OriginalInstrumentNumber()const{return instrument_entry_.number;}
     unsigned InstrumentDraftTypeCode()const;
     std::string InstrumentDraftType()const;
     bool InstrumentTypeEditable()const;
@@ -26,6 +27,7 @@ public:
     bool ReplacementConfirming()const{return replace_prompt_;}
     std::string InstrumentLoadWarning()const;
     std::string SavedInstrumentPath()const;
+    std::string InstrumentAssignedResource()const;
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);
     void SetConfirmLoadReplace(bool value){confirm_load_replace_=value;}

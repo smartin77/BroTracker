@@ -1316,7 +1316,7 @@ TEST_CASE(InstrumentReconnectMismatchKeepsCapturedSlotSeparateFromExplicitRecove
     }
 }
 
-TEST_CASE(InstrumentSelectorReturnAssignsCapturedCellThroughPreviewAndUndo) {
+TEST_CASE(KeepingTheResolvedEntryPreservesTheCapturedCellWithoutUndo) {
     for(auto field:{EditField::Note,EditField::Instrument})for(bool explicit_id:{false,true})for(bool browse:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
         wire->metadata_cap=wire->preview_cap=wire->simulate_working=true;
@@ -1327,17 +1327,16 @@ TEST_CASE(InstrumentSelectorReturnAssignsCapturedCellThroughPreviewAndUndo) {
         auto drive=[&](unsigned first,unsigned last){for(unsigned i=first;i<last;++i){serial.SyncEditor(editor,i*20);controls.Tick(i*20);serial.SyncEditor(editor,i*20);}};
         drive(0,100);editor.RestoreCursor({2,1,field,false});const auto before=*editor.Draft();
         controls.Request(BringUpAction::ScreenUp,"entry",2001);drive(101,180);CHECK(controls.InstrumentScreen());
-        CHECK_EQ(controls.OriginalInstrumentNumber(),explicit_id?3u:0u);CHECK_EQ(controls.InstrumentNumber(),explicit_id?3u:5u);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),explicit_id?3u:5u);CHECK_EQ(controls.InstrumentNumber(),explicit_id?3u:5u);
         if(browse)controls.Request(BringUpAction::ScreenRight,"next",3600);
         CHECK(SamePattern(before,*editor.Draft()));CHECK(SamePattern(before,wire->simulated_working));
-        auto assigned=before;assigned.cells[2][1].instrument=controls.InstrumentNumber()-1;
+        const auto assigned=before;
         editor.RestoreCursor({6,4,EditField::Note,false}); // Later cursor movement cannot retarget confirmation.
         controls.Request(BringUpAction::ScreenDown,"return",3601);drive(181,260);
         CHECK(!controls.InstrumentScreen());CHECK(SamePattern(assigned,*editor.Draft()));CHECK(SamePattern(assigned,wire->simulated_working));
         CHECK_EQ(editor.Cursor().row,2u);CHECK_EQ(editor.Cursor().channel,1u);CHECK(editor.Cursor().field==field);
-        CHECK_EQ(editor.CanUndo(),!explicit_id);
-        if(!explicit_id) {CHECK(editor.Undo());drive(261,340);CHECK(SamePattern(before,wire->simulated_working));}
-        else CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
+        CHECK(!editor.CanUndo());
+        CHECK(std::none_of(wire->commands.begin(),wire->commands.end(),[](const auto& c){return c.rfind("BTPREVIEW1 DBEGIN",0)==0;}));
     }
 }
 TEST_CASE(InstrumentSelectorKeepsSelectionUnderEditorBarrierAndExitDoesNotConfirm) {
@@ -1995,7 +1994,7 @@ TEST_CASE(PlayingInstrumentEntryCapturesRamWithoutStorageOrTransportAndCancelPre
         CHECK(controls.InstrumentScreen());CHECK(!controls.ScreenPending());
         CHECK(controls.InstrumentEntryPattern());CHECK(SamePattern(before,*controls.InstrumentEntryPattern()));
         CHECK_EQ(controls.InstrumentEntryPattern()->cells[3][1].instrument,raw);
-        CHECK_EQ(controls.OriginalInstrumentNumber(),raw==255?0u:raw+1);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),raw==255?controls.InstrumentNumber():raw+1);
         CHECK(!controls.InstrumentTypeEditable());CHECK(!controls.InstrumentLoadAvailable());
         controls.Request(BringUpAction::InstrumentIncrease,"blocked live Type",2003);
         controls.Request(BringUpAction::BrowserConfirm,"blocked live WAV",2004);
@@ -2053,7 +2052,7 @@ TEST_CASE(InstrumentCommonTypeDraftEscapeAndNoOpReturnPreserveExplicitCellInBoth
         controls.Request(BringUpAction::InstrumentPreviousField,"up",3602);CHECK_EQ(controls.InstrumentFocus(),0);
         if(escape) {
             controls.Request(BringUpAction::InstrumentIncrease,"right",3603);
-            CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);CHECK(SamePattern(before,*editor.Draft()));
+            CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);CHECK(controls.InstrumentVisitModified());CHECK(SamePattern(before,*editor.Draft()));
             if(playing) {
                 controls.Request(BringUpAction::ScreenDown,"pending Type is not no-op",3604);
                 CHECK(controls.InstrumentScreen());CHECK_EQ(controls.InstrumentDraftTypeCode(),3u);
@@ -2083,7 +2082,7 @@ TEST_CASE(InstrumentCommonTypeDraftEscapeAndNoOpReturnPreserveExplicitCellInBoth
     }
 }
 
-TEST_CASE(PlayingEmptyRawAssignmentCannotConfirmAsInheritedOrDefaultNoOp) {
+TEST_CASE(PlayingKeepPreservesInheritedAndDefaultRawAssignment) {
     for(bool inherited:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
         wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=true;
@@ -2096,11 +2095,9 @@ TEST_CASE(PlayingEmptyRawAssignmentCannotConfirmAsInheritedOrDefaultNoOp) {
         CHECK(editor.RecoverDraft(fixture));editor.RestoreCursor({3,1,EditField::Instrument,false});
         const auto before=*editor.Draft();wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);
         const auto from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"empty entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentNumber(),inherited?2u:1u);CHECK_EQ(controls.OriginalInstrumentNumber(),0u);
-        controls.Request(BringUpAction::ScreenDown,"would assign raw slot",3601);
-        CHECK(controls.InstrumentScreen());CHECK(SamePattern(before,*editor.Draft()));
-        CHECK(std::string(controls.ScreenStatus()).find("assignment change requires STOP")!=std::string::npos);
-        controls.Request(BringUpAction::InstrumentCancel,"cancel",3602);drive(181,200);
+        CHECK_EQ(controls.InstrumentNumber(),inherited?2u:1u);CHECK_EQ(controls.OriginalInstrumentNumber(),inherited?2u:1u);
+        CHECK(!controls.InstrumentVisitModified());
+        controls.Request(BringUpAction::ScreenDown,"keep inherited/default",3601);drive(181,200);
         CHECK(!controls.InstrumentScreen());CHECK_EQ(editor.Cursor().row,3u);CHECK_EQ(editor.Cursor().channel,1u);
         CHECK(editor.Cursor().field==EditField::Instrument);CHECK(SamePattern(before,*editor.Draft()));CHECK(serial.Playing());
         for(auto it=wire->commands.begin()+from;it!=wire->commands.end();++it) {
@@ -2152,30 +2149,28 @@ TEST_CASE(InstrumentLiveSlotSelectionConfirmsOrRollsBackThroughWireAndProduction
         drive(0,100);editor.RestoreCursor({1,0,EditField::Instrument,false});
         if(playing){wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);}
         const auto entry_from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.OriginalInstrumentNumber(),empty?0u:1u);
+        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.OriginalInstrumentNumber(),1u);
         controls.Request(BringUpAction::InstrumentPreviousField,"Up to slot",3601);CHECK_EQ(controls.InstrumentFocus(),2);
         controls.Request(BringUpAction::InstrumentIncrease,"Right selects 02",3602);
-        CHECK_EQ(editor.Draft()->cells[1][0].instrument,1u);CHECK_EQ(controls.InstrumentNumber(),2u);
+        CHECK(SamePattern(original,*editor.Draft()));CHECK_EQ(controls.InstrumentNumber(),2u);
         CHECK_EQ(editor.Draft()->cells[1][0].note,60u);CHECK(editor.Draft()->note_off_timing[1][0]==NoteOffTiming::EndOfPosition);
-        CHECK_EQ(editor.Cursor().row,1u);CHECK_EQ(controls.OriginalInstrumentNumber(),empty?0u:1u);
-        drive(181,260);CHECK(controls.InstrumentScreen());CHECK_EQ(wire->simulated_working.cells[1][0].instrument,1u);
-        if(playing){CHECK_EQ(last_trigger_slot,1u);CHECK_EQ(first_trigger_slot,1u);}
+        CHECK_EQ(editor.Cursor().row,1u);CHECK_EQ(controls.OriginalInstrumentNumber(),1u);
+        drive(181,260);CHECK(controls.InstrumentScreen());CHECK(SamePattern(original,wire->simulated_working));
+        if(playing)CHECK_EQ(last_trigger_slot,0u);
         const auto return_from=wire->commands.size();
         if(cancel) {
-            // Commit a newer frozen selection on the wire but delay its ACK.
-            // Escape must queue the original AFTER that revision, not mistake
-            // an earlier matching readback for completed rollback.
+            // Keep applies the browsed slot. Escape restores the original even
+            // while the assignment is still being sent or awaiting its reply.
             wire->hold_preview_response=true;
             if(partial)wire->write_limit=1;
-            controls.Request(BringUpAction::InstrumentIncrease,"rapid Right 03",5201);drive(261,270);
+            controls.Request(BringUpAction::ScreenDown,"Keep 02",5201);drive(261,270);
             if(partial)CHECK(!wire->tx.empty());else CHECK(!wire->preview_response.empty());
-            controls.Request(BringUpAction::InstrumentDecrease,"rapid Left 02",5401);
             controls.Request(BringUpAction::InstrumentCancel,"Escape",5402);
             CHECK(controls.InstrumentScreen());CHECK_EQ(editor.Draft()->cells[1][0].instrument,empty?255u:0u);
             drive(271,280);CHECK(controls.InstrumentScreen());
             wire->hold_preview_response=false;wire->write_limit=UINT32_MAX;wire->rx+=wire->preview_response;wire->preview_response.clear();
             drive(281,380);CHECK(SamePattern(original,*editor.Draft()));CHECK(SamePattern(original,wire->simulated_working));
-            if(playing){CHECK_EQ(last_trigger_slot,0u);CHECK_EQ(first_trigger_slot,0u);}
+            if(playing)CHECK_EQ(last_trigger_slot,0u);
         } else {
             controls.Request(BringUpAction::ScreenDown,"Ctrl+Down",5201);drive(261,340);
             CHECK_EQ(wire->simulated_working.cells[1][0].instrument,1u);CHECK_EQ(editor.Draft()->cells[1][0].instrument,1u);
@@ -2188,6 +2183,44 @@ TEST_CASE(InstrumentLiveSlotSelectionConfirmsOrRollsBackThroughWireAndProduction
             CHECK(it->rfind("BTTEST1 STOP",0)!=0);CHECK(it->rfind("BTTEST1 PAUSE",0)!=0);CHECK(it->rfind("BTTEST1 START",0)!=0);
             CHECK(it->rfind("BTTEST1 CONTINUE",0)!=0);CHECK(it->rfind("BTSTORE1 SAVE",0)!=0);CHECK(it->rfind("BTSTORE1 READY",0)!=0);
         }
+        controls.Request(BringUpAction::ScreenUp,"re-enter",8801);drive(441,500);
+        CHECK_EQ(controls.OriginalInstrumentNumber(),cancel?1u:2u);
+    }
+}
+
+TEST_CASE(InstrumentBrowsingMarksOnlyDifferencesFromTheResolvedEntry) {
+    for(unsigned mode=0;mode<3;++mode) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->preview_cap=wire->simulate_working=true;
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,static_cast<std::uint8_t>(mode==2?255:2)};
+        wire->simulated_working.cells[1][0]={60,static_cast<std::uint8_t>(mode==0?2:255)};
+        const auto original=wire->simulated_working;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        unsigned tick=0;
+        auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+        auto act=[&](BringUpAction action){controls.Request(action,"slot marker",tick*20);};
+        drive(100);editor.RestoreCursor({1,0,EditField::Instrument,false});
+        act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());
+        act(BringUpAction::InstrumentPreviousField);CHECK_EQ(controls.InstrumentFocus(),2);
+        const auto expect=[&](unsigned number){
+            drive(12);
+            CHECK_EQ(controls.InstrumentNumber(),number);
+            CHECK_EQ(controls.OriginalInstrumentNumber(),mode==2?1u:3u);
+            CHECK_EQ(controls.InstrumentVisitModified(),number!=(mode==2?1u:3u));
+            CHECK(SamePattern(original,*editor.Draft()));
+            CHECK(SamePattern(original,wire->simulated_working));
+        };
+        expect(mode==2?1u:3u);
+        if(mode==2) {act(BringUpAction::InstrumentIncrease);act(BringUpAction::InstrumentIncrease);}
+        act(BringUpAction::InstrumentIncrease);expect(4);
+        for(unsigned i=0;i<3;++i)act(BringUpAction::InstrumentDecrease);
+        expect(1);
+        for(unsigned i=0;i<2;++i)act(BringUpAction::InstrumentIncrease);
+        expect(3);
+        act(mode==2?BringUpAction::InstrumentCancel:BringUpAction::ScreenDown);drive(30);
+        CHECK(!controls.InstrumentScreen());CHECK(SamePattern(original,*editor.Draft()));
     }
 }
 
@@ -2223,6 +2256,30 @@ TEST_CASE(SampleLoadBrowserRequestAndCancellationWorkStoppedButAreBlockedPlaying
     }
 }
 
+TEST_CASE(InstrumentModificationMarkerWaitsForRestorationAcknowledgement) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->replace_cap=wire->live_type_cap=wire->preview_cap=wire->simulate_working=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,1};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+    unsigned tick=0;
+    auto drive=[&](unsigned count){for(unsigned i=0;i<count;++i,++tick){controls.Tick(tick*20);serial.SyncEditor(editor,tick*20);}};
+    auto act=[&](BringUpAction action){controls.Request(action,"marker acknowledgement",tick*20);};
+    drive(100);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    act(BringUpAction::ScreenUp);drive(80);CHECK(controls.InstrumentScreen());CHECK(!controls.InstrumentVisitModified());
+    act(BringUpAction::BrowserConfirm);CHECK(!controls.InstrumentVisitModified()); // Unavailable Load is only a status error.
+    wire->hold_define=true;
+    act(BringUpAction::InstrumentIncrease);CHECK(controls.InstrumentVisitModified());drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    CHECK(!serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=true;
+    act(BringUpAction::InstrumentDecrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK(controls.InstrumentVisitModified());
+    wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    CHECK(!serial.InstrumentCommitPending());CHECK(!controls.InstrumentVisitModified());
+}
+
 TEST_CASE(LiveMidiSynthTypeAppliesBeforeReturnAndRollbackWaitsForInFlightAcknowledgement) {
     for(bool playing:{false,true})for(bool was_midi:{false,true})for(bool cancel:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
@@ -2254,10 +2311,10 @@ TEST_CASE(LiveMidiSynthTypeAppliesBeforeReturnAndRollbackWaitsForInFlightAcknowl
         drive(0,100);editor.RestoreCursor({0,0,EditField::Instrument,false});
         if(playing){wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);}
         const auto entry_from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
-        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.InstrumentDraftTypeCode(),original_type);
+        CHECK_EQ(controls.InstrumentFocus(),0);CHECK_EQ(controls.InstrumentDraftTypeCode(),original_type);CHECK(!controls.InstrumentVisitModified());
         const auto from=wire->commands.size();wire->hold_define=cancel;
         controls.Request(was_midi?BringUpAction::InstrumentIncrease:BringUpAction::InstrumentDecrease,"live Type",3601);drive(181,220);
-        CHECK(controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(slot)->type),new_type);
+        CHECK(controls.InstrumentScreen());CHECK(controls.InstrumentVisitModified());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(slot)->type),new_type);
         if(playing){CHECK_EQ(first_trigger,new_type);CHECK_EQ(last_trigger,new_type);CHECK(player.GetTransportState()==VariableRatePatternTransportState::Playing);}
         if(cancel) {
             CHECK(serial.InstrumentCommitPending());CHECK(!wire->define_reply.empty());
@@ -2305,11 +2362,13 @@ TEST_CASE(EscapeRestoresEveryLiveTypeAndExplicitOrEmptyLiveAssignment) {
         wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";controls.Tick(2001);CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
         const auto from=wire->commands.size();controls.Request(BringUpAction::ScreenUp,"entry",2002);drive(101,180);
         controls.Request(BringUpAction::InstrumentPreviousField,"slot",3601);controls.Request(BringUpAction::InstrumentIncrease,"slot03",3602);drive(181,220);
-        CHECK_EQ(wire->simulated_working.cells[1][0].instrument,2u);
+        CHECK(SamePattern(original,wire->simulated_working));
         controls.Request(BringUpAction::InstrumentNextField,"Type",4401);controls.Request(BringUpAction::InstrumentDecrease,"Synth to MIDI",4402);drive(221,260);
         CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::MIDI);
         controls.Request(BringUpAction::InstrumentPreviousField,"slot",5201);controls.Request(BringUpAction::InstrumentDecrease,"slot02",5202);drive(261,300);
+        CHECK_EQ(controls.InstrumentNumber(),controls.OriginalInstrumentNumber());CHECK(controls.InstrumentVisitModified());
         controls.Request(BringUpAction::InstrumentNextField,"Type",6001);controls.Request(BringUpAction::InstrumentIncrease,"MIDI to Synth",6002);drive(301,340);
+        CHECK(controls.InstrumentVisitModified());
         CHECK_EQ(wire->definitions.At(1)->type,InstrumentType::Synth);CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::MIDI);
         controls.Request(BringUpAction::InstrumentCancel,"Escape all visit edits",6801);drive(341,440);
         CHECK(!controls.InstrumentScreen());CHECK_EQ(wire->definitions.At(1)->type,InstrumentType::MIDI);CHECK_EQ(wire->definitions.At(2)->type,InstrumentType::Synth);
@@ -2363,10 +2422,12 @@ TEST_CASE(AllSixLiveTypeTransitionsUseProductionTriggersAndConfirmOrRestoreExact
             controls.Request(BringUpAction::InstrumentActivate,"reopen Load",3802);drive(191,220);
             wire->hold_prepare=true;controls.Request(BringUpAction::BrowserDown,"selected.wav",4401);controls.Request(BringUpAction::BrowserConfirm,"prepare WAV",4402);drive(221,260);
             CHECK(wire->edit_pending);CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),from);
+            CHECK_EQ(controls.InstrumentAssignedResource(),std::string("None"));
             if(playing)CHECK_EQ(last_trigger,from); // proposal alone did not change the engine
             wire->hold_prepare=false;wire->CompleteEdit();drive(261,340);
         } else drive(161,340);
         CHECK(controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),to);
+        CHECK_EQ(controls.InstrumentAssignedResource(),std::string(to==1?wire->definitions.At(0)->resource:"None"));
         if(playing){CHECK_EQ(first_trigger,to);CHECK_EQ(last_trigger,to);if(to==1)CHECK_EQ(last_sample,new_pcm);}
         controls.Request(cancel?BringUpAction::InstrumentCancel:BringUpAction::ScreenDown,"finish",6801);drive(341,440);
         CHECK(!controls.InstrumentScreen());CHECK(!wire->visit.Active());CHECK(!serial.InstrumentVisitActive());
@@ -2401,6 +2462,7 @@ TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRo
         wire->hold_prepare=true;controls.Request(BringUpAction::BrowserDown,"file",4001);controls.Request(BringUpAction::BrowserConfirm,"file select",4002);
         if(controls.ReplacementConfirming())controls.Request(BringUpAction::BrowserConfirm,"accept replacement",4003);
         drive(201,240);CHECK(wire->edit_pending);const auto delayed=wire->pending_edit;
+        CHECK_EQ(controls.InstrumentAssignedResource(),std::string(original_sample?"Samples/test2.wav":"None"));
         controls.Request(BringUpAction::InstrumentCancel,"Escape during load",4801);drive(241,320);
         CHECK(!wire->edit_pending);CHECK(!controls.InstrumentScreen());CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),original_sample?1u:2u);
         wire->ApplyEdit(delayed);drive(321,340);CHECK_EQ(InstrumentTypeCode(wire->definitions.At(0)->type),original_sample?1u:2u);

@@ -129,9 +129,9 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
         live_type_failed_=!success && !serial_.InstrumentCommitCancelled() && !assignment_rollback_;
         live_type_inflight_=false;
         if(!success && !serial_.InstrumentCommitCancelled()) {
-            screen_status_=serial_.InstrumentCommitError()+(known_failure?"; previous binding retained, Load retries or Escape restores":"; outcome unconfirmed, Escape restores the retained snapshot");
+            screen_status_=serial_.InstrumentCommitError()+(known_failure?"; previous binding retained, retry with Load or roll back":"; outcome unconfirmed, roll back to restore the retained snapshot");
             assignment_confirm_=false;
-        } else if(success)screen_status_="Instrument applied in Teensy RAM; Ctrl+Down keeps it, Escape restores the original";
+        } else if(success)screen_status_="Instrument applied in Teensy RAM; keep the visit or roll back to the original";
     }
     if(live_type_inflight_ || live_type_failed_ || serial_.InstrumentCommitPending())return;
     for(unsigned i=0;i<99;++i)if(original_types_[i] && (desired_types_[i]!=applied_types_[i] || desired_resources_[i]!=applied_resources_[i])) {
@@ -146,6 +146,21 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
         } else screen_status_=serial_.InstrumentCommitError();
         return;
     }
+}
+bool BringUpControls::InstrumentVisitModified()const {
+    if(!instrument_screen_)return false;
+    if(instrument_number_!=instrument_entry_.number)return true;
+    if(draft_slot_==instrument_number_ &&
+        ((definition_draft_.explicit_type && definition_draft_.type!=serial_.InspectedType(draft_slot_)) ||
+         (!sample_path_.empty() && sample_path_!=SavedInstrumentPath())))return true;
+    for(unsigned i=0;i<original_types_.size();++i) {
+        if(!original_types_[i])continue;
+        if(desired_types_[i]!=original_types_[i] || desired_resources_[i]!=original_resources_[i] ||
+            applied_types_[i]!=original_types_[i] || applied_resources_[i]!=original_resources_[i])return true;
+    }
+    // A superseded write may still apply before its acknowledgement arrives.
+    return live_type_inflight_ && (live_type_sent_!=original_types_[live_type_slot_] ||
+        live_resource_sent_!=original_resources_[live_type_slot_]);
 }
 bool BringUpControls::InstrumentDraftChanged()const {
     return draft_slot_==instrument_number_ && ((definition_draft_.explicit_type &&
@@ -180,6 +195,15 @@ std::string BringUpControls::InstrumentDraftType()const {
 std::string BringUpControls::SavedInstrumentPath()const {
     if(instrument_number_ && instrument_number_<=99 && original_types_[instrument_number_-1])return applied_types_[instrument_number_-1]==1?applied_resources_[instrument_number_-1]:std::string{};
     return serial_.InspectedSample(instrument_number_)?serial_.InstrumentResource():std::string{};
+}
+std::string BringUpControls::InstrumentAssignedResource()const {
+    if(!serial_.Connected())return "Unknown";
+    if(instrument_number_ && instrument_number_<=99 && original_types_[instrument_number_-1]) {
+        if(!applied_types_[instrument_number_-1])return "Unknown";
+        const auto path=SavedInstrumentPath();
+        return path.empty()?"None":path;
+    }
+    return serial_.InstrumentResource();
 }
 std::string BringUpControls::InstrumentLoadWarning()const {
     if(!serial_.InspectedSample(instrument_number_))return {};
@@ -323,13 +347,10 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 if(!count) {screen_status_="No defined instrument slots available";return;}
                 const auto next=action==BringUpAction::InstrumentIncrease?std::min(count,instrument_number_+1):std::min(count,instrument_number_>1?instrument_number_-1:1);
                 if(next==instrument_number_)return;
-                const auto cursor=editor_->Cursor();
-                if(!editor_->AssignInstrumentAt(instrument_entry_.source,next-1)) {screen_status_="Slot assignment blocked; synchronize first";return;}
-                editor_->RestoreCursor(cursor);
-                instrument_number_=next;live_assignment_=true;
+                instrument_number_=next;
                 definition_draft_={};sample_path_.clear();draft_slot_=0;
-                serial_.SyncEditor(*editor_,now);serial_.InspectInstrument(instrument_number_);
-                screen_status_="Live assignment queued; confirm keeps it, Escape restores the original";return;
+                serial_.InspectInstrument(instrument_number_);
+                screen_status_="Browsing instrument slots; keep to assign";return;
             }
             if(InstrumentFocus()!=0 || !InstrumentTypeEditable() || definition_return_)return;
             const auto type=InstrumentDraftTypeCode();
@@ -348,10 +369,10 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 definition_draft_={};draft_slot_=0;sample_path_.clear();
                 TickLiveTypes(now);return;
             }
-            if(original_types_[slot]) {screen_status_="Sample conversion is outside live MIDI/Synth editing; Escape restores the visit";return;}
+            if(original_types_[slot]) {screen_status_="Sample conversion is outside live MIDI/Synth editing; roll back to restore the visit";return;}
             draft_slot_=instrument_number_;definition_draft_.type=next;
             definition_draft_.explicit_type=true;definition_draft_.sample=definition_draft_.type==1 && !sample_path_.empty()?sample_path_.c_str():nullptr;
-            screen_status_=serial_.MidiRecoveryStopped()?"Type draft changed; confirm return or cancel":"Type draft changed locally; STOP before applying, or Escape to discard";return;
+            screen_status_=serial_.MidiRecoveryStopped()?"Type draft changed; confirm return or cancel":"Type draft changed locally; STOP before applying, or roll back to discard";return;
         }
 
         if(action==BringUpAction::BrowserConfirm) {
@@ -382,25 +403,32 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             const auto type=InstrumentDraftTypeCode();
             const auto path=!sample_path_.empty()?sample_path_:type==1 && serial_.InspectedSample(instrument_number_)?SavedInstrumentPath():std::string{};
             const bool changed=draft_slot_==instrument_number_ && ((definition_draft_.explicit_type && type!=serial_.InspectedType(instrument_number_)) || !sample_path_.empty());
-            if(live_assignment_ || HasLiveTypes()) {
-                if(HasLiveTypes() && desired_types_[instrument_number_-1]==1 && desired_resources_[instrument_number_-1].empty()) {
-                    screen_status_="Choose a WAV with Load before confirming, or Escape to discard";return;
-                }
-                if(changed) {screen_status_="Type/WAV draft is not applied; discard it or cancel before returning";return;}
-                assignment_confirm_=true;serial_.SyncEditor(*editor_,now);
-                screen_status_="Keeping live assignment; waiting for device application";return;
-            }
             const auto* pattern=editor_->Draft();
             const auto source=instrument_entry_.source;
             const bool assignment_unchanged=pattern && source.row<pattern->active_rows && source.channel<pattern->active_channels &&
-                instrument_entry_.original==instrument_number_-1 && pattern->cells[source.row][source.channel].instrument==instrument_entry_.original;
-            // The raw reference must match: an inherited/default selection is
-            // still an assignment change when the source cell contains 0xff.
+                instrument_number_==instrument_entry_.number && pattern->cells[source.row][source.channel].instrument==instrument_entry_.original;
+            // Keeping the resolved entry slot preserves its raw reference, including 0xff.
+            const bool assign_browsed=existing && instrument_number_!=instrument_entry_.number && !live_assignment_;
+            if(live_assignment_ || HasLiveTypes() || assign_browsed) {
+                if(HasLiveTypes() && desired_types_[instrument_number_-1]==1 && desired_resources_[instrument_number_-1].empty()) {
+                    screen_status_="Choose a WAV with Load before confirming, or roll back to discard";return;
+                }
+                if(changed) {screen_status_="Type/WAV draft is not applied; discard it or cancel before returning";return;}
+                if(assign_browsed) {
+                    if(!serial_.LivePatternEditingAvailable() ||
+                        !editor_->AssignInstrumentAt(instrument_entry_.source,instrument_number_-1)) {
+                        screen_status_="Slot assignment blocked; synchronize first";return;
+                    }
+                    live_assignment_=true;
+                }
+                assignment_confirm_=true;serial_.SyncEditor(*editor_,now);
+                screen_status_="Keeping live assignment; waiting for device application";return;
+            }
             if(existing && !changed && assignment_unchanged) {
                 FinishInstrumentVisit();return;
             }
             if(!serial_.MidiRecoveryStopped()) {
-                screen_status_="Pending instrument or assignment change requires STOP; draft retained, Escape discards";return;
+                screen_status_="Pending instrument or assignment change requires STOP; draft retained, roll back to discard";return;
             }
             BroTracker::HostLogf(log_,BroTracker::HostLogLevel::Debug,"Instrument confirm",
                 "branch=%s type=%u explicit=%u path=%u",existing?(changed?"replace":"assign"):"define-or-assign",type,
