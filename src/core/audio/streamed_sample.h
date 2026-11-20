@@ -3,8 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 namespace BroTracker {
+constexpr bool IsLibraryPcmRate(std::uint32_t rate) noexcept {
+    return rate==7040 || rate==10000 || rate==14019 || rate==16000 ||
+        rate==17500 || rate==20000 || rate==32000;
+}
 constexpr bool IsStreamingPcmRate(std::uint32_t rate) noexcept {
-    return rate==44100 || rate==22050 || rate==11025 || rate==8363 || rate==8000;
+    return rate==44100 || rate==22050 || rate==11025 || rate==8363 || rate==8000 ||
+        IsLibraryPcmRate(rate);
 }
 // Compose an already quantized Q32.32 pitch ratio with the rational rate
 // conversion, rounding to nearest with ties upward. Splitting the quotient

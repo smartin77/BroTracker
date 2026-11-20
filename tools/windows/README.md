@@ -7,6 +7,27 @@ fullscreen, firmware changes or final tracker protocol.
 
 ## Build and package
 
+To refresh BTX in an existing Windows package, run from the repository root
+in PowerShell (including the VS Code terminal):
+
+```powershell
+.\tools\build-windows-btx.ps1
+.\tools\build-windows-btx.ps1 -EmptyTitle OFF
+```
+
+If the local PowerShell execution policy blocks scripts, run this entry
+point in a one-off process with `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-windows-btx.ps1`.
+
+Use the MSYS2 UCRT64 CMake, compiler and SDL2 development files, with the
+toolchain binaries on PATH. For a fresh Ninja build, have Ninja on PATH and
+set `$env:CMAKE_GENERATOR = 'Ninja'` before the first run. The script uses
+`build/windows-current` and builds only Release BTX. It replaces
+`deploy/windows/BroTrackerTerminal.exe`, verifies SHA-256 and prints the
+deployed timestamp. The default title setting is `ON`. Close any running
+BTX before replacement. The script leaves runtime DLLs, assets and config
+in place. For initial packaging or dependency updates, use the full helper
+below.
+
 Use the existing MSYS2 **UCRT64 MinGW** compiler, CMake, make and SDL2 development
 files. No installer or firmware upload is involved. From the checkout in PowerShell:
 

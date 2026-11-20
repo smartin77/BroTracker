@@ -92,7 +92,11 @@ TEST_CASE(DevelopmentWavInspectionExactPathsNoPcmAndFailures) {
         Fixture();
         if(mode==1) FakeSd::fail_open=true;
         if(mode==2) FakeSd::directory=true;
-        if(mode==3) FakeSd::bytes[20]=3;
+        if(mode==3) {
+            FakeSd::bytes[20]=3;FakeSd::bytes[32]=4;FakeSd::bytes[34]=32;
+            constexpr unsigned byte_rate=44100*4;
+            for(unsigned i=0;i<4;++i)FakeSd::bytes[28+i]=(byte_rate>>(8*i))&255;
+        }
         if(mode==4) FakeSd::bytes.pop_back();
         if(mode==5) FakeSd::short_at=0;
         if(mode==6) FakeSd::fail_seek=true;

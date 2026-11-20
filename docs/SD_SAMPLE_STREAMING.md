@@ -1,5 +1,18 @@
 # Production SD sample streaming — 2026-11-07
 
+## Wav-LQ library rates
+
+Native PCM8 and PCM16 mono/stereo also accept 7,040, 10,000, 14,019, 16,000,
+17,500, 20,000 and 32,000 Hz. These sources use the same native byte layout,
+fixed prefix/ring allocation, foreground refills and 44,100 Hz linear
+renderer. Manual audition and reference-note triggers preserve source pitch
+and duration using the existing single Q32.32 source-rate conversion.
+
+BTX negotiates WAVOPEN v8 through `BTINS1 WAVLQCAP 1` and encoded path
+support. It reuses WAVMETA fields and keeps the eligibility of v7 and older
+peers. Malformed RIFF, invalid PCM geometry and partial frames are rejected.
+Valid compressed WAV and IEEE float are outside the supported subset.
+
 ## Native PCM8 and 8,363 Hz
 
 Production accepts unsigned PCM8 and signed PCM16, mono or stereo, at 8,000,

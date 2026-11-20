@@ -356,6 +356,28 @@ binfmt_misc so ARM64 subprocesses execute inside chroot.
 
 ## Build, check and prepare Git delivery
 
+For a delivery-only refresh from Windows PowerShell (including VS Code),
+run from the repository root:
+
+```powershell
+.\tools\build-arkos-btx.ps1
+```
+
+If the local PowerShell execution policy blocks scripts, run this entry
+point in a one-off process with `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build-arkos-btx.ps1`.
+
+The default WSL2 distribution must have the existing Ubuntu Eoan ARM64 root
+and its pinned toolchain from the setup above, QEMU user emulation with
+binfmt support, noninteractive sudo for the existing runner, and the host
+package-check tools including Python 3 and binutils. The root defaults to
+`$HOME/brotracker-eoan-arm64`, with `BROTRACKER_EOAN_ROOT` supported in the
+WSL environment. The script enables the existing QEMU registration and uses
+`prepare-package.sh` to rebuild the shipped terminal and bridge, check the
+ABI and package, and refresh the tracked `deploy/arkos` files and manifests.
+It prints matching build and deployed SHA-256 values. This workflow runs
+package and installer checks. Use the WSL/Linux command below to also run
+the full Eoan CTest suite.
+
 From WSL/Linux in the repository:
 
 ```sh

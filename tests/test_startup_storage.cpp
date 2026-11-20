@@ -145,13 +145,14 @@ struct StoragePeer:SerialTransport {
                 reply="BTSTORE1 WAVERROR 3 "+id+" "+std::to_string(failure->second)+"\n";
             else if(std::find(empty_wav_directories.begin(),empty_wav_directories.end(),request.directory)!=empty_wav_directories.end())
                 reply="BTSTORE1 WAVDIR 3 "+id+" "+request.directory+"\nBTSTORE1 WAVINFO 3 "+id+" 0\nBTSTORE1 WAVEND 3 "+id+" 0 1 0\n";
-            if(request.version==4){
+            if(request.version>=4){
                 for(const auto word:{"WAVDIR","WAVINFO","WAVITEM","WAVMETA","WAVEND","WAVERROR"}){
-                    const auto from=std::string("BTSTORE1 ")+word+" 3 ",to=std::string("BTSTORE1 ")+word+" 4 ";
+                    const auto from=std::string("BTSTORE1 ")+word+" 3 ",
+                        to=std::string("BTSTORE1 ")+word+" "+std::to_string(request.version)+" ";
                     std::size_t at=0;while((at=reply.find(from,at))!=std::string::npos){reply.replace(at,from.size(),to);at+=to.size();}
                 }
                 char token[kPathProtocolCapacity];CHECK(EncodePathToken(request.directory,token,sizeof(token)));
-                const auto marker=std::string("BTSTORE1 WAVDIR 4 ")+id+" ";const auto at=reply.find(marker);
+                const auto marker=std::string("BTSTORE1 WAVDIR ")+std::to_string(request.version)+" "+id+" ";const auto at=reply.find(marker);
                 if(at!=std::string::npos){const auto end=reply.find('\n',at);reply.replace(at+marker.size(),end-at-marker.size(),token);}
             }
             if(hold_list)list_reply=reply;else rx+=reply;
@@ -2704,6 +2705,34 @@ TEST_CASE(SampleBrowserStartupUsesMissingOnlyHostChainAndReusesTheSuccessfulList
             CHECK(controls.BrowserText().find("Folder not found")!=std::string::npos);CHECK_EQ(controls.WavDirectory(),std::string("/Samples"));
             const auto opens=std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& line){return line.rfind("BTSTORE1 WAVOPEN ",0)==0;});CHECK_EQ(opens,2);
         }
+    }
+}
+
+TEST_CASE(HostNegotiatesLibraryRatesAndKeepsV7Eligibility) {
+    for(unsigned version:{7u,8u}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->path_cap=wire->wav_cap=wire->hold_list=true;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;
+        Pump(serial,0,95,&editor);
+        wire->rx+="BTINS1 WAVPCM8CAP 1\n";
+        if(version==8)wire->rx+="BTINS1 WAVLQCAP 1\n";
+        Pump(serial,96,100,&editor);
+        CHECK_EQ(serial.WavDirectoryVersion(),version);
+        CHECK(serial.RequestWavDirectory("/Samples",0,false,2001));Pump(serial,101,110,&editor);
+        const std::string expected="BTSTORE1 WAVOPEN "+std::to_string(version)+" ";
+        CHECK(std::any_of(wire->commands.begin(),wire->commands.end(),
+            [&](const auto& command){return command.rfind(expected,0)==0;}));
+        const std::string facts=" 0 0 1 1 16 44100\n";
+        const auto at=wire->list_reply.find(facts);CHECK(at!=std::string::npos);
+        if(at==std::string::npos)continue;
+        wire->list_reply.replace(at,facts.size(),version==8?" 0 0 1 1 8 16000\n":" 0 10 1 1 8 16000\n");
+        wire->rx+=wire->list_reply;Pump(serial,111,130,&editor);
+        CHECK(serial.PatternListReady());
+        WavBrowser browser;browser.Begin("/Samples",version);
+        CHECK(browser.Accept(serial.WavDirectoryPage()));browser.Move(1);
+        CHECK(browser.SelectedMessage().find("16.0 kHz")!=std::string::npos);
+        CHECK_EQ(browser.SelectedMessage().find("Unsupported rate")!=std::string::npos,version==7);
+        std::string path;CHECK_EQ(browser.Select(path),version==8?2u:0u);
     }
 }
 
