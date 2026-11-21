@@ -10,6 +10,7 @@
 #include "core/playback/variable_rate_pattern_player.h"
 #include "ui/handheld_control_hints.h"
 #include <cstring>
+#include <fstream>
 
 namespace {
 std::optional<LivePlaybackView> ConnectedDraft() {
@@ -986,7 +987,7 @@ TEST_CASE(InstrumentViewportSwapsFrameHeightsAndIgnoresSidebarText) {
     CHECK(std::memcmp(first.PixelData(),second.PixelData(),640*480*sizeof(Color))!=0);
 }
 
-TEST_CASE(InstrumentWaveformRendersLocalFixtureAndReusesItAcrossVisits) {
+TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     CHECK(LoadUiFont("assets/fonts/brotracker.btf"));
     const std::filesystem::path screenshots="diagnostics/sample-waveform";
     std::filesystem::create_directories(screenshots);
@@ -999,30 +1000,71 @@ TEST_CASE(InstrumentWaveformRendersLocalFixtureAndReusesItAcrossVisits) {
     view->fresh=true;
     view->tempo_hundredths=12753;
     HostPanelInformation panel;
-    panel.instrument_number=1;
+    panel.instrument_number=4;
     panel.instrument_identity="Sample";
     panel.instrument_availability="Prepared";
-    panel.instrument_resource="Samples/test2.wav";
-    panel.instrument_name="test2.wav";
+    panel.instrument_resource="Samples/test3.wav";
+    panel.instrument_name="test3.wav";
     panel.instrument_transport="PLAYING";
     panel.instrument_focus=0;
-    panel.transport_hints="Up/Down: Field | Left/Right: Type | Ctrl+Down: Keep | Esc: Roll back";
-    BroTracker::SampleWaveformCache cache;
-    panel.sample_waveform=&cache;
+    panel.transport_hints="Up/Down: Field | Left/Right: Type | Ctrl+Down: Keep | Esc: Roll back | Space: Play/Pause/Continue";
+    using namespace BroTracker;
+    SampleWaveformTransfer transfer;
+    char command[kPathProtocolCapacity];
+    const auto next=[&]{return transfer.Command(command,sizeof(command),0);};
+    transfer.Select(panel.instrument_number,panel.instrument_resource,true);
+    transfer.Tick(0,false);
+    CHECK(next()>0);
+    transfer.Response("BTWAVE1 META 1 1 25 68284 44100 1 16");
+    panel.sample_waveform=&transfer.View();
     using State=BroTracker::SampleWaveformCache::State;
-    for(int step=0;step<12 && !cache.FramesLoaded();++step)cache.Step();
-    CHECK_EQ(cache.Status(),State::Loading);
-    CHECK(cache.FramesLoaded()>0);
+    CHECK_EQ(transfer.View().Percent(),0u);
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"08-sample-loading-zero.bmp"));
+    std::ifstream wav("tests/fixtures/sample_waveform.wav",std::ios::binary);
+    CHECK(bool(wav.seekg(44)));
+    std::uint32_t offset=0;
+    const auto chunk=[&] {
+        CHECK(next()>0);
+        std::uint8_t pcm[kWaveformPlayingBytes];
+        const auto bytes=std::min<std::uint32_t>(sizeof(pcm),68284*2-offset);
+        wav.read(reinterpret_cast<char*>(pcm),bytes);
+        CHECK_EQ(wav.gcount(),bytes);
+        if(wav.gcount()!=bytes)return false;
+        char line[kWaveformLineCapacity];
+        const auto size=FormatWaveformData(line,1,offset,pcm,bytes);
+        if(!size)return false;
+        transfer.Response({line,size-1});
+        offset+=bytes;return true;
+    };
+    for(unsigned i=0;i<240;++i)if(!chunk()){CHECK(false);break;}
+    CHECK_EQ(transfer.View().Status(),State::Loading);
+    CHECK_EQ(transfer.View().Percent(),11u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"01-sample-loading.bmp"));
     const auto loading=fb;
 
-    for(int step=0;step<40 && cache.Status()==State::Loading;++step)cache.Step();
-    CHECK_EQ(cache.Status(),State::Ready);
-    CHECK_EQ(cache.FramesLoaded(),68284u);
-    CHECK_EQ(cache.Metadata().sample_rate,44100u);
-    CHECK_EQ(cache.Metadata().channels,1u);
-    CHECK_EQ(cache.Metadata().bits,16u);
+    transfer.Tick(6000,true);
+    panel.waveform_deferred=transfer.Deferred();
+    CHECK(panel.waveform_deferred);
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"06-sample-deferred.bmp"));
+    const auto windows_hints=panel.transport_hints;
+    panel.transport_hints="D-pad U/D: Field | Left/Right: Type | Select+Down: Keep | B: Roll back | Start: Play/Pause/Continue";
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"07-sample-deferred-handheld.bmp"));
+    panel.transport_hints=windows_hints;
+    transfer.Tick(19000,false);
+    panel.waveform_deferred=transfer.Deferred();
+    CHECK(!panel.waveform_deferred);
+    panel.instrument_transport="PAUSED";
+    while(offset<68284*2 && chunk()) {}
+    panel.sample_waveform=&transfer.View();
+    CHECK_EQ(transfer.View().Status(),State::Ready);
+    CHECK_EQ(transfer.View().Metadata().frames,68284u);
+    CHECK_EQ(transfer.View().Metadata().rate,44100u);
+    CHECK_EQ(transfer.View().Metadata().channels,1u);
+    CHECK_EQ(transfer.View().Metadata().bits,16u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"02-sample-ready.bmp"));
     const auto ready=fb;
@@ -1047,15 +1089,30 @@ TEST_CASE(InstrumentWaveformRendersLocalFixtureAndReusesItAcrossVisits) {
         CHECK(empty);
     }
     panel.instrument_number=0;
+    transfer.Select(0,{},true);
+    CHECK(next()>0); // CANCEL
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     panel.instrument_identity="Sample";
     panel.instrument_number=4;
-    panel.instrument_resource="Samples/another.wav";
-    panel.instrument_name="another.wav";
-    cache.Step();
+    transfer.Select(panel.instrument_number,panel.instrument_resource,true);
+    CHECK(next()>0);
+    transfer.Response("BTWAVE1 META 1 2 25 68284 44100 1 16");
+    CHECK_EQ(next(),0u); // No PCM requested for a revalidated resource.
+    panel.sample_waveform=&transfer.View();
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK_EQ(std::memcmp(fb.PixelData()+waveform_start,ready.PixelData()+waveform_start,
         waveform_pixels*sizeof(Color)),0);
+    panel.instrument_resource="Samples/missing.wav";
+    panel.instrument_name="missing.wav";
+    panel.instrument_availability="Resource unavailable";
+    transfer.Select(panel.instrument_number,panel.instrument_resource,true);
+    CHECK(next()>0); // CANCEL
+    CHECK(next()>0); // GET
+    transfer.Response("BTWAVE1 ERROR 1 3");
+    panel.sample_waveform=&transfer.View();
+    CHECK_EQ(transfer.View().Status(),State::Unavailable);
+    RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
+    CHECK(fb.SaveBMP(screenshots/"05-sample-unavailable.bmp"));
 }
 
 TEST_CASE(InstrumentIdentityProductionParsersAcceptZeroAndKeepStrictValidation) {

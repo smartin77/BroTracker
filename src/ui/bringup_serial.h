@@ -19,6 +19,7 @@
 #include "bringup/host_master_volume.h"
 #include "bringup/host_tempo.h"
 #include "midi_health.h"
+#include "sample_waveform.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -31,6 +32,15 @@ public:
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    const BroTracker::SampleWaveformCache& SelectWaveform(unsigned number,std::string_view acknowledged_path) {
+        waveform_.Select(number,define_pending_ || define_reconcile_required_?std::string_view{}:acknowledged_path,
+            connected_ && waveform_supported_ && SdStatus()!=SdAvailability::Unavailable);
+        return waveform_.View();
+    }
+    bool WaveformDeferred() const { return waveform_.Deferred(); }
+    std::string_view AcknowledgedSamplePath(unsigned number)const {
+        return InspectedSample(number) && std::strcmp(identity_resource_,"-")?identity_resource_:"";
+    }
     void InspectInstrument(unsigned number) {
         if(number<1 || number>255 || (number>99 && !InstrumentCollectionSupported()) || number==identity_number_)return;
         identity_number_=number;identity_midi_channel_=0;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
@@ -380,6 +390,8 @@ private:
     BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
     BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
     bool wav_supported_=false,list_wav_=false;
+    bool waveform_supported_=false;
+    BroTracker::SampleWaveformTransfer waveform_;
     bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
     std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
     char list_status_[96]{};
@@ -501,7 +513,7 @@ private:
     std::uint32_t audition_id_=0;std::string audition_path_,audition_error_;
     char tx_[BroTracker::kPathProtocolCapacity]{};
     unsigned int tx_size_ = 0, tx_offset_ = 0;
-    char line_[BroTracker::kPathProtocolCapacity]{};
+    char line_[BroTracker::kWaveformLineCapacity]{};
     unsigned int used_ = 0;
     bool overflow_ = false;
     char state_[16] = "UNKNOWN";

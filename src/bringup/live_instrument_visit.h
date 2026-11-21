@@ -7,8 +7,12 @@ namespace BroTracker {
 class LiveInstrumentVisit {
 public:
     bool Begin(std::uint32_t id,const InstrumentDefinitions& definitions,const VariableRateSampleBindings& bindings) {
-        if(!id || (id_ && id_!=id))return false;
-        if(!id_){original_definitions_=definitions;original_bindings_=bindings;id_=id;cancelled_=0;}
+        if(!id)return false;
+        if(id_ && id_!=id) {
+            if(std::any_of(edited_.begin(),edited_.end(),[](bool edited){return edited;}))return false;
+            End(id_);
+        }
+        if(!id_){original_definitions_=definitions;original_bindings_=bindings;id_=id;cancelled_=0;edited_.fill(false);}
         return true;
     }
     bool MidiChannelsChanged(const InstrumentDefinitions& definitions)const {
@@ -24,9 +28,10 @@ public:
     std::uint32_t Identity()const{return id_;}
     const VariableRateSampleBindings& OriginalBindings()const{return original_bindings_;}
     void Cancel(std::uint32_t request){cancelled_=std::max(cancelled_,request);}
+    void MarkEdited(unsigned slot){if(Active() && slot<edited_.size())edited_[slot]=true;}
     bool Cancelled(std::uint32_t request)const{return request && request<=cancelled_;}
     bool End(std::uint32_t id){if(id!=id_)return false;id_=0;original_definitions_.Reset(false);original_bindings_={};return true;}
-    template<class Install> unsigned Restore(unsigned slot,InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,Install install)const {
+    template<class Install> unsigned Restore(unsigned slot,InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,Install install) {
         const auto* d=original_definitions_.At(slot);if(!Active() || !d || !definitions.At(slot))return 2;
         const VariableRateSampleBinding* original=nullptr;
         for(unsigned i=0;i<original_bindings_.count;++i)if(original_bindings_.bindings[i].instrument==slot)original=&original_bindings_.bindings[i];
@@ -34,10 +39,12 @@ public:
         unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=slot)++index;
         if(original){if(index==bindings.count)++bindings.count;bindings.bindings[index]=*original;}
         else if(index<bindings.count){for(unsigned i=index+1;i<bindings.count;++i)bindings.bindings[i-1]=bindings.bindings[i];--bindings.count;}
-        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource,d->midi_channel);return 0;
+        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource,d->midi_channel);
+        edited_[slot]=false;return 0;
     }
 private:
     InstrumentDefinitions original_definitions_{false};VariableRateSampleBindings original_bindings_{};
     std::uint32_t id_=0,cancelled_=0;
+    std::array<bool,99> edited_{};
 };
 }

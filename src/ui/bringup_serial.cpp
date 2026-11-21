@@ -165,6 +165,8 @@ void BringUpSerial::ServiceExit(std::uint32_t now) {
 
 void BringUpSerial::Disconnect(const char* reason)
 {
+    waveform_.Disconnect();
+    waveform_supported_=false;
     if(file_action_==FileAction::Session && pending_==Command::File)session_save_uncertain_=true;
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
@@ -673,6 +675,11 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 
 void BringUpSerial::OnLine(std::uint32_t now)
 {
+    if(!std::strncmp(line_,"BTWAVE1 ",8)) {
+        if(connected_ && !std::strcmp(line_,BroTracker::kWaveformCapability))waveform_supported_=true;
+        else if(connected_ && waveform_supported_)waveform_.Response({line_,used_});
+        return;
+    }
     Log("RX:", line_);
     if(!std::strcmp(line_,"BTSTORE1 NEWCAP 1")){if(connected_)new_pattern_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 PATTERNSAVECAP 1")){if(connected_)pattern_save_supported_=true;return;}
@@ -1175,6 +1182,7 @@ void BringUpSerial::SnapshotFailed(std::uint32_t now)
 
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
+    waveform_.Tick(now,Playing());
     tempo_.Tick(now);
     mute_.Tick(now);
     volume_.Tick(now);
@@ -1225,7 +1233,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             tx_offset_ += count;
             if (tx_offset_ == tx_size_) {
                 tx_write_attempted_=false;
-                Log("TX complete:", tx_);
+                if(std::strncmp(tx_,"BTWAVE1 ",8))Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
                 if(tx_mute_) {mute_.LineComplete();tx_mute_=false;}
@@ -1254,14 +1262,16 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             // happens in OnLine so late items from cancelled lists are harmless;
             // preserve malformed snapshot/preview handling for every other line.
             if(used_>=256) {
-                if(std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) && std::strncmp(line_,"BTINS1 STATE 3 ",15))overflow_=true; // stale listing items are ignored by request ID too
+                if(std::strncmp(line_,"BTWAVE1 ",8) && (used_>=BroTracker::kPathProtocolCapacity ||
+                    (std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) &&
+                    std::strncmp(line_,"BTINS1 STATE 3 ",15))))overflow_=true;
             }
             if (overflow_)
             {
                 Log("RX error: overlong line discarded");
                 // Conservatively cancel staging, but never touch applied transport,
                 // position or a previously committed snapshot.
-                if(std::strncmp(line_,"BTGAIN1",7)) {
+                if(std::strncmp(line_,"BTGAIN1",7) && std::strncmp(line_,"BTWAVE1 ",8)) {
                     if(preview_.Supported()) preview_.ReadFailure();
                     if (pattern_assembler_.Active())
                     { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
@@ -1275,6 +1285,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
         else overflow_ = true;
     }
+    waveform_.Tick(now,Playing()); // Apply new transport acknowledgements before granting a credit.
     ServiceExit(now);
     // Transport outranks informational STATUS. Finish its line, but do not wait
     // for its reply. STATE received during transport is ignored above; ACKs differ.
@@ -1490,5 +1501,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             else if(now-sent_at_>=1000) Send(Command::Status,now);
         }
         else if (connected_ && (next_refresh_ || now - sent_at_ >= 1000)) Send(Command::Status, now);
+        if(tx_offset_==tx_size_ && pending_==Command::None && connected_ && waveform_supported_ &&
+           !exit_requested_ && !pattern_assembler_.Active()) {
+            if(const auto size=waveform_.Command(tx_,sizeof(tx_),now)) {
+                tx_size_=size;tx_offset_=0;
+            }
+        }
     }
 }

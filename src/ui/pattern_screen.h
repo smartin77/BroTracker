@@ -44,6 +44,7 @@ struct HostPanelInformation
     std::string pattern_browser_text{};
     FileListView pattern_browser_list{};
     const BroTracker::SampleWaveformCache* sample_waveform = nullptr;
+    bool waveform_deferred = false;
 };
 
 void RenderMainScreen(

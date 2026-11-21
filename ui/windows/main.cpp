@@ -18,7 +18,6 @@
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
-#include "ui/sample_waveform.h"
 #include "ui/host_warning.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
@@ -104,7 +103,6 @@ int main(int argc, char* argv[]) try {
     controls.SetConfirmLoadReplace(host_config.config.confirm_load_replace);
     BroTracker::HostLogf(log_file,BroTracker::HostLogLevel::Debug,"Controls", "Controls: Space START/PAUSE/CONTINUE when supported (legacy START/RESTART); Enter STOP/reset (stay); Ctrl+X/window close EXIT; Ctrl+Left/Right Pattern Load/Save; capability-gated automatic preview\n");
     WindowsHeaderInput header_input;
-    BroTracker::SampleWaveformCache waveform;
     bool display_failed = false;
     while (!controls.Quit()) {
         controls.Tick(SDL_GetTicks());
@@ -210,16 +208,16 @@ int main(int argc, char* argv[]) try {
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
+        panel.sample_waveform=&serial.SelectWaveform(panel.instrument_identity=="Sample"?panel.instrument_number:0,
+            panel.instrument_number?controls.AcknowledgedSamplePath():std::string_view{});
+        panel.waveform_deferred=serial.WaveformDeferred();
         if(panel.instrument_number) {
-            if(panel.instrument_identity=="Sample") {
-                waveform.Step();
-                panel.sample_waveform=&waveform;
-            }
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"Enter: Browse | ":
                 panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
-            panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+"Ctrl+Down: Keep | Esc: Roll back";
+            panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+
+                "Ctrl+Down: Keep | Esc: Roll back | Space: Play/Pause/Continue";
         }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

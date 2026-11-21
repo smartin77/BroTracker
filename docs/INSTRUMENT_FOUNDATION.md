@@ -333,6 +333,12 @@ Their result/uncertain-outcome rules still apply. Temporary
 BTM stores the resulting authoritative table and paths; boot prepares by path and
 retains unavailable definitions without substituting sounds.
 
+If a terminal leaves an active visit behind, another visit can claim it once
+there are no pending live edits or outstanding rollback changes. A visit with
+unrestored edits retains its exact rollback snapshot and reports BUSY to another
+visit ID. Paused Load WAV still requires the ordinary ready live visit and all
+transport, browser and recovery guards.
+
 ## Teensy SD directory browser
 
 On Sample Browser entry, BTX requests an exact initial listing of `/Samples` on
@@ -481,34 +487,90 @@ callback text processing. There is no transfer for empty metadata. See
 [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority)
 for playback priority and terminal assistance.
 
-## Sample waveform mockup
+## Sample waveform
 
-BTX embeds the original `assets/waveform/test3.wav` fixture in the Windows and
-ArkOS executables. It is a byte-for-byte copy of
-`F:\_back_up\_teensy_sd1\Samples\test3.wav` with SHA-256
-`04ab4b286d29650cb04ad54cef496a4cd1af3fe477456c717734adf9bf6f7b74`.
-Every Sample slot displays this same fixture independently of its assigned WAV.
-MIDI and Sine Synth leave the waveform frame empty. Existing bindings,
-preparation and playback continue through the usual Instrument flow.
+The Sample panel displays the acknowledged, prepared WAV from Teensy SD.
+An unacknowledged selection cannot supply waveform data. Missing or
+unprepared sources, read failure and older firmware show Waveform unavailable.
+BTX shows Loading waveform with the percentage of PCM bytes received. The
+completed waveform replaces the progress label after the last byte.
+MIDI and Sine Synth leave the lower frame empty. The panel uses a sample-frame
+axis, where a stereo frame is one time position across both channels. BTX
+keeps both channels' extrema in each min/max bucket. Preview, Zoom 1x, Fit,
+Set Start, Set End and the endpoint markers are display-only.
 
-The panel derives its format and axis from the fixture. It shows 44.1 kHz,
-16-bit mono and 1.55 s, with frame boundaries at 0, 34,142 and 68,284.
-A stereo frame is one time position across both channels. When aggregating
-stereo, the cache includes both channels in each bucket's extrema. The controls
-and endpoint markers are display-only. Editing, preview, zoom, slicing and
-looping are deferred.
+### Source and cache identity
 
-After input and transport service, the terminal advances the cache by at most
-one step per loop while the Sample screen is visible. The shared RIFF inspector
-limits each header read to 18 bytes and the scan to 1,024 container chunks.
-PCM work reads up to 4,096 bytes per step (2,048 frames for this fixture) into
-temporary scratch space. It processes all 68,284 frames across 34 PCM steps,
-keeping 598 signed 16-bit min/max pairs (2,392 bytes plus metadata and progress
-state). The completed cache survives slot changes and screen visits for the
-life of BTX. Render calls only consume the cache.
+A capability-gated GET supplies the zero-based slot and exact acknowledged SD
+path, encoded with the existing path token. Teensy matches the path to its
+definition, then resolves the actual prepared playback binding. The reply
+carries a boot-scoped source generation plus validated frame count, native
+rate, channels and bit depth. A source generation is assigned when a file is
+prepared and survives alias bindings and exact rollback of the pinned source.
+Reclaiming and preparing a source, even at the same path, assigns a new
+generation. Supported PCM matches the production playback validator.
 
-The fixture uses local executable data. Future Teensy waveform transfers must
-follow D0041 and be bounded, batched, deferred and subordinate to playback.
-This mockup supplies no device-side waveform generation, SD scan or sample
-transfer. Its terminal checks do not measure Teensy transport or playback
-performance.
+BTX revalidates the binding on slot changes and screen entry before showing
+a completed cache entry. It keeps four completed envelopes, evicts in
+insertion order and assembles one envelope separately. The key is the
+connection session, source generation and geometry. An acknowledged
+replacement resolves the new source. Exact rollback can reuse the old
+generation while its envelope is retained. BTX also retains one partial
+envelope across screen visits and revalidates its source before resuming.
+The Playing allowance follows the source generation when changing slots or
+returning to Instrument. If the partial envelope is evicted by another
+resource, the allowance history still prevents a fresh Playing budget for
+that source. History is bounded at 16 generations and older evicted
+generations are treated as exhausted. A disconnect invalidates all entries.
+The runtime treats prepared SD resources as immutable while mounted,
+as playback does. Offline card edits or media replacement require remounting
+by restarting Teensy. Live external edits and SD hot swap are outside the
+supported storage lifecycle.
+
+### Foreground transfer and playback priority
+
+`BTWAVE1 CAP 3` advertises support. GET replaces the current transfer, NEXT
+grants one credit for a request ID and exact PCM byte cursor, and CANCEL
+discards matching work. After GET validates the same source generation and
+geometry, RESUME can grant the first credit at the previously received,
+frame-aligned offset. Later credits require the exact cursor. Responses use the existing newline-delimited CDC
+channel. Metadata and read errors use short lines. DATA carries raw PCM as
+hex with its request ID and offset. BTX sends no next credit until it receives
+and validates the last response, drops superseded IDs, and times out a sent
+credit after 12 active seconds without a valid reply. A later visit can retry.
+BTX freezes the metadata or data reply deadline while intentionally deferred and can
+still accept the one outstanding response or an explicit error.
+
+Teensy uses the existing prepared file handle and a scoped SD read guard for
+one positional read per credit. No transfer data enters the main response
+queue. A response starts only in an idle output lane with room for the whole
+line. Playback refill, control, storage, audition, preparation and browser
+work take precedence. A read also requires no refill demand and sufficient
+audio headroom. The guard uses the existing reserve and accounts for the
+largest waveform read observed so far.
+
+Playing allows at most 64 PCM bytes per response and one read per 25 ms or
+slower. Stopped and Paused allow up to 768 PCM bytes per credit. The player
+silences voices and stops timeline advancement on Pause while retaining
+logical continuation. A queued control request or pending acknowledgement
+defers waveform service. The next credit uses the fresh applied transport
+state. On START or CONTINUE, at most one already transmitted high-budget
+reply can still be in flight. It is bounded and the next reply uses the
+Playing budget.
+
+BTX allows approximately six cumulative seconds of metadata wait and PCM loading
+while Playing per incomplete source acquisition. Before issuing any PCM credit
+on metadata validation or entry to Playing, it checks whether the remainder
+fits. The estimate uses the slower of 32 ms per 64-byte credit and 6,000 wire
+bytes/s, counting hex expansion and up to 80 bytes of request/reply framing per
+credit. These are scheduling estimates. Actual refill and control demand can
+defer a reply. BTX stops granting credits when the estimate exceeds the
+remaining allowance or an admitted transfer exhausts it. Stop or Pause resumes
+at the received offset with the idle budget. Metadata validation and completed
+cache hits can proceed during playback regardless of the allowance.
+
+The terminal consumes and discards each PCM chunk and retains only min/max
+pairs. Each envelope uses up to 2,392 bytes of peak storage. No SD access,
+USB transfer or waveform aggregation runs in a Teensy audio callback.
+See [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority).
+Hardware timing and underrun margins still require device measurements.

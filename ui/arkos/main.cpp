@@ -30,7 +30,6 @@
 #include "core/tune_loader.h"
 #include "renderer/framebuffer.h"
 #include "ui/pattern_screen.h"
-#include "ui/sample_waveform.h"
 #include "ui/host_warning.h"
 #include "ui/text_renderer.h"
 #include "ui/sdl/sdl_display_backend.h"
@@ -345,7 +344,6 @@ int main(int argc, char* argv[])
         "entering event loop");
 
     LinuxVolumeInput volume_input;
-    BroTracker::SampleWaveformCache waveform;
     DiagnosticCancelInput diagnostic_cancel;
     while (!controls.Quit() && !diagnostic.Exit())
     {
@@ -440,16 +438,16 @@ int main(int argc, char* argv[])
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | A: Select/Confirm | ")+
             (controls.BrowserConfirming()?"B: Cancel":"B: Back")+" | Select+Right: Pattern | L1+Start: EXIT":
             "Select+Left: Pattern Load/Save | "+panel.transport_hints;
+        panel.sample_waveform=&serial.SelectWaveform(panel.instrument_identity=="Sample"?panel.instrument_number:0,
+            panel.instrument_number?controls.AcknowledgedSamplePath():std::string_view{});
+        panel.waveform_deferred=serial.WaveformDeferred();
         if(panel.instrument_number) {
-            if(panel.instrument_identity=="Sample") {
-                waveform.Step();
-                panel.sample_waveform=&waveform;
-            }
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"A: Browse | ":
                 panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
-            panel.transport_hints=std::string("D-pad U/D: Field | ")+focus_hint+"Select+Down: Keep | B: Roll back";
+            panel.transport_hints=std::string("D-pad U/D: Field | ")+focus_hint+
+                "Select+Down: Keep | B: Roll back | Start: Play/Pause/Continue";
         }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

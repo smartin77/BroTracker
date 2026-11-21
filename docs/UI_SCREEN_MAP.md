@@ -136,7 +136,7 @@ is blank because BTX has no embedded WAV title metadata. For Sample, a full-widt
 WAV path, any staged path, and Load WAV to open Sample Browser. MIDI and Sine Synth
 use the same slot, Type, and status layout. Preparation, rollback and errors
 appear in the middle frame. Sample uses the largest, lower frame for the
-[fixed-fixture waveform mockup](INSTRUMENT_FOUNDATION.md#sample-waveform-mockup).
+[acknowledged Sample waveform](INSTRUMENT_FOUNDATION.md#sample-waveform).
 MIDI and Sine Synth leave that frame empty.
 
 The bottom line gives the focused action and the platform's keep/rollback

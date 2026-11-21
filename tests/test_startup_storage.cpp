@@ -61,6 +61,8 @@ struct StoragePeer:SerialTransport {
     std::uint32_t simulated_revision=0;
     std::string pattern_save_result="ok",pattern_save_reply;bool hold_pattern_save=false;
     bool path_cap=false;
+    bool waveform_cap=false;
+    bool transport_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
     bool midi_instrument_cap=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
@@ -103,6 +105,8 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && metadata_cap)rx+="BTSESSION1 CAP 1\nBTSESSION1 VIEW 1 19 6 1 0\n";
             if(line=="BTTEST1 HELLO" && identity_cap)rx+="BTINS1 CAP 1\n";
             if(line=="BTTEST1 HELLO" && facts_cap)rx+="BTINS1 CAP 2\n";
+            if(line=="BTTEST1 HELLO" && waveform_cap)rx+="BTWAVE1 CAP 3\n";
+            if(line=="BTTEST1 HELLO" && transport_cap)rx+="BTPATTERN1 TRANSPORTCAP 1\n";
             if(line=="BTTEST1 HELLO" && collection_cap)rx+="BTINS1 COLLECTIONCAP 1\n";
             if(line=="BTTEST1 HELLO" && define_cap)rx+="BTINS1 DEFINECAP 1\n";
             if(recovery_publication)rx+="BTPUBLISH1 CAP 1\nBTPUBLISH1 NEXT 1 1\n";
@@ -314,6 +318,169 @@ TEST_CASE(InitialSessionReadbackRetriesTransientTimeoutWithoutLoadingOrStarting)
     CHECK_EQ(std::count_if(wire->commands.begin(),wire->commands.end(),[](const auto& s){return s.rfind("BTPATTERN1 GET 2 ",0)==0;}),2);
     CHECK(std::find(wire->commands.begin(),wire->commands.end(),"BTTEST1 START")==wire->commands.end());
 }
+
+TEST_CASE(SerialWaveformPullWaitsForResponseAndAcceptsLongPcmLine) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->waveform_cap=true;
+    BringUpSerial serial(nullptr,std::move(peer));
+    Pump(serial);
+    using State=SampleWaveformCache::State;
+    CHECK_EQ(serial.SelectWaveform(1,"Samples/Assigned.wav").Status(),State::Loading);
+    Pump(serial,80,100);
+    const auto count=[&](const char* prefix) {
+        return std::count_if(wire->commands.begin(),wire->commands.end(),
+            [&](const auto& line){return line.rfind(prefix,0)==0;});
+    };
+    CHECK_EQ(count("BTWAVE1 GET "),1);
+    CHECK_EQ(count("BTWAVE1 NEXT "),0);
+    wire->rx+="BTWAVE1 META 1 1 23 384 44100 1 16\n";
+    Pump(serial,100,120);
+    CHECK_EQ(count("BTWAVE1 NEXT 1 1 0"),1);
+    char line[kWaveformLineCapacity];
+    std::uint8_t pcm[kWaveformIdleBytes]{};
+    pcm[sizeof(pcm)-1]=0x40;
+    const auto n=FormatWaveformData(line,1,0,pcm,sizeof(pcm));
+    CHECK(n>256u);
+    wire->rx.append(line,n);
+    Pump(serial,120,140);
+    const auto& wave=serial.SelectWaveform(1,"Samples/Assigned.wav");
+    CHECK_EQ(wave.Status(),State::Ready);
+    CHECK_EQ(wave.Column(383).maximum,16384);
+    CHECK_EQ(count("BTWAVE1 NEXT "),1);
+    wire->healthy=false;
+    serial.Tick(2800);
+    CHECK_EQ(serial.SelectWaveform(1,"Samples/Assigned.wav").Status(),State::Unavailable);
+}
+
+TEST_CASE(SerialWaveformMetadataDeferredDuringPlaybackResumesOnPauseAcknowledgement) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->waveform_cap=wire->transport_cap=true;
+    wire->state="PLAYING";
+    BringUpSerial serial(nullptr,std::move(peer));
+    LocalPatternEditor editor;
+    Pump(serial,0,80,&editor);
+    const auto view=[&]() -> const SampleWaveformCache& {
+        return serial.SelectWaveform(1,"Samples/Assigned.wav");
+    };
+    const auto count=[&](const char* prefix) {
+        return std::count_if(wire->commands.begin(),wire->commands.end(),
+            [&](const auto& line){return line.rfind(prefix,0)==0;});
+    };
+    using State=SampleWaveformCache::State;
+    CHECK_EQ(view().Status(),State::Loading);
+    Pump(serial,80,370,&editor);
+    CHECK(!serial.WaveformDeferred());
+    Pump(serial,370,850,&editor);
+    CHECK(serial.Connected());
+    CHECK(serial.WaveformDeferred());
+    CHECK_EQ(view().Status(),State::Loading);
+    CHECK_EQ(view().Percent(),0u);
+    CHECK_EQ(count("BTWAVE1 GET "),1);
+    CHECK_EQ(count("BTWAVE1 NEXT "),0);
+    CHECK(serial.Pause());
+    Pump(serial,850,855,&editor);
+    CHECK_EQ(count("BTTEST1 PAUSE"),1);
+    CHECK(serial.WaveformDeferred());
+    wire->state="PAUSED";
+    wire->rx+="BTTEST1 PAUSED\n";
+    Pump(serial,855,860,&editor);
+    CHECK(serial.Paused());
+    CHECK(!serial.WaveformDeferred());
+    CHECK_EQ(view().Status(),State::Loading);
+    CHECK_EQ(count("BTWAVE1 GET "),1);
+    CHECK_EQ(count("BTWAVE1 CANCEL "),0);
+    wire->rx+="BTWAVE1 META 1 1 23 2 44100 1 16\n";
+    Pump(serial,860,870,&editor);
+    CHECK_EQ(count("BTWAVE1 NEXT 1 1 0"),1);
+    wire->rx+="BTWAVE1 DATA 1 1 0 01000200\n";
+    Pump(serial,870,880,&editor);
+    CHECK_EQ(view().Status(),State::Ready);
+    CHECK_EQ(view().Column(1).maximum,2);
+    wire->healthy=false;
+    serial.Tick(17600);
+    CHECK_EQ(view().Status(),State::Unavailable);
+}
+
+#ifdef BROTRACKER_TEST_HOST_INPUT_ROUTING
+TEST_CASE(PatternAndInstrumentUseSameAcknowledgedSpaceAndStartTransport) {
+    for(bool handheld:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->transport_cap=wire->facts_cap=wire->collection_cap=wire->live_edit_cap=true;
+        wire->state="PLAYING";
+        BringUpSerial serial(nullptr,std::move(peer));
+        LocalPatternEditor editor;
+        BringUpControls controls(serial,nullptr);controls.ObserveEditor(editor);
+        ArkOSEditorInput pad;
+        pad.Select(7);
+        WindowsScreenInput keys;
+        std::uint32_t now=0;
+        const auto drive=[&](unsigned ticks=16) {
+            while(ticks--) {now+=20;controls.Tick(now);serial.SyncEditor(editor,now);}
+        };
+        const auto edge=[&](SDL_GameControllerButton button,bool down) {
+            ConfigureArkOSInputBarrier(pad,serial,controls);
+            SDL_Event event{};
+            event.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;
+            event.cbutton.which=7;event.cbutton.button=button;
+            const bool blocked=serial.UserActionsBlocked() || controls.PatternInputBlocked();
+            LocalPatternEditor sink;
+            const auto result=pad.Handle(event,now,!blocked,blocked?sink:editor);
+            if(!blocked || AllowArkOSBlockedTransport(result.transport,serial,controls))
+                controls.Request(result.transport,"Start",now);
+            return result.transport;
+        };
+        const auto press=[&] {
+            if(handheld) {
+                CHECK_EQ(edge(SDL_CONTROLLER_BUTTON_START,true),BringUpAction::None);
+                CHECK_EQ(edge(SDL_CONTROLLER_BUTTON_START,true),BringUpAction::None);
+                CHECK_EQ(edge(SDL_CONTROLLER_BUTTON_START,false),BringUpAction::PatternToggle);
+            } else {
+                SDL_Event event{};
+                event.type=SDL_KEYDOWN;event.key.keysym.sym=SDLK_SPACE;
+                const auto action=keys.Handle(event);
+                CHECK_EQ(action,BringUpAction::PatternToggle);
+                if(!controls.PatternInputBlocked() || AllowWindowsBlockedAction(action,serial,controls))
+                    controls.Request(action,"Space",now);
+                event.key.repeat=1;
+                CHECK_EQ(keys.Handle(event),BringUpAction::None);
+                event.type=SDL_KEYUP;event.key.repeat=0;keys.Handle(event);
+            }
+        };
+        const auto count=[&](const char* command){return std::count(wire->commands.begin(),wire->commands.end(),command);};
+        drive(100);
+        CHECK(serial.Playing());CHECK(editor.Ready());
+        const auto pattern=*editor.Draft();
+        for(bool instrument:{false,true}) {
+            if(instrument) {
+                controls.Request(BringUpAction::ScreenUp,"open Instrument",now);
+                drive();CHECK(controls.InstrumentTransportAvailable());
+                if(handheld) {
+                    edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,true);
+                    edge(SDL_CONTROLLER_BUTTON_START,true);
+                    edge(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,false);
+                    CHECK_EQ(edge(SDL_CONTROLLER_BUTTON_START,false),BringUpAction::None);
+                }
+            }
+            const auto slot=controls.InstrumentNumber();
+            const auto paused=count("BTTEST1 PAUSE"),continued=count("BTTEST1 CONTINUE");
+            press();drive(3);
+            CHECK_EQ(count("BTTEST1 PAUSE"),paused+1);CHECK(serial.Playing());
+            wire->state="PAUSED";wire->rx+="BTTEST1 PAUSED\n";drive(3);CHECK(serial.Paused());
+            press();drive(3);
+            CHECK_EQ(count("BTTEST1 CONTINUE"),continued+1);CHECK(serial.Paused());
+            wire->state="PLAYING";wire->rx+="BTTEST1 CONTINUED\n";drive(3);CHECK(serial.Playing());
+            CHECK_EQ(controls.InstrumentScreen(),instrument);
+            CHECK_EQ(controls.InstrumentNumber(),slot);
+            CHECK(SamePattern(pattern,*editor.Draft()));
+        }
+        wire->state="IDLE";wire->rx+="BTTEST1 STATE IDLE\n";drive(3);
+        press();drive(3);CHECK_EQ(count("BTTEST1 START"),1);
+        wire->state="PLAYING";wire->rx+="BTTEST1 STARTED\n";drive(3);
+        CHECK(controls.InstrumentScreen());CHECK(serial.Playing());
+        CHECK(SamePattern(pattern,*editor.Draft()));
+    }
+}
+#endif
 
 TEST_CASE(InitialSessionReadbackFailureIsBoundedAndStopRemainsAvailable) {
     auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();wire->hold_baseline=true;
@@ -1208,7 +1375,7 @@ TEST_CASE(InstrumentReconnectMismatchKeepsCapturedSlotSeparateFromExplicitRecove
                 windows_editor.Handle(e,now,blocked?sink:editor);
                 const bool allowed=!blocked || AllowWindowsBlockedAction(mapped,serial,controls) ||
                     (controls.RecoveryScreen() && controls.BrowserInputAvailable() && mapped>=BringUpAction::BrowserUp && mapped<=BringUpAction::BrowserBack);
-                if(action==BringUpAction::PatternToggle && blocked)CHECK(!allowed);
+                if(action==BringUpAction::PatternToggle && blocked)CHECK_EQ(allowed,controls.InstrumentTransportAvailable());
                 if(mapped==action && action!=BringUpAction::PatternToggle)CHECK(allowed);
                 if(allowed)controls.Request(mapped,source,now);
                 return mapped;
@@ -1239,7 +1406,7 @@ TEST_CASE(InstrumentReconnectMismatchKeepsCapturedSlotSeparateFromExplicitRecove
             if(chord)edge(SDL_CONTROLLER_BUTTON_BACK,true);
             const auto pressed=edge(button,true);const auto released=edge(button,false);
             if(action!=BringUpAction::PatternToggle) {CHECK(pressed==(controls.InstrumentScreen() && (action==BringUpAction::ScreenLeft || action==BringUpAction::ScreenRight || action==BringUpAction::ScreenUp)?BringUpAction::None:action));if(chord)edge(SDL_CONTROLLER_BUTTON_BACK,false);}
-            else {CHECK(pressed==BringUpAction::None);CHECK(released==BringUpAction::None);}
+            else {CHECK(pressed==BringUpAction::None);CHECK(released==(controls.InstrumentTransportAvailable()?action:BringUpAction::None));}
         }
 #endif
     };

@@ -2,6 +2,7 @@
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
 #include "firmware/teensy/BroTracker/sd_wav_audition.h"
 #include "ui/wav_browser.h"
+#include "ui/sample_waveform.h"
 #include "core/audio/variable_rate_sample_voice.h"
 #include "core/playback/variable_rate_pattern_player.h"
 #include "bringup/pattern_fixture.h"
@@ -1077,6 +1078,91 @@ TEST_CASE(NativePcmRatesMatchIndependentReferenceAcrossRefillsAndRetrigger) {
         CHECK_EQ(f.producer.io_errors,0u);
     }
 }
+TEST_CASE(WaveformReadsPreparedSdBytesAndMatchesIndependentExtrema) {
+    constexpr unsigned frames=1103;
+    Fixture fixture;
+    const char* path="Samples/waveform.wav";
+    for(unsigned bits:{8u,16u})for(unsigned channels:{1u,2u}) {
+        const unsigned rate=bits==8?8363:32000;
+        const auto wav=RateFixtureWav(frames,rate,channels,bits);
+        FakePatternSd::files[path].bytes=wav;
+        Pcm16MixedSampleView view;
+        CHECK_EQ(fixture.producer.PreparePath(path,view),InstrumentAvailability::Ready);
+        const auto source=fixture.producer.DescribeWaveform(view);
+        CHECK(source.token!=0u);
+        CHECK_EQ(source.frames,frames);
+        CHECK_EQ(source.rate,rate);
+        CHECK_EQ(source.channels,channels);
+        CHECK_EQ(source.bits,bits);
+        SampleWaveformCache cache;
+        CHECK(cache.Begin(source));
+        for(std::uint32_t offset=0;offset<source.Bytes();) {
+            const auto budget=(offset%512)?kWaveformPlayingBytes:kWaveformIdleBytes;
+            const auto bytes=WaveformReadBytes(source,offset,budget);
+            if(!bytes){CHECK(false);break;}
+            const auto previous=FakePatternSd::reads.size();
+            std::uint8_t pcm[kWaveformIdleBytes];
+            if(!fixture.producer.ReadWaveform(source.token,offset,pcm,bytes)){CHECK(false);break;}
+            CHECK_EQ(FakePatternSd::reads.size(),previous+1);
+            CHECK_EQ(FakePatternSd::reads.back().offset,DataOffset+offset);
+            CHECK_EQ(FakePatternSd::reads.back().count,bytes);
+            CHECK(std::equal(pcm,pcm+bytes,wav.data()+DataOffset+offset));
+            CHECK(cache.Append(offset,pcm,bytes));
+            offset+=bytes;
+        }
+        CHECK_EQ(cache.Status(),SampleWaveformCache::State::Ready);
+        for(unsigned bucket=0;bucket<cache.Columns();++bucket) {
+            const auto first=(bucket*frames+cache.Columns()-1)/cache.Columns();
+            const auto last=((bucket+1)*frames+cache.Columns()-1)/cache.Columns();
+            int min=32767,max=-32768;
+            for(unsigned frame=first;frame<last;++frame)for(unsigned c=0;c<channels;++c) {
+                const int value=RateFixtureValue(frame,c,bits);
+                min=std::min(min,value);max=std::max(max,value);
+            }
+            CHECK_EQ(cache.Column(bucket).minimum,min);
+            CHECK_EQ(cache.Column(bucket).maximum,max);
+        }
+        ReadReleased();
+        FakePatternSd::short_read_path=path;
+        std::uint8_t pcm[kWaveformIdleBytes];
+        CHECK(!fixture.producer.ReadWaveform(source.token,0,pcm,kWaveformPlayingBytes));
+        FakePatternSd::short_read_path.clear();
+        CHECK(!fixture.producer.ReadWaveform(source.token,0,pcm,kWaveformIdleBytes+1));
+        CHECK(fixture.producer.ReclaimOne(VariableRateSampleBindings{}));
+        CHECK(!fixture.producer.ReadWaveform(source.token,0,pcm,kWaveformPlayingBytes));
+    }
+}
+
+TEST_CASE(WaveformSourceIdentityFollowsPinnedRollbackAndSourceRecreation) {
+    Fixture fixture;
+    auto& producer=fixture.producer;
+    const char* a="Samples/source-a.wav";
+    const char* b="Samples/source-b.wav";
+    FakePatternSd::files[a].bytes=RateFixtureWav(1200,44100,1);
+    FakePatternSd::files[b].bytes=RateFixtureWav(1200,32000,2);
+    VariableRateSampleBindings current{};
+    current.count=1;
+    CHECK_EQ(producer.PreparePath(a,current.bindings[0].sample),InstrumentAvailability::Ready);
+    const auto original=current;
+    const auto token=producer.DescribeWaveform(original.bindings[0].sample).token;
+    CHECK(token!=0);
+    producer.PinRollback(original);
+    CHECK_EQ(producer.PreparePath(b,current.bindings[0].sample),InstrumentAvailability::Ready);
+    CHECK(producer.DescribeWaveform(current.bindings[0].sample).token!=token);
+    CHECK(!producer.ReclaimOne(current));
+    current=original;
+    CHECK_EQ(producer.DescribeWaveform(current.bindings[0].sample).token,token);
+    producer.UnpinRollback();
+    CHECK(producer.ReclaimOne(current)); // old replacement can now go
+    current.count=0;
+    CHECK(producer.ReclaimOne(current));
+    FakePatternSd::files[a].bytes=RateFixtureWav(1400,32000,2,8);
+    CHECK_EQ(producer.PreparePath(a,current.bindings[0].sample),InstrumentAvailability::Ready);
+    const auto updated=producer.DescribeWaveform(current.bindings[0].sample);
+    CHECK(updated.token!=token);
+    CHECK_EQ(updated.frames,1400u);
+    CHECK_EQ(updated.channels,2u);
+}
 TEST_CASE(LowerRateAuditionEndsAtNativeDurationAndInvalidGeometryPreservesBinding) {
     Fixture f;
     SdWavAudition audition(f.producer);
@@ -1183,4 +1269,18 @@ TEST_CASE(BrowserV8AddsLibraryRatesWithoutChangingOldEligibility) {
             CHECK_EQ(facts.status,accepted?WavBufferStatus::Success:WavBufferStatus::UnsupportedFormat);
         }
     }
+}
+
+TEST_CASE(LiveInstrumentVisitAllowsCleanTakeoverAndProtectsDirtyRollback) {
+    InstrumentDefinitions definitions;
+    auto bindings=SelectDevelopmentFixture({}).bindings;
+    LiveInstrumentVisit visit;
+    CHECK(visit.Begin(10,definitions,bindings));
+    CHECK(visit.Begin(11,definitions,bindings));
+    CHECK(!visit.End(10));
+    visit.MarkEdited(0);
+    CHECK(!visit.Begin(12,definitions,bindings));
+    CHECK(visit.Begin(11,definitions,bindings));
+    CHECK_EQ(visit.Restore(0,definitions,bindings,[](unsigned,const auto*){return true;}),0u);
+    CHECK(visit.Begin(12,definitions,bindings));
 }

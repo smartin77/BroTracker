@@ -13,18 +13,6 @@ option(
 option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
 option(BROTRACKER_WINDOWS_EMPTY_TITLE "Use an empty Windows Terminal window title" OFF)
 
-# Embed the portable local fixture in host binaries. Runtime decoding remains
-# incremental and needs no external assets or device I/O.
-set(waveform_fixture "${CMAKE_CURRENT_SOURCE_DIR}/assets/waveform/test3.wav")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${waveform_fixture}")
-file(READ "${waveform_fixture}" waveform_hex HEX)
-string(REGEX REPLACE "(................................................................)" "\\1\n" waveform_hex "${waveform_hex}")
-string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," waveform_bytes "${waveform_hex}")
-configure_file(src/ui/sample_waveform_fixture.inc.in sample_waveform_fixture.inc @ONLY)
-unset(waveform_hex)
-unset(waveform_bytes)
-add_library(BroTrackerSampleWaveform STATIC src/ui/sample_waveform.cpp)
-target_include_directories(BroTrackerSampleWaveform PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
 if(BROTRACKER_BUILD_ARKOS_UI AND BROTRACKER_BUILD_WINDOWS_TERMINAL)
     message(FATAL_ERROR "Select one platform build for BroTrackerTerminal")
 endif()
@@ -33,7 +21,7 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL AND NOT WIN32)
 endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
-add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp)
+add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp)
 target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)
@@ -121,7 +109,7 @@ if(BROTRACKER_BUILD_ARKOS_UI)
     )
 
     target_link_libraries(BroTrackerTerminal PRIVATE
-        BroTrackerCore BroTrackerBringUp BroTrackerHostSvg BroTrackerSampleWaveform
+        BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
         ${BROTRACKER_SDL2_MAIN_TARGET}
         ${BROTRACKER_SDL2_TARGET}
     )
@@ -142,7 +130,7 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
     target_compile_definitions(BroTrackerTerminal PRIVATE
         BROTRACKER_WINDOWS_EMPTY_TITLE=$<BOOL:${BROTRACKER_WINDOWS_EMPTY_TITLE}>)
     target_include_directories(BroTrackerTerminal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerHostSvg BroTrackerSampleWaveform
+    target_link_libraries(BroTrackerTerminal PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerHostSvg
         ${BROTRACKER_SDL2_MAIN_TARGET} ${BROTRACKER_SDL2_TARGET}
         setupapi advapi32 ole32 uuid avrt Threads::Threads)
 endif()
@@ -195,6 +183,7 @@ add_executable(BroTrackerTests
     tests/test_row_events.cpp
     tests/test_channel_state.cpp
     tests/test_wav_buffer_loader.cpp
+    tests/test_sample_waveform.cpp
     tests/test_ram_sample_voice.cpp
     tests/test_live_tempo.cpp
     tests/test_sine_synth.cpp
@@ -239,7 +228,7 @@ add_executable(BroTrackerTests
     libraries/scheduler/src/pattern_position.cpp
 )
 
-target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp BroTrackerSampleWaveform)
+target_link_libraries(BroTrackerTests PRIVATE BroTrackerCore BroTrackerBringUp)
 target_include_directories(BroTrackerTests PRIVATE src tests libraries/scheduler/src)
 
 add_test(
@@ -339,6 +328,7 @@ add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
+target_link_libraries(BroTrackerSdWavTests PRIVATE BroTrackerBringUp)
 
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp

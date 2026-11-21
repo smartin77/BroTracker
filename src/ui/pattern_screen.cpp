@@ -801,7 +801,7 @@ namespace
 }
 
 static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
-    const BroTracker::SampleWaveformCache* cache, const HostBitmap::Face& face,
+    const BroTracker::SampleWaveformCache* cache, bool deferred, const HostBitmap::Face& face,
     const HostBitmap::Face& small, Color dim) {
     using State = BroTracker::SampleWaveformCache::State;
     const int width=fb.Width(), inset=layout.content_padding;
@@ -826,9 +826,9 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
         const auto& wav=cache->Metadata();
         std::ostringstream summary;
         summary.imbue(std::locale::classic());
-        summary << wav.sample_rate/1000.0 << " kHz | " << wav.bits << "-bit | "
+        summary << wav.rate/1000.0 << " kHz | " << wav.bits << "-bit | "
             << (wav.channels==1?"Mono":"Stereo") << " | "
-            << std::fixed << std::setprecision(2) << double(wav.frames)/wav.sample_rate << " s";
+            << std::fixed << std::setprecision(2) << double(wav.frames)/wav.rate << " s";
         const auto format=summary.str();
         text(width-inset-measure(format),top+9,format,dim);
         const auto to_y=[&](int value) {
@@ -847,7 +847,9 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
         text(right+1-measure(end),axis+6,end,header_value);
     } else {
         const std::string status=cache && cache->Status()==State::Unavailable
-            ?"Waveform unavailable":"Loading waveform";
+            ?"Waveform unavailable":deferred
+            ?"Playback has priority. Waveform loading resumes on Stop or Pause."
+            :"Loading waveform "+std::to_string(cache?cache->Percent():0)+"%";
         fb.FilledRectangle(middle-measure(status)/2-5,center-8,measure(status)+10,16,plot_background);
         text(middle-measure(status)/2,center-6,status,header_value);
     }
@@ -997,7 +999,7 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
     }
 
     fb.Rectangle(left,waveform_top,panel_width,footer_top-waveform_top,border);
-    if(sample)DrawSampleWaveform(fb,waveform_top,footer_top,host.sample_waveform,face,small,dim);
+    if(sample)DrawSampleWaveform(fb,waveform_top,footer_top,host.sample_waveform,host.waveform_deferred,face,small,dim);
     const int help_baseline=sample
         ? height-2-HostBitmap::Measure(small,host.transport_hints).bottom
         : footer_top+6+small.ascent;

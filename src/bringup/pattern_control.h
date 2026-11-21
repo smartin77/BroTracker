@@ -151,6 +151,10 @@ namespace BroTracker
             result.next_gain_id=highest_gain_id_==UINT32_MAX ? 0 : highest_gain_id_+1;
             return result;
         }
+        // Main context under the same interrupt exclusion as Snapshot.
+        bool ForegroundControlPending() const noexcept {
+            return request_count_ || applied_count_ || deferred_notification_ || pending_mute_id_;
+        }
         // Main context under the same interrupt exclusion as Snapshot. A stopped
         // status alone is insufficient while queued requests/ACKs can still mutate
         // the baseline. External MIDI/SD readiness is checked by the platform.
