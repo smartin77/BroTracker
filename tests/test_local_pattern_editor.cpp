@@ -1023,23 +1023,33 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     CHECK(fb.SaveBMP(screenshots/"08-sample-loading-zero.bmp"));
     std::ifstream wav("tests/fixtures/sample_waveform.wav",std::ios::binary);
     CHECK(bool(wav.seekg(44)));
-    std::uint32_t offset=0;
     const auto chunk=[&] {
-        CHECK(next()>0);
-        std::uint8_t pcm[kWaveformPlayingBytes];
+        if(!next())return false;
+        std::uint32_t id=0,slot=0,offset=0;
+        char path[kSamplePathMaximum+1];
+        const std::string_view request(command);
+        if(ParseWaveformGet(request.substr(0,request.size()-1),id,slot,path)) {
+            transfer.Response("BTWAVE1 META 1 "+std::to_string(id)+" 25 68284 44100 1 16");
+            return true;
+        }
+        if(std::sscanf(command,"BTWAVE1 RESUME 1 %u %u",&id,&offset)!=2 &&
+           std::sscanf(command,"BTWAVE1 NEXT 1 %u %u",&id,&offset)!=2)return false;
+        std::uint8_t pcm[kWaveformIdleBytes];
         const auto bytes=std::min<std::uint32_t>(sizeof(pcm),68284*2-offset);
+        wav.seekg(44+offset);
         wav.read(reinterpret_cast<char*>(pcm),bytes);
         CHECK_EQ(wav.gcount(),bytes);
         if(wav.gcount()!=bytes)return false;
         char line[kWaveformLineCapacity];
-        const auto size=FormatWaveformData(line,1,offset,pcm,bytes);
+        const auto size=FormatWaveformData(line,id,offset,pcm,bytes);
         if(!size)return false;
         transfer.Response({line,size-1});
-        offset+=bytes;return true;
+        return true;
     };
-    for(unsigned i=0;i<240;++i)if(!chunk()){CHECK(false);break;}
+    for(unsigned i=0;i<400 && !transfer.View().OverviewReady();++i)if(!chunk())break;
+    CHECK(transfer.View().OverviewReady());
     CHECK_EQ(transfer.View().Status(),State::Loading);
-    CHECK_EQ(transfer.View().Percent(),11u);
+    CHECK(transfer.View().Percent()<25u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"01-sample-loading.bmp"));
     const auto loading=fb;
@@ -1058,7 +1068,7 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     panel.waveform_deferred=transfer.Deferred();
     CHECK(!panel.waveform_deferred);
     panel.instrument_transport="PAUSED";
-    while(offset<68284*2 && chunk()) {}
+    for(unsigned i=0;i<400 && transfer.View().Status()!=State::Ready;++i)if(!chunk())break;
     panel.sample_waveform=&transfer.View();
     CHECK_EQ(transfer.View().Status(),State::Ready);
     CHECK_EQ(transfer.View().Metadata().frames,68284u);
@@ -1096,7 +1106,9 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     panel.instrument_number=4;
     transfer.Select(panel.instrument_number,panel.instrument_resource,true);
     CHECK(next()>0);
-    transfer.Response("BTWAVE1 META 1 2 25 68284 44100 1 16");
+    unsigned revalidate_id=0;
+    CHECK(std::sscanf(command,"BTWAVE1 GET 1 %u",&revalidate_id)==1);
+    transfer.Response("BTWAVE1 META 1 "+std::to_string(revalidate_id)+" 25 68284 44100 1 16");
     CHECK_EQ(next(),0u); // No PCM requested for a revalidated resource.
     panel.sample_waveform=&transfer.View();
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
@@ -1108,7 +1120,9 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     transfer.Select(panel.instrument_number,panel.instrument_resource,true);
     CHECK(next()>0); // CANCEL
     CHECK(next()>0); // GET
-    transfer.Response("BTWAVE1 ERROR 1 3");
+    unsigned unavailable_id=0;
+    CHECK(std::sscanf(command,"BTWAVE1 GET 1 %u",&unavailable_id)==1);
+    transfer.Response("BTWAVE1 ERROR 1 "+std::to_string(unavailable_id));
     panel.sample_waveform=&transfer.View();
     CHECK_EQ(transfer.View().Status(),State::Unavailable);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);

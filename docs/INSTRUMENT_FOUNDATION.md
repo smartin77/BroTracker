@@ -492,12 +492,13 @@ for playback priority and terminal assistance.
 The Sample panel displays the acknowledged, prepared WAV from Teensy SD.
 An unacknowledged selection cannot supply waveform data. Missing or
 unprepared sources, read failure and older firmware show Waveform unavailable.
-BTX shows Loading waveform with the percentage of PCM bytes received. The
-completed waveform replaces the progress label after the last byte.
-MIDI and Sine Synth leave the lower frame empty. The panel uses a sample-frame
-axis, where a stereo frame is one time position across both channels. BTX
-keeps both channels' extrema in each min/max bucket. Preview, Zoom 1x, Fit,
-Set Start, Set End and the endpoint markers are display-only.
+BTX draws received FIT columns as they arrive. Unobserved columns have no
+waveform trace, partial columns use a muted color, and observed extrema become
+exact for each column as coverage fills. Approximate FIT readiness and complete
+PCM coverage are separate. Stereo FIT uses the arithmetic mean of L and R per
+frame; native interleaved stereo PCM is retained and playback stays stereo.
+Preview, Zoom 1x, Fit, Set Start, Set End and the endpoint markers remain
+display-only.
 
 ### Source and cache identity
 
@@ -511,17 +512,17 @@ Reclaiming and preparing a source, even at the same path, assigns a new
 generation. Supported PCM matches the production playback validator.
 
 BTX revalidates the binding on slot changes and screen entry before showing
-a completed cache entry. It keeps four completed envelopes, evicts in
-insertion order and assembles one envelope separately. The key is the
-connection session, source generation and geometry. An acknowledged
-replacement resolves the new source. Exact rollback can reuse the old
-generation while its envelope is retained. BTX also retains one partial
-envelope across screen visits and revalidates its source before resuming.
-The Playing allowance follows the source generation when changing slots or
-returning to Instrument. If the partial envelope is evicted by another
-resource, the allowance history still prevents a fresh Playing budget for
-that source. History is bounded at 16 generations and older evicted
-generations are treated as exhausted. A disconnect invalidates all entries.
+any cached entry. Four entries retain partial or complete native PCM,
+merged half-open original-frame ranges, and a 598-column FIT summary.
+New sources replace entries in insertion order. The key is the connection
+session, source generation and geometry. Acknowledged replacement selects the
+new source, and exact rollback can reuse the old generation while retained.
+PCM is allocated lazily in 16 KiB pages with a 32 MiB limit per entry (128 MiB
+total PCM, plus page/range metadata and peaks). A source exceeding the cache
+can still display an approximate FIT; gap filling stops at the entry limit.
+Unallocated bytes never count as received. Disconnect invalidates all entries.
+Playing allowance history is tracked separately for 16 generations; older
+evicted generations are treated as exhausted.
 The runtime treats prepared SD resources as immutable while mounted,
 as playback does. Offline card edits or media replacement require remounting
 by restarting Teensy. Live external edits and SD hot swap are outside the
@@ -532,14 +533,14 @@ supported storage lifecycle.
 `BTWAVE1 CAP 3` advertises support. GET replaces the current transfer, NEXT
 grants one credit for a request ID and exact PCM byte cursor, and CANCEL
 discards matching work. After GET validates the same source generation and
-geometry, RESUME can grant the first credit at the previously received,
-frame-aligned offset. Later credits require the exact cursor. Responses use the existing newline-delimited CDC
-channel. Metadata and read errors use short lines. DATA carries raw PCM as
-hex with its request ID and offset. BTX sends no next credit until it receives
-and validates the last response, drops superseded IDs, and times out a sent
-credit after 12 active seconds without a valid reply. A later visit can retry.
-BTX freezes the metadata or data reply deadline while intentionally deferred and can
-still accept the one outstanding response or an explicit error.
+geometry, RESUME can grant the first credit at any frame-aligned byte
+offset. Later credits require the exact cursor. BTX starts a fresh GET to
+jump between disjoint ranges, keeping one credit outstanding. DATA carries
+raw PCM as hex. BTX validates request ID and expected byte offset and retains
+only newly covered PCM. CAP 3 replies can extend beyond the requested target
+and across a cached range; overlapping frames do not count twice. A credit
+times out after 12 active seconds. Intentional playback deferral freezes
+the deadline and still accepts an already outstanding response or error.
 
 Teensy uses the existing prepared file handle and a scoped SD read guard for
 one positional read per credit. No transfer data enters the main response
@@ -558,19 +559,26 @@ state. On START or CONTINUE, at most one already transmitted high-budget
 reply can still be in flight. It is bounded and the next reply uses the
 Playing budget.
 
-BTX allows approximately six cumulative seconds of metadata wait and PCM loading
-while Playing per incomplete source acquisition. Before issuing any PCM credit
-on metadata validation or entry to Playing, it checks whether the remainder
-fits. The estimate uses the slower of 32 ms per 64-byte credit and 6,000 wire
-bytes/s, counting hex expansion and up to 80 bytes of request/reply framing per
-credit. These are scheduling estimates. Actual refill and control demand can
-defer a reply. BTX stops granting credits when the estimate exceeds the
-remaining allowance or an admitted transfer exhausts it. Stop or Pause resumes
-at the received offset with the idle budget. Metadata validation and completed
-cache hits can proceed during playback regardless of the allowance.
+BTX reads sources up to 4,096 frames and 16 KiB completely in its initial
+pass. For larger sources, it divides the timeline into strata targeting one
+window per 12 FIT columns, easing toward one per 24 around three seconds.
+It also caps the count by bytes relative to the idle reply size, with at least
+four strata. The first and last windows anchor the endpoints; the other
+positions are deterministically jittered within their strata. Endpoints
+and then subdivisions across the timeline arrive first. Each target covers
+64 PCM bytes, with actual replies up to the current transport limit. The FIT
+overview is ready when all target intervals are covered. Pause/Stop then fills
+the earliest remaining gap, reusing any received ranges. Original coordinates
+and PCM remain available for future viewport refinement. Zoom and sample editing
+are outside this change.
 
-The terminal consumes and discards each PCM chunk and retains only min/max
-pairs. Each envelope uses up to 2,392 bytes of peak storage. No SD access,
-USB transfer or waveform aggregation runs in a Teensy audio callback.
+While Playing, new stereo PCM acquisition defers after metadata validation;
+a completed cache remains displayable. Mono admission estimates only the
+remaining initial overview against six cumulative playing seconds. The
+estimate uses the existing conservative credit/hex estimate and adds 75 ms
+per distributed target for GET/META overhead. Playback time is charged
+across screen visits and transport changes; BTX stops granting credits if
+the allowance expires. Once the overview is ready, background gap filling
+waits for Pause or Stop. No waveform aggregation runs in the audio callback.
 See [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority).
 Hardware timing and underrun margins still require device measurements.

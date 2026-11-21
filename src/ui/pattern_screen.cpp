@@ -822,8 +822,13 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
     fb.HorizontalLine(left,right,axis,row_marker);
     for(const int x:{left,middle,right})fb.VerticalLine(x,axis-3,axis+3,row_marker);
 
-    if(cache && cache->Status()==State::Ready) {
+    if(cache && cache->BytesLoaded()) {
         const auto& wav=cache->Metadata();
+        if(cache->Status()!=State::Ready) {
+            const std::string status=cache->StorageLimited()?"Approx. FIT (cache limit)":
+                cache->OverviewReady()?"Approx. FIT":"Loading FIT";
+            text(inset+112,top+9,status,dim);
+        }
         std::ostringstream summary;
         summary.imbue(std::locale::classic());
         summary << wav.rate/1000.0 << " kHz | " << wav.bits << "-bit | "
@@ -837,8 +842,11 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
         };
         const auto plot_columns=std::size_t(right-left-1);
         for(int x=left+1;x<right;++x) {
-            const auto& peak=cache->Column(std::size_t(x-left-1)*cache->Columns()/plot_columns);
-            fb.VerticalLine(x,to_y(peak.maximum),to_y(peak.minimum),row_header_bright);
+            const auto column=std::size_t(x-left-1)*cache->Columns()/plot_columns;
+            const auto& peak=cache->Column(column);
+            if(peak.frames)
+                fb.VerticalLine(x,to_y(peak.maximum),to_y(peak.minimum),
+                    cache->ColumnExact(column)?row_header_bright:dim);
         }
         const auto midpoint=std::to_string(wav.frames/2);
         const auto end=std::to_string(wav.frames)+" frames";

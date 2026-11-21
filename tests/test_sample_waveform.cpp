@@ -99,10 +99,10 @@ TEST_CASE(WaveformTransferChecksOffsetsAndSupersedesObsoleteChunks) {
     CHECK_EQ(Command(host),"BTWAVE1 NEXT 1 2 2\n");
     Data(host,2,2,{128,129});
     CHECK_EQ(host.View().Status(),State::Ready);
-    CHECK_EQ(host.View().Column(0).minimum,-32768);
-    CHECK_EQ(host.View().Column(0).maximum,32512);
-    CHECK_EQ(host.View().Column(1).minimum,0);
-    CHECK_EQ(host.View().Column(1).maximum,256);
+    CHECK_EQ(host.View().Column(0).minimum,-128);
+    CHECK_EQ(host.View().Column(0).maximum,-128);
+    CHECK_EQ(host.View().Column(1).minimum,128);
+    CHECK_EQ(host.View().Column(1).maximum,128);
 }
 
 TEST_CASE(WaveformCacheRevalidatesAliasesReplacementRollbackAndReconnect) {
@@ -318,33 +318,104 @@ TEST_CASE(WaveformDeferredMetadataIgnoresSupersededRepliesAndAcceptsCachedSource
     CHECK_EQ(host.View().Status(),State::Unavailable);
 }
 
-TEST_CASE(WaveformEstimatesPlayingBeforeFirstCreditAndReevaluatesOnContinue) {
+TEST_CASE(WaveformAdaptiveOverviewReusesSparseRangesAndFillsGaps) {
+    SampleWaveformTransfer host;
+    const WaveformSource source{78,68284,44100,1,16};
+    WaveformPull device;
+    std::uint32_t now=0;
+    const auto tick=[&](bool playing) { host.Tick(now,playing); };
+    const auto step=[&](bool playing) {
+        const auto command=Command(host,now);
+        if(command.empty())return false;
+        std::uint32_t id=0,slot=0;
+        char path[kSamplePathMaximum+1];
+        if(ParseWaveformGet(std::string_view(command).substr(0,command.size()-1),id,slot,path)) {
+            device.Begin(id,slot,source.token);
+            device.Sent();
+            host.Response("BTWAVE1 META 1 "+std::to_string(id)+" 78 68284 44100 1 16");
+        } else {
+            std::uint32_t offset=0;
+            const bool resume=std::sscanf(command.c_str(),"BTWAVE1 RESUME 1 %u %u",&id,&offset)==2;
+            if(!resume)CHECK(std::sscanf(command.c_str(),"BTWAVE1 NEXT 1 %u %u",&id,&offset)==2);
+            CHECK(device.Next(id,offset,resume));
+            const auto size=WaveformReadBytes(source,offset,playing?64:768);
+            std::uint8_t pcm[kWaveformIdleBytes]{1};
+            char line[kWaveformLineCapacity];
+            const auto length=FormatWaveformData(line,id,offset,pcm,size);
+            CHECK(length>0);
+            if(length)host.Response({line,length-1});
+            device.Sent(size);
+        }
+        now+=playing?40:10;
+        tick(playing);
+        return true;
+    };
+
+    host.Select(1,"Samples/Test3.wav",true);
+    tick(true);
+    for(unsigned i=0;i<140 && !host.View().OverviewReady();++i)if(!step(true))break;
+    CHECK(host.View().OverviewReady());
+    CHECK_EQ(host.View().Status(),State::Loading);
+    const auto bytes=host.View().BytesLoaded();
+    CHECK(bytes>1000u);
+    CHECK(bytes<4000u);
+    CHECK(host.View().Coverage().size()>10u);
+    CHECK_EQ(host.View().Coverage().front().first,0u);
+    CHECK_EQ(host.View().Coverage().back().end,source.frames);
+    CHECK(host.View().Column(0).frames>0u);
+    CHECK(!host.View().ColumnExact(0));
+    std::uint8_t frame[4]{};
+    CHECK(host.View().ReadFrame(0,frame));
+    CHECK_EQ(frame[0],1);
+    CHECK(!host.View().ReadFrame(host.View().Coverage().front().end,frame));
+    CHECK(host.Deferred());
+    CHECK(Command(host,now).empty());
+
+    host.Select(0,{},true);
+    CHECK(Command(host,now).find("CANCEL")!=std::string::npos);
+    host.Select(1,"Samples/Test3.wav",true);
+    CHECK(step(true));
+    CHECK_EQ(host.View().BytesLoaded(),bytes);
+    CHECK(host.View().OverviewReady());
+    CHECK(Command(host,now).empty());
+
+    tick(false);
+    for(unsigned i=0;i<370 && host.View().Status()!=State::Ready;++i)if(!step(false))break;
+    CHECK_EQ(host.View().Status(),State::Ready);
+    CHECK_EQ(host.View().BytesLoaded(),source.Bytes());
+    CHECK_EQ(host.View().Coverage().size(),1u);
+    CHECK(host.View().ColumnExact(0));
+    CHECK(host.View().ReadFrame(source.frames-1,frame));
+
+    SampleWaveformCache longer;
+    CHECK(longer.Begin({79,306970,44100,1,16}));
+    CHECK(longer.OverviewPlayingEstimateMs()<3200u);
+    SampleWaveformCache small;
+    CHECK(small.Begin({80,4096,44100,1,16}));
+    CHECK_EQ(small.OverviewPlayingEstimateMs(),WaveformPlayingEstimateMs(8192));
+}
+
+TEST_CASE(WaveformStereoDefersNewPcmButReusesCompletedDownmix) {
     SampleWaveformTransfer host;
     host.Tick(0,true);
-    host.Select(1,"Samples/Long.wav",true);
+    host.Select(1,"Samples/Stereo.wav",true);
     CHECK(!Command(host,0).empty());
-    host.Response("BTWAVE1 META 1 1 78 68284 44100 1 16");
+    host.Response("BTWAVE1 META 1 1 8 2 8000 2 8");
     CHECK(host.Deferred());
     CHECK(Command(host,0).empty());
-    host.Tick(13000,true);
-    CHECK_EQ(host.View().Status(),State::Loading);
-    host.Tick(13001,false);
-    CHECK_EQ(Command(host,13001),"BTWAVE1 NEXT 1 1 0\n");
-    host.Tick(13002,true);
-    CHECK(host.Deferred());
-    host.Tick(30000,true);
-    Data(host,1,0,{1,0,2,0});
-    CHECK_EQ(host.View().BytesLoaded(),4u);
-    CHECK(Command(host,30000).empty());
-
-    host.Select(2,"Samples/Short.wav",true);
-    CHECK_EQ(Command(host,30000),"BTWAVE1 CANCEL 1 1\n");
-    CHECK(!Command(host,30000).empty());
-    host.Response("BTWAVE1 META 1 2 79 2 44100 1 16");
-    CHECK(!host.Deferred());
-    CHECK_EQ(Command(host,30000),"BTWAVE1 NEXT 1 2 0\n");
-    Data(host,2,0,{5,0,6,0});
+    host.Tick(1,false);
+    CHECK_EQ(Command(host,1),"BTWAVE1 NEXT 1 1 0\n");
+    Data(host,1,0,{0,255,128,129});
+    CHECK(host.View().OverviewReady());
     CHECK_EQ(host.View().Status(),State::Ready);
-    CHECK(WaveformPlayingEstimateMs(68284*2)>6000);
-    CHECK(WaveformPlayingEstimateMs(3000)<6000);
+    CHECK_EQ(host.View().Column(0).maximum,-128);
+    CHECK_EQ(host.View().Column(1).maximum,128);
+    host.Tick(2,true);
+    host.Select(2,"Samples/Stereo.wav",true);
+    CHECK(!Command(host,2).empty());
+    CHECK(!Command(host,2).empty());
+    host.Response("BTWAVE1 META 1 2 8 2 8000 2 8");
+    CHECK(!host.Deferred());
+    CHECK_EQ(host.View().Status(),State::Ready);
+    CHECK(Command(host,2).empty());
 }

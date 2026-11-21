@@ -1115,8 +1115,9 @@ TEST_CASE(WaveformReadsPreparedSdBytesAndMatchesIndependentExtrema) {
             const auto first=(bucket*frames+cache.Columns()-1)/cache.Columns();
             const auto last=((bucket+1)*frames+cache.Columns()-1)/cache.Columns();
             int min=32767,max=-32768;
-            for(unsigned frame=first;frame<last;++frame)for(unsigned c=0;c<channels;++c) {
-                const int value=RateFixtureValue(frame,c,bits);
+            for(unsigned frame=first;frame<last;++frame) {
+                const int left=RateFixtureValue(frame,0,bits);
+                const int value=channels==1?left:(left+RateFixtureValue(frame,1,bits))/2;
                 min=std::min(min,value);max=std::max(max,value);
             }
             CHECK_EQ(cache.Column(bucket).minimum,min);
