@@ -6,6 +6,7 @@
 #include "diagnostics.h"
 #include "serial_write_limits.h"
 #include "ui/serial_transport.h"
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -127,29 +128,46 @@ class WindowsSerialTransport final : public SerialTransport {
                 std::lock_guard<std::mutex> lock(mutex_);
                 tx_result_ = static_cast<int>(written);
             }
-            char incoming[512]; DWORD count = 0;
-            if (!ReadFile(port, incoming, sizeof(incoming), &count, nullptr)) { Fail("read failed/disconnected"); break; }
-            // Timestamp only startup landmarks and the first protocol state.
-            // The shared parser still owns handshake/command semantics.
-            for (DWORD i = 0; i < count; ++i) {
-                const char c = incoming[i];
-                if (c == '\r') continue;
-                if (c == '\n') {
-                    received_line[received_used] = '\0';
-                    if (first_state && std::strncmp(received_line, "BTTEST1 STATE ", 14) == 0) {
-                        Log(received_line); first_state = false;
-                    } else if (std::strcmp(received_line, "USB AUDIO: ENABLED") == 0 ||
-                               std::strstr(received_line, "playback armed Samples/test.wav")) Log(received_line);
-                    received_used = 0;
-                } else if (received_used + 1 < sizeof(received_line)) received_line[received_used++] = c;
-            }
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                if (count > rx_.size() - size_) {
-                    Fail("bounded receive buffer overflow", ERROR_BUFFER_OVERFLOW); break;
+            char incoming[512];
+            bool read_failed = false;
+            // Drain queued driver data before sleeping. Check for UI writes
+            // between batches and leave unread bytes in the driver when the
+            // bounded queue cannot accept a full batch.
+            for (unsigned batch = 0; batch < 4; ++batch) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (stop_ || (tx_size_ && !tx_result_) ||
+                        rx_.size() - size_ < sizeof(incoming)) break;
                 }
-                for (DWORD i = 0; i < count; ++i) rx_[(head_ + size_++) % rx_.size()] = incoming[i];
+                DWORD count = 0;
+                if (!ReadFile(port, incoming, sizeof(incoming), &count, nullptr)) {
+                    Fail("read failed/disconnected"); read_failed = true; break;
+                }
+                if (!count) break;
+                // Timestamp only startup landmarks and the first protocol state.
+                // The shared parser still owns handshake/command semantics.
+                for (DWORD i = 0; i < count; ++i) {
+                    const char c = incoming[i];
+                    if (c == '\r') continue;
+                    if (c == '\n') {
+                        received_line[received_used] = '\0';
+                        if (first_state && std::strncmp(received_line, "BTTEST1 STATE ", 14) == 0) {
+                            Log(received_line); first_state = false;
+                        } else if (std::strcmp(received_line, "USB AUDIO: ENABLED") == 0 ||
+                                   std::strstr(received_line, "playback armed Samples/test.wav")) Log(received_line);
+                        received_used = 0;
+                    } else if (received_used + 1 < sizeof(received_line)) received_line[received_used++] = c;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    const auto tail = (head_ + size_) % rx_.size();
+                    const auto first = std::min<std::size_t>(count, rx_.size() - tail);
+                    std::memcpy(rx_.data() + tail, incoming, first);
+                    std::memcpy(rx_.data(), incoming + first, count - first);
+                    size_ += count;
+                }
             }
+            if (read_failed) break;
             std::unique_lock<std::mutex> wait_lock(mutex_);
             wake_.wait_for(wait_lock,std::chrono::milliseconds(5),[this] {
                 return stop_ || (tx_size_ && !tx_result_);
@@ -175,8 +193,12 @@ public:
     int Read(char* data, unsigned capacity) override {
         if (!Healthy()) return -1;
         std::lock_guard<std::mutex> lock(mutex_);
-        unsigned count = 0;
-        while (count < capacity && size_) { data[count++] = rx_[head_]; head_ = (head_ + 1) % rx_.size(); --size_; }
+        const auto count = std::min(capacity, size_);
+        const auto first = std::min<std::size_t>(count, rx_.size() - head_);
+        std::memcpy(data, rx_.data() + head_, first);
+        std::memcpy(data + first, rx_.data(), count - first);
+        head_ = (head_ + count) % rx_.size();
+        size_ -= count;
         return static_cast<int>(count);
     }
     int Write(const char* data, unsigned count) override {

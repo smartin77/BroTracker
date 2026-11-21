@@ -1245,45 +1245,48 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if (count < 0)
         { Disconnect(transport_->Error()); return; }
     }
-    // Bound receive work per SDL frame, including verbose firmware diagnostics.
-    for (unsigned int budget = 0; budget < 1024; ++budget)
-    {
-        char c;
-        const auto count = transport_->Read(&c, 1);
-        if (count < 0)
-        { Disconnect(transport_->Error()); return; }
-        if (count <= 0) break;
-        if (c == '\n')
-        {
-            // Permit CRLF, but preserve embedded CR for strict field rejection.
-            if (used_ && line_[used_ - 1] == '\r') --used_;
-            line_[used_] = '\0';
-            // WAV items may exceed the established 255-byte RX limit. Correlation
-            // happens in OnLine so late items from cancelled lists are harmless;
-            // preserve malformed snapshot/preview handling for every other line.
-            if(used_>=256) {
-                if(std::strncmp(line_,"BTWAVE1 ",8) && (used_>=BroTracker::kPathProtocolCapacity ||
-                    (std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) &&
-                    std::strncmp(line_,"BTINS1 STATE 3 ",15))))overflow_=true;
-            }
-            if (overflow_)
+    // One full CAP 3 reply fits in this service budget. Framing state
+    // survives short reads and the budget boundary.
+    char received[2048];
+    for (unsigned remaining = sizeof(received); remaining;) {
+        const int count = transport_->Read(received, remaining);
+        if (count < 0) { Disconnect(transport_->Error()); return; }
+        if (count == 0) break;
+        remaining -= static_cast<unsigned>(count);
+        for (int i = 0; i < count; ++i) {
+            const char c = received[i];
+            if (c == '\n')
             {
-                Log("RX error: overlong line discarded");
-                // Conservatively cancel staging, but never touch applied transport,
-                // position or a previously committed snapshot.
-                if(std::strncmp(line_,"BTGAIN1",7) && std::strncmp(line_,"BTWAVE1 ",8)) {
-                    if(preview_.Supported()) preview_.ReadFailure();
-                    if (pattern_assembler_.Active())
-                    { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                // Permit CRLF, but preserve embedded CR for strict field rejection.
+                if (used_ && line_[used_ - 1] == '\r') --used_;
+                line_[used_] = '\0';
+                // WAV items may exceed the established 255-byte RX limit. Correlation
+                // happens in OnLine so late items from cancelled lists are harmless;
+                // preserve malformed snapshot/preview handling for every other line.
+                if(used_>=256) {
+                    if(std::strncmp(line_,"BTWAVE1 ",8) && (used_>=BroTracker::kPathProtocolCapacity ||
+                        (std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) &&
+                        std::strncmp(line_,"BTINS1 STATE 3 ",15))))overflow_=true;
                 }
+                if (overflow_)
+                {
+                    Log("RX error: overlong line discarded");
+                    // Conservatively cancel staging, but never touch applied transport,
+                    // position or a previously committed snapshot.
+                    if(std::strncmp(line_,"BTGAIN1",7) && std::strncmp(line_,"BTWAVE1 ",8)) {
+                        if(preview_.Supported()) preview_.ReadFailure();
+                        if (pattern_assembler_.Active())
+                        { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                    }
+                }
+                else OnLine(now);
+                used_ = 0;
+                overflow_ = false;
             }
-            else OnLine(now);
-            used_ = 0;
-            overflow_ = false;
+            else if (c == '\0') overflow_ = true;
+            else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
+            else overflow_ = true;
         }
-        else if (c == '\0') overflow_ = true;
-        else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
-        else overflow_ = true;
     }
     waveform_.Tick(now,Playing()); // Apply new transport acknowledgements before granting a credit.
     ServiceExit(now);
