@@ -80,6 +80,9 @@ public:
     void Response(std::string_view line);
     const SampleWaveformCache& View() const;
     bool Deferred() const;
+    const WaveformFingerprint* Fingerprint() const {
+        return active_ && fingerprint_token_==active_->Metadata().token?&fingerprint_:nullptr;
+    }
 
 private:
     enum class Phase { Idle, Get, Metadata, Next, Data, Complete };
@@ -95,6 +98,9 @@ private:
     std::string path_;
     bool supported_ = false;
     bool ranged_ = false;
+    bool fingerprint_supported_ = false;
+    std::uint32_t fingerprint_request_ = 0, fingerprint_token_ = 0;
+    WaveformFingerprint fingerprint_{};
     bool playing_ = false, ticked_ = false, first_credit_ = false, playing_admitted_ = false;
     std::uint32_t last_tick_ = 0, cursor_ = 0, requested_offset_ = 0;
     unsigned requested_limit_ = kWaveformIdleBytes;

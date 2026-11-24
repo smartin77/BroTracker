@@ -530,6 +530,22 @@ supported storage lifecycle.
 
 ### Foreground transfer and playback priority
 
+`BTWAVE1 FPCAP 1` enables `BTWAVE1 GET 2` with the same request ID, slot
+and path fields as GET 1. An accepted request sends the usual META followed
+by `BTWAVE1 FP 1 <request> <generation> <file-size-hi> <file-size-lo>
+<pcm-offset> <prefix-bytes> <digest-hi> <digest-lo>` on one line. The
+digest is FNV-1a 64 of up to 4 KiB of the prepared native PCM prefix.
+File extent and PCM geometry come from the existing inspection. Capturing
+the fingerprint adds no SD reads. It does not include modification times,
+which are not collected by that inspection. Changes beyond the prefix that
+preserve the file extent and geometry may go undetected.
+
+BTX checks request and live source generation before accepting the record.
+Only the first GET on selection requests it. Internal range scheduling,
+the live generation guard and the existing RAM waveform cache are unchanged.
+GET 1 remains available to older BTX. This identity is available for future
+validation and does not enable disk reuse.
+
 `BTWAVE1 CAP 3` advertises support. GET replaces the current transfer, NEXT
 grants one credit for a request ID and exact PCM byte cursor, and CANCEL
 discards matching work. After GET validates the same source generation and

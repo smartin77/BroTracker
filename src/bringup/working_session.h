@@ -1,10 +1,11 @@
 #pragma once
 #include "pattern_file_store.h"
 #include "instrument_definition.h"
+#include "session_lineage.h"
 namespace BroTracker {
 // Temporary BTM stores one working Pattern/BPM and the complete definition table.
 // Legacy BTWS/BTSS remain readable. No transport/request identity is persisted.
-constexpr std::size_t kWorkingSessionCapacity=32+kPatternFileCapacity+kResourcePathBytes+99*5;
+constexpr std::size_t kWorkingSessionCapacity=32+kSessionLineageSize+kPatternFileCapacity+kResourcePathBytes+99*5;
 struct SessionView {
     std::uint8_t row=0,channel=0,field=0,header=0;
 };
@@ -20,28 +21,46 @@ struct WorkingSession {
     InstrumentDefinitions definitions;
     RealtimePattern published,working;
     SessionView view{};
+    char lineage[kSessionLineageSize+1]{};
+    bool lineage_persisted=false;
+    void EstablishLineage(std::string_view id) {
+        if(lineage[0] || !ValidSessionLineage(id))return;
+        std::memcpy(lineage,id.data(),id.size());
+        lineage_persisted=false;
+    }
+    void RestoreLineage(std::string_view id={}) {
+        lineage[0]=0;
+        lineage_persisted=false;
+        EstablishLineage(id);
+        lineage_persisted=lineage[0]!=0;
+    }
     std::uint8_t mute_mask=0;
     std::uint32_t published_tempo=12500,working_tempo=12500;
 };
 inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t n,WorkingSession& out) noexcept {
     if(b && n>=32 && !std::memcmp(b,"BTM1",4)) {
-        if(b[4]==2 || b[4]==3) {
-            const bool with_channel=b[4]==3;
+        if(b[4]>=2 && b[4]<=4) {
+            const bool with_channel=b[4]>=3;
+            const auto trailer=8+(b[4]==4?kSessionLineageSize:0);
+            if(n<24+trailer)return PatternFileResult::Invalid;
+            const auto payload_end=n-trailer;
+            const std::string_view lineage(b[4]==4?reinterpret_cast<const char*>(b+n-kSessionLineageSize):"",b[4]==4?kSessionLineageSize:0);
+            if(b[4]==4 && !ValidSessionLineage(lineage))return PatternFileResult::Invalid;
             if(b[5] || b[6]!=24 || b[7] || PatternFileU32(b+20)!=PatternFileCrc(b,n))return PatternFileResult::Invalid;
             const auto a=PatternFileU32(b+8),count=PatternFileU32(b+12),paths=PatternFileU32(b+16);
-            if(a>kPatternFileCapacity || count>99 || paths>99 || n>kWorkingSessionCapacity || n<32+a+count*3)return PatternFileResult::Invalid;
+            if(a>kPatternFileCapacity || count>99 || paths>99 || n>kWorkingSessionCapacity || payload_end<24+a+count*3)return PatternFileResult::Invalid;
             const auto records=24+a;std::size_t at=records+count*3;
             const char* resources[99]{};unsigned path_bytes=0;
             for(unsigned i=0;i<paths;++i){
-                if(at+2>n-8)return PatternFileResult::Invalid;
+                if(at+2>payload_end)return PatternFileResult::Invalid;
                 const auto length=unsigned(b[at])+(unsigned(b[at+1])<<8);at+=2;
-                if(!length || length>kSamplePathMaximum || at+length+1>n-8 || b[at+length] || std::memchr(b+at,0,length))return PatternFileResult::Invalid;
+                if(!length || length>kSamplePathMaximum || at+length+1>payload_end || b[at+length] || std::memchr(b+at,0,length))return PatternFileResult::Invalid;
                 resources[i]=reinterpret_cast<const char*>(b+at);if(!InstrumentDefinitions::ValidResource(resources[i]))return PatternFileResult::Invalid;
                 for(unsigned j=0;j<i;++j)if(!std::strcmp(resources[i],resources[j]))return PatternFileResult::Invalid;
                 path_bytes+=length+1;if(path_bytes>kResourcePathBytes)return PatternFileResult::Invalid;
                 at+=length+1;
             }
-            if(at!=n-8)return PatternFileResult::Invalid;
+            if(at!=payload_end)return PatternFileResult::Invalid;
             InstrumentDefinitions definitions(false);
             for(unsigned i=0;i<count;++i){const auto* d=b+records+i*3;const auto id=unsigned(d[1])+(unsigned(d[2])<<8);
                 const bool midi=d[0]==2;
@@ -52,10 +71,10 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
                 if(!definitions.Append(i,d[0],path?resources[path-1]:nullptr,
                     midi?(with_channel?id:kLegacyMidiInstrumentChannel):0))return PatternFileResult::Invalid;
             }
-            const auto* m=b+n-8;if(m[5]||m[6]||m[7] || ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
+            const auto* m=b+payload_end;if(m[5]||m[6]||m[7] || ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
             DecodePatternFile(PatternFileKind::Session,b+24,a,out.working,out.working_tempo);
             out.published=out.working;out.published_tempo=out.working_tempo;out.definitions=definitions;
-            out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];return PatternFileResult::Ok;
+            out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];out.RestoreLineage(lineage);return PatternFileResult::Ok;
         }
         if(b[4]!=1 || b[5] || b[6]!=24 || b[7])return PatternFileResult::Unsupported;
         const auto a=PatternFileU32(b+8),count=PatternFileU32(b+12);
@@ -74,7 +93,7 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
         if(ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
         DecodePatternFile(PatternFileKind::Session,b+24,a,out.working,out.working_tempo);
         out.published=out.working;out.published_tempo=out.working_tempo;out.definitions=definitions;
-        out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];return PatternFileResult::Ok;
+        out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];out.RestoreLineage();return PatternFileResult::Ok;
     }
     if(!b || n<24 || n>kWorkingSessionCapacity)return PatternFileResult::Invalid;
     if(std::memcmp(b,"BTWS",4) || (b[4]!=1 && b[4]!=2) || b[5] || b[6]!=24 || b[7])return PatternFileResult::Unsupported;
@@ -96,6 +115,7 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
         const auto* m=b+24+a+c;
         out.view=ValidatedSessionView({m[0],m[1],m[2],m[3]},out.working);out.mute_mask=m[4];
     }
+    out.RestoreLineage();
     return PatternFileResult::Ok;
 }
 template<class Backend> class WorkingSessionStore {
@@ -108,18 +128,19 @@ public:
         if(b.Exists(invalid) || b.Exists(kSessionCandidatePath) || b.Exists(kSessionPreviousPath) || !b.RegularFile(kSessionPath))return false;
         return b.Rename(kSessionPath,invalid);
     }
-    PatternFileResult Save(Backend& b,const WorkingSession& s) noexcept {
+    PatternFileResult Save(Backend& b,WorkingSession& s) noexcept {
         std::size_t a=0;
         auto r=EncodePatternFile(PatternFileKind::Session,s.working,s.working_tempo,bytes_+24,kPatternFileCapacity,a);
         if(r!=PatternFileResult::Ok)return r;
-        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=3;bytes_[6]=24;
+        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=s.lineage[0]?4:3;bytes_[6]=24;
+        const auto trailer=8+(s.lineage[0]?kSessionLineageSize:0);
         PatternFilePut32(bytes_+8,a);PatternFilePut32(bytes_+12,s.definitions.Count());
         const char* paths[99]{};unsigned path_count=0;std::size_t at=24+a+s.definitions.Count()*3;
         for(unsigned i=0;i<s.definitions.Count();++i) {
             const auto* d=s.definitions.At(i);auto* record=bytes_+24+a+i*3;record[0]=InstrumentTypeCode(d->type);unsigned id=0;
             if(d->resource){
                 while(id<path_count && std::strcmp(paths[id],d->resource))++id;
-                if(id==path_count){const auto length=std::strlen(d->resource);if(at+2+length+1+8>sizeof(bytes_))return PatternFileResult::ResourceCapacity;
+                if(id==path_count){const auto length=std::strlen(d->resource);if(at+2+length+1+trailer>sizeof(bytes_))return PatternFileResult::ResourceCapacity;
                     paths[path_count++]=d->resource;bytes_[at++]=length&255;bytes_[at++]=length>>8;std::memcpy(bytes_+at,d->resource,length+1);at+=length+1;}
                 ++id;
             }
@@ -128,8 +149,9 @@ public:
         }
         PatternFilePut32(bytes_+16,path_count);
         const auto v=ValidatedSessionView(s.view,s.working);
-        const auto n=at+8;auto* m=bytes_+at;std::memset(m,0,8);
+        const auto n=at+trailer;auto* m=bytes_+at;std::memset(m,0,8);
         m[0]=v.row;m[1]=v.channel;m[2]=v.field;m[3]=v.header;m[4]=s.mute_mask;
+        if(s.lineage[0])std::memcpy(m+8,s.lineage,kSessionLineageSize);
         PatternFilePut32(bytes_+20,PatternFileCrc(bytes_,n));
         Lease lease(b,true);if(!lease.held)return PatternFileResult::Busy;
         if(b.Exists(kSessionCandidatePath) || b.Exists(kSessionPreviousPath))return PatternFileResult::RecoveryRequired;
@@ -146,6 +168,7 @@ public:
             if(!b.Remove(kSessionCandidatePath))return PatternFileResult::RecoveryRequired;
             return PatternFileResult::Io;
         }
+        s.lineage_persisted=s.lineage[0]!=0;
         if(old && !b.Remove(kSessionPreviousPath))return PatternFileResult::BackupRetained;
         return PatternFileResult::Ok;
     }
@@ -166,7 +189,7 @@ private:
         // Legacy sessions had one published record, hence no unpublished state to recover.
         if(n>=4 && !std::memcmp(bytes_,"BTSS",4)) {
             r=DecodePatternFile(PatternFileKind::Session,bytes_,n,s.published,s.published_tempo);
-            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;s.definitions.Reset(true,kLegacyMidiInstrumentChannel);s.view={};s.mute_mask=0;}return r;
+            if(r==PatternFileResult::Ok){s.working=s.published;s.working_tempo=s.published_tempo;s.definitions.Reset(true,kLegacyMidiInstrumentChannel);s.view={};s.mute_mask=0;s.RestoreLineage();}return r;
         }
         return DecodeWorkingSession(bytes_,n,s);
     }

@@ -364,9 +364,17 @@ namespace
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
-        (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
+        const char* state=status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
             status.running ? "BTTEST1 STATE PLAYING\n" :
-            status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
+            status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n";
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        char status_line[112];
+        std::snprintf(status_line,sizeof(status_line),"%sBTSESSION1 LINEAGE 1 %u %s\n",state,
+            unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-");
+        (void)QueueLine(status_line);
+#else
+        (void)QueueLine(state);
+#endif
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
@@ -380,7 +388,7 @@ namespace
         }
         if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-            "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\n"
+            "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\nBTWAVE1 FPCAP 1\n"
 #endif
             );(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
@@ -643,10 +651,12 @@ namespace
         if(!g_protocol_connected)return;
         std::uint32_t id,slot,fields[4];
         char path[kSamplePathMaximum+1];
-        if(ParseWaveformGet({line,size},id,slot,path)) {
+        bool fingerprint=false;
+        if(ParseWaveformGet({line,size},id,slot,path,&fingerprint)) {
             const auto* definition=g_instrument_definitions.At(slot);
             const bool matches=definition && definition->resource && !std::strcmp(path,definition->resource);
             g_waveform.Begin(id,slot,matches?BoundWaveform(slot).token:0);
+            g_waveform.fingerprint=fingerprint;
         } else if(SnapshotFields(line,size,"BTWAVE1 NEXT ",fields,3) && fields[0]==1) {
             (void)g_waveform.Next(fields[1],fields[2]);
         } else if(SnapshotFields(line,size,"BTWAVE1 RESUME ",fields,3) && fields[0]==1) {
@@ -674,7 +684,7 @@ namespace
         const auto source=BoundWaveform(g_waveform.slot);
         if(!source.token || source.token!=g_waveform.token)g_waveform.pending=Reply::Error;
         const auto capacity=g_waveform.pending==Reply::Data
-            ? 40+(playing?kWaveformPlayingBytes:kWaveformIdleBytes)*2 : 96;
+            ? 40+(playing?kWaveformPlayingBytes:kWaveformIdleBytes)*2 : g_waveform.fingerprint?230:96;
         if(Serial.availableForWrite()<static_cast<int>(capacity))return;
         unsigned bytes=0;
         char reply[kWaveformLineCapacity];
@@ -698,6 +708,15 @@ namespace
             size=std::snprintf(reply,sizeof(reply),"BTWAVE1 META 1 %lu %lu %lu %lu %lu %lu\n",
                 (unsigned long)g_waveform.id,(unsigned long)source.token,(unsigned long)source.frames,
                 (unsigned long)source.rate,(unsigned long)source.channels,(unsigned long)source.bits);
+        if(g_waveform.pending==Reply::Metadata && g_waveform.fingerprint) {
+            const auto facts=g_streaming.DescribeWaveformFingerprint(source.token);
+            size+=std::snprintf(reply+size,sizeof(reply)-size,
+                "BTWAVE1 FP 1 %lu %lu %lu %lu %lu %lu %lu %lu\n",
+                (unsigned long)g_waveform.id,(unsigned long)source.token,
+                (unsigned long)(facts.file_bytes>>32),(unsigned long)std::uint32_t(facts.file_bytes),
+                (unsigned long)facts.pcm_offset,(unsigned long)facts.prefix_bytes,
+                (unsigned long)(facts.prefix_digest>>32),(unsigned long)std::uint32_t(facts.prefix_digest));
+        }
         if(g_waveform.pending==Reply::Error)
             size=std::snprintf(reply,sizeof(reply),"BTWAVE1 ERROR 1 %lu\n",(unsigned long)g_waveform.id);
         // Only enter an idle TX lane with room for the entire bounded line.
@@ -1144,6 +1163,13 @@ namespace
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+            else if (!std::strncmp(line,"BTSESSION1 CLAIM 1 ",19) && g_protocol_connected) {
+                g_session.EstablishLineage(std::string_view(line+19,used-19));
+                char reply[72];
+                std::snprintf(reply,sizeof(reply),"BTSESSION1 LINEAGE 1 %u %s\n",
+                    unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-");
+                (void)QueueLine(reply);
+            }
             else if (!std::strncmp(line,"BTWAVE1 ",8)) WaveformCommand(line,used);
 #endif
             else if (!std::strncmp(line,"BTINS1",6) || !std::strncmp(line,"BTWAV1",6)) {
@@ -1541,6 +1567,9 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         g_boot_session_result=g_session_result;
+        if(g_session_result!=PatternFileResult::Ok && g_session_result!=PatternFileResult::BackupRetained)
+            g_session.RestoreLineage();
+        g_session.EstablishLineage(g_identity.Facts().boot);
         g_session_recovery_blocked=g_session_result!=PatternFileResult::Ok && g_session_result!=PatternFileResult::Missing;
         if(g_session_recovery_blocked && (g_session_result==PatternFileResult::Invalid || g_session_result==PatternFileResult::Unsupported))
             g_session_recovery_blocked=!g_session_files.PreserveInvalid(g_storage_backend);

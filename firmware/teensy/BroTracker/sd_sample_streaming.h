@@ -56,7 +56,7 @@ public:
                     candidate.PrefixFrames(),memory.starts[i],kStreamStartBytes)) { files_[i].close(); continue; }
             offsets_[i]=static_cast<std::uint32_t>(found.metadata.data_offset);
             source=candidate;
-            StampSource(i);
+            StampSource(i,found.metadata.file_bytes);
             report.capacity=source.layout.start_frames;
             report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
             report.view=MakeView(source);
@@ -105,7 +105,7 @@ public:
         }
         offsets_[index]=offset;
         sources_[index]=source;
-        StampSource(index);
+        StampSource(index,metadata.file_bytes);
         auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
         report.view=MakeView(sources_[index]);
@@ -222,7 +222,7 @@ public:
         }
         job_read_+=n;if(job_read_!=frames)return;
         offsets_[job_index_]=offset;
-        StampSource(job_index_);
+        StampSource(job_index_,job_inspection_.Metadata().file_bytes);
         auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view=MakeView(source);
         paths_[job_index_]=job_path_;job_path_.Reset();occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
@@ -310,6 +310,11 @@ public:
         }
         return {};
     }
+    WaveformFingerprint DescribeWaveformFingerprint(std::uint32_t token) const {
+        for(unsigned i=0;token && i<kSourceCapacity;++i)
+            if(occupied_[i] && source_tokens_[i]==token)return fingerprints_[i];
+        return {};
+    }
     bool ReadWaveform(std::uint32_t token,std::uint32_t offset,std::uint8_t* pcm,unsigned bytes) {
         if(!token || !bytes || bytes>kWaveformIdleBytes)return false;
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && source_tokens_[i]==token) {
@@ -325,7 +330,11 @@ public:
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
-    void StampSource(unsigned index) {
+    void StampSource(unsigned index,std::uint64_t file_bytes) {
+        const auto& source=sources_[index];
+        const auto bytes=source.PrefixFrames()*source.layout.bytes_per_frame;
+        fingerprints_[index]={file_bytes,WaveformPrefixDigest(
+            reinterpret_cast<const std::uint8_t*>(source.start),bytes),offsets_[index],bytes};
         source_tokens_[index]=source_sequence_==UINT32_MAX?0:++source_sequence_;
     }
     bool DescribeSource(const WavMetadata& metadata,std::uint64_t file_bytes,const std::int16_t* start,
@@ -372,6 +381,7 @@ private:
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
     bool sd_ready_=false;unsigned count_=3;ResourcePathRef paths_[kSourceCapacity];
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
+    WaveformFingerprint fingerprints_[kSourceCapacity]{};
     std::uint32_t source_tokens_[kSourceCapacity]{},source_sequence_=0;
     StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[kStreamVoiceCount];
     StreamedVoiceSnapshot states_[kStreamVoiceCount]; std::uint64_t failed_generation_[kStreamVoiceCount]{};

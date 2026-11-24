@@ -1,3 +1,4 @@
+#include <random>
 #include "bringup_serial.h"
 #include "host_logging.h"
 #include "bringup/instrument_identity.h"
@@ -167,6 +168,8 @@ void BringUpSerial::Disconnect(const char* reason)
 {
     waveform_.Disconnect();
     waveform_supported_=false;
+    session_lineage_[0]=0;session_lineage_persisted_=false;
+    session_lineage_claim_=session_lineage_claim_sent_=false;
     if(file_action_==FileAction::Session && pending_==Command::File)session_save_uncertain_=true;
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
@@ -891,6 +894,23 @@ void BringUpSerial::OnLine(std::uint32_t now)
             identity_type_=type;identity_ready_=true;
         }return;
     }
+    constexpr std::string_view lineage_prefix="BTSESSION1 LINEAGE 1 ";
+    const std::string_view line(line_,used_);
+    if(line.substr(0,lineage_prefix.size())==lineage_prefix) {
+        const auto value=line.substr(lineage_prefix.size());
+        if(connected_ && value.size()==2+BroTracker::kSessionLineageSize &&
+           (value[0]=='0' || value[0]=='1') && value[1]==' ' &&
+           BroTracker::ValidSessionLineage(value.substr(2))) {
+            std::memcpy(session_lineage_,value.data()+2,BroTracker::kSessionLineageSize);
+            session_lineage_[BroTracker::kSessionLineageSize]=0;
+            session_lineage_persisted_=value[0]=='1';
+            session_lineage_claim_=false;
+        } else if(connected_ && value=="0 -") {
+            session_lineage_[0]=0;session_lineage_persisted_=false;
+            session_lineage_claim_=true;
+        }
+        return;
+    }
     if(!std::strcmp(line_,"BTSESSION1 CAP 1")) {snapshot_metadata_supported_=connected_;return;}
     if(!std::strncmp(line_,"BTSESSION1 VIEW 1 ",17)) {
         unsigned r=0,c=0,f=0,h=0;int n=0;
@@ -1506,7 +1526,21 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if (connected_ && (next_refresh_ || now - sent_at_ >= 1000)) Send(Command::Status, now);
         if(tx_offset_==tx_size_ && pending_==Command::None && connected_ && waveform_supported_ &&
            !exit_requested_ && !pattern_assembler_.Active()) {
-            if(const auto size=waveform_.Command(tx_,sizeof(tx_),now)) {
+            if(session_lineage_claim_ && !session_lineage_claim_sent_ && !Playing()) {
+                session_lineage_claim_sent_=true;
+                try {
+                    std::random_device random;
+                    char id[BroTracker::kSessionLineageSize+1];
+                    for(unsigned i=0;i<4;++i)
+                        std::snprintf(id+8*i,9,"%08lx",(unsigned long)std::uint32_t(random()));
+                    if(BroTracker::ValidSessionLineage(id)) {
+                        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSESSION1 CLAIM 1 %s\n",id);
+                        tx_offset_=0;
+                    }
+                } catch(const std::exception&) {
+                    Log("Session lineage entropy unavailable");
+                }
+            } else if(const auto size=waveform_.Command(tx_,sizeof(tx_),now)) {
                 tx_size_=size;tx_offset_=0;
             }
         }

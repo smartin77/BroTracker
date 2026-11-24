@@ -1147,6 +1147,8 @@ TEST_CASE(WaveformSourceIdentityFollowsPinnedRollbackAndSourceRecreation) {
     const auto original=current;
     const auto token=producer.DescribeWaveform(original.bindings[0].sample).token;
     CHECK(token!=0);
+    const auto fingerprint=producer.DescribeWaveformFingerprint(token);
+    CHECK_EQ(fingerprint.prefix_bytes,2400u);
     producer.PinRollback(original);
     CHECK_EQ(producer.PreparePath(b,current.bindings[0].sample),InstrumentAvailability::Ready);
     CHECK(producer.DescribeWaveform(current.bindings[0].sample).token!=token);
@@ -1156,6 +1158,11 @@ TEST_CASE(WaveformSourceIdentityFollowsPinnedRollbackAndSourceRecreation) {
     producer.UnpinRollback();
     CHECK(producer.ReclaimOne(current)); // old replacement can now go
     current.count=0;
+    CHECK(producer.ReclaimOne(current));
+    CHECK_EQ(producer.PreparePath(a,current.bindings[0].sample),InstrumentAvailability::Ready);
+    const auto prepared_again=producer.DescribeWaveform(current.bindings[0].sample);
+    CHECK(prepared_again.token!=token);
+    CHECK_EQ(producer.DescribeWaveformFingerprint(prepared_again.token).prefix_digest,fingerprint.prefix_digest);
     CHECK(producer.ReclaimOne(current));
     FakePatternSd::files[a].bytes=RateFixtureWav(1400,32000,2,8);
     CHECK_EQ(producer.PreparePath(a,current.bindings[0].sample),InstrumentAvailability::Ready);

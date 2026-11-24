@@ -9,6 +9,7 @@ namespace BroTracker {
 
 constexpr char kWaveformCapability[] = "BTWAVE1 CAP 3";
 constexpr char kWaveformRangeCapability[] = "BTWAVE1 RANGECAP 1";
+constexpr char kWaveformFingerprintCapability[] = "BTWAVE1 FPCAP 1";
 constexpr unsigned kWaveformPlayingBytes = 64;
 constexpr unsigned kWaveformIdleBytes = 768;
 constexpr unsigned kWaveformPlayingIntervalMs = 25;
@@ -30,13 +31,26 @@ struct WaveformSource {
     std::uint64_t Bytes() const { return std::uint64_t(frames)*Stride(); }
 };
 
+// Version 1 hashes the prepared native PCM prefix with FNV-1a 64.
+struct WaveformFingerprint {
+    std::uint64_t file_bytes=0, prefix_digest=0;
+    std::uint32_t pcm_offset=0, prefix_bytes=0;
+};
+
+inline std::uint64_t WaveformPrefixDigest(const std::uint8_t* pcm,unsigned size) {
+    std::uint64_t hash=14695981039346656037ULL;
+    for(unsigned i=0;i<size;++i)hash=(hash^pcm[i])*1099511628211ULL;
+    return hash;
+}
+
 inline bool ParseWaveformGet(std::string_view line,std::uint32_t& id,std::uint32_t& slot,
-    char (&path)[kSamplePathMaximum+1]) {
+    char (&path)[kSamplePathMaximum+1],bool* fingerprint=nullptr) {
     const auto split=line.rfind(' ');
     std::uint32_t fields[3];
     if(split==line.npos || !SnapshotFields(line.data(),split,"BTWAVE1 GET ",fields,3) ||
-       fields[0]!=1 || !fields[1] || fields[2]>=99 ||
+       (fields[0]!=1 && !(fingerprint && fields[0]==2)) || !fields[1] || fields[2]>=99 ||
        !DecodePathToken(line.substr(split+1),path,sizeof(path),true) || !ValidSamplePath(path)) return false;
+    if(fingerprint)*fingerprint=fields[0]==2;
     id=fields[1];slot=fields[2];return true;
 }
 
@@ -58,6 +72,7 @@ struct WaveformPull {
     Reply pending=Reply::None;
     bool first_credit=false;
     unsigned limit=kWaveformIdleBytes;
+    bool fingerprint=false;
     void Begin(std::uint32_t request,std::uint32_t instrument,std::uint32_t source) {
         *this={request,source,0,instrument,source?Reply::Metadata:Reply::Error,true};
     }

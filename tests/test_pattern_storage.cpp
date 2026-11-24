@@ -802,3 +802,37 @@ TEST_CASE(ConvertedLegacyNonMidiSlotPersistsEditedChannel) {
     CHECK_EQ(restored.bindings[5].type,InstrumentType::MIDI);
     CHECK_EQ(restored.bindings[5].midi_channel,2u);
 }
+
+TEST_CASE(WorkingSessionLineageMigratesOnlyAfterDurablePromotion) {
+    FakePatternSd::Reset();
+    SdPatternFiles backend;backend.ready=true;
+    WorkingSessionStore<SdPatternFiles> store;
+    WorkingSession legacy;legacy.working=MakeDevelopmentPattern();
+    CHECK_EQ(store.Save(backend,legacy),PatternFileResult::Ok);
+    WorkingSession session;
+    CHECK_EQ(store.Load(backend,session),PatternFileResult::Ok);
+    CHECK(!session.lineage[0]);
+    constexpr char first[]="1234567890abcdef1234567890abcdef";
+    constexpr char second[]="abcdef0123456789abcdef0123456789";
+    session.EstablishLineage(first);
+    session.EstablishLineage(second);
+    CHECK(!session.lineage_persisted);
+    FakePatternSd::fail_sync=true;
+    CHECK_EQ(store.Save(backend,session),PatternFileResult::Io);
+    CHECK(!session.lineage_persisted);
+    CHECK_EQ(std::string(session.lineage),first);
+    FakePatternSd::fail_sync=false;
+    CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+    CHECK(session.lineage_persisted);
+    session.working_tempo=14000;
+    CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+    WorkingSession restored;
+    CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+    restored.EstablishLineage(second);
+    CHECK(restored.lineage_persisted);
+    CHECK_EQ(std::string(restored.lineage),first);
+    WorkingSession fresh;
+    fresh.EstablishLineage(second);
+    CHECK_EQ(std::string(fresh.lineage),second);
+    CHECK(!fresh.lineage_persisted);
+}

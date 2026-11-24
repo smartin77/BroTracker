@@ -503,3 +503,27 @@ TEST_CASE(WaveformLegacyRefinementReservesMetadataBeforeSendingGet) {
     host.Tick(5901,false);
     CHECK(Command(host,5901).find("BTWAVE1 GET ")==0);
 }
+
+TEST_CASE(WaveformFingerprintRequiresCurrentNegotiatedMetadataRequest) {
+    SampleWaveformTransfer host;
+    host.Response(kWaveformFingerprintCapability);
+    host.Select(1,"Samples/First.wav",true);
+    CHECK(Command(host).find("BTWAVE1 GET 2 1 0 ")==0);
+    host.Response("BTWAVE1 FP 1 1 17 0 60 44 16 4 5");
+    CHECK(!host.Fingerprint());
+    host.Response("BTWAVE1 META 1 1 17 8 44100 1 16");
+    host.Response("BTWAVE1 FP 1 1 18 0 60 44 16 4 5");
+    CHECK(!host.Fingerprint());
+    host.Response("BTWAVE1 FP 1 1 17 0 60 44 16 4 5");
+    CHECK(host.Fingerprint());
+    if(host.Fingerprint())CHECK_EQ(host.Fingerprint()->prefix_digest,(std::uint64_t(4)<<32)|5u);
+    host.Select(2,"Samples/Replacement.wav",true);
+    Command(host);
+    CHECK(Command(host).find("BTWAVE1 GET 2 2 1 ")==0);
+    host.Response("BTWAVE1 META 1 2 18 8 44100 1 16");
+    host.Response("BTWAVE1 FP 1 1 17 0 60 44 16 4 5");
+    CHECK(!host.Fingerprint());
+    host.Disconnect();
+    host.Select(1,"Samples/First.wav",true);
+    CHECK(Command(host).find("BTWAVE1 GET 1 ")==0);
+}

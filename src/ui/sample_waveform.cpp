@@ -183,6 +183,7 @@ void SampleWaveformTransfer::Select(unsigned number,std::string_view path,bool s
     if(number_==number && path_==path && supported_==supported)return;
     if(id_)cancel_=id_;
     id_=0;number_=number;path_=path;supported_=supported;active_=nullptr;used_=nullptr;
+    fingerprint_request_=fingerprint_token_=0;
     playing_admitted_=false;
     phase_=supported && number && number<=99 && ValidSamplePath(path)?Phase::Get:Phase::Idle;
 }
@@ -234,7 +235,7 @@ void SampleWaveformTransfer::Disconnect() {
     Select(0,{},false);
     for(auto& entry:cache_)entry={};
     next_cache_=0;cancel_=0;budgets_={};retired_through_=0;
-    ticked_=playing_=ranged_=false;
+    ticked_=playing_=ranged_=fingerprint_supported_=false;
 }
 
 void SampleWaveformTransfer::Fail() {
@@ -261,11 +262,14 @@ void SampleWaveformTransfer::Tick(std::uint32_t now,bool playing) {
 std::size_t SampleWaveformTransfer::Get(char* line,std::size_t capacity,std::uint32_t now) {
     if(sequence_==UINT32_MAX){Fail();return 0;}
     const auto id=sequence_+1;
-    const auto n=std::snprintf(line,capacity,"BTWAVE1 GET 1 %lu %u ",(unsigned long)id,number_-1);
+    const bool fingerprint=fingerprint_supported_ && phase_==Phase::Get;
+    const auto n=std::snprintf(line,capacity,"BTWAVE1 GET %u %lu %u ",
+        fingerprint?2u:1u,(unsigned long)id,number_-1);
     if(n<=0 || std::size_t(n)+1>=capacity ||
        !EncodePathToken(path_.c_str(),line+n,capacity-n-1)){Fail();return 0;}
     const auto end=std::strlen(line);
     line[end]='\n';line[end+1]=0;
+    fingerprint_request_=fingerprint?id:0;
     sequence_=id_=id;phase_=Phase::Metadata;sent_at_=now;metadata_playing_ms_=0;
     return end+1;
 }
@@ -299,8 +303,22 @@ std::size_t SampleWaveformTransfer::Command(char* line,std::size_t capacity,std:
 
 void SampleWaveformTransfer::Response(std::string_view line) {
     if(line==kWaveformRangeCapability) {ranged_=true;return;}
+    if(line==kWaveformFingerprintCapability) {fingerprint_supported_=true;return;}
     if(!id_)return;
-    std::uint32_t fields[7];
+    std::uint32_t fields[9];
+    if(fingerprint_request_ && active_ &&
+       SnapshotFields(line.data(),line.size(),"BTWAVE1 FP ",fields,9) &&
+       fields[0]==1 && fields[1]==fingerprint_request_ && fields[2]==active_->Metadata().token) {
+        const auto bytes=active_->Metadata().Bytes();
+        const auto file_bytes=(std::uint64_t(fields[3])<<32)|fields[4];
+        if(fields[6]==std::min<std::uint64_t>(4096,bytes) &&
+           file_bytes>=std::uint64_t(fields[5])+bytes) {
+            fingerprint_={file_bytes,(std::uint64_t(fields[7])<<32)|fields[8],fields[5],fields[6]};
+            fingerprint_token_=fields[2];
+            fingerprint_request_=0;
+        }
+        return;
+    }
     if(SnapshotFields(line.data(),line.size(),"BTWAVE1 ERROR ",fields,2) &&
        fields[0]==1 && fields[1]==id_) {Fail();return;}
     if(phase_==Phase::Metadata && SnapshotFields(line.data(),line.size(),"BTWAVE1 META ",fields,7) &&
@@ -316,6 +334,7 @@ void SampleWaveformTransfer::Response(std::string_view line) {
             *entry=std::move(fresh);
             next_cache_=(next_cache_+1)%cache_.size();
         }
+        if(fingerprint_token_!=source.token || (active_ && active_!=&*entry))fingerprint_token_=0;
         active_=&*entry;
         used_=&Allowance(source.token);
         *used_=std::min(kPlayingAllowanceMs,*used_+metadata_playing_ms_);

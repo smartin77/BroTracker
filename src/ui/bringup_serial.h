@@ -1,4 +1,5 @@
 #pragma once
+#include "bringup/session_lineage.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -37,6 +38,9 @@ public:
             connected_ && waveform_supported_ && SdStatus()!=SdAvailability::Unavailable);
         return waveform_.View();
     }
+    const BroTracker::WaveformFingerprint* WaveformFingerprint() const { return waveform_.Fingerprint(); }
+    std::string_view SessionLineage() const { return session_lineage_; }
+    bool SessionLineagePersisted() const { return session_lineage_persisted_; }
     bool WaveformDeferred() const { return waveform_.Deferred(); }
     std::string_view AcknowledgedSamplePath(unsigned number)const {
         return InspectedSample(number) && std::strcmp(identity_resource_,"-")?identity_resource_:"";
@@ -391,6 +395,10 @@ private:
     BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
     bool wav_supported_=false,list_wav_=false;
     bool waveform_supported_=false;
+    char session_lineage_[BroTracker::kSessionLineageSize+1]{};
+    bool session_lineage_persisted_=false;
+    bool session_lineage_claim_=false;
+    bool session_lineage_claim_sent_=false;
     BroTracker::SampleWaveformTransfer waveform_;
     bool list_supported_=false,list_queued_=false,list_pending_=false,list_ready_=false;
     std::uint32_t list_id_=0,list_offset_=0,list_started_=0;
