@@ -411,12 +411,12 @@ their controls are deferred; this change does not implement conversion or splitt
 
 ## Manual Sample Browser audition
 
-P on Windows / X on ArkOS auditions the highlighted supported WAV only when
-Pattern transport is confirmed stopped. Enter/A still chooses a WAV or opens a
-directory. List navigation, hover and row selection remain silent. Directories,
-unsupported files, paused transport and playing transport cannot start audition.
-A fresh press replaces any active/pending audition and restarts at frame zero;
-key/button hold and repeat do not retrigger.
+P on Windows / X on ArkOS auditions the highlighted supported WAV while
+Stopped, Paused or Playing on firmware that advertises live audition. Older
+audition-capable firmware allows this only while Stopped. Enter/A chooses a WAV
+or opens a directory. Navigation and row selection are silent; directories and
+unsupported WAVs cannot audition. Pressing P/X again replaces active or queued
+audition and restarts at frame zero. Holding the control does not retrigger.
 
 Audition uses the existing Teensy SD streaming engine with a separate ninth voice
 ring (4096 frames), the bounded immutable start (2048 frames) and bounded refill
@@ -424,40 +424,42 @@ reads. It does not load an entire file or truncate playback to a preview duratio
 Supported [WAV formats](SAMPLE_FORMAT.md) play through EOF at their original
 pitch and duration without instrument tuning or Pattern tempo input. Listening volume
 still applies. Audition never changes bindings, source-cell assignments, WAV drafts
-or Pattern transport. Leaving the browser or starting Pattern playback cancels
-active and pending work; cancelled or superseded preparation cannot start audio.
+or Pattern transport. Pattern refill has priority. Audition preparation can wait
+for streaming headroom, and an audition underrun stops the audition voice.
+Changing folders, leaving the browser or losing the connection cancels active
+and queued work. Cancelled or superseded preparation cannot start audio.
 Unused dynamic sources are reclaimed after the voice releases them.
 
-`BTWAV1 CAP 1` advertises this temporary protocol. BTX sends
+`BTWAV1 CAP 1` advertises stopped-only audition. `BTWAV1 CAP 2` also permits
+Paused/Playing audition during an active Instrument visit. BTX sends
 `BTWAV1 PLAY 2 request encoded_resource` after BTPATH1 negotiation, or legacy
 PLAY 1; `BTWAV1 CANCEL 1 request` is unchanged. Resources use the bounded
 255-byte SD-relative path rules described in [path storage](SAMPLE_PATH_STORAGE.md). `BTWAV1 RESULT 1 request result` is
 correlated to the latest host request: 0 accepted/success, 1 invalid request,
 3 transport/coordination unavailable, 4 preparation/playback setup failed,
 9 shared path storage exhausted.
-Firmware checks stopped/storage readiness independently of the host gate.
-Preparation is serialized with existing live definition jobs and runs outside
-the audio interrupt guard. The audio owner only renders prepared streaming PCM.
-Auto preview, mouse controls and audition during playback remain deferred.
+Firmware checks transport, visit and coordination readiness independently of
+the host gate. Preparation runs outside the audio interrupt guard. The audio
+owner renders prepared streaming PCM. Automatic preview remains deferred.
+Mouse wheel moves the highlight, a click selects a visible row, and a double-click
+uses the same validation and confirmation as Enter/A. See
+[Sample Browser controls](BTX_CONTROLS.md#sample-browser).
 
 Manual audition checklist
 
-Windows P and handheld X both trigger audition. Press the same control again
-to retrigger. Leave the browser to cancel.
-
-- Stop Pattern; focus a supported WAV. Navigation alone stays silent. Press P/X;
-  verify native pitch/rate, complete EOF playback and unchanged Instrument draft.
-- Hold P/X: no repeated starts. Release/press while audio plays: restart at frame
-  zero. Select another WAV and press again: only the new audition plays.
-- Use a long WAV well beyond the 4096-frame ring and 2048-frame start capacity
-  (for example, one minute). Verify uninterrupted playback through EOF; retrigger
-  while still playing and verify restart from the beginning through EOF again.
-- Try directories and unsupported WAVs, and try P/X while Pattern is paused or
-  playing: no audition. Enter/A still opens folders or chooses the WAV.
-- Cancel/leave during playback and immediately after P/X during preparation;
-  verify silence with no late restart. Start Pattern playback during a pending or
-  active audition and verify only Pattern audio remains. Check repeated browsing,
-  audition and cancellation do not exhaust stream resources.
+- With current firmware, audition a supported WAV with Pattern Stopped, Paused
+  and Playing. Verify original pitch/rate, an unchanged Instrument draft and
+  unchanged Pattern transport. Under streaming load, check that Pattern refill
+  keeps priority over audition.
+- Hold P/X and verify no repeated starts. Press again during playback or while
+  preparation is queued and verify restart at frame zero. Highlight a different
+  WAV and press again to replace the previous audition.
+- Use a long WAV to check streaming through EOF when headroom is sufficient.
+  Directories and unsupported WAVs remain silent. On CAP 1-only firmware, also
+  verify P/X is unavailable while Paused or Playing.
+- Change folders or leave while audition is active and while preparation is
+  queued. Check for silence from the audition voice, no late restart and no loss
+  of Pattern audio during Play. Repeat to check resource reclamation.
 
 ## MIDI channel and descriptive fields
 

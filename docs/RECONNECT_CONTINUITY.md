@@ -1,7 +1,7 @@
 # BTX working session and reconnect continuity
 
-Teensy owns the engine and SD workspace. BTX is a terminal: closing or losing CDC
-must not enqueue STOP, reset MIDI ownership, or prevent the main loop from draining
+Teensy owns the engine and SD workspace. Unexpected BTX termination or CDC loss
+does not enqueue STOP, reset MIDI ownership, or prevent the main loop from draining
 accepted audio-owner notifications. Audio and connected hardware service continue
 while Teensy remains powered. Physical USB removal can independently disrupt USB
 MIDI/audio endpoints; CDC continuity is not a guarantee of external delivery.
@@ -10,13 +10,15 @@ MIDI/audio endpoints; CDC continuity is not a guarantee of external delivery.
 
 `/BroTracker/current.btsession` preserves separate published and working patterns,
 with separate published/applied tempos. Unpublished edits delivered through working
-preview are session content. It is distinct from `/BroTracker/tune.btdraft`, which
-changes only on explicit temporary Save. See [file formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects).
-Mute, gains, master volume, transport position, voice phase, host-only edits, routing,
-Sample PCM and external instrument state are outside this bounded format.
+preview are session content. The current format also retains Instrument definitions,
+view and acknowledged channel mute. Gains, master volume, transport position,
+voice phase, host-only edits, routing, Sample PCM and external instrument state
+are outside this bounded format. See
+[file formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects).
 
 Normal BTX launch reads the actual device baseline and working/pending readbacks.
-It never loads `development.startup_pattern`, RESTOREs a file, or STARTs playback.
+A valid session takes precedence over the configured development fallback.
+Startup and reconnect do not start playback.
 An initial/reconnect baseline readback that times out or is rejected gets at most
 two read-only retries, separated by one second (three attempts per connection).
 Each request uses a new transfer identity. Failed verification remains visible;
@@ -28,15 +30,12 @@ reported explicitly, without overwriting the file or pretending recovery succeed
 A valid previous copy can be read with a `backup-retained` warning. Interrupted
 replacement files are retained for manual recovery and block subsequent writes.
 
-F3 / Select+Start explicitly requests the configured development file; F4 / L1+Y
-loads `tune.btdraft`. Both require STOP first. Read/CRC and binding/application
-validation precede replacing the session. A successful load establishes a new RAM
-published baseline and working copy; it never overwrites the saved draft file.
-Missing/invalid reads retain current work. Uncertain application/readback remains
-locked rather than replaying a possibly applied command. There are no dialogs.
-F5 / row A saves the working tune, without publishing it. Shift+F5 / L1+A remain
-explicit RAM Publish; Shift+F4 / L1+X remain in-memory Restore to the published
-baseline. [Controls](BTX_CONTROLS.md) is the binding reference.
+Ordinary Pattern edits are sent through automatic working preview. Open Pattern
+Load/Save with Ctrl+Left or Select+D-pad Left. Entry waits for confirmed STOP and
+a session SAVE. Load validates the selected file before replacement and returns
+stopped. Save writes the last successfully loaded Pattern source when one is
+known. Rejected loads retain current work. See
+[Pattern Load/Save controls](BTX_CONTROLS.md#pattern-loadsave).
 
 ## Storage and audio priority
 
@@ -65,17 +64,13 @@ acknowledgments drain, main context saves the session promptly. A paused pending
 preview is saved as working intent without applying it early or continuing playback.
 No filesystem work runs in an ISR and no SD I/O runs under interrupt exclusion.
 
-Temporary Save during playback freezes one bounded device RAM snapshot, reports
-`deferred-playing` (not success), and writes that snapshot after Pause/Stop. Later
-edits do not change the requested saved tune. Further deferred Save requests report
-busy. Sudden power loss before persistence can lose RAM-only changes.
+Sudden power loss before persistence can lose RAM-only changes.
 
-Regular exit waits for available host edits to reach verified working preview,
-then requests a session save. Stopped/paused exit awaits its result. Playing exit
-receives an explicit deferred result and leaves playback running; it cannot promise
-a fresh disk write without sacrificing the audio policy. A bounded exit timeout,
-disconnect or unsupported firmware is logged as unconfirmed/unavailable, never
-successful persistence. Host-only edits lost in a crash are not recoverable.
+Normal Exit stops active or paused playback, waits for confirmed STOP and storage
+readiness, synchronizes the latest edits, then waits for session SAVE
+acknowledgement. An unconfirmed exit does not establish persistence. Host-only
+edits lost in a crash are not recoverable. See
+[Exit and recovery controls](BTX_CONTROLS.md#recovery-warnings-and-listening-volume).
 
 ## Reconnect protection
 
@@ -92,7 +87,7 @@ one automatic working-preview recovery attempt. It sends the retained draft as
 working data and restores the retained verified working tempo where supported.
 A full transfer requires complete checksum readback before editing and START/
 CONTINUE unlock. The published baseline stays separate and the recovered edit
-remains unpublished. No Publish, tune.btdraft write, fixture LOAD or START is sent.
+remains unpublished. Recovery does not send a publication, file load or START.
 This recovers available host RAM; it does not claim the edit survived on SD before
 power loss. Normal stopped firmware persistence may subsequently save it.
 
@@ -106,23 +101,25 @@ the matching baseline, verified working data and stopped-state checks are also
 required. A newer working revision on a powered device is never overwritten
 automatically with the retained host draft.
 
-For an unresolved hold, Shift+F4 / L1+X restores the retained local published
-baseline only. If that now matches the verified device, the hold can clear without
-Publish. Shift+F5 / L1+A remains an explicit RAM publication option after stopping
-or eligible pause, including deliberate replacement of different dimensions.
-Uncertain publication is read back before explicit retry. Fresh BTX adopts actual
-device state. Matching cells do not establish uninterrupted playback/phase.
+For an unresolved hold, open recovery from Pattern with Ctrl+Left or Select+D-pad
+Left. Choose **Recover retained host work** and confirm with Enter/A again.
+Escape/Backspace or B cancels. When the device is stopped or in a supported
+Paused state and the required readbacks are verified, confirmation can explicitly
+replace the device's RAM baseline and working copy with the retained work.
+If a previous replacement has an uncertain outcome, the action retries readback
+only. Recovery does not request a session save, resume playback or start it.
+Fresh BTX adopts actual device state. Matching cells cannot establish playback
+phase or continuity.
 
 ## Validation scope
 
 Automated coverage is in the storage, startup/storage, host preview/publication,
 shared controls and Windows/ArkOS input suites. It covers validated replacement,
 missing/corrupt/interrupted files, retained unpublished content, normal startup
-without fixture LOAD/STOP/START, powered running reconnect without writes, exit
-without STOP, and both Select+Start press orders with held-chord suppression.
-Build/test and physical-test evidence for this change is recorded separately;
-the observations below describe the **previous implementation**, whose F4/F5
-bindings and automatic startup load have now been replaced.
+with a valid session, powered running reconnect without writes, and exit/save
+coordination. The observations below include previous implementations. Their
+exit behavior, shortcut bindings and startup observations apply to the builds
+tested at the time.
 
 ## Normal-session-launch recovery gate correction (2026-10-29)
 
@@ -298,10 +295,10 @@ The existing and patched Windows clients were exercised stopped, with no START.
   session-restore command was issued. The client was closed cleanly, stopped.
 
 The tested intermediate client offered a special F4 device-adoption option; it
-was not exercised. Following the user's control clarification, that option was
-removed: final F4 restores the retained local baseline, and F5 remains Publish.
-Final regression tests cover that mapping and uncertain-publication read-only
-retry. `hardware-tested-binary.txt` identifies the intermediate hardware-tested
+was not exercised. The historical follow-up removed that option and used F4
+for local baseline restore and F5 for RAM publication. Those bindings have since
+been retired. The tests at that time covered the historical mapping and
+uncertain-publication read-only retry. `hardware-tested-binary.txt` identifies the intermediate hardware-tested
 executable separately from final package hashes.
 
 Two optional patched launches hit a bounded Windows receive-buffer overflow during

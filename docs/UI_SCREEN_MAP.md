@@ -130,13 +130,18 @@ resolved focus policy; see the contradictions below.
 
 Pattern opens the Instrument editor directly. The editor uses the full 640?480
 canvas, with edge-to-edge one-pixel frames, the selected slot and its existing
-change marker, Type, and Save availability
-in the top group. Sample Name shows the acknowledged WAV filename. Description
+change marker, editable Type, and Save availability in the top group.
+Keep retains live changes and confirms assignment as appropriate; Cancel restores
+the visit baseline. Sample Name shows the acknowledged WAV filename. Description
 is blank because BTX has no embedded WAV title metadata. For Sample, a full-width resource section shows the assigned
-WAV path, any staged path, and Load WAV to open Sample Browser. MIDI and Sine Synth
-use the same slot, Type, and status layout. Preparation, rollback and errors
+WAV path, any staged path, and Load WAV to open Sample Browser. The browser
+supports validated WAV selection and explicit audition. MIDI and Sine Synth share
+the slot, Type and status layout. On capable firmware, MIDI Channel is editable
+and saved per instrument. Preparation, rollback and errors
 appear in the middle frame. Sample uses the largest, lower frame for the
 [acknowledged Sample waveform](INSTRUMENT_FOUNDATION.md#sample-waveform).
+FIT fills progressively, with validated reuse through the
+[persistent cache](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache).
 MIDI and Sine Synth leave that frame empty.
 
 The bottom line gives the focused action and the platform's keep/rollback
@@ -305,19 +310,20 @@ proposal neither changes the paused bridge-pop investigation nor its validation 
 
 ## Incremental implementation direction
 
-The owner's next feature milestone after bridge-audio closure is the Instrument
-screen foundation. The table remains broader planning, not an expanded foundation
-scope or authorization to implement it. Each stage requires backend readiness
-before corresponding controls become actionable.
+Direct Instrument editing, Keep/Cancel, per-instrument MIDI Channel, Sample
+Browser and progressive, persistent FIT visualization are implemented. Sample
+parameter editing, waveform zoom, loops/slices and Synth controls remain future
+work. The table records the broader implementation direction. Controls become
+actionable as their backend support is established.
 
 | Stage | User benefit | Minimum useful scope | Backend prerequisites and dependencies |
 | --- | --- | --- | --- |
-| 1. Direct Instrument foundation | Reach instruments directly and return without losing editing context. | Abstract screen routing, Back context restoration, previous/next, read-only identity for one instrument; editing remains deferred. | Separate view state from musical state; bounded authoritative binding identity and capability discovery; define selection versus assignment. Preserve existing editing/transport/preview contracts. |
-| 2. Sample browser and minimal sample instrument editor | Choose and audition usable sounds deliberately. | Directory/validated metadata view, explicit preview/import, resource selection and only supported playback parameters. | Stage 1; bounded file inspection/loading, audition ownership, instrument-resource binding, memory/storage validation and supported parameter command/readback. Gain, tuning and ranges need backend support before controls. |
+| 1. Direct Instrument foundation | Reach instruments directly and return without losing editing context. | Implemented direct routing, previous/next, capability-gated editing and Keep/Cancel with return context. | Separate view state from musical state; bounded authoritative binding identity and capability discovery; define selection versus assignment. Preserve existing editing/transport/preview contracts. |
+| 2. Sample browser and minimal sample instrument editor | Choose and audition usable sounds deliberately. | Implemented validated file browsing, explicit audition, WAV assignment and FIT display. Playback parameters remain future work. | Stage 1; bounded file inspection/loading, audition ownership, instrument-resource binding, memory/storage validation and supported parameter command/readback. Gain, tuning and ranges need backend support before controls. |
 | 3. Project persistence and missing-sample recovery | Save work durably and recover unresolved resources. | Versioned BTT/BTP subset, New/Load/Save/Save As, metadata, dirty visibility and validated relinking. | Stages 1–2 resource/identity model; serialization design (binary layout is not yet fixed), resource copying/path policy, atomic/recoverable writes, SD exclusivity and explicit working/published/saved semantics. |
 | 4. Mixer controls over existing gains, then additional supported functionality | Balance channels without confusing audio level and sequencing mute. | Eight supported gain controls with authoritative readback, master information and pending/error status. | Gain-capable player/protocol path and host coordination; capability gating and ownership/application semantics. Later pan/meters/master gain require their own DSP/telemetry support; tracker mute requires its separate event-suppression path. Coordinate persistence with stage 3. |
 | 5. Multiple patterns and song arrangement | Build complete songs from reusable patterns. | Pattern management and proposed whole-pattern order list with names, lengths, repeats and position. | Stage 3 project model extended to multiple patterns/order entries; stage 1 navigation/paging; D0056 transition, repeat/end, flow-FX conflict, continuation/OFF and undo decisions. Existing bounded capacity alone is insufficient. |
-| 6. FX detail, MIDI instrument and Native Synth editing | Shape events and author additional instrument types through one model. | Common contextual FX editing plus supported MIDI route/program and synth oscillator/envelope/filter parameters. | Stages 1–3 identity/persistence/capabilities; finalized event semantics, three-layer representation and engine mappings; MIDI scheduler/backend support; actual synth DSP and bounded parameter updates. Flow FX additionally depend on stage 5. Basic selected-event panel work may precede full FX support. |
+| 6. FX detail, MIDI instrument and Native Synth editing | Shape events and author additional instrument types through one model. | Common contextual FX editing plus future MIDI route/program and Synth oscillator/envelope/filter parameters. Per-instrument MIDI Channel already works. | Stages 1–3 identity/persistence/capabilities; finalized event semantics, three-layer representation and engine mappings; MIDI scheduler/backend support; actual synth DSP and bounded parameter updates. Flow FX additionally depend on stage 5. Basic selected-event panel work may precede full FX support. |
 | 7. Advanced sample editing and export | Refine resources and produce shareable audio/projects. | Supported waveform regions/loops first, WAV mix export first; destructive editing, slicing, stems and BTM later. | Stages 2–3 resource ownership/persistence; undo and copy semantics, loop/DSP support, render snapshot/range/tail policy, storage scheduling, cancellation and failure recovery. Stage 5 is needed for whole-song rendering; external MIDI audio capture is separate. |
 
 ## Contradictions and remaining design questions
@@ -336,11 +342,10 @@ before corresponding controls become actionable.
 - D0042 allows compiled modules without dynamic loading, while D0043 proposes
   binary loading and D0051 leaves execution/memory mechanisms undecided. What
   capability/interface contract can be supported first? No loader UI is assumed.
-- D0055/Sample Format describe some pitch foundations as pending while newer TODO
-  entries record later variable-rate integration. D0056/D0057 also retain old
-  16-row implementation wording while TODO records 64-row capacity/32-row fixtures.
-  Preserve decisions, consult current implementation/validation records and
-  reconcile stale status separately; do not infer complete instrument authoring.
+- Some older implementation notes in D0055 through D0057 predate variable-rate Sample
+  playback and bounded 64-row capacity. Consult [SD streaming](SD_SAMPLE_STREAMING.md)
+  and [scheduler timing](SCHEDULER.md) for current behavior. Instrument parameter
+  authoring and Pattern length workflow remain separate design work.
 - Resolve order repetition representation, transition/flow conflict rules, sequence
   end and sounding-note/OFF behavior before arrangement implementation. Define
   project dirty baselines, save/recovery transactions, sample sharing and undo
