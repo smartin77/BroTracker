@@ -48,6 +48,7 @@ extern volatile uint8_t usb_configuration;
 #endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
+#include "bringup/wall_clock.h"
 #include "bringup/wav_directory.h"
 #include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
@@ -262,7 +263,7 @@ namespace
 
     // Main-loop-owned TX FIFO. Never block on USB: only write available bytes,
     // at most 64 per service. RX/ack extraction pauses when this queue is full.
-    // Reserve discovery lines, including identity/session and WAV audition CAP.
+    // Reserve discovery lines, including identity/session, audition and waveform.
     constexpr std::size_t kDiscoveryReserve = 50;
     constexpr std::size_t kTxCapacity = SerialTxQueue::kMessages;
     static_assert(kTxCapacity >= kDiscoveryReserve + 1, "Discovery must fit TX FIFO");
@@ -286,6 +287,19 @@ namespace
     PatternFileStore<SdPatternFiles> g_pattern_files;
     WorkingSessionStore<SdPatternFiles> g_session_files;
     WorkingSession g_session;
+    WallClockDevice g_wall_clock;
+    bool g_clock_exfat=false;
+
+    void ProductionFatTimestamp(std::uint16_t* date,std::uint16_t* time,std::uint8_t* ms10) {
+        const auto utc=Teensy3Clock.get();
+        const auto calendar=FilesystemCalendarSeconds(utc,g_clock_exfat?0:g_wall_clock.Offset());
+        DateTimeFields fields;
+        breakTime(calendar,fields);
+        *date=calendar>=315532800?FS_DATE(fields.year+1900,fields.mon+1,fields.mday):0;
+        *time=calendar>=315532800?FS_TIME(fields.hour,fields.min,fields.sec):0;
+        *ms10=(fields.sec&1)?100:0;
+    }
+
     SessionSaveSchedule g_session_save;bool g_session_recovery_blocked=false,g_session_saved_valid=false;
     std::uint32_t g_session_tempo=0;unsigned g_session_mute=0;
     PatternFileResult g_session_result=PatternFileResult::Missing,g_boot_session_result=PatternFileResult::Missing;
@@ -300,6 +314,8 @@ namespace
     InstrumentDefineRequest g_live_request{},g_last_live_request{};
     bool g_live_pending=false,g_live_preparing=false;unsigned g_last_live_result=1;
     std::uint32_t g_live_steps=0,g_live_max_us=0;
+    WaveformPull g_waveform;
+    std::uint32_t g_waveform_last_ms=0,g_waveform_max_us=0;
 #endif
     std::uint32_t g_last_position_ms = 0;
     bool QueueLine(const char* text)
@@ -362,9 +378,18 @@ namespace
     void QueueStatus(bool advertise_snapshot)
     {
         const auto status = Snapshot();
-        (void)QueueLine(status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
+        const char* state=status.fault != PatternFault::None ? "BTTEST1 STATE ERROR\n" :
             status.running ? "BTTEST1 STATE PLAYING\n" :
-            status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n");
+            status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n";
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+        char status_line[136];
+        std::snprintf(status_line,sizeof(status_line),"%sBTSESSION1 LINEAGE 1 %u %s\n%s",state,
+            unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-",
+            advertise_snapshot?"BTCLOCK1 CAP 1\n":"");
+        (void)QueueLine(status_line);
+#else
+        (void)QueueLine(state);
+#endif
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
@@ -376,7 +401,11 @@ namespace
         if(advertise_snapshot) {
             (void)QueueLine("BTINS1 WAVSTEREOCAP 1\nBTINS1 WAVRATECAP 1\nBTINS1 WAVPCM8CAP 1\nBTINS1 WAVLQCAP 1\n");
         }
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n");(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\nBTWAVE1 FPCAP 1\n"
+#endif
+            );(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
 #endif
         OfferPosition(status);
@@ -503,6 +532,42 @@ namespace
         if(g_pattern_transfer.HasData()) return "readback";
         return StorageControlBlock(allow_paused);
     }
+    void ClockCommand(const char* line,std::size_t count,std::uint32_t now) {
+        std::uint32_t f[6]{};
+        const std::string_view request(line,count);
+        const char* reply_type=nullptr;
+        const char* reason="malformed";
+        if(ParseClockFields(request,"BTCLOCK1 GET ",f,2)) {
+            if(g_wall_clock.Query(f[1],now))reply_type="STATE";
+            else reason="stale";
+        } else if(ParseClockFields(request,"BTCLOCK1 SET ",f,6)) {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            if(Snapshot().transport==PatternTransportState::Playing &&
+               (g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(1024)))reason="busy";
+            else
+#endif
+            switch(g_wall_clock.Set(f[1],f[2],f[3],f[4],f[5],now)) {
+            case WallClockDevice::Result::Applied:
+                if(Teensy3Clock.get()!=f[3])Teensy3Clock.set(f[3]);
+                reply_type="ACK";break;
+            case WallClockDevice::Result::Kept: reply_type="KEPT";break;
+            case WallClockDevice::Result::Stale: reason="stale";break;
+            case WallClockDevice::Result::Invalid: reason="invalid";break;
+            }
+        }
+        char response[96];
+        if(reply_type) {
+            const auto utc=Teensy3Clock.get();
+            std::snprintf(response,sizeof(response),"BTCLOCK1 %s 1 %lu %lu %lu %u\n",reply_type,
+                (unsigned long)f[1],(unsigned long)g_wall_clock.Generation(),(unsigned long)utc,
+                unsigned(g_wall_clock.Quality(utc)));
+        } else {
+            std::snprintf(response,sizeof(response),"BTCLOCK1 ERROR 1 %lu %lu %s\n",
+                (unsigned long)f[1],(unsigned long)g_wall_clock.Generation(),reason);
+        }
+        (void)QueueLine(response);
+    }
+
     void StorageReply(const char* operation,const char* result,std::uint32_t revision) {
         char reply[160];
         std::snprintf(reply,sizeof(reply),"BTSTORE1 RESULT 1 %s %s %" PRIu32 "\n",
@@ -536,6 +601,7 @@ namespace
         const auto result=ReplaceInstrumentDefinition(g_instrument_definitions,g_selected_bindings,request,prepared,true,
             [&](const VariableRateSampleBinding& binding){return g_control.OutputPlayer().MidiPlayer().ReplaceLiveInstrumentBinding(binding);});
         if(!result) {
+            g_live_visit.MarkEdited(request.expected);
             g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());
             g_sample_availability[request.expected]=request.type==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
             g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
@@ -572,7 +638,7 @@ namespace
     bool LiveCommand(const char* line,unsigned length) {
         std::uint32_t fields[3]{};char reply[96];
         if(SnapshotFields(line,length,"BTINS1 VISIT BEGIN ",fields,2) && fields[0]==1 && fields[1]) {
-            const bool fresh=!g_live_visit.Active();
+            const bool fresh=g_live_visit.Identity()!=fields[1];
             const bool ok=g_protocol_connected && !g_live_pending && g_live_visit.Begin(fields[1],g_instrument_definitions,g_selected_bindings);
             if(ok && fresh){g_streaming.PinRollback(g_live_visit.OriginalBindings());std::copy_n(g_sample_availability,99,g_visit_availability);g_last_live_request={};}
             std::snprintf(reply,sizeof(reply),"BTINS1 VISIT %s 1 %lu\n",ok?"READY":"BUSY",(unsigned long)fields[1]);(void)QueueLine(reply);return true;
@@ -621,6 +687,94 @@ namespace
     unsigned BackgroundReserve() {
         return std::max<std::uint32_t>(1024,(std::uint64_t(std::max(g_live_max_us,g_streaming.max_read_us))*44100+999999)/1000000+256);
     }
+    WaveformSource BoundWaveform(unsigned slot) {
+        const auto* definition=g_instrument_definitions.At(slot);
+        if(!definition || definition->type!=InstrumentType::Sample ||
+           g_sample_availability[slot]!=InstrumentAvailability::Ready)return {};
+        for(unsigned i=0;i<g_selected_bindings.count;++i) {
+            const auto& binding=g_selected_bindings.bindings[i];
+            if(binding.instrument==slot && binding.type==InstrumentType::Sample)
+                return g_streaming.DescribeWaveform(binding.sample);
+        }
+        return {};
+    }
+    void WaveformCommand(const char* line,std::size_t size) {
+        if(!g_protocol_connected)return;
+        std::uint32_t id,slot,fields[4];
+        char path[kSamplePathMaximum+1];
+        bool fingerprint=false;
+        if(ParseWaveformGet({line,size},id,slot,path,&fingerprint)) {
+            const auto* definition=g_instrument_definitions.At(slot);
+            const bool matches=definition && definition->resource && !std::strcmp(path,definition->resource);
+            g_waveform.Begin(id,slot,matches?BoundWaveform(slot).token:0);
+            g_waveform.fingerprint=fingerprint;
+        } else if(SnapshotFields(line,size,"BTWAVE1 NEXT ",fields,3) && fields[0]==1) {
+            (void)g_waveform.Next(fields[1],fields[2]);
+        } else if(SnapshotFields(line,size,"BTWAVE1 RESUME ",fields,3) && fields[0]==1) {
+            (void)g_waveform.Next(fields[1],fields[2],true);
+        } else if(SnapshotFields(line,size,"BTWAVE1 RANGE ",fields,4) && fields[0]==1) {
+            (void)g_waveform.Range(fields[1],fields[2],fields[3],BoundWaveform(g_waveform.slot));
+        } else if(SnapshotFields(line,size,"BTWAVE1 CANCEL ",fields,2) && fields[0]==1) {
+            g_waveform.Cancel(fields[1]);
+        }
+    }
+    void ServiceWaveform(bool refill_serviced) {
+        using Reply=WaveformPull::Reply;
+        if(g_waveform.pending==Reply::None || !g_protocol_connected || !Serial || refill_serviced ||
+           g_tx.Count() || g_telemetry.HasData() || g_pattern_transfer.HasData() ||
+           g_preparation_report.HasData() || g_preparation_report3.HasData() || g_wav_inspection_report.HasData() ||
+           g_storage_ready_wait.Active() || g_storage_restore_id || g_publication.Busy() || g_preview.Busy() ||
+           Serial.available()>0)return;
+        bool playing;
+        {
+            InterruptGuard guard;
+            if(g_control.ForegroundControlPending())return;
+            playing=g_control.Snapshot().transport==PatternTransportState::Playing;
+        }
+        const auto now=millis();
+        const auto source=BoundWaveform(g_waveform.slot);
+        if(!source.token || source.token!=g_waveform.token)g_waveform.pending=Reply::Error;
+        const auto capacity=g_waveform.pending==Reply::Data
+            ? 40+(playing?kWaveformPlayingBytes:kWaveformIdleBytes)*2 : g_waveform.fingerprint?230:96;
+        if(Serial.availableForWrite()<static_cast<int>(capacity))return;
+        unsigned bytes=0;
+        char reply[kWaveformLineCapacity];
+        std::size_t size=0;
+        if(g_waveform.pending==Reply::Data) {
+            const auto budget=WaveformByteBudget(playing,now-g_waveform_last_ms);
+            if(!budget)return;
+            const auto reserve=std::max<std::uint32_t>(BackgroundReserve(),
+                (std::uint64_t(g_waveform_max_us)*44100+999999)/1000000+256);
+            if(g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(reserve))return;
+            std::uint8_t pcm[kWaveformIdleBytes];
+            bytes=WaveformReadBytes(source,g_waveform.cursor,std::min(budget,g_waveform.limit));
+            const auto began=micros();
+            const bool read=bytes && g_streaming.ReadWaveform(source.token,g_waveform.cursor,pcm,bytes);
+            g_waveform_max_us=std::max(g_waveform_max_us,micros()-began);
+            g_waveform_last_ms=now;
+            if(read)size=FormatWaveformData(reply,g_waveform.id,g_waveform.cursor,pcm,bytes);
+            else {bytes=0;g_waveform.pending=Reply::Error;}
+        }
+        if(g_waveform.pending==Reply::Metadata)
+            size=std::snprintf(reply,sizeof(reply),"BTWAVE1 META 1 %lu %lu %lu %lu %lu %lu\n",
+                (unsigned long)g_waveform.id,(unsigned long)source.token,(unsigned long)source.frames,
+                (unsigned long)source.rate,(unsigned long)source.channels,(unsigned long)source.bits);
+        if(g_waveform.pending==Reply::Metadata && g_waveform.fingerprint) {
+            const auto facts=g_streaming.DescribeWaveformFingerprint(source.token);
+            size+=std::snprintf(reply+size,sizeof(reply)-size,
+                "BTWAVE1 FP 1 %lu %lu %lu %lu %lu %lu %lu %lu\n",
+                (unsigned long)g_waveform.id,(unsigned long)source.token,
+                (unsigned long)(facts.file_bytes>>32),(unsigned long)std::uint32_t(facts.file_bytes),
+                (unsigned long)facts.pcm_offset,(unsigned long)facts.prefix_bytes,
+                (unsigned long)(facts.prefix_digest>>32),(unsigned long)std::uint32_t(facts.prefix_digest));
+        }
+        if(g_waveform.pending==Reply::Error)
+            size=std::snprintf(reply,sizeof(reply),"BTWAVE1 ERROR 1 %lu\n",(unsigned long)g_waveform.id);
+        // Only enter an idle TX lane with room for the entire bounded line.
+        // A host cannot grant the next credit before it receives this line.
+        if(Serial.write(reinterpret_cast<const std::uint8_t*>(reply),size)==size)g_waveform.Sent(bytes);
+        else g_waveform={};
+    }
     void ReportAuditionResult() {
         if(!TxRoom(1))return;
         unsigned result;
@@ -631,7 +785,7 @@ namespace
             (void)QueueLine(reply);
         }
     }
-    void ServiceLiveJobs() {
+    void ServiceLiveJobs(bool refill_serviced) {
         g_audition.CheckPlayback();
         ReportAuditionResult();
         if(g_streaming.RefillNeeded(kAuditionStreamChannel) ||
@@ -659,7 +813,10 @@ namespace
                 g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result);
             }
         } else if(g_live_browser.Busy())g_live_browser.Step();
-        else g_streaming.ReclaimOne(g_selected_bindings);
+        else if(!g_live_browser.Done() && !g_streaming.ReclaimOne(g_selected_bindings)) {
+            ServiceWaveform(refill_serviced);
+            return;
+        }
         const auto elapsed=micros()-began;++g_live_steps;g_live_max_us=std::max(g_live_max_us,elapsed);
         if(g_live_browser.Done()) {
             const auto& request=g_live_browser.Request();const auto& page=g_live_browser.Page();char line[kPathProtocolCapacity];
@@ -814,6 +971,9 @@ namespace
             g_preparation_report3.Reset();
 #endif
             g_wav_inspection_report.Reset();
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            g_waveform={};
+#endif
 #endif
             g_telemetry.Clear();
             g_pattern_transfer.Clear();
@@ -823,6 +983,9 @@ namespace
             g_publication.NewSession();
             g_preview.NewSession();
             g_protocol_connected = false;
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            g_wall_clock.ResetConnection();
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             g_audition.Cancel();
 #endif
@@ -1030,8 +1193,14 @@ namespace
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) {
                     g_publication.NewSession();g_preview.NewSession();
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                    g_wall_clock.NewConnection();
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                     g_audition.Cancel();
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                    g_waveform={};
+#endif
 #endif
                 }
                 QueueStatus(!std::strcmp(line,"BTTEST1 HELLO"));
@@ -1050,6 +1219,17 @@ namespace
 #endif
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            else if (!std::strncmp(line,"BTCLOCK1 ",9)) ClockCommand(line,used,now);
+            else if (!std::strncmp(line,"BTSESSION1 CLAIM 1 ",19) && g_protocol_connected) {
+                g_session.EstablishLineage(std::string_view(line+19,used-19));
+                char reply[72];
+                std::snprintf(reply,sizeof(reply),"BTSESSION1 LINEAGE 1 %u %s\n",
+                    unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-");
+                (void)QueueLine(reply);
+            }
+            else if (!std::strncmp(line,"BTWAVE1 ",8)) WaveformCommand(line,used);
+#endif
             else if (!std::strncmp(line,"BTINS1",6) || !std::strncmp(line,"BTWAV1",6)) {
                 if(!AuditionCommand(line) && !LiveCommand(line,used)) {
                 unsigned id=0;
@@ -1382,6 +1562,10 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         // Early callbacks return while g_audio_ready is false. No retries after activation.
         const bool sd_ready=SD.begin(BUILTIN_SDCARD);
+        if(sd_ready) {
+            g_clock_exfat=SD.sdfs.fatType()==64;
+            FsDateTime::setCallback(ProductionFatTimestamp);
+        }
         g_storage_backend.ready=sd_ready;
         #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         g_wav_inspection.InspectOnce(sd_ready,true,true,true,true);
@@ -1445,6 +1629,9 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         g_boot_session_result=g_session_result;
+        if(g_session_result!=PatternFileResult::Ok && g_session_result!=PatternFileResult::BackupRetained)
+            g_session.RestoreLineage();
+        g_session.EstablishLineage(g_identity.Facts().boot);
         g_session_recovery_blocked=g_session_result!=PatternFileResult::Ok && g_session_result!=PatternFileResult::Missing;
         if(g_session_recovery_blocked && (g_session_result==PatternFileResult::Invalid || g_session_result==PatternFileResult::Unsupported))
             g_session_recovery_blocked=!g_session_files.PreserveInvalid(g_storage_backend);
@@ -1456,11 +1643,11 @@ namespace
     void PatternBringUpKernelInit() {}
     void PatternBringUpKernelRun() {
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
-        g_streaming.Service(BackgroundReserve());
+        const bool refill_serviced=g_streaming.Service(BackgroundReserve());
 #endif
         ServiceSerial();
 #if defined(BROTRACKER_PATTERN_VARIABLE_RATE) && defined(BROTRACKER_PATTERN_SD_PREPARE)
-        ServiceLiveJobs();
+        ServiceLiveJobs(refill_serviced);
 #endif
     }
 }

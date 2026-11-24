@@ -218,6 +218,13 @@ std::string BringUpControls::InstrumentAssignedResource()const {
     }
     return serial_.InstrumentResource();
 }
+std::string_view BringUpControls::AcknowledgedSamplePath()const {
+    if(!serial_.Connected() || !instrument_number_ || instrument_number_>99)return {};
+    const auto slot=instrument_number_-1;
+    if(original_types_[slot])
+        return applied_types_[slot]==1?std::string_view(applied_resources_[slot]):std::string_view{};
+    return serial_.AcknowledgedSamplePath(instrument_number_);
+}
 const std::string& BringUpControls::CacheInstrumentName(const std::string& resource) {
     if(resource!=cached_name_resource_) {
         cached_name_resource_=resource;
@@ -349,7 +356,8 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         }
         if(action!=BringUpAction::ResetStop)return;
     }
-    if(instrument_screen_) {
+    const bool instrument_transport=action==BringUpAction::PatternToggle && InstrumentTransportAvailable();
+    if(instrument_screen_ && !instrument_transport) {
         if((assignment_confirm_ || assignment_rollback_ || visit_closing_) && action!=BringUpAction::ResetStop)return;
         if(action==BringUpAction::InstrumentPreviousField || action==BringUpAction::InstrumentNextField) {
             if(!definition_return_) {
@@ -417,7 +425,12 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if(action==BringUpAction::BrowserConfirm) {
             if(InstrumentLoadAvailable() && !serial_.PatternListBusy()) {
                 OpenSampleBrowser(now);screen_status_="Sample Load";
-            } else screen_status_=!serial_.MidiRecoveryStopped()?"WAV Load requires STOP; local Type draft retained":"Sample Load unavailable: select Sample in the trailing slot and synchronize";
+            } else if(serial_.LiveEditSupported() && !serial_.InstrumentVisitReady()) {
+                screen_status_="Load WAV is waiting for the live Instrument visit";
+            } else if(serial_.TransportPending()) {
+                screen_status_="Load WAV is waiting for transport acknowledgement";
+            } else screen_status_=!serial_.MidiRecoveryStopped() && !serial_.LiveEditSupported()
+                ?"WAV Load requires STOP; local Type draft retained":"Sample Load unavailable; check Type and pending work";
             return;
         }
         if(definition_return_ && action!=BringUpAction::ResetStop)return;
@@ -564,7 +577,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         } else screen_status_="Screen entry: stopped state unconfirmed";
         return;
     }
-    if(PatternInputBlocked() && action!=BringUpAction::ResetStop)return;
+    if(PatternInputBlocked() && action!=BringUpAction::ResetStop && !instrument_transport)return;
     if (action == BringUpAction::PatternToggle) {
         if (!serial_.SupportsPatternTransport()) action = BringUpAction::Start;
         else {
@@ -614,7 +627,8 @@ void BringUpControls::Tick(std::uint32_t now) {
         }
     }
     if(instrument_screen_)serial_.InspectInstrument(instrument_number_);
-    if(instrument_screen_ && instrument_field_==1 && !wav_picker_ && !InstrumentLoadAvailable())instrument_field_=0;
+    if(instrument_screen_ && instrument_field_==1 && !wav_picker_ &&
+       !serial_.TransportPending() && !InstrumentLoadAvailable())instrument_field_=0;
     if(instrument_screen_ && serial_.UserActionsBlocked())
         screen_status_="Return unavailable: synchronize/recover before instrument assignment";
     if(definition_return_ && !serial_.InstrumentCommitPending()) {

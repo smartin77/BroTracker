@@ -287,3 +287,19 @@ TEST_CASE(HostConfigCaptureHoldbackFramesDefaultsBoundsAndWarnings) {
         CHECK(text.find("ignored by Windows")!=std::string::npos);
     }
 }
+
+TEST_CASE(WaveformCacheConfigUsesDecimalMBAndRejectsInvalidValues) {
+    constexpr auto base="[btx]\nschema_version=1\nnew_pattern_length=32\n";
+    HostConfig config;
+    CHECK_EQ(ParseHostConfig(base,config),HostConfigStatus::Loaded);
+    CHECK_EQ(config.waveform_cache_bytes,0u);
+    CHECK_EQ(ParseHostConfig(std::string(base)+"waveform_cache_mb=4294967295\n",config),
+             HostConfigStatus::Loaded);
+    CHECK_EQ(config.waveform_cache_bytes,4294967295000000ULL);
+    CHECK_EQ(ParseHostConfig(std::string(base)+"waveform_cache_mb=4294967296\n",config),
+             HostConfigStatus::Invalid);
+    CHECK_EQ(ParseHostConfig(std::string(base)+"waveform_cache_mb=-1\n",config),
+             HostConfigStatus::Invalid);
+    CHECK_EQ(ParseHostConfig(std::string(base)+"waveform_cache_mb=0\nwaveform_cache_mb=1\n",config),
+             HostConfigStatus::Invalid);
+}

@@ -1,3 +1,4 @@
+#include <random>
 #include "bringup_serial.h"
 #include "host_logging.h"
 #include "bringup/instrument_identity.h"
@@ -165,6 +166,11 @@ void BringUpSerial::ServiceExit(std::uint32_t now) {
 
 void BringUpSerial::Disconnect(const char* reason)
 {
+    waveform_.Disconnect();
+    waveform_supported_=false;
+    wall_clock_.Disconnect();clock_submission_=false;
+    session_lineage_[0]=0;session_lineage_persisted_=false;
+    session_lineage_claim_=session_lineage_claim_sent_=false;
     if(file_action_==FileAction::Session && pending_==Command::File)session_save_uncertain_=true;
     if((startup_attempted_ || startup_ready_sent_ || startup_stop_sent_) && !startup_editor_ready_) startup_failed_=true; // Never replay an uncertain load on reconnect.
     if(editor_seen_ && StartupPatternReady()) {
@@ -673,6 +679,19 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 
 void BringUpSerial::OnLine(std::uint32_t now)
 {
+    if(!std::strncmp(line_,"BTCLOCK1 ",9)) {
+        if(connected_) {
+            if(!std::strcmp(line_,BroTracker::kWallClockCapability))wall_clock_.Advertise();
+            else if(wall_clock_.Response({line_,used_}) || !std::strncmp(line_,"BTCLOCK1 ERROR ",15))
+                Log("Wall clock:",line_);
+        }
+        return;
+    }
+    if(!std::strncmp(line_,"BTWAVE1 ",8)) {
+        if(connected_ && !std::strcmp(line_,BroTracker::kWaveformCapability))waveform_supported_=true;
+        else if(connected_ && waveform_supported_)waveform_.Response({line_,used_});
+        return;
+    }
     Log("RX:", line_);
     if(!std::strcmp(line_,"BTSTORE1 NEWCAP 1")){if(connected_)new_pattern_supported_=true;return;}
     if(!std::strcmp(line_,"BTSTORE1 PATTERNSAVECAP 1")){if(connected_)pattern_save_supported_=true;return;}
@@ -883,6 +902,25 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(connected_ && !identity_extended_ && BroTracker::ParseInstrumentIdentity(line_,used_,id,type) && id+1==identity_number_) {
             identity_type_=type;identity_ready_=true;
         }return;
+    }
+    constexpr std::string_view lineage_prefix="BTSESSION1 LINEAGE 1 ";
+    const std::string_view line(line_,used_);
+    if(line.substr(0,lineage_prefix.size())==lineage_prefix) {
+        const auto value=line.substr(lineage_prefix.size());
+        if(connected_ && value.size()==2+BroTracker::kSessionLineageSize &&
+           (value[0]=='0' || value[0]=='1') && value[1]==' ' &&
+           BroTracker::ValidSessionLineage(value.substr(2))) {
+            std::memcpy(session_lineage_,value.data()+2,BroTracker::kSessionLineageSize);
+            session_lineage_[BroTracker::kSessionLineageSize]=0;
+            session_lineage_persisted_=value[0]=='1';
+            session_lineage_claim_=false;
+            waveform_.SetLineage(session_lineage_persisted_?std::string_view(session_lineage_):std::string_view{});
+        } else if(connected_ && value=="0 -") {
+            session_lineage_[0]=0;session_lineage_persisted_=false;
+            session_lineage_claim_=true;
+            waveform_.SetLineage({});
+        }
+        return;
     }
     if(!std::strcmp(line_,"BTSESSION1 CAP 1")) {snapshot_metadata_supported_=connected_;return;}
     if(!std::strncmp(line_,"BTSESSION1 VIEW 1 ",17)) {
@@ -1175,6 +1213,7 @@ void BringUpSerial::SnapshotFailed(std::uint32_t now)
 
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
+    waveform_.Tick(now,Playing());
     tempo_.Tick(now);
     mute_.Tick(now);
     volume_.Tick(now);
@@ -1206,6 +1245,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     if(tx_tempo_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_tempo_=false; }
     if(tx_mute_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_mute_=false; }
     if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
+    if(clock_submission_) {
+        clock_submission_=false;
+        if(tx_offset_==tx_size_ && pending_==Command::None && !TransportPending() && !exit_requested_) {
+            if(const auto size=wall_clock_.Command(tx_,sizeof(tx_),now,BroTracker::ReadOsClock)) {
+                tx_size_=size;tx_offset_=0;
+            }
+        }
+    }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
@@ -1225,7 +1272,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             tx_offset_ += count;
             if (tx_offset_ == tx_size_) {
                 tx_write_attempted_=false;
-                Log("TX complete:", tx_);
+                if(std::strncmp(tx_,"BTWAVE1 ",8))Log("TX complete:", tx_);
                 if(tx_publication_) { publication_.LineComplete(); tx_publication_=false; }
                 if(tx_preview_) { preview_.LineComplete(); tx_preview_=false; }
                 if(tx_mute_) {mute_.LineComplete();tx_mute_=false;}
@@ -1237,44 +1284,50 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if (count < 0)
         { Disconnect(transport_->Error()); return; }
     }
-    // Bound receive work per SDL frame, including verbose firmware diagnostics.
-    for (unsigned int budget = 0; budget < 1024; ++budget)
-    {
-        char c;
-        const auto count = transport_->Read(&c, 1);
-        if (count < 0)
-        { Disconnect(transport_->Error()); return; }
-        if (count <= 0) break;
-        if (c == '\n')
-        {
-            // Permit CRLF, but preserve embedded CR for strict field rejection.
-            if (used_ && line_[used_ - 1] == '\r') --used_;
-            line_[used_] = '\0';
-            // WAV items may exceed the established 255-byte RX limit. Correlation
-            // happens in OnLine so late items from cancelled lists are harmless;
-            // preserve malformed snapshot/preview handling for every other line.
-            if(used_>=256) {
-                if(std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) && std::strncmp(line_,"BTINS1 STATE 3 ",15))overflow_=true; // stale listing items are ignored by request ID too
-            }
-            if (overflow_)
+    // One full CAP 3 reply fits in this service budget. Framing state
+    // survives short reads and the budget boundary.
+    char received[2048];
+    for (unsigned remaining = sizeof(received); remaining;) {
+        const int count = transport_->Read(received, remaining);
+        if (count < 0) { Disconnect(transport_->Error()); return; }
+        if (count == 0) break;
+        remaining -= static_cast<unsigned>(count);
+        for (int i = 0; i < count; ++i) {
+            const char c = received[i];
+            if (c == '\n')
             {
-                Log("RX error: overlong line discarded");
-                // Conservatively cancel staging, but never touch applied transport,
-                // position or a previously committed snapshot.
-                if(std::strncmp(line_,"BTGAIN1",7)) {
-                    if(preview_.Supported()) preview_.ReadFailure();
-                    if (pattern_assembler_.Active())
-                    { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                // Permit CRLF, but preserve embedded CR for strict field rejection.
+                if (used_ && line_[used_ - 1] == '\r') --used_;
+                line_[used_] = '\0';
+                // WAV items may exceed the established 255-byte RX limit. Correlation
+                // happens in OnLine so late items from cancelled lists are harmless;
+                // preserve malformed snapshot/preview handling for every other line.
+                if(used_>=256) {
+                    if(std::strncmp(line_,"BTWAVE1 ",8) && (used_>=BroTracker::kPathProtocolCapacity ||
+                        (std::strncmp(line_,"BTSTORE1 WAVITEM ",16) && std::strncmp(line_,"BTSTORE1 WAVDIR ",15) &&
+                        std::strncmp(line_,"BTINS1 STATE 3 ",15))))overflow_=true;
                 }
+                if (overflow_)
+                {
+                    Log("RX error: overlong line discarded");
+                    // Conservatively cancel staging, but never touch applied transport,
+                    // position or a previously committed snapshot.
+                    if(std::strncmp(line_,"BTGAIN1",7) && std::strncmp(line_,"BTWAVE1 ",8)) {
+                        if(preview_.Supported()) preview_.ReadFailure();
+                        if (pattern_assembler_.Active())
+                        { pattern_assembler_.Cancel(); snapshot_failed_ = true; publication_.ReadbackFailed(); }
+                    }
+                }
+                else OnLine(now);
+                used_ = 0;
+                overflow_ = false;
             }
-            else OnLine(now);
-            used_ = 0;
-            overflow_ = false;
+            else if (c == '\0') overflow_ = true;
+            else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
+            else overflow_ = true;
         }
-        else if (c == '\0') overflow_ = true;
-        else if (used_ + 1 < sizeof(line_)) line_[used_++] = c;
-        else overflow_ = true;
     }
+    waveform_.Tick(now,Playing()); // Apply new transport acknowledgements before granting a credit.
     ServiceExit(now);
     // Transport outranks informational STATUS. Finish its line, but do not wait
     // for its reply. STATE received during transport is ignored above; ACKs differ.
@@ -1490,5 +1543,29 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             else if(now-sent_at_>=1000) Send(Command::Status,now);
         }
         else if (connected_ && (next_refresh_ || now - sent_at_ >= 1000)) Send(Command::Status, now);
+        if(tx_offset_==tx_size_ && pending_==Command::None && connected_ &&
+           !exit_requested_ && !pattern_assembler_.Active()) {
+            if(session_lineage_claim_ && !session_lineage_claim_sent_ && !Playing()) {
+                session_lineage_claim_sent_=true;
+                try {
+                    std::random_device random;
+                    char id[BroTracker::kSessionLineageSize+1];
+                    for(unsigned i=0;i<4;++i)
+                        std::snprintf(id+8*i,9,"%08lx",(unsigned long)std::uint32_t(random()));
+                    if(BroTracker::ValidSessionLineage(id)) {
+                        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTSESSION1 CLAIM 1 %s\n",id);
+                        tx_offset_=0;
+                    }
+                } catch(const std::exception&) {
+                    Log("Session lineage entropy unavailable");
+                }
+            } else if(wall_clock_.NeedsSet()) {
+                clock_submission_=true;
+            } else if(const auto size=wall_clock_.Command(tx_,sizeof(tx_),now,BroTracker::ReadOsClock)) {
+                tx_size_=size;tx_offset_=0;
+            } else if(const auto size=waveform_supported_?waveform_.Command(tx_,sizeof(tx_),now):0) {
+                tx_size_=size;tx_offset_=0;
+            }
+        }
     }
 }

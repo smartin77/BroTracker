@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include "bringup/instrument_definition.h"
+#include "bringup/sample_waveform_protocol.h"
 #include "core/audio/wav_inspection_job.h"
 namespace BroTracker {
 // Preserve nesting and provide compiler barriers for all ISR/main publications.
@@ -55,6 +56,7 @@ public:
                     candidate.PrefixFrames(),memory.starts[i],kStreamStartBytes)) { files_[i].close(); continue; }
             offsets_[i]=static_cast<std::uint32_t>(found.metadata.data_offset);
             source=candidate;
+            StampSource(i,found.metadata.file_bytes);
             report.capacity=source.layout.start_frames;
             report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
             report.view=MakeView(source);
@@ -103,6 +105,7 @@ public:
         }
         offsets_[index]=offset;
         sources_[index]=source;
+        StampSource(index,metadata.file_bytes);
         auto& report=reports[index];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};
         report.view=MakeView(sources_[index]);
@@ -219,6 +222,7 @@ public:
         }
         job_read_+=n;if(job_read_!=frames)return;
         offsets_[job_index_]=offset;
+        StampSource(job_index_,job_inspection_.Metadata().file_bytes);
         auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view=MakeView(source);
         paths_[job_index_]=job_path_;job_path_.Reset();occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
@@ -238,8 +242,10 @@ public:
     template<class Player> void Publish(const Player& player) noexcept {
         for(unsigned i=0;i<8;++i)PublishVoice(i,player.SampleVoice(i)->StreamSnapshot());
     }
-    void Service(unsigned audition_reserve=1024) {
-        if(!memory_) return;
+    // Reports a selected refill even if the read could not complete. Optional
+    // foreground work can yield without scanning the voices a second time.
+    bool Service(unsigned audition_reserve=1024) {
+        if(!memory_) return false;
         int best=-1; std::uint64_t least=UINT64_MAX;
         StreamedVoiceSnapshot selected; StreamedVoiceBuffer span;
         { StreamInterruptGuard guard;
@@ -252,17 +258,17 @@ public:
                 BackgroundHeadroom(audition_reserve,kAuditionStreamChannel))) { best=i; least=until; selected=state; span=ready; }
         }
         }
-        if(best<0) return;
+        if(best<0) return false;
         unsigned source=0;
         while(source<kSourceCapacity && (!occupied_[source] || &sources_[source]!=selected.sample)) ++source;
-        if(source==kSourceCapacity) return;
+        if(source==kSourceCapacity) return true;
         const auto& sample=*selected.sample;
         const auto at=std::max({span.end,selected.position,sample.PrefixFrames()});
-        if(at>=sample.frames) return;
+        if(at>=sample.frames) return true;
         const auto count=std::min<std::uint32_t>(sample.layout.read_frames,sample.frames-at);
         const auto started=micros(); bool ok=false;
         {
-            SdReadScope ownership; if(!ownership) return; // retry later, no lost save intent
+            SdReadScope ownership; if(!ownership) return true; // retry later, no lost save intent
             ok=ReadFrames(files_[source],offsets_[source],sample,at,count,memory_->staging,kStreamReadBytes);
         }
         const auto elapsed=micros()-started; ++reads; total_read_us+=elapsed;
@@ -273,8 +279,8 @@ public:
         { StreamInterruptGuard guard;
             current=buffers_[best].generation==selected.generation && buffers_[best].sample==selected.sample;
         }
-        if(!current) { ++stale_reads; return; }
-        if(!ok) { failed_generation_[best]=selected.generation; return; }
+        if(!current) { ++stale_reads; return true; }
+        if(!ok) { failed_generation_[best]=selected.generation; return true; }
         // Writes occupy unretained future ring slots. New generations use only
         // immutable starts until completion is checked and published below.
         const auto ring_at=at%sample.layout.ring_frames;
@@ -288,15 +294,49 @@ public:
         { StreamInterruptGuard guard;
             if(!PublishStreamRead(buffers_[best],selected,at,count)) ++stale_reads;
         }
+        return true;
     }
     StreamedVoiceSnapshot Snapshot(unsigned i) const {
         StreamInterruptGuard guard; return states_[i];
     }
     unsigned P99() const { unsigned n=0; for(unsigned i=0;i<128;++i) { n+=histogram[i]; if(reads && n>=(reads*99+99)/100) return i==127?max_read_us:(i+1)*100; } return 0; }
+    // Foreground only. Reuse the exact prepared resource without a new file
+    // handle or long-lived SD lease.
+    WaveformSource DescribeWaveform(const Pcm16MixedSampleView& view) const {
+        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && view.streaming==&sources_[i]) {
+            const auto& source=sources_[i];
+            return {source_tokens_[i],source.frames,source.format.sample_rate_hz,
+                source.format.channels,source.format.bits_per_sample};
+        }
+        return {};
+    }
+    WaveformFingerprint DescribeWaveformFingerprint(std::uint32_t token) const {
+        for(unsigned i=0;token && i<kSourceCapacity;++i)
+            if(occupied_[i] && source_tokens_[i]==token)return fingerprints_[i];
+        return {};
+    }
+    bool ReadWaveform(std::uint32_t token,std::uint32_t offset,std::uint8_t* pcm,unsigned bytes) {
+        if(!token || !bytes || bytes>kWaveformIdleBytes)return false;
+        for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && source_tokens_[i]==token) {
+            const auto stride=sources_[i].layout.bytes_per_frame;
+            if(offset%stride || bytes%stride)return false;
+            SdReadScope lease;
+            return lease && ReadFrames(files_[i],offsets_[i],sources_[i],offset/stride,
+                bytes/stride,pcm,kWaveformIdleBytes);
+        }
+        return false;
+    }
     SdWavPreparation reports[kSourceCapacity];
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
+    void StampSource(unsigned index,std::uint64_t file_bytes) {
+        const auto& source=sources_[index];
+        const auto bytes=source.PrefixFrames()*source.layout.bytes_per_frame;
+        fingerprints_[index]={file_bytes,WaveformPrefixDigest(
+            reinterpret_cast<const std::uint8_t*>(source.start),bytes),offsets_[index],bytes};
+        source_tokens_[index]=source_sequence_==UINT32_MAX?0:++source_sequence_;
+    }
     bool DescribeSource(const WavMetadata& metadata,std::uint64_t file_bytes,const std::int16_t* start,
         StreamedSample& output) noexcept {
         const StreamSourceFormat format{metadata.sample_rate,metadata.channels,metadata.bits};
@@ -341,6 +381,8 @@ private:
     bool occupied_[kSourceCapacity]{};unsigned last_prepared_=kSourceCapacity;
     bool sd_ready_=false;unsigned count_=3;ResourcePathRef paths_[kSourceCapacity];
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
+    WaveformFingerprint fingerprints_[kSourceCapacity]{};
+    std::uint32_t source_tokens_[kSourceCapacity]{},source_sequence_=0;
     StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[kStreamVoiceCount];
     StreamedVoiceSnapshot states_[kStreamVoiceCount]; std::uint64_t failed_generation_[kStreamVoiceCount]{};
 };

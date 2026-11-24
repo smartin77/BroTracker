@@ -6,6 +6,9 @@
 ; Structural errors reject the file; field-local fallbacks noted below.
 
 [btx]
+# 0 keeps the current saved session; positive values retain sessions with an LRU limit.
+# MB = 1,000,000 bytes.
+waveform_cache_mb=0
 ; Optional warning language, default en_US.
 language=en_US
 ; Required decimal version, only 1 supported; built-in 1.

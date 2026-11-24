@@ -8,6 +8,7 @@
 // Shared by the blocked main-loop path and fake-transport input integration tests.
 inline bool AllowWindowsBlockedAction(BringUpAction action,const BringUpSerial& serial,const BringUpControls& controls) {
     return action==BringUpAction::Exit || action==BringUpAction::ResetStop ||
+        (action==BringUpAction::PatternToggle && controls.InstrumentTransportAvailable()) ||
         (action==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) ||
         (controls.InstrumentScreen() && action>=BringUpAction::InstrumentSample && action<=BringUpAction::InstrumentActivate) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&

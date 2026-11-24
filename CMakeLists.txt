@@ -12,6 +12,7 @@ option(
 
 option(BROTRACKER_BUILD_WINDOWS_TERMINAL "Build BroTracker Terminal for Windows" OFF)
 option(BROTRACKER_WINDOWS_EMPTY_TITLE "Use an empty Windows Terminal window title" OFF)
+
 if(BROTRACKER_BUILD_ARKOS_UI AND BROTRACKER_BUILD_WINDOWS_TERMINAL)
     message(FATAL_ERROR "Select one platform build for BroTrackerTerminal")
 endif()
@@ -20,7 +21,9 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL AND NOT WIN32)
 endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
-add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp)
+find_package(Threads REQUIRED)
+add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp src/ui/waveform_disk_cache.cpp)
+target_link_libraries(BroTrackerBringUp PUBLIC Threads::Threads)
 target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)
@@ -149,8 +152,9 @@ target_compile_definitions(BroTrackerVariableRateBringUpTests PRIVATE BROTRACKER
 target_include_directories(BroTrackerVariableRateBringUpTests PRIVATE src tests libraries/scheduler/src)
 add_test(NAME BroTrackerVariableRateBringUpTests COMMAND BroTrackerVariableRateBringUpTests)
 
-add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp)
-target_include_directories(BroTrackerHostClockInputTests PRIVATE libraries/teensy_diagnostics/src)
+add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp tests/test_wall_clock.cpp
+    libraries/scheduler/src/scheduler.cpp)
+target_include_directories(BroTrackerHostClockInputTests PRIVATE src libraries/scheduler/src libraries/teensy_diagnostics/src)
 add_test(NAME BroTrackerHostClockInputTests COMMAND BroTrackerHostClockInputTests)
 add_executable(BroTrackerBringUpControlsTests tests/test_bringup_controls.cpp)
 target_link_libraries(BroTrackerBringUpControlsTests PRIVATE BroTrackerBringUp)
@@ -182,6 +186,7 @@ add_executable(BroTrackerTests
     tests/test_row_events.cpp
     tests/test_channel_state.cpp
     tests/test_wav_buffer_loader.cpp
+    tests/test_sample_waveform.cpp
     tests/test_ram_sample_voice.cpp
     tests/test_live_tempo.cpp
     tests/test_sine_synth.cpp
@@ -326,6 +331,7 @@ add_executable(BroTrackerSdWavTests tests/test_main.cpp tests/test_sd_wav_buffer
 target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
+target_link_libraries(BroTrackerSdWavTests PRIVATE BroTrackerBringUp)
 
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp

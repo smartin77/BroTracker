@@ -16,6 +16,11 @@ public:
     void ObserveEditor(LocalPatternEditor& editor) { editor_=&editor; }
     bool InstrumentCancellationAvailable()const{return (instrument_screen_ && !wav_picker_) || (ScreenPending() && instrument_destination_);}
     bool InstrumentScreen()const{return instrument_screen_;}
+    bool InstrumentTransportAvailable()const {
+        return instrument_screen_ && !wav_picker_ && !ScreenPending() &&
+            !assignment_confirm_ && !assignment_rollback_ && !visit_closing_ && !definition_return_ &&
+            serial_.Connected() && !serial_.UserActionsBlocked();
+    }
     const BroTracker::RealtimePattern* InstrumentEntryPattern()const{return instrument_entry_pattern_?&*instrument_entry_pattern_:nullptr;}
     bool InstrumentVisitModified()const;
     unsigned OriginalInstrumentNumber()const{return instrument_entry_.number;}
@@ -30,6 +35,7 @@ public:
     std::string InstrumentLoadWarning()const;
     std::string SavedInstrumentPath()const;
     std::string InstrumentAssignedResource()const;
+    std::string_view AcknowledgedSamplePath()const;
     const std::string& CacheInstrumentName(const std::string& resource);
     unsigned InstrumentNumber()const{return instrument_number_;}
     void Tick(std::uint32_t now);

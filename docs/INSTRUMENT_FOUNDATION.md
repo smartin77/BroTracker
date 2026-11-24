@@ -285,7 +285,7 @@ sample data and bounded metadata/chunk traversal. Current filenames may contain 
 validated full SD-relative path is bounded at 255 ASCII bytes. Folder navigation,
 audition, assignment and persistence use the same bound. Legacy WAVLIST retains
 its original filename rules. See [path storage](SAMPLE_PATH_STORAGE.md). The Teensy browser supports directory
-navigation; waveform and sample parameter editing remain deferred.
+navigation. Sample parameter editing remains deferred.
 Replacing a saved Sample path requires the explicit confirmation below. Temporary BTM stores the path
 unchanged. Boot prepares it again by path; missing or failed resources keep their
 slot, definition and Pattern references, report unavailable, and never substitute
@@ -332,6 +332,12 @@ transactions apply them; STOP alone does not bypass the live-visit draft guard.
 Their result/uncertain-outcome rules still apply. Temporary
 BTM stores the resulting authoritative table and paths; boot prepares by path and
 retains unavailable definitions without substituting sounds.
+
+If a terminal leaves an active visit behind, another visit can claim it once
+there are no pending live edits or outstanding rollback changes. A visit with
+unrestored edits retains its exact rollback snapshot and reports BUSY to another
+visit ID. Paused Load WAV still requires the ordinary ready live visit and all
+transport, browser and recovery guards.
 
 ## Teensy SD directory browser
 
@@ -405,12 +411,12 @@ their controls are deferred; this change does not implement conversion or splitt
 
 ## Manual Sample Browser audition
 
-P on Windows / X on ArkOS auditions the highlighted supported WAV only when
-Pattern transport is confirmed stopped. Enter/A still chooses a WAV or opens a
-directory. List navigation, hover and row selection remain silent. Directories,
-unsupported files, paused transport and playing transport cannot start audition.
-A fresh press replaces any active/pending audition and restarts at frame zero;
-key/button hold and repeat do not retrigger.
+P on Windows / X on ArkOS auditions the highlighted supported WAV while
+Stopped, Paused or Playing on firmware that advertises live audition. Older
+audition-capable firmware allows this only while Stopped. Enter/A chooses a WAV
+or opens a directory. Navigation and row selection are silent; directories and
+unsupported WAVs cannot audition. Pressing P/X again replaces active or queued
+audition and restarts at frame zero. Holding the control does not retrigger.
 
 Audition uses the existing Teensy SD streaming engine with a separate ninth voice
 ring (4096 frames), the bounded immutable start (2048 frames) and bounded refill
@@ -418,40 +424,42 @@ reads. It does not load an entire file or truncate playback to a preview duratio
 Supported [WAV formats](SAMPLE_FORMAT.md) play through EOF at their original
 pitch and duration without instrument tuning or Pattern tempo input. Listening volume
 still applies. Audition never changes bindings, source-cell assignments, WAV drafts
-or Pattern transport. Leaving the browser or starting Pattern playback cancels
-active and pending work; cancelled or superseded preparation cannot start audio.
+or Pattern transport. Pattern refill has priority. Audition preparation can wait
+for streaming headroom, and an audition underrun stops the audition voice.
+Changing folders, leaving the browser or losing the connection cancels active
+and queued work. Cancelled or superseded preparation cannot start audio.
 Unused dynamic sources are reclaimed after the voice releases them.
 
-`BTWAV1 CAP 1` advertises this temporary protocol. BTX sends
+`BTWAV1 CAP 1` advertises stopped-only audition. `BTWAV1 CAP 2` also permits
+Paused/Playing audition during an active Instrument visit. BTX sends
 `BTWAV1 PLAY 2 request encoded_resource` after BTPATH1 negotiation, or legacy
 PLAY 1; `BTWAV1 CANCEL 1 request` is unchanged. Resources use the bounded
 255-byte SD-relative path rules described in [path storage](SAMPLE_PATH_STORAGE.md). `BTWAV1 RESULT 1 request result` is
 correlated to the latest host request: 0 accepted/success, 1 invalid request,
 3 transport/coordination unavailable, 4 preparation/playback setup failed,
 9 shared path storage exhausted.
-Firmware checks stopped/storage readiness independently of the host gate.
-Preparation is serialized with existing live definition jobs and runs outside
-the audio interrupt guard. The audio owner only renders prepared streaming PCM.
-Auto preview, mouse controls and audition during playback remain deferred.
+Firmware checks transport, visit and coordination readiness independently of
+the host gate. Preparation runs outside the audio interrupt guard. The audio
+owner renders prepared streaming PCM. Automatic preview remains deferred.
+Mouse wheel moves the highlight, a click selects a visible row, and a double-click
+uses the same validation and confirmation as Enter/A. See
+[Sample Browser controls](BTX_CONTROLS.md#sample-browser).
 
 Manual audition checklist
 
-Windows P and handheld X both trigger audition. Press the same control again
-to retrigger. Leave the browser to cancel.
-
-- Stop Pattern; focus a supported WAV. Navigation alone stays silent. Press P/X;
-  verify native pitch/rate, complete EOF playback and unchanged Instrument draft.
-- Hold P/X: no repeated starts. Release/press while audio plays: restart at frame
-  zero. Select another WAV and press again: only the new audition plays.
-- Use a long WAV well beyond the 4096-frame ring and 2048-frame start capacity
-  (for example, one minute). Verify uninterrupted playback through EOF; retrigger
-  while still playing and verify restart from the beginning through EOF again.
-- Try directories and unsupported WAVs, and try P/X while Pattern is paused or
-  playing: no audition. Enter/A still opens folders or chooses the WAV.
-- Cancel/leave during playback and immediately after P/X during preparation;
-  verify silence with no late restart. Start Pattern playback during a pending or
-  active audition and verify only Pattern audio remains. Check repeated browsing,
-  audition and cancellation do not exhaust stream resources.
+- With current firmware, audition a supported WAV with Pattern Stopped, Paused
+  and Playing. Verify original pitch/rate, an unchanged Instrument draft and
+  unchanged Pattern transport. Under streaming load, check that Pattern refill
+  keeps priority over audition.
+- Hold P/X and verify no repeated starts. Press again during playback or while
+  preparation is queued and verify restart at frame zero. Highlight a different
+  WAV and press again to replace the previous audition.
+- Use a long WAV to check streaming through EOF when headroom is sufficient.
+  Directories and unsupported WAVs remain silent. On CAP 1-only firmware, also
+  verify P/X is unavailable while Paused or Playing.
+- Change folders or leave while audition is active and while preparation is
+  queued. Check for silence from the audition voice, no late restart and no loss
+  of Pattern audio during Play. Repeat to check resource reclamation.
 
 ## MIDI channel and descriptive fields
 
@@ -480,3 +488,168 @@ after reconnect. These fields add no metadata polling, SD reads or audio
 callback text processing. There is no transfer for empty metadata. See
 [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority)
 for playback priority and terminal assistance.
+
+## Sample waveform
+
+The Sample panel displays the acknowledged, prepared WAV from Teensy SD.
+An unacknowledged selection cannot supply waveform data. Missing or
+unprepared sources, read failure and older firmware show Waveform unavailable.
+BTX draws received FIT columns as they arrive. Unobserved columns have no
+waveform trace, partial columns use a muted color, and observed extrema become
+exact for each column as coverage fills. Approximate FIT readiness and complete
+PCM coverage are separate. Stereo FIT uses the arithmetic mean of L and R per
+frame; native interleaved stereo PCM is retained and playback stays stereo.
+Preview, Zoom 1x, Fit, Set Start, Set End and the endpoint markers remain
+display-only.
+
+### Source and cache identity
+
+A capability-gated GET supplies the zero-based slot and exact acknowledged SD
+path, encoded with the existing path token. Teensy matches the path to its
+definition, then resolves the actual prepared playback binding. The reply
+carries a boot-scoped source generation plus validated frame count, native
+rate, channels and bit depth. A source generation is assigned when a file is
+prepared and survives alias bindings and exact rollback of the pinned source.
+Reclaiming and preparing a source, even at the same path, assigns a new
+generation. Supported PCM matches the production playback validator.
+
+BTX revalidates the binding on slot changes and screen entry before showing
+any cached entry. Four entries retain partial or complete native PCM,
+merged half-open original-frame ranges, and a 598-column FIT summary.
+New sources replace entries in insertion order. The key is the connection
+session, source generation and geometry. Acknowledged replacement selects the
+new source, and exact rollback can reuse the old generation while retained.
+PCM is allocated lazily in 16 KiB pages with a 32 MiB limit per entry (128 MiB
+total PCM, plus page/range metadata and peaks). A source exceeding the cache
+can still display an approximate FIT; gap filling stops at the entry limit.
+Unallocated bytes never count as received. Disconnect invalidates live generation
+keys; disk reuse requires fresh validation.
+Playing allowance history is tracked separately for 16 generations; older
+evicted generations are treated as exhausted.
+The runtime treats prepared SD resources as immutable while mounted,
+as playback does. Offline card edits or media replacement require remounting
+by restarting Teensy. Live external edits and SD hot swap are outside the
+supported storage lifecycle.
+
+### Foreground transfer and playback priority
+
+`BTWAVE1 FPCAP 1` enables `BTWAVE1 GET 2` with the same request ID, slot
+and path fields as GET 1. An accepted request sends the usual META followed
+by `BTWAVE1 FP 1 <request> <generation> <file-size-hi> <file-size-lo>
+<pcm-offset> <prefix-bytes> <digest-hi> <digest-lo>` on one line. The
+digest is FNV-1a 64 of up to 4 KiB of the prepared native PCM prefix.
+File extent and PCM geometry come from the existing inspection. Capturing
+the fingerprint adds no SD reads. It does not include modification times,
+which are not collected by that inspection. Changes beyond the prefix that
+preserve the file extent and geometry may go undetected.
+
+BTX checks request and live source generation before accepting the record.
+Only the first GET on selection requests it. GET 1 remains available to older
+BTX. The live generation guard remains independent of disk identity.
+
+### Persistent terminal waveform cache
+
+BTX uses `[btx] waveform_cache_mb` in executable-relative `config/config.ini`.
+The default, zero, keeps an on-disk cache for the current durable saved-session
+lineage with no separate session disk quota. Ordinary saves, autosaves, Pattern
+loading and reconnect keep that lineage. Once another durable lineage is
+confirmed, BTX removes files from the previous session namespace. A missing,
+unknown or unpersisted lineage causes no deletion. Future create/load-project
+operations must establish a new durable lineage before switching namespaces.
+A positive whole-number value retains namespaces across lineages with an LRU
+limit in decimal MB (1,000,000 bytes). The two modes use separate directories.
+
+The base is `%LOCALAPPDATA%/BroTracker/waveforms-v1` on Windows or
+`$XDG_CACHE_HOME/BroTracker/waveforms-v1` on ArkOS, falling back to
+`~/.cache/BroTracker/waveforms-v1` when the XDG path is unset or relative.
+The subdirectory is `session` for zero and `shared` for a positive limit.
+Each journal key includes the durable lineage, exact validated WAV path,
+native PCM geometry and versioned prepared-source fingerprint. The live token
+and wall-clock timestamps do not participate in source identity. The fingerprint
+can miss changes outside the inspected prefix. Cached replacement and rollback
+sources are independent and require fresh correlated validation.
+
+Journal format v1 uses a checksummed little-endian header with magic/version,
+fingerprint version and fields, PCM geometry and length-prefixed path. Append
+records contain exact PCM byte offset, length, CRC-32, and native PCM. Replay
+bounds-checks offsets, size and frame alignment; it ignores the suffix at the
+first corrupt or interrupted record. The next successful write trims the
+uncommitted suffix. Missing bytes never materialize as silence; BTX rebuilds
+FIT peaks and frame coverage from received records. A single native worker
+batches and flushes appends outside UI service, and shutdown drains queued
+writes. Forced exit can lose the unflushed tail. A terminal instance that
+cannot take the cache's user-local lock, or encounters a disk error, can still
+use the RAM cache. Positive budgets count complete journal files including
+headers and record overhead. No temporary copy is needed. The writer leaves
+the current entry pinned and skips a batch if it cannot fit after eviction.
+Recency uses an increasing stored ordering rather than current OS wall time.
+The existing per-entry RAM/acquisition limits remain in force.
+
+After a fresh correlated fingerprint, hydration runs before PCM credits.
+A complete hit can display in Playing, including stereo. Partial coverage
+uses bounded credits for missing ranges and existing Playing admission
+and stereo deferral. Disk waits do not charge the six-second PCM allowance;
+the existing metadata wait still counts. An unavailable fingerprint or
+slow disk falls back to live/RAM behavior. Only samples already selected
+for visualization acquire waveform data.
+
+`BTWAVE1 CAP 3` advertises support. GET replaces the current transfer, NEXT
+grants one credit for a request ID and exact PCM byte cursor, and CANCEL
+discards matching work. After GET validates the same source generation and
+geometry, RESUME can grant the first credit at any frame-aligned byte
+offset. Later credits require the exact cursor. BTX starts a fresh GET to
+jump between disjoint ranges, keeping one credit outstanding. DATA carries
+raw PCM as hex. BTX validates request ID and expected byte offset and retains
+only newly covered PCM. The optional `BTWAVE1 RANGECAP 1` capability adds
+`BTWAVE1 RANGE 1 <id> <offset> <bytes>` for refinement. It reads a frame-aligned
+slice within the validated source, with the requested size as a ceiling.
+Older firmware uses GET/RESUME at discontinuities. Its fixed-size replies can
+overlap an already cached range when a gap is smaller than a reply. BTX keeps
+one copy of those frames. A credit
+times out after 12 active seconds. Intentional playback deferral freezes
+the deadline and still accepts an already outstanding response or error.
+
+Teensy uses the existing prepared file handle and a scoped SD read guard for
+one positional read per credit. No transfer data enters the main response
+queue. A response starts only in an idle output lane with room for the whole
+line. Playback refill, control, storage, audition, preparation and browser
+work take precedence. A read also requires no refill demand and sufficient
+audio headroom. The guard uses the existing reserve and accounts for the
+largest waveform read observed so far.
+
+Playing allows at most 64 PCM bytes per response and one read per 25 ms or
+slower. Stopped and Paused allow up to 768 PCM bytes per credit. The player
+silences voices and stops timeline advancement on Pause while retaining
+logical continuation. A queued control request or pending acknowledgement
+defers waveform service. The next credit uses the fresh applied transport
+state. On START or CONTINUE, at most one already transmitted high-budget
+reply can still be in flight. It is bounded and the next reply uses the
+Playing budget.
+
+BTX reads sources up to 4,096 frames and 16 KiB completely in its initial
+pass. For larger sources, it divides the timeline into strata targeting one
+window per 12 FIT columns, easing toward one per 24 around three seconds.
+It also caps the count by bytes relative to the idle reply size, with at least
+four strata. The first and last windows anchor the endpoints; the other
+positions are deterministically jittered within their strata. Endpoints
+and then subdivisions across the timeline arrive first. Each target covers
+64 PCM bytes, with actual replies up to the current transport limit. The FIT
+overview is ready when all target intervals are covered. Refinement selects
+a window centered in the largest missing interval, breaking ties by earliest
+frame. It reduces the window to the gap size when necessary and repeats across
+the timeline until coverage is complete or the cache limit is reached. Original coordinates
+and PCM remain available for future viewport refinement. Zoom and sample editing
+are outside this change.
+
+While Playing, new stereo PCM acquisition defers after metadata validation;
+a completed cache remains displayable. Mono admission estimates only the
+remaining initial overview against six cumulative playing seconds. The
+estimate uses the existing conservative credit/hex estimate and adds 75 ms
+per distributed target for GET/META overhead. Playback time is charged
+across screen visits and transport changes; BTX stops granting credits if
+the allowance expires. Once the overview is ready, each mono refinement credit
+must fit the remaining allowance, including GET/META cost on legacy
+discontinuous reads. Paused and Stopped acquisition continues with their
+existing bounded credit size. No waveform aggregation runs in the audio callback.
+See [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority).
+Hardware timing and underrun margins still require device measurements.

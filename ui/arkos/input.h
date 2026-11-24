@@ -10,7 +10,8 @@
 // Raw fallback requires bindings obtained from the selected SDL GameController.
 enum class ArkOSInputStream { Controller, VerifiedRaw };
 inline bool AllowArkOSBlockedTransport(BringUpAction transport,const BringUpSerial& serial,const BringUpControls& controls) {
-    return (controls.InstrumentScreen() && transport>=BringUpAction::InstrumentPreviousField && transport<=BringUpAction::InstrumentActivate) || (controls.WavPicker() && (transport==BringUpAction::BrowserBack || transport==BringUpAction::BrowserCancel)) || (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
+    return (transport==BringUpAction::PatternToggle && controls.InstrumentTransportAvailable()) ||
+        (controls.InstrumentScreen() && transport>=BringUpAction::InstrumentPreviousField && transport<=BringUpAction::InstrumentActivate) || (controls.WavPicker() && (transport==BringUpAction::BrowserBack || transport==BringUpAction::BrowserCancel)) || (controls.InstrumentScreen() && transport==BringUpAction::InstrumentTypeNext) || (transport==BringUpAction::InstrumentCancel && controls.InstrumentCancellationAvailable()) || transport==BringUpAction::Exit || (transport==BringUpAction::ResetStop && serial.StopAvailable()) ||
         ((!serial.UserActionsBlocked() || serial.RecoveryMenuAvailable() || controls.RecoveryScreen()) &&
          (transport==BringUpAction::ScreenLeft || transport==BringUpAction::ScreenRight || transport==BringUpAction::ScreenUp || transport==BringUpAction::ScreenDown ||
           (controls.BrowserInputAvailable() && transport>=BringUpAction::BrowserUp)));
@@ -43,6 +44,10 @@ public:
     }
     void SetWavAudition(bool enabled)noexcept {wav_audition_=enabled;}
     void SetInstrumentFields(bool enabled)noexcept {instrument_fields_=enabled;}
+    void SetInstrumentTransport(bool enabled)noexcept {
+        if(enabled!=instrument_transport_)instrument_start_=false;
+        instrument_transport_=enabled;
+    }
     SDL_JoystickID Device() const noexcept { return id_; }
     void SelectController(SDL_GameController* controller, ArkOSInputStream stream) noexcept {
         SDL_GameControllerButtonBind bindings[SDL_CONTROLLER_BUTTON_MAX]{};
@@ -60,7 +65,7 @@ public:
     void Tick(std::uint32_t now, bool connected, LocalPatternEditor& editor) noexcept {
         if(!connected || !focused_ || !editor.Ready()) {
             // EXIT is local: preserve L1+Start until release even without Teensy/session data.
-            if(!focused_ || !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]) start_pending_=false;
+            if(!focused_ || (!instrument_transport_ && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])) start_pending_=false;
             Cancel(); return;
         }
         if(pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] && !navigation_.Active()) {tempo_step_=tempo_repeat_.Tick(now);return;}
@@ -74,7 +79,7 @@ public:
     }
     ArkOSInputResult Handle(const SDL_Event& event, std::uint32_t now,
                            bool connected, LocalPatternEditor& editor) noexcept {
-        if(!connected && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])start_pending_=false;
+        if(!connected && !instrument_transport_ && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])start_pending_=false;
         if(!connected || !editor.Ready() || (editor.Locked() && !navigation_.Active())) Cancel();
         if(event.type==SDL_QUIT) { Cancel(); return {BringUpAction::Exit,false}; }
         if(event.type==SDL_WINDOWEVENT) {
@@ -117,6 +122,8 @@ private:
     ArkOSInputResult Button(unsigned b,bool down,std::uint32_t now,bool connected,LocalPatternEditor& editor) noexcept {
         if(b>=SDL_CONTROLLER_BUTTON_MAX || pressed_[b]==down) return {};
         pressed_[b]=down;
+        if(down && (b==SDL_CONTROLLER_BUTTON_BACK || b==SDL_CONTROLLER_BUTTON_LEFTSHOULDER ||
+           b==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))instrument_start_=false;
         // Select must precede the direction. Shoulders retain their existing
         // channel/tempo bindings, and BACK+START retains its independent chord.
         const bool horizontal=b>=SDL_CONTROLLER_BUTTON_DPAD_UP && b<=SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
@@ -164,9 +171,18 @@ private:
             // Keep existing connected STOP and explicit recovery chords, never normal actions.
             if(down && focused_ && b==SDL_CONTROLLER_BUTTON_B && stop_available_)return {BringUpAction::ResetStop,false};
             if(b==SDL_CONTROLLER_BUTTON_START) {
-                if(down)start_pending_=focused_;
-                else {const bool exit=start_pending_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];start_pending_=false;
-                    if(exit)return {BringUpAction::Exit,false};}
+                if(down) {
+                    start_pending_=focused_;
+                    instrument_start_=focused_ && instrument_transport_ &&
+                        !pressed_[SDL_CONTROLLER_BUTTON_BACK] && !pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] &&
+                        !pressed_[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER];
+                } else {
+                    const bool exit=start_pending_ && pressed_[SDL_CONTROLLER_BUTTON_LEFTSHOULDER];
+                    const bool toggle=start_pending_ && instrument_start_ && instrument_transport_;
+                    start_pending_=instrument_start_=false;
+                    if(exit)return {BringUpAction::Exit,false};
+                    if(toggle)return {BringUpAction::PatternToggle,false};
+                }
             }
             if(!down)blocked_ &= ~(1u<<b);
             return {};
@@ -253,7 +269,8 @@ private:
         return {};
     }
     bool wav_audition_=false;
-    bool instrument_fields_=false;BroTracker::ValueStepDirection value_direction_;
+    bool instrument_fields_=false,instrument_transport_=false,instrument_start_=false;
+    BroTracker::ValueStepDirection value_direction_;
     bool action_barrier_=false,stop_available_=false,recovery_available_=false;
     bool publication_readback_available_=false,screen_navigation_available_=false,browser_available_=false,instrument_cancel_available_=false;
     TempoRepeat tempo_repeat_; int tempo_step_=0;
@@ -272,6 +289,7 @@ private:
 inline void ConfigureArkOSInputBarrier(ArkOSEditorInput& input,const BringUpSerial& serial,const BringUpControls& controls) {
     input.SetWavAudition(controls.WavPicker() && !controls.ReplacementConfirming());
     input.SetInstrumentFields(controls.InstrumentScreen() && !controls.WavPicker());
+    input.SetInstrumentTransport(controls.InstrumentTransportAvailable());
     input.SetActionBarrier(serial.UserActionsBlocked() || controls.PatternInputBlocked(),serial.StopAvailable(),
         !controls.PatternInputBlocked() && serial.ReconnectRecoveryActionsAvailable(),
         !controls.PatternInputBlocked() && serial.PublicationReadbackRetryAvailable(),

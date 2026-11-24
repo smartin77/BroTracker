@@ -438,6 +438,17 @@ This does not change BTDP, BTWS or any session-persistence behavior.
 
 ### Startup precedence and automatic working-session scheduling
 
+Production Teensy keeps the RTC in UTC. The SD callback adds the active
+terminal's current local UTC offset once when packing classic FAT calendar
+fields. Before an offset arrives, and after a reboot until the next update,
+the callback uses a UTC calendar. FAT stores no timezone or DST identity
+and its modification timestamp has two-second granularity. exFAT uses a UTC
+calendar on this path. The SdFat callback does not write exFAT UTC-offset
+metadata, so the packed fields alone cannot establish an absolute instant in
+another reader. Existing directory entries are never rewritten by clock
+synchronization. The session payload carries no wall-clock time.
+See [clock exchange and quality](LOGGING.md#teensy-wall-clock-exchange).
+
 A valid restored session wins over host startup configuration. On confirmed missing /
 invalid / unsupported session, BTX applies `[development] startup_pattern` once;
 `none` uses `[btx] new_pattern_length`. `BTSTORE1 NEWCAP 1` advertises
@@ -623,3 +634,22 @@ All of these legacy MIDI definitions migrate to channel 12, the prior built-in
 default. Saved custom terminal channels cannot be recovered from those files.
 The next normal save writes v3. Future Tune and Project formats must preserve
 the same per-instrument channel.
+
+## BTM version 4 working-session lineage
+
+BTM1 v4 keeps the v3 layout and appends a CRC-covered 32-character lowercase
+hex lineage after the eight-byte view/mute trailer. Other session versions
+remain readable. An empty legacy lineage is established once in RAM, using
+the boot entropy when available. A capable BTX can send
+`BTSESSION1 CLAIM 1 <lineage>` if the board advertises an empty identity.
+Teensy accepts only the first valid proposal for the current working session.
+Claims do not trigger SD writes. The normal session writer marks the identity
+persisted after promoting the verified candidate to canonical storage.
+
+`BTSESSION1 LINEAGE 1 <persisted> <lineage|->` follows transport STATUS and
+HELLO and replies to CLAIM. The flag is 0 until canonical promotion or when
+no ID is available. Validated boot recovery restores the saved identity.
+Autosave, explicit SAVE and ordinary Pattern Load preserve it. Missing or
+rejected session content starts without a saved lineage. No project/tune
+lifecycle is implemented. The terminal uses the persisted flag to select
+its waveform namespace (see [Instrument Foundation](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache)).

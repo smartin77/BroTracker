@@ -87,6 +87,7 @@ int main(int argc, char* argv[]) try {
         WindowsDiagnostic(log_file, "Windows audio disabled", error.what());
     }
     BringUpSerial serial(log_file);
+    serial.EnableWaveformDiskCache(host_config.config.waveform_cache_bytes);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
     serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     serial.SetStartupPattern(host_config.config.startup_pattern);
@@ -208,12 +209,16 @@ int main(int argc, char* argv[]) try {
         panel.transport_hints=controls.LoadSaveScreen()?std::string("Up/Down: select | Enter: Select/Confirm | ")+
             (controls.BrowserConfirming()?"Backspace / Ctrl+Left: Cancel | Esc: Cancel":"Backspace / Ctrl+Left: Back | Esc: Cancel")+" | Ctrl+Right: Pattern | Ctrl+X: EXIT":
             "Ctrl+Left: Pattern Load/Save | "+panel.transport_hints;
+        panel.sample_waveform=&serial.SelectWaveform(panel.instrument_identity=="Sample"?panel.instrument_number:0,
+            panel.instrument_number?controls.AcknowledgedSamplePath():std::string_view{});
+        panel.waveform_deferred=serial.WaveformDeferred();
         if(panel.instrument_number) {
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"Enter: Browse | ":
                 panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
-            panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+"Ctrl+Down: Keep | Esc: Roll back";
+            panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+
+                "Ctrl+Down: Keep | Esc: Roll back | Space: Play/Pause/Continue";
         }
         if(*controls.ScreenStatus())panel.publication_status=std::string(controls.ScreenStatus())+" | "+panel.publication_status;
         panel.volume_status=serial.VolumeStatus();

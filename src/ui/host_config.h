@@ -27,6 +27,7 @@ struct HostConfig {
     bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
     unsigned midi_delay_ms=0;
     bool midi_delay_ms_invalid=false; // Reject playback setup; retain unrelated config.
+    std::uint64_t waveform_cache_bytes = 0; // [btx] decimal MB. Zero retains the durable lineage.
     std::uint32_t schema_version = 1;
     std::uint32_t new_pattern_length = 32;
     HostLogMode logging_mode = HostLogMode::Basic;
