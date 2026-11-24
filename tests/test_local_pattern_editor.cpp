@@ -5,6 +5,7 @@
 #include "ui/pattern_screen.h"
 #include "ui/sample_waveform.h"
 #include "ui/text_renderer.h"
+#include "ui/bitmap_font.h"
 #include "ui/instrument_formatter.h"
 #include "bringup/instrument_commit.h"
 #include "core/playback/variable_rate_pattern_player.h"
@@ -1010,6 +1011,7 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     panel.transport_hints="Up/Down: Field | Left/Right: Type | Ctrl+Down: Keep | Esc: Roll back | Space: Play/Pause/Continue";
     using namespace BroTracker;
     SampleWaveformTransfer transfer;
+    transfer.Response(kWaveformRangeCapability);
     char command[kPathProtocolCapacity];
     const auto next=[&]{return transfer.Command(command,sizeof(command),0);};
     transfer.Select(panel.instrument_number,panel.instrument_resource,true);
@@ -1018,24 +1020,40 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     transfer.Response("BTWAVE1 META 1 1 25 68284 44100 1 16");
     panel.sample_waveform=&transfer.View();
     using State=BroTracker::SampleWaveformCache::State;
+    const auto check_progress=[&](const std::string& expected) {
+        Framebuffer reference(640,480);
+        const auto small=HostBitmap::Bdf("assets/fonts/terminus/ter-u12n.bdf");
+        constexpr Color orange{255,160,64};
+        if(!expected.empty())
+            HostBitmap::Text(reference,small,623-HostBitmap::Measure(small,expected).width,
+                392-small.descent,expected,orange);
+        const auto is_orange=[&](Color p){return p.r==orange.r && p.g==orange.g && p.b==orange.b;};
+        unsigned mismatch=0;
+        for(int y=362;y<399;++y)for(int x=400;x<631;++x)
+            mismatch+=is_orange(reference.PixelData()[y*640+x])!=is_orange(fb.PixelData()[y*640+x]);
+        CHECK_EQ(mismatch,0u);
+    };
     CHECK_EQ(transfer.View().Percent(),0u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"08-sample-loading-zero.bmp"));
+    check_progress("Loading waveform: 0%");
     std::ifstream wav("tests/fixtures/sample_waveform.wav",std::ios::binary);
     CHECK(bool(wav.seekg(44)));
     const auto chunk=[&] {
         if(!next())return false;
         std::uint32_t id=0,slot=0,offset=0;
+        unsigned limit=kWaveformIdleBytes;
         char path[kSamplePathMaximum+1];
         const std::string_view request(command);
         if(ParseWaveformGet(request.substr(0,request.size()-1),id,slot,path)) {
             transfer.Response("BTWAVE1 META 1 "+std::to_string(id)+" 25 68284 44100 1 16");
             return true;
         }
-        if(std::sscanf(command,"BTWAVE1 RESUME 1 %u %u",&id,&offset)!=2 &&
+        if(std::sscanf(command,"BTWAVE1 RANGE 1 %u %u %u",&id,&offset,&limit)!=3 &&
+           std::sscanf(command,"BTWAVE1 RESUME 1 %u %u",&id,&offset)!=2 &&
            std::sscanf(command,"BTWAVE1 NEXT 1 %u %u",&id,&offset)!=2)return false;
         std::uint8_t pcm[kWaveformIdleBytes];
-        const auto bytes=std::min<std::uint32_t>(sizeof(pcm),68284*2-offset);
+        const auto bytes=std::min<std::uint32_t>(limit,68284*2-offset);
         wav.seekg(44+offset);
         wav.read(reinterpret_cast<char*>(pcm),bytes);
         CHECK_EQ(wav.gcount(),bytes);
@@ -1052,13 +1070,16 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     CHECK(transfer.View().Percent()<25u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"01-sample-loading.bmp"));
+    check_progress("Loading waveform: "+std::to_string(transfer.View().Percent())+"%");
     const auto loading=fb;
 
     transfer.Tick(6000,true);
+    transfer.Tick(12000,true);
     panel.waveform_deferred=transfer.Deferred();
     CHECK(panel.waveform_deferred);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"06-sample-deferred.bmp"));
+    check_progress("Playback priority: "+std::to_string(transfer.View().Percent())+"%");
     const auto windows_hints=panel.transport_hints;
     panel.transport_hints="D-pad U/D: Field | Left/Right: Type | Select+Down: Keep | B: Roll back | Start: Play/Pause/Continue";
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
@@ -1077,6 +1098,7 @@ TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {
     CHECK_EQ(transfer.View().Metadata().bits,16u);
     RenderMainScreen(fb,tune,pattern,view,nullptr,panel);
     CHECK(fb.SaveBMP(screenshots/"02-sample-ready.bmp"));
+    check_progress("");
     const auto ready=fb;
     constexpr int waveform_start=263*640;
     constexpr int waveform_pixels=(455-263)*640;

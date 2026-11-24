@@ -813,6 +813,8 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
         HostBitmap::Text(fb,small,x,y+small.ascent,value,ink);
     };
     const auto measure=[&](const std::string& value){return HostBitmap::Measure(small,value).width;};
+    const bool show_progress=cache && cache->Metadata().frames &&
+        cache->Status()==State::Loading && !cache->StorageLimited();
     HostBitmap::Text(fb,face,inset,top+8+face.ascent,"Edit Sample",header_name);
     fb.HorizontalLine(left,right,top+26,border);
     fb.FilledRectangle(left,plot_top,right-left+1,plot_bottom-plot_top+1,plot_background);
@@ -853,13 +855,24 @@ static void DrawSampleWaveform(Framebuffer& fb, int top, int bottom,
         text(left,axis+6,"0",header_value);
         text(middle-measure(midpoint)/2,axis+6,midpoint,header_value);
         text(right+1-measure(end),axis+6,end,header_value);
-    } else {
+    } else if(!show_progress) {
         const std::string status=cache && cache->Status()==State::Unavailable
-            ?"Waveform unavailable":deferred
+            ?"Waveform unavailable":cache && cache->StorageLimited()
+            ?"Waveform cache limit":deferred
             ?"Playback has priority. Waveform loading resumes on Stop or Pause."
             :"Loading waveform "+std::to_string(cache?cache->Percent():0)+"%";
         fb.FilledRectangle(middle-measure(status)/2-5,center-8,measure(status)+10,16,plot_background);
         text(middle-measure(status)/2,center-6,status,header_value);
+    }
+
+    if(show_progress) {
+        const std::string status=(deferred?"Playback priority: ":"Loading waveform: ")+
+            std::to_string(cache->Percent())+"%";
+        const int text_width=measure(status);
+        const int x=right-inset-text_width;
+        const int y=plot_bottom-6-small.ascent-small.descent;
+        fb.FilledRectangle(x-2,y-1,text_width+4,small.ascent+small.descent+2,plot_background);
+        text(x,y,status,editing_frame);
     }
 
     const char* controls[]={"Preview","Zoom 1x","Fit","Set Start","Set End"};

@@ -8,6 +8,7 @@
 namespace BroTracker {
 
 constexpr char kWaveformCapability[] = "BTWAVE1 CAP 3";
+constexpr char kWaveformRangeCapability[] = "BTWAVE1 RANGECAP 1";
 constexpr unsigned kWaveformPlayingBytes = 64;
 constexpr unsigned kWaveformIdleBytes = 768;
 constexpr unsigned kWaveformPlayingIntervalMs = 25;
@@ -56,13 +57,20 @@ struct WaveformPull {
     enum class Reply { None, Metadata, Data, Error };
     Reply pending=Reply::None;
     bool first_credit=false;
+    unsigned limit=kWaveformIdleBytes;
     void Begin(std::uint32_t request,std::uint32_t instrument,std::uint32_t source) {
         *this={request,source,0,instrument,source?Reply::Metadata:Reply::Error,true};
     }
     bool Next(std::uint32_t request,std::uint32_t offset,bool resume=false) {
         if(!id || request!=id || pending!=Reply::None || !token ||
            (resume?!first_credit:offset!=cursor)) return false;
-        first_credit=false;cursor=offset;pending=Reply::Data;return true;
+        first_credit=false;cursor=offset;limit=kWaveformIdleBytes;pending=Reply::Data;return true;
+    }
+    bool Range(std::uint32_t request,std::uint32_t offset,unsigned bytes,const WaveformSource& source) {
+        if(!id || request!=id || pending!=Reply::None || !token || source.token!=token ||
+           !bytes || bytes>kWaveformIdleBytes || WaveformReadBytes(source,offset,bytes)!=bytes)
+            return false;
+        first_credit=false;cursor=offset;limit=bytes;pending=Reply::Data;return true;
     }
     void Cancel(std::uint32_t request) { if(id==request)*this={}; }
     void Sent(unsigned bytes=0) {

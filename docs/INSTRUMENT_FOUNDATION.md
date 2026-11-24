@@ -537,8 +537,12 @@ geometry, RESUME can grant the first credit at any frame-aligned byte
 offset. Later credits require the exact cursor. BTX starts a fresh GET to
 jump between disjoint ranges, keeping one credit outstanding. DATA carries
 raw PCM as hex. BTX validates request ID and expected byte offset and retains
-only newly covered PCM. CAP 3 replies can extend beyond the requested target
-and across a cached range; overlapping frames do not count twice. A credit
+only newly covered PCM. The optional `BTWAVE1 RANGECAP 1` capability adds
+`BTWAVE1 RANGE 1 <id> <offset> <bytes>` for refinement. It reads a frame-aligned
+slice within the validated source, with the requested size as a ceiling.
+Older firmware uses GET/RESUME at discontinuities. Its fixed-size replies can
+overlap an already cached range when a gap is smaller than a reply. BTX keeps
+one copy of those frames. A credit
 times out after 12 active seconds. Intentional playback deferral freezes
 the deadline and still accepts an already outstanding response or error.
 
@@ -567,8 +571,10 @@ four strata. The first and last windows anchor the endpoints; the other
 positions are deterministically jittered within their strata. Endpoints
 and then subdivisions across the timeline arrive first. Each target covers
 64 PCM bytes, with actual replies up to the current transport limit. The FIT
-overview is ready when all target intervals are covered. Pause/Stop then fills
-the earliest remaining gap, reusing any received ranges. Original coordinates
+overview is ready when all target intervals are covered. Refinement selects
+a window centered in the largest missing interval, breaking ties by earliest
+frame. It reduces the window to the gap size when necessary and repeats across
+the timeline until coverage is complete or the cache limit is reached. Original coordinates
 and PCM remain available for future viewport refinement. Zoom and sample editing
 are outside this change.
 
@@ -578,7 +584,9 @@ remaining initial overview against six cumulative playing seconds. The
 estimate uses the existing conservative credit/hex estimate and adds 75 ms
 per distributed target for GET/META overhead. Playback time is charged
 across screen visits and transport changes; BTX stops granting credits if
-the allowance expires. Once the overview is ready, background gap filling
-waits for Pause or Stop. No waveform aggregation runs in the audio callback.
+the allowance expires. Once the overview is ready, each mono refinement credit
+must fit the remaining allowance, including GET/META cost on legacy
+discontinuous reads. Paused and Stopped acquisition continues with their
+existing bounded credit size. No waveform aggregation runs in the audio callback.
 See [D0041](ARCHITECTURE_DECISIONS.md#d0041--host-responsibilities-and-realtime-authority).
 Hardware timing and underrun margins still require device measurements.

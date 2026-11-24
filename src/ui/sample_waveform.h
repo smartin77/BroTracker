@@ -46,6 +46,7 @@ public:
     bool OverviewReady() const { return window_count_ && !overview_pending_; }
     std::uint32_t NextOverviewFrame() const;
     std::uint64_t OverviewPlayingEstimateMs() const;
+    Range RefinementWindow(unsigned byte_limit) const;
     bool StorageLimited() const { return storage_limited_; }
 
 private:
@@ -54,11 +55,13 @@ private:
     static constexpr unsigned kMaxWindows = 64;
     using Page = std::array<std::uint8_t,kPageBytes>;
     void AddCoverage(Range range);
+    void UpdateLargestGap();
 
     std::array<Peak,kColumns> peaks_{};
     std::array<Range,kMaxWindows> windows_{};
     std::map<std::uint32_t,std::unique_ptr<Page>> pages_;
     std::vector<Range> coverage_;
+    Range largest_gap_{};
     WaveformSource source_{};
     State state_ = State::Loading;
     std::uint32_t bytes_loaded_ = 0;
@@ -82,6 +85,7 @@ private:
     enum class Phase { Idle, Get, Metadata, Next, Data, Complete };
     unsigned& Allowance(std::uint32_t token);
     void AdmitPlaying();
+    std::uint64_t RefinementPlayingEstimateMs() const;
     void Fail();
     std::size_t Get(char* line,std::size_t capacity,std::uint32_t now);
     std::array<SampleWaveformCache,4> cache_{};
@@ -90,8 +94,10 @@ private:
     unsigned number_ = 0;
     std::string path_;
     bool supported_ = false;
+    bool ranged_ = false;
     bool playing_ = false, ticked_ = false, first_credit_ = false, playing_admitted_ = false;
     std::uint32_t last_tick_ = 0, cursor_ = 0, requested_offset_ = 0;
+    unsigned requested_limit_ = kWaveformIdleBytes;
     struct Budget { std::uint32_t token=0; unsigned used=0; };
     std::array<Budget,16> budgets_{};
     std::uint32_t retired_through_ = 0;

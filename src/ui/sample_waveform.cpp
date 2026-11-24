@@ -124,7 +124,28 @@ bool SampleWaveformCache::Append(std::uint32_t offset,const std::uint8_t* pcm,un
     AddCoverage({first,end});
     if(bytes_loaded_==source_.Bytes())state_=State::Ready;
     if(overview_pending_)overview_pending_=NextOverviewFrame()!=source_.frames;
+    if(OverviewReady())UpdateLargestGap();
     return true;
+}
+
+void SampleWaveformCache::UpdateLargestGap() {
+    largest_gap_={};
+    std::uint32_t first=0;
+    for(const auto range:coverage_) {
+        if(range.first-first>largest_gap_.end-largest_gap_.first)
+            largest_gap_={first,range.first};
+        first=range.end;
+    }
+    if(source_.frames-first>largest_gap_.end-largest_gap_.first)
+        largest_gap_={first,source_.frames};
+}
+
+SampleWaveformCache::Range SampleWaveformCache::RefinementWindow(unsigned byte_limit) const {
+    const auto length=largest_gap_.end-largest_gap_.first;
+    if(!length)return {};
+    const auto width=std::min(length,byte_limit/source_.Stride());
+    const auto first=largest_gap_.first+(length-width)/2;
+    return {first,first+width};
 }
 
 bool SampleWaveformCache::ReadFrame(std::uint32_t frame,std::uint8_t* pcm) const {
@@ -185,7 +206,21 @@ unsigned& SampleWaveformTransfer::Allowance(std::uint32_t token) {
 bool SampleWaveformTransfer::Deferred() const {
     if(!playing_ || phase_==Phase::Complete || phase_==Phase::Idle)return false;
     if(!active_)return phase_==Phase::Metadata && metadata_playing_ms_>=kPlayingAllowanceMs;
-    return !playing_admitted_ || *used_>=kPlayingAllowanceMs || active_->OverviewReady();
+    if(active_->Metadata().channels==2 || *used_>=kPlayingAllowanceMs)return true;
+    if(!active_->OverviewReady())return !playing_admitted_;
+    return phase_==Phase::Next && RefinementPlayingEstimateMs()>kPlayingAllowanceMs-*used_;
+}
+
+std::uint64_t SampleWaveformTransfer::RefinementPlayingEstimateMs() const {
+    const auto stride=active_->Metadata().Stride();
+    const auto window=active_->RefinementWindow(kWaveformPlayingBytes);
+    if(ranged_)return WaveformPlayingEstimateMs((window.end-window.first)*stride);
+    const auto bytes=WaveformReadBytes(active_->Metadata(),window.first*stride,kWaveformPlayingBytes);
+    const bool seek=!first_credit_ && window.first*stride!=cursor_;
+    // GET carries a hex path. Include wire time for long paths and margin for
+    // the additional metadata turnaround even on short paths.
+    const auto get_ms=std::max<std::size_t>(75,(2*path_.size()+128+5)/6);
+    return WaveformPlayingEstimateMs(bytes)+(seek?get_ms:0);
 }
 
 void SampleWaveformTransfer::AdmitPlaying() {
@@ -199,7 +234,7 @@ void SampleWaveformTransfer::Disconnect() {
     Select(0,{},false);
     for(auto& entry:cache_)entry={};
     next_cache_=0;cancel_=0;budgets_={};retired_through_=0;
-    ticked_=playing_=false;
+    ticked_=playing_=ranged_=false;
 }
 
 void SampleWaveformTransfer::Fail() {
@@ -214,8 +249,7 @@ void SampleWaveformTransfer::Tick(std::uint32_t now,bool playing) {
     auto* used=active_?used_:phase_==Phase::Metadata?&metadata_playing_ms_:nullptr;
     if(playing_ && used && phase_!=Phase::Complete) {
         const auto waiting=awaiting?std::min(elapsed,now-sent_at_):elapsed;
-        const auto charged=!active_ || (playing_admitted_ && !active_->OverviewReady())
-            ? std::min(waiting,kPlayingAllowanceMs-*used) : 0;
+        const auto charged=!Deferred()?std::min(waiting,kPlayingAllowanceMs-*used):0;
         *used+=charged;
         if(awaiting)sent_at_+=waiting-charged;
     }
@@ -246,18 +280,25 @@ std::size_t SampleWaveformTransfer::Command(char* line,std::size_t capacity,std:
     if(phase_!=Phase::Next || Deferred())return 0;
 
     const auto source=active_->Metadata();
-    const auto frame=active_->OverviewReady()?active_->FirstMissing(0,source.frames):active_->NextOverviewFrame();
+    const bool refining=active_->OverviewReady();
+    const auto window=active_->RefinementWindow(playing_?kWaveformPlayingBytes:kWaveformIdleBytes);
+    const auto frame=refining?window.first:active_->NextOverviewFrame();
     const auto offset=frame*source.Stride();
-    if(offset!=cursor_ && !first_credit_)return Get(line,capacity,now);
-
-    const auto n=std::snprintf(line,capacity,"BTWAVE1 %s 1 %lu %lu\n",
-        offset!=cursor_?"RESUME":"NEXT",(unsigned long)id_,(unsigned long)offset);
+    const bool bounded=refining && ranged_;
+    if(!bounded && offset!=cursor_ && !first_credit_)return Get(line,capacity,now);
+    requested_limit_=bounded?(window.end-window.first)*source.Stride():kWaveformIdleBytes;
+    const auto n=bounded
+        ? std::snprintf(line,capacity,"BTWAVE1 RANGE 1 %lu %lu %u\n",
+            (unsigned long)id_,(unsigned long)offset,requested_limit_)
+        : std::snprintf(line,capacity,"BTWAVE1 %s 1 %lu %lu\n",
+            offset!=cursor_?"RESUME":"NEXT",(unsigned long)id_,(unsigned long)offset);
     if(n<=0 || std::size_t(n)>=capacity){Fail();return 0;}
     requested_offset_=offset;first_credit_=false;phase_=Phase::Data;sent_at_=now;
     return n;
 }
 
 void SampleWaveformTransfer::Response(std::string_view line) {
+    if(line==kWaveformRangeCapability) {ranged_=true;return;}
     if(!id_)return;
     std::uint32_t fields[7];
     if(SnapshotFields(line.data(),line.size(),"BTWAVE1 ERROR ",fields,2) &&
@@ -288,7 +329,7 @@ void SampleWaveformTransfer::Response(std::string_view line) {
     std::uint32_t id,offset;
     unsigned bytes;
     if(phase_!=Phase::Data || !ParseWaveformData(line,id,offset,pcm,bytes) || id!=id_)return;
-    if(offset!=requested_offset_ || !active_->Append(offset,pcm,bytes)) {
+    if(offset!=requested_offset_ || bytes>requested_limit_ || !active_->Append(offset,pcm,bytes)) {
         if(active_->StorageLimited())phase_=Phase::Complete;
         else Fail();
         return;

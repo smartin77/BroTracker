@@ -380,7 +380,7 @@ namespace
         }
         if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-            "BTWAVE1 CAP 3\n"
+            "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\n"
 #endif
             );(void)QueueLine("BTPATH1 CAP 1 255 8192\n");}
         QueueMuteState();
@@ -641,7 +641,7 @@ namespace
     }
     void WaveformCommand(const char* line,std::size_t size) {
         if(!g_protocol_connected)return;
-        std::uint32_t id,slot,fields[3];
+        std::uint32_t id,slot,fields[4];
         char path[kSamplePathMaximum+1];
         if(ParseWaveformGet({line,size},id,slot,path)) {
             const auto* definition=g_instrument_definitions.At(slot);
@@ -651,6 +651,8 @@ namespace
             (void)g_waveform.Next(fields[1],fields[2]);
         } else if(SnapshotFields(line,size,"BTWAVE1 RESUME ",fields,3) && fields[0]==1) {
             (void)g_waveform.Next(fields[1],fields[2],true);
+        } else if(SnapshotFields(line,size,"BTWAVE1 RANGE ",fields,4) && fields[0]==1) {
+            (void)g_waveform.Range(fields[1],fields[2],fields[3],BoundWaveform(g_waveform.slot));
         } else if(SnapshotFields(line,size,"BTWAVE1 CANCEL ",fields,2) && fields[0]==1) {
             g_waveform.Cancel(fields[1]);
         }
@@ -684,7 +686,7 @@ namespace
                 (std::uint64_t(g_waveform_max_us)*44100+999999)/1000000+256);
             if(g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(reserve))return;
             std::uint8_t pcm[kWaveformIdleBytes];
-            bytes=WaveformReadBytes(source,g_waveform.cursor,budget);
+            bytes=WaveformReadBytes(source,g_waveform.cursor,std::min(budget,g_waveform.limit));
             const auto began=micros();
             const bool read=bytes && g_streaming.ReadWaveform(source.token,g_waveform.cursor,pcm,bytes);
             g_waveform_max_us=std::max(g_waveform_max_us,micros()-began);

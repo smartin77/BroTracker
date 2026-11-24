@@ -322,6 +322,8 @@ TEST_CASE(WaveformAdaptiveOverviewReusesSparseRangesAndFillsGaps) {
     SampleWaveformTransfer host;
     const WaveformSource source{78,68284,44100,1,16};
     WaveformPull device;
+    host.Response(kWaveformRangeCapability);
+    unsigned refinement_requests=0;
     std::uint32_t now=0;
     const auto tick=[&](bool playing) { host.Tick(now,playing); };
     const auto step=[&](bool playing) {
@@ -335,10 +337,22 @@ TEST_CASE(WaveformAdaptiveOverviewReusesSparseRangesAndFillsGaps) {
             host.Response("BTWAVE1 META 1 "+std::to_string(id)+" 78 68284 44100 1 16");
         } else {
             std::uint32_t offset=0;
+            unsigned limit=0;
+            const bool range=std::sscanf(command.c_str(),"BTWAVE1 RANGE 1 %u %u %u",&id,&offset,&limit)==3;
             const bool resume=std::sscanf(command.c_str(),"BTWAVE1 RESUME 1 %u %u",&id,&offset)==2;
-            if(!resume)CHECK(std::sscanf(command.c_str(),"BTWAVE1 NEXT 1 %u %u",&id,&offset)==2);
-            CHECK(device.Next(id,offset,resume));
-            const auto size=WaveformReadBytes(source,offset,playing?64:768);
+            if(!range && !resume)CHECK(std::sscanf(command.c_str(),"BTWAVE1 NEXT 1 %u %u",&id,&offset)==2);
+            if(range) {
+                ++refinement_requests;
+                const auto stride=source.Stride();
+                const auto expected=host.View().RefinementWindow(playing?64:768);
+                CHECK_EQ(offset,expected.first*stride);
+                CHECK_EQ(limit,(expected.end-expected.first)*stride);
+                CHECK(!device.Range(id,offset,limit+1,source));
+                CHECK(device.Range(id,offset,limit,source));
+                for(const auto covered:host.View().Coverage())
+                    CHECK(offset/stride>=covered.end || (offset+limit)/stride<=covered.first);
+            } else CHECK(device.Next(id,offset,resume));
+            const auto size=WaveformReadBytes(source,offset,std::min(device.limit,playing?64u:768u));
             std::uint8_t pcm[kWaveformIdleBytes]{1};
             char line[kWaveformLineCapacity];
             const auto length=FormatWaveformData(line,id,offset,pcm,size);
@@ -368,17 +382,30 @@ TEST_CASE(WaveformAdaptiveOverviewReusesSparseRangesAndFillsGaps) {
     CHECK(host.View().ReadFrame(0,frame));
     CHECK_EQ(frame[0],1);
     CHECK(!host.View().ReadFrame(host.View().Coverage().front().end,frame));
+    CHECK(!host.Deferred());
+    CHECK(step(true));
+    CHECK_EQ(refinement_requests,1u);
+    CHECK_EQ(host.View().BytesLoaded(),bytes+64u);
+    for(unsigned i=0;i<180 && !host.Deferred();++i)if(!step(true))break;
     CHECK(host.Deferred());
+    CHECK(now>=5966u && now<=6040u);
+    const auto resumed_bytes=host.View().BytesLoaded();
     CHECK(Command(host,now).empty());
 
     host.Select(0,{},true);
     CHECK(Command(host,now).find("CANCEL")!=std::string::npos);
     host.Select(1,"Samples/Test3.wav",true);
     CHECK(step(true));
-    CHECK_EQ(host.View().BytesLoaded(),bytes);
+    CHECK_EQ(host.View().BytesLoaded(),resumed_bytes);
     CHECK(host.View().OverviewReady());
     CHECK(Command(host,now).empty());
 
+    tick(false);
+    CHECK(step(false));
+    CHECK(host.View().BytesLoaded()>resumed_bytes);
+    tick(true);
+    CHECK(host.Deferred());
+    CHECK(Command(host,now).empty());
     tick(false);
     for(unsigned i=0;i<370 && host.View().Status()!=State::Ready;++i)if(!step(false))break;
     CHECK_EQ(host.View().Status(),State::Ready);
@@ -418,4 +445,61 @@ TEST_CASE(WaveformStereoDefersNewPcmButReusesCompletedDownmix) {
     CHECK(!host.Deferred());
     CHECK_EQ(host.View().Status(),State::Ready);
     CHECK(Command(host,2).empty());
+}
+
+
+TEST_CASE(WaveformRefinementCentersTheLargestGapAndFinishesShortRanges) {
+    SampleWaveformCache cache;
+    const WaveformSource source{1,20000,8000,1,8};
+    CHECK(cache.Begin(source));
+    std::uint8_t pcm[kWaveformIdleBytes]{};
+    while(!cache.OverviewReady())
+        CHECK(cache.Append(cache.NextOverviewFrame(),pcm,kWaveformPlayingBytes));
+    // Compute the largest gap independently from cached endpoints.
+    SampleWaveformCache::Range largest{};
+    std::uint32_t previous=0;
+    for(const auto covered:cache.Coverage()) {
+        if(covered.first-previous>largest.end-largest.first)largest={previous,covered.first};
+        previous=covered.end;
+    }
+    const auto window=cache.RefinementWindow(768);
+    CHECK_EQ(window.end-window.first,768u);
+    CHECK_EQ(window.first,largest.first+(largest.end-largest.first-768)/2);
+    while(cache.Status()!=State::Ready) {
+        const auto next=cache.RefinementWindow(768);
+        CHECK(next.end>next.first);
+        if(next.end<=next.first)break;
+        const auto old=cache.BytesLoaded();
+        CHECK(cache.Append(next.first,pcm,next.end-next.first));
+        CHECK_EQ(cache.BytesLoaded()-old,next.end-next.first);
+    }
+    CHECK_EQ(cache.Coverage().size(),1u);
+    CHECK_EQ(cache.BytesLoaded(),source.Bytes());
+}
+
+TEST_CASE(WaveformLegacyRefinementReservesMetadataBeforeSendingGet) {
+    SampleWaveformTransfer host;
+    host.Select(1,"Samples/Gap.wav",true);
+    host.Tick(0,true);
+    char line[kWaveformLineCapacity];
+    const std::uint8_t pcm[kWaveformPlayingBytes]{};
+    unsigned id=0;
+    for(unsigned pass=0;pass<12 && !host.View().OverviewReady();++pass) {
+        const auto command=Command(host,0);
+        unsigned offset=0;
+        if(std::sscanf(command.c_str(),"BTWAVE1 GET 1 %u",&id)==1) {
+            host.Response("BTWAVE1 META 1 "+std::to_string(id)+" 10 5000 8000 1 8");
+            continue;
+        }
+        CHECK(std::sscanf(command.c_str(),"BTWAVE1 NEXT 1 %u %u",&id,&offset)==2 ||
+              std::sscanf(command.c_str(),"BTWAVE1 RESUME 1 %u %u",&id,&offset)==2);
+        const auto count=FormatWaveformData(line,id,offset,pcm,sizeof(pcm));
+        host.Response({line,count-1});
+    }
+    CHECK(host.View().OverviewReady());
+    host.Tick(5900,true);
+    CHECK(host.Deferred()); // A credit fits in 100 ms, but GET plus credit does not.
+    CHECK(Command(host,5900).empty());
+    host.Tick(5901,false);
+    CHECK(Command(host,5901).find("BTWAVE1 GET ")==0);
 }
