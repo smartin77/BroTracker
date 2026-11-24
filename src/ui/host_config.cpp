@@ -32,6 +32,7 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
     bool pattern=false,confirm_load=false,holdback=false;
     bool audio_bridge=false,midi_delay=false;
     bool development=false,startup_pattern=false,language=false;
+    bool waveform_cache=false;
     bool btx=false,logging=false,version=false,length=false,mode=false,preserve=false,editing=false,direction=false,audio=false,audio_output=false,midi=false;
     while (!text.empty()) {
         const auto end=text.find('\n');
@@ -97,6 +98,10 @@ HostConfigStatus ParseHostConfig(std::string_view text, HostConfig& output) noex
         } else if(section==2 && key=="preserve_last" && !preserve) {
             if(!Decimal(raw,value) || value>20) return HostConfigStatus::Invalid;
             candidate.preserve_last=value; preserve=true;
+        } else if(section==1 && key=="waveform_cache_mb" && !waveform_cache) {
+            if(!Decimal(raw,value))return HostConfigStatus::Invalid;
+            waveform_cache=true;
+            candidate.waveform_cache_bytes=std::uint64_t(value)*1000000;
         } else if(section==1 && key=="schema_version" && !version) {
             if(!Decimal(raw,value) || value!=1) return HostConfigStatus::Invalid;
             version=true; candidate.schema_version=value;

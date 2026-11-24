@@ -22,6 +22,7 @@
 #include "bringup/host_tempo.h"
 #include "midi_health.h"
 #include "sample_waveform.h"
+#include "waveform_disk_cache.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -34,6 +35,9 @@ public:
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    void EnableWaveformDiskCache(std::uint64_t budget) {
+        waveform_.EnableDiskCache(BroTracker::WaveformDiskCache::UserCachePath(),budget,log_);
+    }
     const BroTracker::SampleWaveformCache& SelectWaveform(unsigned number,std::string_view acknowledged_path) {
         waveform_.Select(number,define_pending_ || define_reconcile_required_?std::string_view{}:acknowledged_path,
             connected_ && waveform_supported_ && SdStatus()!=SdAvailability::Unavailable);

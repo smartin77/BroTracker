@@ -651,4 +651,5 @@ HELLO and replies to CLAIM. The flag is 0 until canonical promotion or when
 no ID is available. Validated boot recovery restores the saved identity.
 Autosave, explicit SAVE and ordinary Pattern Load preserve it. Missing or
 rejected session content starts without a saved lineage. No project/tune
-lifecycle or terminal cache storage is introduced.
+lifecycle is implemented. The terminal uses the persisted flag to select
+its waveform namespace (see [Instrument Foundation](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache)).

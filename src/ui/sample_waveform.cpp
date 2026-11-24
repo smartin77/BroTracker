@@ -1,4 +1,7 @@
 #include "sample_waveform.h"
+#include "waveform_disk_cache.h"
+#include "host_logging.h"
+#include "bringup/session_lineage.h"
 #include "core/audio/wav_buffer_loader.h"
 
 #include <cstring>
@@ -72,6 +75,12 @@ std::uint32_t SampleWaveformCache::FirstMissing(std::uint32_t first,std::uint32_
     const auto next=std::lower_bound(coverage_.begin(),coverage_.end(),first,
         [](Range range,std::uint32_t frame){return range.end<=frame;});
     return next!=coverage_.end() && next->first<=first ? std::min(end,next->end) : first;
+}
+
+std::uint32_t SampleWaveformCache::EndMissing(std::uint32_t first,std::uint32_t end) const {
+    const auto next=std::lower_bound(coverage_.begin(),coverage_.end(),first,
+        [](Range range,std::uint32_t frame){return range.end<=frame;});
+    return next==coverage_.end()?end:std::min(end,next->first);
 }
 
 void SampleWaveformCache::AddCoverage(Range range) {
@@ -148,6 +157,17 @@ SampleWaveformCache::Range SampleWaveformCache::RefinementWindow(unsigned byte_l
     return {first,first+width};
 }
 
+unsigned SampleWaveformCache::CopyReceived(std::uint32_t frame,std::uint8_t* pcm,unsigned capacity) const {
+    const auto stride=source_.Stride();
+    if(!stride || frame>=source_.frames)return 0;
+    const auto offset=frame*stride;
+    const auto page_left=kPageBytes-offset%kPageBytes;
+    const auto end=FirstMissing(frame,source_.frames);
+    const auto size=std::min({capacity-capacity%stride,page_left,(end-frame)*stride});
+    if(size)std::memcpy(pcm,pages_.at(offset/kPageBytes)->data()+offset%kPageBytes,size);
+    return size;
+}
+
 bool SampleWaveformCache::ReadFrame(std::uint32_t frame,std::uint8_t* pcm) const {
     if(frame>=source_.frames || FirstMissing(frame,frame+1)==frame)return false;
     const auto offset=frame*source_.Stride();
@@ -179,11 +199,131 @@ std::uint64_t SampleWaveformCache::OverviewPlayingEstimateMs() const {
     return ms;
 }
 
+SampleWaveformTransfer::SampleWaveformTransfer()=default;
+SampleWaveformTransfer::~SampleWaveformTransfer()=default;
+
+void SampleWaveformTransfer::EnableDiskCache(std::filesystem::path path,std::uint64_t budget,FILE* log) {
+    if(!path.is_absolute())return;
+    try {
+        disk_=std::make_unique<WaveformDiskCache>(std::move(path),budget);
+        disk_log_=log;
+    } catch(const std::exception&) {
+        // A terminal can always run with the existing in-memory cache.
+    }
+}
+
+void SampleWaveformTransfer::SetLineage(std::string_view lineage) {
+    if(!disk_ || lineage_==lineage)return;
+    const bool transition=ValidSessionLineage(lineage) && !lineage_.empty();
+    lineage_=lineage;
+    namespace_pending_=ValidSessionLineage(lineage);
+    disk_selection_=0;hydrated_.reset();backfill_=false;
+    if(transition || (active_ && namespace_pending_)) {
+        const auto number=number_;
+        const auto path=path_;
+        const auto supported=supported_;
+        Select(0,{},false);
+        if(transition)for(auto& entry:cache_)entry={};
+        Select(number,path,supported);
+    } else if(phase_==Phase::Hydrate || phase_==Phase::Fingerprint)ScheduleData();
+}
+
+void SampleWaveformTransfer::ScheduleData() {
+    AdmitPlaying();
+    phase_=active_->Status()==SampleWaveformCache::State::Ready || active_->StorageLimited()
+        ? Phase::Complete:Phase::Next;
+}
+
+void SampleWaveformTransfer::StartHydration() {
+    if(!disk_ || lineage_.empty() || !Fingerprint())return;
+    phase_=Phase::Hydrate;
+    disk_started_=last_tick_;disk_cursor_=0;
+}
+
+void SampleWaveformTransfer::ServiceDisk(std::uint32_t now) {
+    if(!disk_)return;
+    if(namespace_pending_ && disk_->SetLineage(lineage_))namespace_pending_=false;
+    auto result=disk_->Poll();
+    if(phase_==Phase::Hydrate && disk_selection_ && result.ticket==disk_selection_) {
+        backfill_=active_->BytesLoaded()!=0;
+        hydrated_=std::move(result.cache);
+        if(hydrated_ && !active_->BytesLoaded()) {
+            *active_=std::move(*hydrated_);
+            disk_cursor_=active_->Metadata().frames;
+        }
+        if(!hydrated_)disk_cursor_=active_->Metadata().frames;
+        backfill_cursor_=0;
+        MergeHydration(now);
+    } else if(phase_==Phase::Hydrate && hydrated_)MergeHydration(now);
+    if(backfill_ && phase_!=Phase::Hydrate)FlushRamCoverage();
+    if(phase_==Phase::Hydrate && !disk_selection_ && !namespace_pending_ &&
+       disk_->Lookup(ticket_+1,lineage_,path_,active_->Metadata(),fingerprint_))
+        disk_selection_=++ticket_;
+    if(phase_==Phase::Hydrate && !hydrated_ && now-disk_started_>=4000) {
+        disk_selection_=0;
+        ScheduleData();
+    }
+    if(phase_==Phase::Fingerprint && now-sent_at_>=1500)ScheduleData();
+}
+
+void SampleWaveformTransfer::MergeHydration(std::uint32_t now) {
+    const auto frames=active_->Metadata().frames;
+    const auto stride=active_->Metadata().Stride();
+    // A warm RAM entry may contain a newer tail. Import only missing frames,
+    // with an explicit per-service bound.
+    std::uint8_t pcm[kWaveformIdleBytes];
+    if(hydrated_) {
+        const auto& ranges=hydrated_->Coverage();
+        for(unsigned step=0;step<8 && disk_cursor_<frames;++step) {
+            const auto range=std::lower_bound(ranges.begin(),ranges.end(),disk_cursor_,
+                [](auto range,auto frame){return range.end<=frame;});
+            if(range==ranges.end() || active_->StorageLimited()) {disk_cursor_=frames;break;}
+            disk_cursor_=active_->FirstMissing(std::max(disk_cursor_,range->first),range->end);
+            if(disk_cursor_==range->end)continue;
+            const auto size=hydrated_->CopyReceived(disk_cursor_,pcm,sizeof(pcm));
+            active_->Append(disk_cursor_*stride,pcm,size);
+            disk_cursor_+=size/stride;
+        }
+    }
+    if(disk_cursor_!=frames)return;
+    disk_bounded_=active_->BytesLoaded()!=0;
+    if(disk_log_) {
+        char message[160];
+        std::snprintf(message,sizeof(message),"waveform disk validation-to-ready %lu ms; %lu of %lu PCM bytes ready",
+            (unsigned long)(now-disk_started_),(unsigned long)active_->BytesLoaded(),
+            (unsigned long)active_->Metadata().Bytes());
+        HostLog(disk_log_,HostLogLevel::Debug,"Waveform cache",message);
+    }
+    // Keep the disk coverage during RAM backfill to avoid writing duplicates.
+    if(!backfill_ || (hydrated_ && !hydrated_->BytesLoaded()))hydrated_.reset();
+    ScheduleData();
+}
+
+void SampleWaveformTransfer::FlushRamCoverage() {
+    const auto stride=active_->Metadata().Stride();
+    const auto& ranges=active_->Coverage();
+    std::uint8_t pcm[kWaveformIdleBytes];
+    for(unsigned step=0;step<8;++step) {
+        const auto range=std::lower_bound(ranges.begin(),ranges.end(),backfill_cursor_,
+            [](auto range,auto frame){return range.end<=frame;});
+        if(range==ranges.end()) {backfill_=false;hydrated_.reset();return;}
+        backfill_cursor_=std::max(backfill_cursor_,range->first);
+        if(hydrated_)backfill_cursor_=hydrated_->FirstMissing(backfill_cursor_,range->end);
+        if(backfill_cursor_==range->end)continue;
+        auto limit=hydrated_?hydrated_->EndMissing(backfill_cursor_,range->end):range->end;
+        const auto size=active_->CopyReceived(backfill_cursor_,pcm,
+            std::min<unsigned>(sizeof(pcm),(limit-backfill_cursor_)*stride));
+        if(!disk_->Save(disk_selection_,backfill_cursor_*stride,pcm,size))return;
+        backfill_cursor_+=size/stride;
+    }
+}
+
 void SampleWaveformTransfer::Select(unsigned number,std::string_view path,bool supported) {
     if(number_==number && path_==path && supported_==supported)return;
     if(id_)cancel_=id_;
     id_=0;number_=number;path_=path;supported_=supported;active_=nullptr;used_=nullptr;
     fingerprint_request_=fingerprint_token_=0;
+    disk_selection_=0;disk_bounded_=false;backfill_=false;hydrated_.reset();
     playing_admitted_=false;
     phase_=supported && number && number<=99 && ValidSamplePath(path)?Phase::Get:Phase::Idle;
 }
@@ -206,6 +346,7 @@ unsigned& SampleWaveformTransfer::Allowance(std::uint32_t token) {
 
 bool SampleWaveformTransfer::Deferred() const {
     if(!playing_ || phase_==Phase::Complete || phase_==Phase::Idle)return false;
+    if(phase_==Phase::Hydrate || phase_==Phase::Fingerprint)return false;
     if(!active_)return phase_==Phase::Metadata && metadata_playing_ms_>=kPlayingAllowanceMs;
     if(active_->Metadata().channels==2 || *used_>=kPlayingAllowanceMs)return true;
     if(!active_->OverviewReady())return !playing_admitted_;
@@ -236,19 +377,21 @@ void SampleWaveformTransfer::Disconnect() {
     for(auto& entry:cache_)entry={};
     next_cache_=0;cancel_=0;budgets_={};retired_through_=0;
     ticked_=playing_=ranged_=fingerprint_supported_=false;
+    SetLineage({});
 }
 
 void SampleWaveformTransfer::Fail() {
     if(id_)cancel_=id_;
     // Keep verified bytes available for a later source revalidation.
     id_=0;phase_=Phase::Idle;active_=nullptr;used_=nullptr;
+    backfill_=false;hydrated_.reset();
 }
 
 void SampleWaveformTransfer::Tick(std::uint32_t now,bool playing) {
     const auto elapsed=ticked_?now-last_tick_:0;
     const bool awaiting=phase_==Phase::Metadata || phase_==Phase::Data;
     auto* used=active_?used_:phase_==Phase::Metadata?&metadata_playing_ms_:nullptr;
-    if(playing_ && used && phase_!=Phase::Complete) {
+    if(playing_ && used && phase_!=Phase::Complete && phase_!=Phase::Hydrate && phase_!=Phase::Fingerprint) {
         const auto waiting=awaiting?std::min(elapsed,now-sent_at_):elapsed;
         const auto charged=!Deferred()?std::min(waiting,kPlayingAllowanceMs-*used):0;
         *used+=charged;
@@ -257,6 +400,7 @@ void SampleWaveformTransfer::Tick(std::uint32_t now,bool playing) {
     if(playing && !playing_)AdmitPlaying();
     last_tick_=now;ticked_=true;playing_=playing;
     if(!Deferred() && awaiting && now-sent_at_>=12000)Fail();
+    ServiceDisk(now);
 }
 
 std::size_t SampleWaveformTransfer::Get(char* line,std::size_t capacity,std::uint32_t now) {
@@ -288,9 +432,11 @@ std::size_t SampleWaveformTransfer::Command(char* line,std::size_t capacity,std:
     const auto window=active_->RefinementWindow(playing_?kWaveformPlayingBytes:kWaveformIdleBytes);
     const auto frame=refining?window.first:active_->NextOverviewFrame();
     const auto offset=frame*source.Stride();
-    const bool bounded=refining && ranged_;
+    const bool bounded=ranged_ && (refining || disk_bounded_);
     if(!bounded && offset!=cursor_ && !first_credit_)return Get(line,capacity,now);
-    requested_limit_=bounded?(window.end-window.first)*source.Stride():kWaveformIdleBytes;
+    const auto end=refining?window.end:active_->EndMissing(frame,frame+
+        WaveformReadBytes(source,offset,playing_?kWaveformPlayingBytes:kWaveformIdleBytes)/source.Stride());
+    requested_limit_=bounded?(end-frame)*source.Stride():kWaveformIdleBytes;
     const auto n=bounded
         ? std::snprintf(line,capacity,"BTWAVE1 RANGE 1 %lu %lu %u\n",
             (unsigned long)id_,(unsigned long)offset,requested_limit_)
@@ -316,6 +462,7 @@ void SampleWaveformTransfer::Response(std::string_view line) {
             fingerprint_={file_bytes,(std::uint64_t(fields[7])<<32)|fields[8],fields[5],fields[6]};
             fingerprint_token_=fields[2];
             fingerprint_request_=0;
+            if(phase_==Phase::Fingerprint)StartHydration();
         }
         return;
     }
@@ -338,10 +485,9 @@ void SampleWaveformTransfer::Response(std::string_view line) {
         active_=&*entry;
         used_=&Allowance(source.token);
         *used_=std::min(kPlayingAllowanceMs,*used_+metadata_playing_ms_);
-        AdmitPlaying();
         cursor_=0;first_credit_=true;
-        phase_=active_->Status()==SampleWaveformCache::State::Ready || active_->StorageLimited()
-            ? Phase::Complete:Phase::Next;
+        if(fingerprint_request_ && disk_ && !lineage_.empty())phase_=Phase::Fingerprint;
+        else ScheduleData();
         return;
     }
     std::uint8_t pcm[kWaveformIdleBytes];
@@ -352,6 +498,13 @@ void SampleWaveformTransfer::Response(std::string_view line) {
         if(active_->StorageLimited())phase_=Phase::Complete;
         else Fail();
         return;
+    }
+    if(disk_selection_) {
+        const auto frame=offset/active_->Metadata().Stride();
+        if((!backfill_ || frame<backfill_cursor_) && !disk_->Save(disk_selection_,offset,pcm,bytes)) {
+            backfill_cursor_=frame;
+            backfill_=true;
+        }
     }
     cursor_=offset+bytes;
     phase_=active_->Status()==SampleWaveformCache::State::Ready?Phase::Complete:Phase::Next;

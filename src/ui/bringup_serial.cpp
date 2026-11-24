@@ -914,9 +914,11 @@ void BringUpSerial::OnLine(std::uint32_t now)
             session_lineage_[BroTracker::kSessionLineageSize]=0;
             session_lineage_persisted_=value[0]=='1';
             session_lineage_claim_=false;
+            waveform_.SetLineage(session_lineage_persisted_?std::string_view(session_lineage_):std::string_view{});
         } else if(connected_ && value=="0 -") {
             session_lineage_[0]=0;session_lineage_persisted_=false;
             session_lineage_claim_=true;
+            waveform_.SetLineage({});
         }
         return;
     }

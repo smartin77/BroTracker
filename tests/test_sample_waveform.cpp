@@ -1,5 +1,9 @@
 #include "test_framework.h"
 #include "ui/sample_waveform.h"
+#include "ui/waveform_disk_cache.h"
+#include "temporary_directory.h"
+#include <fstream>
+#include <thread>
 #include "bringup/pattern_control.h"
 #include "bringup/variable_rate_player_adapter.h"
 #include "bringup/pattern_fixture.h"
@@ -526,4 +530,229 @@ TEST_CASE(WaveformFingerprintRequiresCurrentNegotiatedMetadataRequest) {
     host.Disconnect();
     host.Select(1,"Samples/First.wav",true);
     CHECK(Command(host).find("BTWAVE1 GET 1 ")==0);
+}
+
+namespace {
+constexpr auto lineage_a="0123456789abcdef0123456789abcdef";
+constexpr auto lineage_b="abcdef0123456789abcdef0123456789";
+constexpr auto disk_wav="Samples/test.wav";
+constexpr WaveformFingerprint disk_fp{52,0x7102030405060708ULL,44,8};
+constexpr WaveformSource disk_source{51,8,44100,1,8};
+constexpr std::uint8_t disk_pcm[]{19,20,21,22,23,24,25,26};
+
+WaveformDiskCache::Result WaitDisk(WaveformDiskCache& cache,std::uint64_t ticket) {
+    for(unsigned attempt=0;attempt<1000;++attempt) {
+        auto result=cache.Poll();
+        if(result.ticket==ticket)return result;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(false);
+    return {};
+}
+std::filesystem::path Journal(const std::filesystem::path& directory) {
+    for(const auto& entry:std::filesystem::directory_iterator(directory))
+        if(entry.path().extension()==".bwc")return entry.path();
+    CHECK(false);
+    return {};
+}
+void ValidateWaveform(SampleWaveformTransfer& host,unsigned id,unsigned token,const char* path,
+                      unsigned channels=1) {
+    char line[160];
+    std::snprintf(line,sizeof(line),"BTWAVE1 META 1 %u %u %u 44100 %u 8",id,token,8/channels,channels);
+    host.Response(line);
+    CHECK(host.Fingerprint()==nullptr);
+    std::snprintf(line,sizeof(line),"BTWAVE1 FP 1 %u %u 0 52 44 8 1895957252 84281096",id,token);
+    host.Response(line);
+    CHECK(host.Fingerprint()!=nullptr);
+    (void)path;
+}
+std::string WaitCredit(SampleWaveformTransfer& host,bool playing,unsigned first=100) {
+    for(unsigned i=0;i<500;++i) {
+        host.Tick(first+i,playing);
+        if(auto credit=Command(host,first+i);!credit.empty())return credit;
+        if(host.View().Status()==State::Ready)return {};
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return {};
+}
+}
+
+TEST_CASE(WaveformDiskRestartRestoresExactCoverageAndRepairsInterruptedTail) {
+    TemporaryTestDirectory temporary;
+    {
+        WaveformDiskCache disk(temporary.Path(),0);
+        CHECK(disk.SetLineage(lineage_a));
+        CHECK(disk.Lookup(1,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,1).cache);
+        CHECK(disk.Save(1,0,disk_pcm,2));
+        CHECK(disk.Save(1,6,disk_pcm+6,2));
+    }
+    const auto journal=Journal(temporary.Path()/"session");
+    {
+        std::ofstream tail(journal,std::ios::binary|std::ios::app);
+        const char torn[]{2,0,0,0,4,0,0,0,9,9,9,9,0};
+        tail.write(torn,sizeof(torn));
+    }
+    {
+        WaveformDiskCache disk(temporary.Path(),0);
+        CHECK(disk.SetLineage(lineage_a));
+        auto fresh=disk_source;fresh.token=123;
+        CHECK(disk.Lookup(2,lineage_a,disk_wav,fresh,disk_fp));
+        auto partial=WaitDisk(disk,2);
+        CHECK(partial.cache!=nullptr);
+        if(!partial.cache)return;
+        CHECK_EQ(partial.cache->Metadata().token,123u);
+        CHECK_EQ(partial.cache->BytesLoaded(),4u);
+        CHECK_EQ(partial.cache->FirstMissing(0,8),2u);
+        CHECK_EQ(partial.cache->EndMissing(2,8),6u);
+        std::uint8_t byte=0;
+        CHECK(!partial.cache->ReadFrame(2,&byte));
+        CHECK(disk.Save(2,2,disk_pcm+2,4));
+    }
+    {
+        WaveformDiskCache disk(temporary.Path(),0);
+        CHECK(disk.SetLineage(lineage_a));
+        CHECK(disk.Lookup(3,lineage_a,disk_wav,disk_source,disk_fp));
+        auto full=WaitDisk(disk,3);
+        CHECK(full.cache!=nullptr);
+        if(!full.cache)return;
+        CHECK_EQ(full.cache->Status(),State::Ready);
+        for(unsigned i=0;i<8;++i) {
+            std::uint8_t byte=0;
+            CHECK(full.cache->ReadFrame(i,&byte));
+            CHECK_EQ(byte,disk_pcm[i]);
+        }
+        auto replacement=disk_fp;++replacement.prefix_digest;
+        CHECK(disk.Lookup(4,lineage_a,disk_wav,disk_source,replacement));
+        CHECK(!WaitDisk(disk,4).cache);
+        CHECK(disk.Save(4,2,disk_pcm+2,1));
+        CHECK(disk.Lookup(5,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK_EQ(WaitDisk(disk,5).cache->Status(),State::Ready);
+        CHECK(!disk.SetLineage({}));
+        CHECK(std::filesystem::exists(journal));
+        CHECK(disk.SetLineage(lineage_b));
+        CHECK(disk.Lookup(6,lineage_b,disk_wav,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,6).cache);
+        CHECK(!std::filesystem::exists(journal));
+    }
+}
+
+TEST_CASE(WaveformDiskLRUAndCorruptRecord) {
+    TemporaryTestDirectory temporary;
+    constexpr auto second="Samples/other.wav";
+    constexpr auto third="Samples/third.wav";
+    constexpr auto too_long="Samples/oversized.wav";
+    {
+        WaveformDiskCache disk(temporary.Path(),218);
+        for(const auto seed: {std::pair{1,disk_wav},std::pair{2,second}}) {
+            CHECK(disk.Lookup(seed.first,lineage_a,seed.second,disk_source,disk_fp));
+            CHECK(!WaitDisk(disk,seed.first).cache);
+            CHECK(disk.Save(seed.first,0,disk_pcm,8));
+        }
+        CHECK(disk.Lookup(3,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(WaitDisk(disk,3).cache!=nullptr);
+        CHECK(disk.Lookup(4,lineage_b,third,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,4).cache);
+        CHECK(disk.Save(4,0,disk_pcm,8));
+        CHECK(disk.Lookup(5,lineage_a,second,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,5).cache);
+        CHECK(disk.Lookup(6,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(WaitDisk(disk,6).cache!=nullptr);
+    }
+    std::uintmax_t total=0;
+    for(const auto& entry:std::filesystem::directory_iterator(temporary.Path()/"shared")) {
+        total+=entry.file_size();
+        if(entry.path().extension()!=".bwc")continue;
+        std::fstream file(entry.path(),std::ios::binary|std::ios::in|std::ios::out);
+        file.seekg(-1,std::ios::end);
+        const char changed=file.get()^1;
+        file.seekp(-1,std::ios::end);
+        file.put(changed);
+    }
+    CHECK(total<=218);
+    {
+        WaveformDiskCache disk(temporary.Path(),218);
+        CHECK(disk.Lookup(7,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,7).cache);
+        CHECK(disk.Lookup(8,lineage_b,third,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,8).cache);
+    }
+    {
+        WaveformDiskCache disk(temporary.Path(),20);
+        CHECK(disk.Lookup(1,lineage_a,too_long,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,1).cache);
+        CHECK(disk.Save(1,0,disk_pcm,8));
+    }
+    CHECK(std::filesystem::directory_iterator(temporary.Path()/"shared")->file_size()==0);
+}
+
+TEST_CASE(WaveformDiskHydratesBeforeCreditAndPlaysCompletedStereo) {
+    TemporaryTestDirectory temporary;
+    constexpr auto stereo="Samples/stereo.wav";
+    {
+        WaveformDiskCache disk(temporary.Path(),0);
+        CHECK(disk.SetLineage(lineage_a));
+        CHECK(disk.Lookup(1,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,1).cache);
+        CHECK(disk.Save(1,4,disk_pcm+4,4));
+        CHECK(disk.Lookup(2,lineage_a,stereo,{52,4,44100,2,8},disk_fp));
+        CHECK(!WaitDisk(disk,2).cache);
+        CHECK(disk.Save(2,0,disk_pcm,8));
+    }
+    SampleWaveformTransfer host;
+    host.EnableDiskCache(temporary.Path(),0);
+    host.SetLineage(lineage_a);
+    host.Response(kWaveformRangeCapability);
+    host.Response(kWaveformFingerprintCapability);
+    host.Select(1,disk_wav,true);
+    CHECK(Command(host).find("GET 2 1")!=std::string::npos);
+    host.Response("BTWAVE1 META 1 1 91 8 44100 1 8");
+    CHECK(Command(host).empty());
+    host.Response("BTWAVE1 FP 1 99 91 0 52 44 8 1895957252 84281096");
+    CHECK(Command(host).empty());
+    host.Response("BTWAVE1 FP 1 1 91 0 52 44 8 1895957252 84281096");
+    CHECK_EQ(WaitCredit(host,false),"BTWAVE1 RANGE 1 1 0 4\n");
+    CHECK_EQ(host.View().BytesLoaded(),4u);
+    Data(host,1,0,{19,20,21,22});
+    CHECK_EQ(host.View().Status(),State::Ready);
+
+    host.Select(2,stereo,true);
+    CHECK_EQ(Command(host),"BTWAVE1 CANCEL 1 1\n");
+    CHECK(Command(host).find("GET 2 2")!=std::string::npos);
+    ValidateWaveform(host,2,92,stereo,2);
+    CHECK(WaitCredit(host,true,1000).empty());
+    CHECK_EQ(host.View().Status(),State::Ready);
+    CHECK(!host.Deferred());
+}
+
+TEST_CASE(WaveformDiskIgnoresAsynchronousCompletionFromReplacedSelection) {
+    TemporaryTestDirectory temporary;
+    {
+        WaveformDiskCache disk(temporary.Path(),0);
+        CHECK(disk.SetLineage(lineage_a));
+        CHECK(disk.Lookup(1,lineage_a,disk_wav,disk_source,disk_fp));
+        CHECK(!WaitDisk(disk,1).cache);
+        CHECK(disk.Save(1,0,disk_pcm,8));
+    }
+    SampleWaveformTransfer host;
+    host.EnableDiskCache(temporary.Path(),0);
+    host.SetLineage(lineage_a);
+    host.Response(kWaveformRangeCapability);
+    host.Response(kWaveformFingerprintCapability);
+    host.Select(1,disk_wav,true);
+    CHECK(!Command(host).empty());
+    ValidateWaveform(host,1,80,disk_wav);
+    host.Tick(10,false);
+    host.Select(1,"Samples/replacement.wav",true);
+    CHECK_EQ(Command(host),"BTWAVE1 CANCEL 1 1\n");
+    CHECK(!Command(host).empty());
+    ValidateWaveform(host,2,81,"Samples/replacement.wav");
+    CHECK_EQ(WaitCredit(host,false),"BTWAVE1 NEXT 1 2 0\n");
+    CHECK_EQ(host.View().BytesLoaded(),0u);
+    host.Select(1,disk_wav,true);
+    CHECK_EQ(Command(host),"BTWAVE1 CANCEL 1 2\n");
+    CHECK(!Command(host).empty());
+    ValidateWaveform(host,3,80,disk_wav);
+    CHECK(WaitCredit(host,false,1000).empty());
+    CHECK_EQ(host.View().Status(),State::Ready);
 }

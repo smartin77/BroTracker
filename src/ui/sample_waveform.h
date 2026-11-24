@@ -3,6 +3,7 @@
 #include "bringup/sample_waveform_protocol.h"
 
 #include <array>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -42,6 +43,8 @@ public:
     const std::vector<Range>& Coverage() const { return coverage_; }
     // Returns end if fully covered, otherwise the first missing source frame.
     std::uint32_t FirstMissing(std::uint32_t first, std::uint32_t end) const;
+    std::uint32_t EndMissing(std::uint32_t first, std::uint32_t end) const;
+    unsigned CopyReceived(std::uint32_t frame,std::uint8_t* pcm,unsigned capacity) const;
     bool ReadFrame(std::uint32_t frame, std::uint8_t* pcm) const;
     bool OverviewReady() const { return window_count_ && !overview_pending_; }
     std::uint32_t NextOverviewFrame() const;
@@ -71,8 +74,14 @@ private:
     bool storage_limited_ = false;
 };
 
+class WaveformDiskCache;
+
 class SampleWaveformTransfer {
 public:
+    SampleWaveformTransfer();
+    ~SampleWaveformTransfer();
+    void EnableDiskCache(std::filesystem::path path,std::uint64_t budget,FILE* log=nullptr);
+    void SetLineage(std::string_view durable_lineage);
     void Select(unsigned number,std::string_view path,bool supported);
     void Disconnect();
     void Tick(std::uint32_t now,bool playing);
@@ -85,9 +94,14 @@ public:
     }
 
 private:
-    enum class Phase { Idle, Get, Metadata, Next, Data, Complete };
+    enum class Phase { Idle, Get, Metadata, Fingerprint, Hydrate, Next, Data, Complete };
     unsigned& Allowance(std::uint32_t token);
     void AdmitPlaying();
+    void ScheduleData();
+    void StartHydration();
+    void ServiceDisk(std::uint32_t now);
+    void MergeHydration(std::uint32_t now);
+    void FlushRamCoverage();
     std::uint64_t RefinementPlayingEstimateMs() const;
     void Fail();
     std::size_t Get(char* line,std::size_t capacity,std::uint32_t now);
@@ -109,6 +123,14 @@ private:
     std::uint32_t retired_through_ = 0;
     unsigned* used_ = nullptr;
     unsigned metadata_playing_ms_ = 0;
+    std::unique_ptr<WaveformDiskCache> disk_;
+    std::string lineage_;
+    bool namespace_pending_=false, disk_bounded_=false;
+    std::uint64_t ticket_=0, disk_selection_=0;
+    std::uint32_t disk_started_=0, disk_cursor_=0, backfill_cursor_=0;
+    bool backfill_=false;
+    std::unique_ptr<SampleWaveformCache> hydrated_;
+    FILE* disk_log_=nullptr;
     Phase phase_ = Phase::Idle;
     std::uint32_t sequence_ = 0, id_ = 0, cancel_ = 0, sent_at_ = 0;
 };

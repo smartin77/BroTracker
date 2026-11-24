@@ -21,7 +21,9 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL AND NOT WIN32)
 endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
-add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp)
+find_package(Threads REQUIRED)
+add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp src/ui/waveform_disk_cache.cpp)
+target_link_libraries(BroTrackerBringUp PUBLIC Threads::Threads)
 target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BROTRACKER_SERIAL_TRANSPORT ui/arkos/serial_transport.cpp)

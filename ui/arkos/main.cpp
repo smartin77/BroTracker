@@ -322,6 +322,7 @@ int main(int argc, char* argv[])
             audible_base.empty()?"unavailable":audible_base.string().c_str(),audible->Enabled()?"available":"unavailable; launcher required");
     }
     BringUpSerial serial(bring_up_log);
+    serial.EnableWaveformDiskCache(host_config.config.waveform_cache_bytes);
     if(audible) serial.SetTransportObserver([](void* context,const char* event,std::uint32_t){
         const unsigned kind=!std::strcmp(event,"START")?listening::Start:!std::strcmp(event,"CONTINUE")?listening::Continue:
             !std::strcmp(event,"PAUSE")?listening::Pause:!std::strcmp(event,"DISCONNECT")?listening::Disconnect:

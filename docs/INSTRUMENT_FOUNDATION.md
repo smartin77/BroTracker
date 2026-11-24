@@ -520,7 +520,8 @@ new source, and exact rollback can reuse the old generation while retained.
 PCM is allocated lazily in 16 KiB pages with a 32 MiB limit per entry (128 MiB
 total PCM, plus page/range metadata and peaks). A source exceeding the cache
 can still display an approximate FIT; gap filling stops at the entry limit.
-Unallocated bytes never count as received. Disconnect invalidates all entries.
+Unallocated bytes never count as received. Disconnect invalidates live generation
+keys; disk reuse requires fresh validation.
 Playing allowance history is tracked separately for 16 generations; older
 evicted generations are treated as exhausted.
 The runtime treats prepared SD resources as immutable while mounted,
@@ -541,10 +542,54 @@ which are not collected by that inspection. Changes beyond the prefix that
 preserve the file extent and geometry may go undetected.
 
 BTX checks request and live source generation before accepting the record.
-Only the first GET on selection requests it. Internal range scheduling,
-the live generation guard and the existing RAM waveform cache are unchanged.
-GET 1 remains available to older BTX. This identity is available for future
-validation and does not enable disk reuse.
+Only the first GET on selection requests it. GET 1 remains available to older
+BTX. The live generation guard remains independent of disk identity.
+
+### Persistent terminal waveform cache
+
+BTX uses `[btx] waveform_cache_mb` in executable-relative `config/config.ini`.
+The default, zero, keeps an on-disk cache for the current durable saved-session
+lineage with no separate session disk quota. Ordinary saves, autosaves, Pattern
+loading and reconnect keep that lineage. Once another durable lineage is
+confirmed, BTX removes files from the previous session namespace. A missing,
+unknown or unpersisted lineage causes no deletion. Future create/load-project
+operations must establish a new durable lineage before switching namespaces.
+A positive whole-number value retains namespaces across lineages with an LRU
+limit in decimal MB (1,000,000 bytes). The two modes use separate directories.
+
+The base is `%LOCALAPPDATA%/BroTracker/waveforms-v1` on Windows or
+`$XDG_CACHE_HOME/BroTracker/waveforms-v1` on ArkOS, falling back to
+`~/.cache/BroTracker/waveforms-v1` when the XDG path is unset or relative.
+The subdirectory is `session` for zero and `shared` for a positive limit.
+Each journal key includes the durable lineage, exact validated WAV path,
+native PCM geometry and versioned prepared-source fingerprint. The live token
+and wall-clock timestamps do not participate in source identity. The fingerprint
+can miss changes outside the inspected prefix. Cached replacement and rollback
+sources are independent and require fresh correlated validation.
+
+Journal format v1 uses a checksummed little-endian header with magic/version,
+fingerprint version and fields, PCM geometry and length-prefixed path. Append
+records contain exact PCM byte offset, length, CRC-32, and native PCM. Replay
+bounds-checks offsets, size and frame alignment; it ignores the suffix at the
+first corrupt or interrupted record. The next successful write trims the
+uncommitted suffix. Missing bytes never materialize as silence; BTX rebuilds
+FIT peaks and frame coverage from received records. A single native worker
+batches and flushes appends outside UI service, and shutdown drains queued
+writes. Forced exit can lose the unflushed tail. A terminal instance that
+cannot take the cache's user-local lock, or encounters a disk error, can still
+use the RAM cache. Positive budgets count complete journal files including
+headers and record overhead. No temporary copy is needed. The writer leaves
+the current entry pinned and skips a batch if it cannot fit after eviction.
+Recency uses an increasing stored ordering rather than current OS wall time.
+The existing per-entry RAM/acquisition limits remain in force.
+
+After a fresh correlated fingerprint, hydration runs before PCM credits.
+A complete hit can display in Playing, including stereo. Partial coverage
+uses bounded credits for missing ranges and existing Playing admission
+and stereo deferral. Disk waits do not charge the six-second PCM allowance;
+the existing metadata wait still counts. An unavailable fingerprint or
+slow disk falls back to live/RAM behavior. Only samples already selected
+for visualization acquire waveform data.
 
 `BTWAVE1 CAP 3` advertises support. GET replaces the current transfer, NEXT
 grants one credit for a request ID and exact PCM byte cursor, and CANCEL
