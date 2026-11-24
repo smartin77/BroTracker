@@ -168,6 +168,7 @@ void BringUpSerial::Disconnect(const char* reason)
 {
     waveform_.Disconnect();
     waveform_supported_=false;
+    wall_clock_.Disconnect();clock_submission_=false;
     session_lineage_[0]=0;session_lineage_persisted_=false;
     session_lineage_claim_=session_lineage_claim_sent_=false;
     if(file_action_==FileAction::Session && pending_==Command::File)session_save_uncertain_=true;
@@ -678,6 +679,14 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 
 void BringUpSerial::OnLine(std::uint32_t now)
 {
+    if(!std::strncmp(line_,"BTCLOCK1 ",9)) {
+        if(connected_) {
+            if(!std::strcmp(line_,BroTracker::kWallClockCapability))wall_clock_.Advertise();
+            else if(wall_clock_.Response({line_,used_}) || !std::strncmp(line_,"BTCLOCK1 ERROR ",15))
+                Log("Wall clock:",line_);
+        }
+        return;
+    }
     if(!std::strncmp(line_,"BTWAVE1 ",8)) {
         if(connected_ && !std::strcmp(line_,BroTracker::kWaveformCapability))waveform_supported_=true;
         else if(connected_ && waveform_supported_)waveform_.Response({line_,used_});
@@ -1234,6 +1243,14 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     if(tx_tempo_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_tempo_=false; }
     if(tx_mute_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_mute_=false; }
     if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
+    if(clock_submission_) {
+        clock_submission_=false;
+        if(tx_offset_==tx_size_ && pending_==Command::None && !TransportPending() && !exit_requested_) {
+            if(const auto size=wall_clock_.Command(tx_,sizeof(tx_),now,BroTracker::ReadOsClock)) {
+                tx_size_=size;tx_offset_=0;
+            }
+        }
+    }
     if (tx_offset_ < tx_size_)
     {
         // An asynchronous transport may attempt transmission before reporting
@@ -1524,7 +1541,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
             else if(now-sent_at_>=1000) Send(Command::Status,now);
         }
         else if (connected_ && (next_refresh_ || now - sent_at_ >= 1000)) Send(Command::Status, now);
-        if(tx_offset_==tx_size_ && pending_==Command::None && connected_ && waveform_supported_ &&
+        if(tx_offset_==tx_size_ && pending_==Command::None && connected_ &&
            !exit_requested_ && !pattern_assembler_.Active()) {
             if(session_lineage_claim_ && !session_lineage_claim_sent_ && !Playing()) {
                 session_lineage_claim_sent_=true;
@@ -1540,7 +1557,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 } catch(const std::exception&) {
                     Log("Session lineage entropy unavailable");
                 }
-            } else if(const auto size=waveform_.Command(tx_,sizeof(tx_),now)) {
+            } else if(wall_clock_.NeedsSet()) {
+                clock_submission_=true;
+            } else if(const auto size=wall_clock_.Command(tx_,sizeof(tx_),now,BroTracker::ReadOsClock)) {
+                tx_size_=size;tx_offset_=0;
+            } else if(const auto size=waveform_supported_?waveform_.Command(tx_,sizeof(tx_),now):0) {
                 tx_size_=size;tx_offset_=0;
             }
         }

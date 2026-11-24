@@ -438,6 +438,17 @@ This does not change BTDP, BTWS or any session-persistence behavior.
 
 ### Startup precedence and automatic working-session scheduling
 
+Production Teensy keeps the RTC in UTC. The SD callback adds the active
+terminal's current local UTC offset once when packing classic FAT calendar
+fields. Before an offset arrives, and after a reboot until the next update,
+the callback uses a UTC calendar. FAT stores no timezone or DST identity
+and its modification timestamp has two-second granularity. exFAT uses a UTC
+calendar on this path. The SdFat callback does not write exFAT UTC-offset
+metadata, so the packed fields alone cannot establish an absolute instant in
+another reader. Existing directory entries are never rewritten by clock
+synchronization. The session payload carries no wall-clock time.
+See [clock exchange and quality](LOGGING.md#teensy-wall-clock-exchange).
+
 A valid restored session wins over host startup configuration. On confirmed missing /
 invalid / unsupported session, BTX applies `[development] startup_pattern` once;
 `none` uses `[btx] new_pattern_length`. `BTSTORE1 NEWCAP 1` advertises

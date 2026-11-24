@@ -1,5 +1,6 @@
 #pragma once
 #include "bringup/session_lineage.h"
+#include "host_wall_clock.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -394,6 +395,8 @@ private:
     BroTracker::WavBrowsePage wav_page_{},wav_staging_{};
     BroTracker::WavDirectoryResult wav_error_=BroTracker::WavDirectoryResult::ReadError;
     bool wav_supported_=false,list_wav_=false;
+    BroTracker::HostWallClock wall_clock_;
+    bool clock_submission_=false;
     bool waveform_supported_=false;
     char session_lineage_[BroTracker::kSessionLineageSize+1]{};
     bool session_lineage_persisted_=false;

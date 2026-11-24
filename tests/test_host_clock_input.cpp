@@ -20,8 +20,10 @@ Result Startup(const std::string& usb, std::size_t available_before_timeout = st
     protocol += usb.substr(consumed);
     return {protocol, synced, epoch, consumed};
 }
+void TestProductionClock();
 int main() {
     try {
+        TestProductionClock();
         const std::string hello = "BTTEST1 HELLO\n";
         CHECK(Startup(hello).protocol == hello);
         CHECK(!Startup(hello).synced);

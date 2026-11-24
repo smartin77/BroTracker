@@ -48,6 +48,7 @@ extern volatile uint8_t usb_configuration;
 #endif
 #include "sd_pattern_storage.h"
 #include "bringup/working_session.h"
+#include "bringup/wall_clock.h"
 #include "bringup/wav_directory.h"
 #include "bringup/session_save_schedule.h"
 #include "bringup/pattern_directory.h"
@@ -286,6 +287,19 @@ namespace
     PatternFileStore<SdPatternFiles> g_pattern_files;
     WorkingSessionStore<SdPatternFiles> g_session_files;
     WorkingSession g_session;
+    WallClockDevice g_wall_clock;
+    bool g_clock_exfat=false;
+
+    void ProductionFatTimestamp(std::uint16_t* date,std::uint16_t* time,std::uint8_t* ms10) {
+        const auto utc=Teensy3Clock.get();
+        const auto calendar=FilesystemCalendarSeconds(utc,g_clock_exfat?0:g_wall_clock.Offset());
+        DateTimeFields fields;
+        breakTime(calendar,fields);
+        *date=calendar>=315532800?FS_DATE(fields.year+1900,fields.mon+1,fields.mday):0;
+        *time=calendar>=315532800?FS_TIME(fields.hour,fields.min,fields.sec):0;
+        *ms10=(fields.sec&1)?100:0;
+    }
+
     SessionSaveSchedule g_session_save;bool g_session_recovery_blocked=false,g_session_saved_valid=false;
     std::uint32_t g_session_tempo=0;unsigned g_session_mute=0;
     PatternFileResult g_session_result=PatternFileResult::Missing,g_boot_session_result=PatternFileResult::Missing;
@@ -368,9 +382,10 @@ namespace
             status.running ? "BTTEST1 STATE PLAYING\n" :
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n";
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        char status_line[112];
-        std::snprintf(status_line,sizeof(status_line),"%sBTSESSION1 LINEAGE 1 %u %s\n",state,
-            unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-");
+        char status_line[136];
+        std::snprintf(status_line,sizeof(status_line),"%sBTSESSION1 LINEAGE 1 %u %s\n%s",state,
+            unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-",
+            advertise_snapshot?"BTCLOCK1 CAP 1\n":"");
         (void)QueueLine(status_line);
 #else
         (void)QueueLine(state);
@@ -517,6 +532,42 @@ namespace
         if(g_pattern_transfer.HasData()) return "readback";
         return StorageControlBlock(allow_paused);
     }
+    void ClockCommand(const char* line,std::size_t count,std::uint32_t now) {
+        std::uint32_t f[6]{};
+        const std::string_view request(line,count);
+        const char* reply_type=nullptr;
+        const char* reason="malformed";
+        if(ParseClockFields(request,"BTCLOCK1 GET ",f,2)) {
+            if(g_wall_clock.Query(f[1],now))reply_type="STATE";
+            else reason="stale";
+        } else if(ParseClockFields(request,"BTCLOCK1 SET ",f,6)) {
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+            if(Snapshot().transport==PatternTransportState::Playing &&
+               (g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom(1024)))reason="busy";
+            else
+#endif
+            switch(g_wall_clock.Set(f[1],f[2],f[3],f[4],f[5],now)) {
+            case WallClockDevice::Result::Applied:
+                if(Teensy3Clock.get()!=f[3])Teensy3Clock.set(f[3]);
+                reply_type="ACK";break;
+            case WallClockDevice::Result::Kept: reply_type="KEPT";break;
+            case WallClockDevice::Result::Stale: reason="stale";break;
+            case WallClockDevice::Result::Invalid: reason="invalid";break;
+            }
+        }
+        char response[96];
+        if(reply_type) {
+            const auto utc=Teensy3Clock.get();
+            std::snprintf(response,sizeof(response),"BTCLOCK1 %s 1 %lu %lu %lu %u\n",reply_type,
+                (unsigned long)f[1],(unsigned long)g_wall_clock.Generation(),(unsigned long)utc,
+                unsigned(g_wall_clock.Quality(utc)));
+        } else {
+            std::snprintf(response,sizeof(response),"BTCLOCK1 ERROR 1 %lu %lu %s\n",
+                (unsigned long)f[1],(unsigned long)g_wall_clock.Generation(),reason);
+        }
+        (void)QueueLine(response);
+    }
+
     void StorageReply(const char* operation,const char* result,std::uint32_t revision) {
         char reply[160];
         std::snprintf(reply,sizeof(reply),"BTSTORE1 RESULT 1 %s %s %" PRIu32 "\n",
@@ -932,6 +983,9 @@ namespace
             g_publication.NewSession();
             g_preview.NewSession();
             g_protocol_connected = false;
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+            g_wall_clock.ResetConnection();
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             g_audition.Cancel();
 #endif
@@ -1139,6 +1193,9 @@ namespace
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) {
                     g_publication.NewSession();g_preview.NewSession();
+#ifdef BROTRACKER_PATTERN_SD_PREPARE
+                    g_wall_clock.NewConnection();
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
                     g_audition.Cancel();
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
@@ -1163,6 +1220,7 @@ namespace
             }
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
+            else if (!std::strncmp(line,"BTCLOCK1 ",9)) ClockCommand(line,used,now);
             else if (!std::strncmp(line,"BTSESSION1 CLAIM 1 ",19) && g_protocol_connected) {
                 g_session.EstablishLineage(std::string_view(line+19,used-19));
                 char reply[72];
@@ -1504,6 +1562,10 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         // Early callbacks return while g_audio_ready is false. No retries after activation.
         const bool sd_ready=SD.begin(BUILTIN_SDCARD);
+        if(sd_ready) {
+            g_clock_exfat=SD.sdfs.fatType()==64;
+            FsDateTime::setCallback(ProductionFatTimestamp);
+        }
         g_storage_backend.ready=sd_ready;
         #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         g_wav_inspection.InspectOnce(sd_ready,true,true,true,true);

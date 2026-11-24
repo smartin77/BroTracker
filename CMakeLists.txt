@@ -150,8 +150,9 @@ target_compile_definitions(BroTrackerVariableRateBringUpTests PRIVATE BROTRACKER
 target_include_directories(BroTrackerVariableRateBringUpTests PRIVATE src tests libraries/scheduler/src)
 add_test(NAME BroTrackerVariableRateBringUpTests COMMAND BroTrackerVariableRateBringUpTests)
 
-add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp)
-target_include_directories(BroTrackerHostClockInputTests PRIVATE libraries/teensy_diagnostics/src)
+add_executable(BroTrackerHostClockInputTests tests/test_host_clock_input.cpp tests/test_wall_clock.cpp
+    libraries/scheduler/src/scheduler.cpp)
+target_include_directories(BroTrackerHostClockInputTests PRIVATE src libraries/scheduler/src libraries/teensy_diagnostics/src)
 add_test(NAME BroTrackerHostClockInputTests COMMAND BroTrackerHostClockInputTests)
 add_executable(BroTrackerBringUpControlsTests tests/test_bringup_controls.cpp)
 target_link_libraries(BroTrackerBringUpControlsTests PRIVATE BroTrackerBringUp)

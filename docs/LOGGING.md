@@ -58,6 +58,43 @@ timing. Logging stays outside realtime audio processing. Host file writes are
 serialized across workers. Formatting is bounded; oversized messages are omitted
 with a diagnostic, rather than silently appearing complete.
 
+### Teensy wall-clock exchange
+
+Production firmware advertises `BTCLOCK1 CAP 1` on HELLO. BTX queries with
+`BTCLOCK1 GET 1 <id>` and receives
+`BTCLOCK1 STATE 1 <id> <connection> <utc-seconds> <quality>`.
+Once the foreground transmit lane is available, it samples the OS clock
+again and submits `BTCLOCK1 SET 1 <id> <connection> <utc-seconds> <quality> <offset-code>`.
+All fields are unsigned decimal. Offset-code is the OS local UTC offset in
+minutes plus 840, allowing offsets -14:00 through +14:00. UTC updates
+accept dates from 2020 through 2099 inclusive.
+
+Quality values are 0 unknown, 1 plausible retained RTC, 2 host-supplied
+with unverified synchronization, and 3 host-supplied with observed OS
+synchronization. Linux reads kernel time status using read-only adjtimex;
+a failed query or unsynchronized state uses quality 2. Windows uses quality
+2 because this client does not verify its time service. Neither RTC
+plausibility nor the quality value is a guarantee of accuracy. Neither
+terminal synchronizes the OS or reads the handheld hardware RTC.
+
+An update consumes its matching GET within a five-second monotonic window.
+HELLO changes the connection generation and disconnect drops the query.
+The response is ACK with the same fields as STATE, or KEPT when quality 2
+offers a clock after quality 3 was accepted during this boot. KEPT retains
+UTC and still refreshes the valid terminal offset. ERROR reports correlation
+and a malformed, invalid, stale or busy reason. Backward corrections of
+acceptable quality are allowed. This is a guard for the current USB CDC
+handshake and monotonic request IDs, with no authentication or multi-terminal
+arbitration. Older peers simply omit or ignore this capability.
+
+BTX probes after handshake/reconnect and checks wall-clock displacement
+against monotonic elapsed time every two seconds once established. A
+correction of at least two seconds, an offset change including DST, or a
+quality change initiates an exchange. Firmware may defer updates while
+Playing if SD refill headroom is insufficient. Clock I/O is foreground-only.
+Neither the RTC nor host calendar time participates in playback scheduling,
+transport deadlines or waveform budgets.
+
 ## Startup retention
 
 Debug with N>0 rotates once before opening current: `brotracker-terminal(1).log`
