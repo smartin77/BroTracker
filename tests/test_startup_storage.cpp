@@ -64,17 +64,22 @@ struct StoragePeer:SerialTransport {
     bool waveform_cap=false;
     bool transport_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
-    bool midi_instrument_cap=false;
+    bool midi_instrument_cap=false,sample_tuning_cap=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
     void EditReply(unsigned id,unsigned result,unsigned slot=99) {
         char reply[128];
-        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap?slot:99);
+        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap || sample_tuning_cap?slot:99);
         (hold_define?define_reply:rx)+=reply;
     }
     void ApplyEdit(const InstrumentDefineRequest& request) {
-        const auto result=visit.Cancelled(request.request)?7u:reject_wav && request.type==1?6u:
+        const bool tuning=request.tuning.Valid();
+        const auto result=visit.Cancelled(request.request)?7u:tuning?
+            EditSampleTuning(definitions,definition_bindings,request.expected,request.tuning,
+                [&](unsigned id,SampleTuning value){return !definition_player || definition_player->SetSampleTuning(id,value);}):
+            reject_wav && request.type==1?6u:
             ReplaceInstrumentDefinition(definitions,definition_bindings,request,live_prepared,true,[&](const auto& b){return !definition_player || definition_player->ReplaceLiveInstrumentBinding(b);});
+        if(!result)visit.MarkEdited(request.expected,!tuning);
         EditReply(request.request,result,request.expected);
     }
     void CompleteEdit(){CHECK(edit_pending);edit_pending=false;ApplyEdit(pending_edit);}
@@ -116,6 +121,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && live_type_cap)rx+="BTINS1 LIVETYPECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_edit_cap)rx+="BTINS1 LIVEEDITCAP 1\n";
             if(line=="BTTEST1 HELLO" && midi_instrument_cap)rx+="BTINS1 MIDICHANNELCAP 1\n";
+            if(line=="BTTEST1 HELLO" && sample_tuning_cap)rx+="BTINS1 TUNINGCAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
             if(line=="BTTEST1 HELLO" && path_cap)rx+="BTPATH1 CAP 1 255 8192\n";
             if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
@@ -206,7 +212,11 @@ struct StoragePeer:SerialTransport {
         }
         else if(line.rfind("BTINS1 RESTORE ",0)==0) {
             std::uint32_t f[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTINS1 RESTORE ",f,3));
-            const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){return !definition_player || (b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id));});
+            const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){
+                if(!definition_player)return true;
+                if(visit.TuningOnly(id))return !b || definition_player->SetSampleTuning(id,{b->reference_note,b->fine_tune_cents});
+                return b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id);
+            });
             EditReply(f[1],result,f[2]);
         }
         else if(line.rfind("BTINS1 EDIT ",0)==0) {
@@ -235,6 +245,9 @@ struct StoragePeer:SerialTransport {
                 if(midi_instrument_cap && definition && definition->type==InstrumentType::MIDI)
                     (hold_identity?identity_reply:rx)+="BTINS1 CHANNEL 1 "+std::to_string(id)+" "+
                         std::to_string(definition->midi_channel)+"\n";
+                if(sample_tuning_cap && definition && definition->type==InstrumentType::Sample)
+                    (hold_identity?identity_reply:rx)+="BTINS1 TUNING 1 "+std::to_string(id)+" "+
+                        std::to_string(definition->tuning.root)+" "+std::to_string(definition->tuning.cents)+"\n";
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -2721,6 +2734,70 @@ TEST_CASE(AllSixLiveTypeTransitionsUseProductionTriggersAndConfirmOrRestoreExact
             CHECK(it->rfind("BTTEST1 STOP",0)!=0);CHECK(it->rfind("BTTEST1 PAUSE",0)!=0);CHECK(it->rfind("BTTEST1 START",0)!=0);CHECK(it->rfind("BTTEST1 CONTINUE",0)!=0);
             CHECK(it->rfind("BTSTORE1 SAVE",0)!=0);CHECK(it->rfind("BTSTORE1 READY",0)!=0);
         }
+    }
+}
+
+TEST_CASE(SampleTuningControlsClampRepeatAndKeepOrRestoreDuringPlayback) {
+    for(bool keep:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+            wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=wire->sample_tuning_cap=true;
+        std::int16_t pcm[4096];for(unsigned i=0;i<4096;++i)pcm[i]=i*4;
+        StreamedVoiceBuffer voices[kStreamVoiceCount]{};
+        const StreamedSample stream{pcm,4096,voices,{22050,1,16}};
+        wire->definition_bindings.count=1;
+        wire->definition_bindings.bindings[0]={0,60,{pcm,4096,22050,&stream},InstrumentType::Sample};
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,0};wire->simulated_working.cells[1][0]={61,0};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,wire->definition_bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        std::uint32_t now=0;
+        const auto drive=[&](unsigned duration){for(const auto end=now+duration;now<end;){now+=5;controls.Tick(now);serial.SyncEditor(editor,now);}};
+        const auto action=[&](BringUpAction a){controls.Request(a,"test",now);};
+        drive(1200);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";drive(20);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+        std::int16_t audio[128];
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(player.TakeMidiCommands().commands[0].step_q32_32,kSourceFrameStepUnity/2);
+        action(BringUpAction::ScreenUp);drive(250);
+        action(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentField(),BringUpControls::RootNoteField);
+        wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,60u);
+        wire->hold_define=false;wire->rx+=wire->define_reply;drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,61u);
+        action(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentField(),BringUpControls::FineTuneField);
+        action(BringUpAction::InstrumentDecrease);controls.ReleaseInstrumentFineTune();drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,0u);
+        action(BringUpAction::InstrumentIncrease);drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,1u);
+        drive(350);CHECK_EQ(controls.InstrumentSampleTuning().cents,1u);
+        drive(60);CHECK_EQ(controls.InstrumentSampleTuning().cents,2u);
+        drive(1000);const auto medium=controls.InstrumentSampleTuning().cents;
+        drive(1000);CHECK(controls.InstrumentSampleTuning().cents-medium>20);
+        drive(4500);controls.ReleaseInstrumentFineTune();
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,99u);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,61u);
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(audio[0],256);CHECK_EQ(audio[127],510); // Original voice still advances half a frame per sample.
+        bool saw_next=false;
+        for(unsigned i=0;i<60 && !saw_next;++i) {
+            CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+            const auto commands=player.TakeMidiCommands();
+            for(unsigned j=0;j<commands.count;++j)if(commands.commands[j].action==VariableRateVoiceAction::Trigger) {
+                CHECK_EQ(commands.commands[j].step_q32_32,(ApplySampleFineTune(kSourceFrameStepUnity,99)+1)/2);
+                saw_next=true;break;
+            }
+        }
+        CHECK(saw_next);
+        action(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(500);
+        CHECK(!controls.InstrumentScreen());CHECK(!wire->visit.Active());CHECK(serial.Playing());
+        CHECK_EQ(wire->definitions.At(0)->tuning.root,keep?61u:60u);
+        CHECK_EQ(wire->definitions.At(0)->tuning.cents,keep?99u:0u);
+        CHECK_EQ(wire->definition_bindings.bindings[0].fine_tune_cents,keep?99u:0u);
     }
 }
 

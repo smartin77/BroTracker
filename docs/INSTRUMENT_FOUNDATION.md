@@ -132,10 +132,13 @@ Pattern rules in [FILE_FORMATS.md](FILE_FORMATS.md#temporary-btm-session-version
 ## Text presentation and deferred work
 
 The production shared renderer uses existing Terminus 14 bitmap text and the
-existing translation catalog, with stable Type, Name, Load, Save and Fine Tune
+existing translation catalog, with stable Type, Name, Load, Save, Root Note and Fine Tune
 rows. Load is enabled for the default Sample draft in the trailing undefined slot and
 for defined Samples, including unavailable resources.
-Name, Save and Fine Tune remain unavailable. Instrument file Save is deferred.
+Instrument file Save is deferred. With current firmware, defined Samples expose
+Root Note as a BroTracker note name and Fine Tune as two decimal digits. Left and
+Right step Root Note by a semitone and Fine Tune by a cent. Holding a Fine Tune
+arrow accelerates the steps. Both values clamp at their endpoints.
 Transpose remains undecided. Sample waveform/parameters together, graphical
 Synth controls, presets and engine parameter editing are deferred. Browser audition
 behavior is documented below.
@@ -315,7 +318,15 @@ incrementally outside the audio interrupt guard, then installs the binding and
 definition together.
 Failure retains the old definition/binding and count; the screen reports the reason.
 Slot identity and all Pattern references remain unchanged. Same-type Sample
-replacement preserves reference-note/level; conversion uses Sample defaults.
+replacement preserves Root Note, Fine Tune and level. Conversion to Sample and
+new Sample definitions start at C-3 and Fine Tune 00.
+
+Tuning edits use the live Instrument visit and require an acknowledgement.
+They change pitch for subsequent triggers while Pattern playback continues,
+including on channels already sounding. The active voice keeps its trigger-time
+pitch. Keep retains the two values through normal session saving. Cancel restores
+both values from the visit baseline. Sample Browser audition uses the source WAV
+pitch and speed. Older sessions without tuning fields default to C-3 and 00.
 
 Pattern transport continues through replacement and restoration. Voices belonging
 to the replaced binding are released (including MIDI cancellation); this is not

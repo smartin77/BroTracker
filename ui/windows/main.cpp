@@ -119,6 +119,13 @@ int main(int argc, char* argv[]) try {
         if(serial.UserActionsBlocked() || controls.PatternInputBlocked()) {editor_input.Cancel();tempo_input.Cancel();}
         SDL_Event event;
         while (!controls.Quit() && SDL_PollEvent(&event)) {
+            if(event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_LEFT)
+                controls.ReleaseInstrumentFineTune(BringUpAction::InstrumentDecrease);
+            if(event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_RIGHT)
+                controls.ReleaseInstrumentFineTune(BringUpAction::InstrumentIncrease);
+            if((event.type==SDL_WINDOWEVENT && event.window.event==SDL_WINDOWEVENT_FOCUS_LOST) ||
+               (event.type==SDL_KEYDOWN && (event.key.keysym.mod&(KMOD_CTRL|KMOD_SHIFT|KMOD_ALT|KMOD_GUI))))
+                controls.ReleaseInstrumentFineTune();
             const auto mapped_screen_action=screen_input.Handle(event);
             if(mapped_screen_action==BringUpAction::Exit) {
                 serial.SyncEditor(editor,SDL_GetTicks());controls.ObserveEditor(editor);
@@ -200,6 +207,7 @@ int main(int argc, char* argv[]) try {
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=controls.InstrumentAssignedResource();
         panel.instrument_name=controls.CacheInstrumentName(panel.instrument_resource);
         panel.instrument_midi_channel=controls.InstrumentMidiChannel();
+        panel.instrument_tuning=controls.InstrumentSampleTuning();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
@@ -217,6 +225,8 @@ int main(int argc, char* argv[]) try {
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"Enter: Browse | ":
+                panel.instrument_focus==BringUpControls::RootNoteField?"Left/Right: Root Note | ":
+                panel.instrument_focus==BringUpControls::FineTuneField?"Left/Right: Fine Tune | ":
                 panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
             panel.transport_hints=std::string("Up/Down: Field | ")+focus_hint+
                 "Ctrl+Down: Keep | Esc: Roll back | Space: Play/Pause/Continue";

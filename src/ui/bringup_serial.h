@@ -52,10 +52,14 @@ public:
     }
     void InspectInstrument(unsigned number) {
         if(number<1 || number>255 || (number>99 && !InstrumentCollectionSupported()) || number==identity_number_)return;
-        identity_number_=number;identity_midi_channel_=0;identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
+        identity_number_=number;identity_midi_channel_=0;identity_tuning_={};identity_ready_=identity_facts_ready_=false;identity_request_=number<=99;identity_resource_[0]=0;
     }
     unsigned InspectedMidiChannel(unsigned number)const {
         return MidiInstrumentChannelSupported() && InspectedType(number)==2?identity_midi_channel_:0;
+    }
+    bool SampleTuningSupported() const {return connected_ && sample_tuning_supported_;}
+    BroTracker::SampleTuning InspectedSampleTuning(unsigned number) const {
+        return SampleTuningSupported() && InspectedType(number)==1?identity_tuning_:BroTracker::SampleTuning{};
     }
     bool MidiInstrumentChannelSupported()const{return connected_ && midi_instrument_channel_supported_;}
     std::string InstrumentIdentity() const {
@@ -144,16 +148,19 @@ public:
     void CancelLiveDefinition(){if(define_pending_ && define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}}
     bool InstrumentCommitCancelled()const{return define_cancelled_;}
     unsigned InstrumentCommitResult()const{return define_result_;}
-    bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false,unsigned midi_channel=0) {
-        if(type==1 && !ResourceWireAvailable(resource))return false;
+    bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false,unsigned midi_channel=0,
+        BroTracker::SampleTuning tuning={}) {
+        if(tuning.root && (type!=1 || !SampleTuningSupported() || !tuning.Valid() || restore))return false;
+        if(type==1 && !tuning.root && !restore && !ResourceWireAvailable(resource))return false;
         if(!InstrumentVisitReady() || visit_ending_ || (define_reconcile_required_ && !restore) || !number || number>collection_count_ ||
             UserActionsBlocked() || FilePending() || PublicationBusy() || TransportPending() || define_pending_ || define_id_==UINT32_MAX ||
-            type<1 || type>3 || (midi_channel && (type!=2 || midi_channel>16 || !MidiInstrumentChannelSupported())) || (!restore && type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
+            type<1 || type>3 || (midi_channel && (type!=2 || midi_channel>16 || !MidiInstrumentChannelSupported())) || (!restore && type==1 && !tuning.root && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {
             define_error_="Live instrument update unavailable: synchronize the retained Instrument visit";return false;
         }
         ++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;
         define_relink_=false;define_replace_=true;define_edit_=true;define_midi_channel_=midi_channel;define_restore_=restore;define_cancelled_=false;
         define_applied_channel_=0;
+        define_tuning_=tuning;define_applied_tuning_={};
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1 && resource?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -168,6 +175,7 @@ public:
     }
     bool InstrumentCommitSucceeded() const {return define_success_;}
     unsigned InstrumentCommitMidiChannel() const {return define_success_ && define_edit_?define_applied_channel_:0;}
+    BroTracker::SampleTuning InstrumentCommitTuning() const {return define_success_ && define_edit_?define_applied_tuning_:BroTracker::SampleTuning{};}
     const std::string& InstrumentCommitError() const {return define_error_;}
     bool Publish(LocalPatternEditor& editor, std::uint32_t now);
     void SyncEditor(LocalPatternEditor& editor, std::uint32_t now);
@@ -377,6 +385,8 @@ public:
 private:
     bool midi_instrument_channel_supported_=false;
     unsigned identity_midi_channel_=0,define_midi_channel_=0,define_applied_channel_=0;
+    bool sample_tuning_supported_=false;
+    BroTracker::SampleTuning identity_tuning_{},define_tuning_{},define_applied_tuning_{};
     BroTracker::HostMidiNoteDelay midi_delay_;
     char logged_midi_delay_[256]{};
     bool device_facts_supported_=false,device_facts_valid_=false;

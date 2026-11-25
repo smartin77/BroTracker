@@ -6,6 +6,10 @@
 namespace EditorRepeatTiming {
 constexpr std::uint32_t first_ms = 400, accelerate_ms = 1000, fastest_ms = 2000;
 constexpr std::uint32_t slow_ms = 100, medium_ms = 50, fast_ms = 25;
+constexpr std::uint32_t Interval(std::uint32_t held,bool repeated) noexcept {
+    return !repeated ? first_ms : held>=fastest_ms ? fast_ms :
+        held>=accelerate_ms ? medium_ms : slow_ms;
+}
 }
 class EditorRepeat
 {
@@ -24,9 +28,7 @@ public:
         if (!enabled || !editor.Ready()) { Cancel(); return false; }
         if (action_ == EditorAction::None) return false;
         const auto held = std::uint32_t(now - started_);
-        const auto interval = !repeated_ ? EditorRepeatTiming::first_ms :
-            held >= EditorRepeatTiming::fastest_ms ? EditorRepeatTiming::fast_ms :
-            held >= EditorRepeatTiming::accelerate_ms ? EditorRepeatTiming::medium_ms : EditorRepeatTiming::slow_ms;
+        const auto interval = EditorRepeatTiming::Interval(held,repeated_);
         if (std::uint32_t(now - last_) < interval) return false;
         last_ = now; repeated_ = true;
         const bool changed = editor.Apply(action_);

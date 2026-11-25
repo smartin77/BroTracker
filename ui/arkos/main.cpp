@@ -364,7 +364,7 @@ int main(int argc, char* argv[])
         while (!controls.Quit() && SDL_PollEvent(&event) != 0)
         {
             if(event.type==SDL_WINDOWEVENT) {
-                if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST)volume_input.Focus(false);
+                if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST){volume_input.Focus(false);controls.ReleaseInstrumentFineTune();}
                 if(event.window.event==SDL_WINDOWEVENT_FOCUS_GAINED)volume_input.Focus(true);
             }
             if(diagnostic.Enabled() && diagnostic_cancel.Accept(event,
@@ -378,6 +378,19 @@ int main(int argc, char* argv[])
                 break;
             }
             if(diagnostic.Enabled()) continue; // unattended read-only workload; no edits or controller automation
+            if(event.type==SDL_CONTROLLERDEVICEREMOVED && event.cdevice.which==editor_input.Device())
+                controls.ReleaseInstrumentFineTune();
+            if((event.type==SDL_CONTROLLERBUTTONDOWN || event.type==SDL_CONTROLLERBUTTONUP) &&
+               event.cbutton.which==editor_input.Device()) {
+                const auto button=event.cbutton.button;
+                if(event.type==SDL_CONTROLLERBUTTONUP && button==SDL_CONTROLLER_BUTTON_DPAD_LEFT)
+                    controls.ReleaseInstrumentFineTune(BringUpAction::InstrumentDecrease);
+                if(event.type==SDL_CONTROLLERBUTTONUP && button==SDL_CONTROLLER_BUTTON_DPAD_RIGHT)
+                    controls.ReleaseInstrumentFineTune(BringUpAction::InstrumentIncrease);
+                if(event.type==SDL_CONTROLLERBUTTONDOWN && (button==SDL_CONTROLLER_BUTTON_BACK ||
+                   button==SDL_CONTROLLER_BUTTON_START || button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER ||
+                   button==SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))controls.ReleaseInstrumentFineTune();
+            }
             if(HandleFileBrowserInput(event,controls,SDL_GetTicks(),[&](int x,int y,int& fx,int& fy) {
                 return display.MouseEventToFramebuffer(x,y,fx,fy);
             }))continue;
@@ -430,6 +443,7 @@ int main(int argc, char* argv[])
         panel.instrument_availability=serial.InstrumentAvailabilityText();panel.instrument_resource=controls.InstrumentAssignedResource();
         panel.instrument_name=controls.CacheInstrumentName(panel.instrument_resource);
         panel.instrument_midi_channel=controls.InstrumentMidiChannel();
+        panel.instrument_tuning=controls.InstrumentSampleTuning();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();
@@ -447,6 +461,8 @@ int main(int argc, char* argv[])
             panel.instrument_status=controls.ScreenStatus();
             panel.instrument_transport=serial.Playing()?"PLAYING":serial.Paused()?"PAUSED":serial.MidiRecoveryStopped()?"STOPPED":"";
             const char* focus_hint=panel.instrument_focus==1 && panel.instrument_load_available?"A: Browse | ":
+                panel.instrument_focus==BringUpControls::RootNoteField?"Left/Right: Root Note | ":
+                panel.instrument_focus==BringUpControls::FineTuneField?"Left/Right: Fine Tune | ":
                 panel.instrument_focus==3?"Left/Right: Channel | ":panel.instrument_focus==2?"Left/Right: Slot | ":panel.instrument_focus==0?"Left/Right: Type | ":"";
             panel.transport_hints=std::string("D-pad U/D: Field | ")+focus_hint+
                 "Select+Down: Keep | B: Roll back | Start: Play/Pause/Continue";

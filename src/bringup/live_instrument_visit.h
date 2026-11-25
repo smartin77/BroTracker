@@ -12,14 +12,15 @@ public:
             if(std::any_of(edited_.begin(),edited_.end(),[](bool edited){return edited;}))return false;
             End(id_);
         }
-        if(!id_){original_definitions_=definitions;original_bindings_=bindings;id_=id;cancelled_=0;edited_.fill(false);}
+        if(!id_){original_definitions_=definitions;original_bindings_=bindings;id_=id;cancelled_=0;edited_.fill(false);binding_replaced_.fill(false);}
         return true;
     }
-    bool MidiChannelsChanged(const InstrumentDefinitions& definitions)const {
+    bool PersistedParametersChanged(const InstrumentDefinitions& definitions)const {
         if(!Active())return false;
         for(unsigned i=0;i<definitions.Count();++i) {
             const auto* previous=original_definitions_.At(i);
-            if(previous && previous->midi_channel!=definitions.At(i)->midi_channel)return true;
+            const auto* current=definitions.At(i);
+            if(previous && (previous->midi_channel!=current->midi_channel || previous->tuning!=current->tuning))return true;
         }
         return false;
     }
@@ -28,7 +29,16 @@ public:
     std::uint32_t Identity()const{return id_;}
     const VariableRateSampleBindings& OriginalBindings()const{return original_bindings_;}
     void Cancel(std::uint32_t request){cancelled_=std::max(cancelled_,request);}
-    void MarkEdited(unsigned slot){if(Active() && slot<edited_.size())edited_[slot]=true;}
+    void MarkEdited(unsigned slot,bool binding_replaced=true){
+        if(Active() && slot<edited_.size()){
+            edited_[slot]=true;
+            binding_replaced_[slot]|=binding_replaced;
+        }
+    }
+    bool TuningOnly(unsigned slot)const{
+        const auto* original=original_definitions_.At(slot);
+        return original && original->type==InstrumentType::Sample && !binding_replaced_[slot];
+    }
     bool Cancelled(std::uint32_t request)const{return request && request<=cancelled_;}
     bool End(std::uint32_t id){if(id!=id_)return false;id_=0;original_definitions_.Reset(false);original_bindings_={};return true;}
     template<class Install> unsigned Restore(unsigned slot,InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,Install install) {
@@ -39,12 +49,13 @@ public:
         unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=slot)++index;
         if(original){if(index==bindings.count)++bindings.count;bindings.bindings[index]=*original;}
         else if(index<bindings.count){for(unsigned i=index+1;i<bindings.count;++i)bindings.bindings[i-1]=bindings.bindings[i];--bindings.count;}
-        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource,d->midi_channel);
-        edited_[slot]=false;return 0;
+        (void)definitions.Replace(slot,InstrumentTypeCode(d->type),d->resource,d->midi_channel,d->tuning);
+        edited_[slot]=binding_replaced_[slot]=false;return 0;
     }
 private:
     InstrumentDefinitions original_definitions_{false};VariableRateSampleBindings original_bindings_{};
     std::uint32_t id_=0,cancelled_=0;
     std::array<bool,99> edited_{};
+    std::array<bool,99> binding_replaced_{};
 };
 }

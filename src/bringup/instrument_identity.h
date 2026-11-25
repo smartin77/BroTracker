@@ -82,7 +82,7 @@ inline bool ParseInstrumentCollectionCount(const char* line,std::size_t length,u
     count=fields[1];return true;
 }
 
-struct InstrumentDefineRequest {unsigned request=0,expected=0,type=0;char resource[kSamplePathMaximum+1]{};unsigned midi_channel=0;};
+struct InstrumentDefineRequest {unsigned request=0,expected=0,type=0;char resource[kSamplePathMaximum+1]{};unsigned midi_channel=0;SampleTuning tuning;};
 // Put the applied channel before the existing ACK in a single TX queue entry.
 // Older terminals can ignore the supplemental line and still consume the ACK.
 inline void FormatLiveInstrumentReply(char (&reply)[128],unsigned request,unsigned result,
@@ -93,6 +93,9 @@ inline void FormatLiveInstrumentReply(char (&reply)[128],unsigned request,unsign
         definition->midi_channel>=1 && definition->midi_channel<=16)
         prefix=std::snprintf(reply,sizeof(reply),"BTINS1 APPLIEDCHANNEL 1 %u %u %u\n",
             request,slot,unsigned(definition->midi_channel));
+    else if(definition && definition->type==InstrumentType::Sample)
+        prefix=std::snprintf(reply,sizeof(reply),"BTINS1 APPLIEDTUNING 1 %u %u %u %u\n",
+            request,slot,definition->tuning.root,definition->tuning.cents);
     std::snprintf(reply+prefix,sizeof(reply)-prefix,"BTINS1 REPLACED 1 %u %u %u\n",
         request,result,definitions.Count());
 }
@@ -123,6 +126,11 @@ inline bool ParseInstrumentReplace(const char* line,std::size_t length,Instrumen
     out=candidate;return true;
 }
 inline bool ParseInstrumentEdit(const char* line,std::size_t length,InstrumentDefineRequest& out) noexcept {
+    std::uint32_t tuning[6]{};
+    if(SnapshotFields(line,length,"BTINS1 EDIT ",tuning,6) &&
+        tuning[0]==4 && tuning[1] && tuning[2]<99 && tuning[3]==1 && SampleTuning{tuning[4],tuning[5]}.Valid()) {
+        out={};out.request=tuning[1];out.expected=tuning[2];out.type=1;out.tuning={tuning[4],tuning[5]};return true;
+    }
     std::uint32_t fields[5]{};
     if(SnapshotFields(line,length,"BTINS1 EDIT ",fields,5) &&
         fields[0]==3 && fields[1] && fields[2]<99 && fields[3]==2 && fields[4]>=1 && fields[4]<=16) {

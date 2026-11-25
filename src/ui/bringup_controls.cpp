@@ -1,4 +1,5 @@
 #include "bringup_controls.h"
+#include "editor_repeat.h"
 #include "host_logging.h"
 #include <algorithm>
 namespace {
@@ -99,7 +100,7 @@ bool BringUpControls::HasLiveTypes()const {
 }
 bool BringUpControls::LiveTypesSettled()const {
     if(live_type_inflight_ || live_type_failed_)return false;
-    for(unsigned i=0;i<99;++i)if(original_types_[i] && (desired_types_[i]!=applied_types_[i] || desired_resources_[i]!=applied_resources_[i] || desired_channels_[i]!=applied_channels_[i]))return false;
+    for(unsigned i=0;i<99;++i)if(original_types_[i] && (desired_types_[i]!=applied_types_[i] || desired_resources_[i]!=applied_resources_[i] || desired_channels_[i]!=applied_channels_[i] || desired_tuning_[i]!=applied_tuning_[i]))return false;
     return true;
 }
 bool BringUpControls::CaptureLiveDefinition() {
@@ -107,10 +108,13 @@ bool BringUpControls::CaptureLiveDefinition() {
     const auto slot=instrument_number_-1;
     if(original_types_[slot])return true;
     const auto type=serial_.InspectedType(instrument_number_);
-    if(!type || (type==2 && serial_.MidiInstrumentChannelSupported() && !serial_.InspectedMidiChannel(instrument_number_)))return false;
+    const auto tuning=serial_.InspectedSampleTuning(instrument_number_);
+    if(!type || (type==2 && serial_.MidiInstrumentChannelSupported() && !serial_.InspectedMidiChannel(instrument_number_)) ||
+        (type==1 && serial_.SampleTuningSupported() && !tuning.Valid()))return false;
     if(!original_types_[slot]) {
         original_types_[slot]=desired_types_[slot]=applied_types_[slot]=serial_.InspectedType(instrument_number_);
         original_channels_[slot]=desired_channels_[slot]=applied_channels_[slot]=serial_.InspectedMidiChannel(instrument_number_);
+        original_tuning_[slot]=desired_tuning_[slot]=applied_tuning_[slot]=tuning;
         const auto path=serial_.InstrumentResource();
         original_resources_[slot]=desired_resources_[slot]=applied_resources_[slot]=original_types_[slot]==1 && BroTracker::InstrumentDefinitions::ValidResource(path.c_str())?path:std::string{};
     }
@@ -120,6 +124,7 @@ bool BringUpControls::StageLiveSample(const std::string& path,std::uint32_t now)
     if(!serial_.LiveEditSupported() || !serial_.InstrumentVisitReady() || !CaptureLiveDefinition())return false;
     const auto slot=instrument_number_-1;
     desired_types_[slot]=1;desired_channels_[slot]=0;desired_resources_[slot]=path;live_type_failed_=false;
+    if(serial_.SampleTuningSupported() && !desired_tuning_[slot].Valid())desired_tuning_[slot]=BroTracker::kDefaultSampleTuning;
     definition_draft_={};sample_path_.clear();draft_slot_=0;TickLiveTypes(now);return true;
 }
 void BringUpControls::TickLiveTypes(std::uint32_t now) {
@@ -131,6 +136,7 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
             applied_resources_[live_type_slot_]=live_resource_sent_;
             const auto channel=serial_.InstrumentCommitMidiChannel();
             applied_channels_[live_type_slot_]=channel?channel:live_channel_sent_;
+            applied_tuning_[live_type_slot_]=serial_.InstrumentCommitTuning();
             // A zero draft requested the device's default. Resolve it without
             // changing the visit baseline or a draft queued while in flight.
             if(channel && desired_types_[live_type_slot_]==2 && !desired_channels_[live_type_slot_])
@@ -145,14 +151,18 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
         } else if(success)screen_status_="Instrument applied in Teensy RAM; keep the visit or roll back to the original";
     }
     if(live_type_inflight_ || live_type_failed_ || serial_.InstrumentCommitPending())return;
-    for(unsigned i=0;i<99;++i)if(original_types_[i] && (desired_types_[i]!=applied_types_[i] || desired_resources_[i]!=applied_resources_[i] || desired_channels_[i]!=applied_channels_[i])) {
-        if(desired_types_[i]==1 && desired_resources_[i].empty() && !assignment_rollback_) {
+    for(unsigned i=0;i<99;++i)if(original_types_[i] && (desired_types_[i]!=applied_types_[i] || desired_resources_[i]!=applied_resources_[i] || desired_channels_[i]!=applied_channels_[i] || desired_tuning_[i]!=applied_tuning_[i])) {
+        const bool restore=assignment_rollback_ || (desired_types_[i]==original_types_[i] && desired_resources_[i]==original_resources_[i] && desired_channels_[i]==original_channels_[i] && desired_tuning_[i]==original_tuning_[i]);
+        const bool tuning_only=!restore && desired_types_[i]==1 && applied_types_[i]==1 &&
+            desired_resources_[i]==applied_resources_[i] && desired_tuning_[i]!=applied_tuning_[i];
+        if(desired_types_[i]==1 && desired_resources_[i].empty() && !restore && !tuning_only) {
             screen_status_="Select a WAV with Load; the current playable binding is retained";return;
         }
-        const bool restore=assignment_rollback_ || (desired_types_[i]==original_types_[i] && desired_resources_[i]==original_resources_[i] && desired_channels_[i]==original_channels_[i]);
-        const bool accepted=serial_.LiveEditSupported()?serial_.ReplaceLiveDefinition(i+1,desired_types_[i],desired_resources_[i].c_str(),now,restore,desired_channels_[i]):serial_.ReplaceLiveType(i+1,desired_types_[i],now);
+        const auto tuning=tuning_only?desired_tuning_[i]:BroTracker::SampleTuning{};
+        const bool accepted=serial_.LiveEditSupported()?serial_.ReplaceLiveDefinition(i+1,desired_types_[i],desired_resources_[i].c_str(),now,restore,desired_channels_[i],tuning):serial_.ReplaceLiveType(i+1,desired_types_[i],now);
         if(accepted) {
             live_type_slot_=i;live_type_sent_=desired_types_[i];live_channel_sent_=desired_channels_[i];live_resource_sent_=desired_resources_[i];live_type_inflight_=true;
+            live_tuning_sent_=desired_tuning_[i];
             screen_status_=assignment_rollback_?"Restoring original definition and binding; waiting for device application":"Preparing/applying instrument in Teensy RAM";
         } else screen_status_=serial_.InstrumentCommitError();
         return;
@@ -168,11 +178,13 @@ bool BringUpControls::InstrumentVisitModified()const {
         if(!original_types_[i])continue;
         if(desired_types_[i]!=original_types_[i] || desired_resources_[i]!=original_resources_[i] ||
             applied_types_[i]!=original_types_[i] || applied_resources_[i]!=original_resources_[i] || desired_channels_[i]!=original_channels_[i] ||
-            applied_channels_[i]!=original_channels_[i])return true;
+            applied_channels_[i]!=original_channels_[i] || desired_tuning_[i]!=original_tuning_[i] ||
+            applied_tuning_[i]!=original_tuning_[i])return true;
     }
     // A superseded write may still apply before its acknowledgement arrives.
     return live_type_inflight_ && (live_type_sent_!=original_types_[live_type_slot_] ||
-        live_resource_sent_!=original_resources_[live_type_slot_] || live_channel_sent_!=original_channels_[live_type_slot_]);
+        live_resource_sent_!=original_resources_[live_type_slot_] || live_channel_sent_!=original_channels_[live_type_slot_] ||
+        live_tuning_sent_!=original_tuning_[live_type_slot_]);
 }
 bool BringUpControls::InstrumentDraftChanged()const {
     return draft_slot_==instrument_number_ && ((definition_draft_.explicit_type &&
@@ -192,6 +204,8 @@ void BringUpControls::FinishInstrumentVisit() {
     definition_draft_={};sample_path_.clear();draft_slot_=0;
     live_assignment_=assignment_confirm_=assignment_rollback_=false;
     original_channels_.fill(0);desired_channels_.fill(0);applied_channels_.fill(0);
+    original_tuning_.fill({});desired_tuning_.fill({});applied_tuning_.fill({});
+    ReleaseInstrumentFineTune();
     original_types_.fill(0);desired_types_.fill(0);applied_types_.fill(0);
     live_type_inflight_=live_type_failed_=false;
     original_resources_.fill({});desired_resources_.fill({});applied_resources_.fill({});
@@ -244,6 +258,29 @@ unsigned BringUpControls::InstrumentMidiChannel()const {
     if(original_types_[idx] && applied_types_[idx]!=2)return 0;
     return applied_channels_[idx]?applied_channels_[idx]:serial_.InspectedMidiChannel(instrument_number_);
 }
+BroTracker::SampleTuning BringUpControls::InstrumentSampleTuning()const {
+    if(!serial_.SampleTuningSupported() || InstrumentDraftTypeCode()!=1 || !instrument_number_ || instrument_number_>99)return {};
+    const auto slot=instrument_number_-1;
+    return original_types_[slot]?applied_tuning_[slot]:serial_.InspectedSampleTuning(instrument_number_);
+}
+bool BringUpControls::InstrumentSampleTuningEditable()const {
+    return instrument_screen_ && serial_.InstrumentVisitReady() && InstrumentSampleTuning().Valid();
+}
+void BringUpControls::ReleaseInstrumentFineTune(BringUpAction action) {
+    if(action==BringUpAction::None || action==fine_tune_held_)fine_tune_held_=BringUpAction::None;
+}
+void BringUpControls::StepSampleTuning(BringUpAction action,std::uint32_t now) {
+    if(!CaptureLiveDefinition())return;
+    auto& tuning=desired_tuning_[instrument_number_-1];
+    if(!tuning.Valid())return;
+    auto& value=instrument_field_==RootNoteField?tuning.root:tuning.cents;
+    const unsigned minimum=instrument_field_==RootNoteField?kPatternNoteMinimum:0;
+    const unsigned maximum=instrument_field_==RootNoteField?unsigned(kPatternNoteMaximum):BroTracker::kSampleFineTuneMaximum;
+    const auto next=action==BringUpAction::InstrumentIncrease?std::min(maximum,value+1):value>minimum?value-1:minimum;
+    if(next==value)return;
+    value=next;
+    live_type_failed_=false;TickLiveTypes(now);
+}
 bool BringUpControls::InstrumentMidiChannelEditable()const {
     return instrument_screen_ && serial_.InstrumentVisitReady() && InstrumentDraftTypeCode()==2 && InstrumentMidiChannel();
 }
@@ -262,7 +299,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         serial_.CancelLiveDefinition();
         if(live_assignment_ || HasLiveTypes()) {
             assignment_confirm_=false;assignment_rollback_=true;
-            for(unsigned i=0;i<99;++i)if(original_types_[i]){desired_types_[i]=original_types_[i];desired_resources_[i]=original_resources_[i];desired_channels_[i]=original_channels_[i];}
+            for(unsigned i=0;i<99;++i)if(original_types_[i]){desired_types_[i]=original_types_[i];desired_resources_[i]=original_resources_[i];desired_channels_[i]=original_channels_[i];desired_tuning_[i]=original_tuning_[i];}
             live_type_failed_=false;
             definition_draft_={};sample_path_.clear();draft_slot_=0;
             screen_status_="Restoring original assignment; waiting for device application";
@@ -361,9 +398,17 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         if((assignment_confirm_ || assignment_rollback_ || visit_closing_) && action!=BringUpAction::ResetStop)return;
         if(action==BringUpAction::InstrumentPreviousField || action==BringUpAction::InstrumentNextField) {
             if(!definition_return_) {
-                const int action_field=InstrumentLoadAvailable()?1:InstrumentMidiChannelEditable()?3:0;
-                if(action==BringUpAction::InstrumentNextField)instrument_field_=instrument_field_==2?0:instrument_field_==0 && action_field?action_field:2;
-                else instrument_field_=instrument_field_==0?2:instrument_field_==2?unsigned(action_field):0;
+                ReleaseInstrumentFineTune();
+                std::array<unsigned,5> fields{0,0,0,0,0};
+                unsigned count=1;
+                if(InstrumentSampleTuningEditable()){fields[count++]=RootNoteField;fields[count++]=FineTuneField;}
+                if(InstrumentLoadAvailable())fields[count++]=1;
+                else if(InstrumentMidiChannelEditable())fields[count++]=3;
+                fields[count++]=2;
+                const auto end=fields.begin()+count;
+                const auto it=std::find(fields.begin(),end,instrument_field_);
+                const unsigned index=it==end?0:unsigned(it-fields.begin());
+                instrument_field_=fields[(index+(action==BringUpAction::InstrumentNextField?1:count-1))%count];
             }
             return;
         }
@@ -398,6 +443,14 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
                 if(next==current)return;
                 desired_channels_[slot]=next;live_type_failed_=false;TickLiveTypes(now);return;
             }
+            if(instrument_field_>=RootNoteField) {
+                if(!InstrumentSampleTuningEditable())return;
+                if(instrument_field_==FineTuneField) {
+                    fine_tune_held_=action;fine_tune_started_=fine_tune_last_=now;fine_tune_repeated_=false;
+                }
+                StepSampleTuning(action,now);
+                return;
+            }
             if(InstrumentFocus()!=0 || !InstrumentTypeEditable() || definition_return_)return;
             const auto type=InstrumentDraftTypeCode();
             const auto next=action==BringUpAction::InstrumentIncrease?type%3+1:(type+1)%3+1;
@@ -405,6 +458,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
             if(serial_.LiveEditSupported() && instrument_number_<=serial_.InstrumentCollectionSize() && CaptureLiveDefinition()) {
                 desired_types_[slot]=next;
                 desired_channels_[slot]=next==2?original_channels_[slot]:0;
+                desired_tuning_[slot]=next==1?original_tuning_[slot]:BroTracker::SampleTuning{};
                 desired_resources_[slot]=next==1 && original_types_[slot]==1?original_resources_[slot]:std::string{};
                 if(live_type_inflight_)serial_.CancelLiveDefinition();
                 live_type_failed_=false;definition_draft_={};draft_slot_=0;sample_path_.clear();TickLiveTypes(now);return;
@@ -551,6 +605,7 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
         instrument_entry_pattern_.reset();
         live_assignment_=assignment_confirm_=assignment_rollback_=false;
         original_channels_.fill(0);desired_channels_.fill(0);applied_channels_.fill(0);
+        original_tuning_.fill({});desired_tuning_.fill({});applied_tuning_.fill({});
         original_types_.fill(0);desired_types_.fill(0);applied_types_.fill(0);live_type_inflight_=live_type_failed_=false;
         if(instrument_destination_ && (serial_.Playing() || serial_.LiveEditSupported())) {
             // Capture before exposing the screen. No SD request or transport command:
@@ -615,6 +670,14 @@ void BringUpControls::Request(BringUpAction action, const char* source, std::uin
 }
 void BringUpControls::Tick(std::uint32_t now) {
     serial_.Tick(now);
+    if(fine_tune_held_!=BringUpAction::None) {
+        if(instrument_field_!=FineTuneField || !InstrumentSampleTuningEditable() || serial_.UserActionsBlocked() ||
+            !editor_ || editor_->Locked() || assignment_confirm_ || assignment_rollback_ || visit_closing_ || wav_picker_)ReleaseInstrumentFineTune();
+        else if(now-fine_tune_last_>=EditorRepeatTiming::Interval(now-fine_tune_started_,fine_tune_repeated_)) {
+            fine_tune_last_=now;fine_tune_repeated_=true;
+            StepSampleTuning(fine_tune_held_,now);
+        }
+    }
     if(visit_closing_ && !serial_.InstrumentVisitActive())FinishInstrumentVisit();
     if(HasLiveTypes() && !visit_closing_)TickLiveTypes(now);
     if((assignment_confirm_ || assignment_rollback_) && !visit_closing_ && editor_) {

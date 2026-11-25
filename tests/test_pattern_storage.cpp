@@ -803,6 +803,44 @@ TEST_CASE(ConvertedLegacyNonMidiSlotPersistsEditedChannel) {
     CHECK_EQ(restored.bindings[5].midi_channel,2u);
 }
 
+TEST_CASE(SampleTuningSessionRoundTripAndWavReplacement) {
+    for(bool lineage:{false,true}) {
+        FakePatternSd::Reset();
+        SdPatternFiles backend;backend.ready=true;
+        WorkingSessionStore<SdPatternFiles> store;
+        WorkingSession session;session.working=MakeDevelopmentPattern();
+        if(lineage)session.EstablishLineage("1234567890abcdef1234567890abcdef");
+        CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+        WorkingSession restored;
+        CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK(restored.definitions.At(0)->tuning==kDefaultSampleTuning);
+        const SampleTuning tuning{72,99};
+        CHECK(restored.definitions.SetSampleTuning(0,tuning));
+        static const std::int16_t old_pcm[32]{},new_pcm[32]{};
+        const auto prepare=[](unsigned,const char*,Pcm16MixedSampleView& view){
+            view={old_pcm,32,22050};return InstrumentAvailability::Ready;
+        };
+        auto bindings=PrepareSessionBindings(restored.definitions,prepare);
+        VariableRateSampleBinding replacement{0,60,{new_pcm,32,44100}};
+        InstrumentDefineRequest request;request.type=1;
+        std::strcpy(request.resource,"Samples/replacement.wav");
+        const auto install=[&](const auto& binding){
+            CHECK_EQ(binding.reference_note,tuning.root);
+            CHECK_EQ(binding.fine_tune_cents,tuning.cents);
+            CHECK_EQ(binding.sample.data,new_pcm);
+            return true;
+        };
+        CHECK_EQ(ReplaceInstrumentDefinition(restored.definitions,bindings,request,replacement,true,install),0u);
+        CHECK_EQ(store.Save(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(FakePatternSd::files[kSessionPath].bytes[4],lineage?6:5);
+        WorkingSession roundtrip;
+        CHECK_EQ(store.Load(backend,roundtrip),PatternFileResult::Ok);
+        CHECK(roundtrip.definitions.At(0)->tuning==tuning);
+        CHECK_EQ(std::string(roundtrip.definitions.At(0)->resource),"Samples/replacement.wav");
+        CHECK_EQ(PrepareSessionBindings(roundtrip.definitions,prepare).bindings[0].fine_tune_cents,99u);
+    }
+}
+
 TEST_CASE(WorkingSessionLineageMigratesOnlyAfterDurablePromotion) {
     FakePatternSd::Reset();
     SdPatternFiles backend;backend.ready=true;
