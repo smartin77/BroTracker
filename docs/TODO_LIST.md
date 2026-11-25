@@ -7,10 +7,11 @@
 * [ ] Implement Instrument Name and Description editing and read embedded WAV Title
   for Sample descriptions. Define how metadata and user edits interact.
   [Descriptive fields](INSTRUMENT_FOUNDATION.md#midi-channel-and-descriptive-fields)
-* [ ] Physically verify the delivered Sample Root Note and Fine Tune controls on
-  Windows and handheld with updated BTX and Teensy firmware. Automated checks
-  cover steps, hold acceleration, clamping, source-rate pitch, live triggers,
-  Keep/Cancel, WAV replacement and session restore. [Sample format](SAMPLE_FORMAT.md)
+* [ ] Physically verify Sample Root Note and Fine Tune on handheld with updated
+  BTX and Teensy firmware. Windows BTX and Teensy verified defaults and edits
+  on the restored Sample 06, Cancel, and Keep across save and restart. Automated
+  checks cover hold acceleration, clamping, source-rate pitch and live triggers.
+  [Sample format](SAMPLE_FORMAT.md)
 * [ ] Define Sample instrument gain separately from track and master gain.
 * [ ] Define Sample start/end behavior and its interaction with slices.
 * [ ] Resolve Sample transpose independently of Root Note and Fine Tune.

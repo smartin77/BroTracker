@@ -411,7 +411,7 @@ namespace
         if(advertise_snapshot) {
             (void)QueueLine("BTINS1 WAVSTEREOCAP 1\nBTINS1 WAVRATECAP 1\nBTINS1 WAVPCM8CAP 1\nBTINS1 WAVLQCAP 1\n");
         }
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\nBTINS1 TUNINGCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\nBTINS1 TUNINGCAP 1\nBTINS1 TUNINGBUILD 1 " __DATE__ " " __TIME__ "\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\nBTWAVE1 FPCAP 1\n"
 #endif
@@ -1323,14 +1323,17 @@ namespace
                     }
                     char reply[kPathProtocolCapacity];
                     const auto facts=InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability);
-                    if(FormatInstrumentFacts(facts,reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2))(void)QueueLine(reply);
+                    const bool formatted=FormatInstrumentFacts(facts,reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2);
+                    if(formatted && facts.type==1) {
+                        const auto tuning=g_instrument_definitions.At(id)->tuning;
+                        const auto length=std::strlen(reply);
+                        const auto written=std::snprintf(reply+length,sizeof(reply)-length,
+                            "BTINS1 TUNING 1 %u %u %u\n",id,tuning.root,tuning.cents);
+                        if(written>0 && std::size_t(written)<sizeof(reply)-length)(void)QueueLine(reply);
+                    } else if(formatted)(void)QueueLine(reply);
                     if(facts.type==2) {
                         std::snprintf(reply,sizeof(reply),"BTINS1 CHANNEL 1 %u %u\n",id,
                             unsigned(g_instrument_definitions.At(id)->midi_channel));
-                        (void)QueueLine(reply);
-                    } else if(facts.type==1) {
-                        const auto tuning=g_instrument_definitions.At(id)->tuning;
-                        std::snprintf(reply,sizeof(reply),"BTINS1 TUNING 1 %u %u %u\n",id,tuning.root,tuning.cents);
                         (void)QueueLine(reply);
                     }
                 } else if(g_protocol_connected && ParseInstrumentIdentityRequest(line,used,id)) {

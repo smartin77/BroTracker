@@ -965,22 +965,20 @@ static void DrawInstrumentScreen(Framebuffer& fb,const HostPanelInformation& hos
         const auto columns=std::size_t((width-type_x-inset)/face.cell);
         if(filename.size()>columns)filename=filename.substr(0,columns-3)+"...";
         text(type_x,name_y,filename,header_value);
-        const auto tuning=host.instrument_tuning;
+        const auto tuning=BroTracker::ResolveSampleTuning(host.instrument_tuning);
         const int value_x=inset+std::max(measure("Root Note"),measure(host.text.Get(WarningText::FineTune)))+16;
-        const auto draw_tuning=[&](int field,int y,const std::string& label,const std::string& value,bool decrease,bool increase) {
+        const auto draw_tuning=[&](int field,int y,const std::string& label,const std::string& value) {
             text(inset,y,label,row_header_bright);
             const int w=measure(value);
-            if(tuning.Valid()) {
+            if(host.instrument_tuning_editable) {
                 focus(field,value_x-4,y-2,w+8,row_pitch);
-                edit_arrows(value_x,y,w,decrease,increase);
+                edit_arrows(value_x,y,w,true,true);
             }
-            text(value_x,y,tuning.Valid()?value:host.text.Get(WarningText::Unavailable),tuning.Valid()?header_value:dim);
+            text(value_x,y,value,host.instrument_tuning.Valid()?header_value:dim);
         };
         char cents[3]{char('0'+tuning.cents/10),char('0'+tuning.cents%10),0};
-        draw_tuning(BringUpControls::RootNoteField,name_y+row_pitch,"Root Note",FormatNote(Note(tuning.root),AccidentalMode::Sharp),
-            tuning.root>kPatternNoteMinimum,tuning.root<kPatternNoteMaximum);
-        draw_tuning(BringUpControls::FineTuneField,name_y+2*row_pitch,host.text.Get(WarningText::FineTune),cents,
-            tuning.cents>0,tuning.cents<BroTracker::kSampleFineTuneMaximum);
+        draw_tuning(BringUpControls::RootNoteField,name_y+row_pitch,"Root Note",FormatNote(Note(tuning.root),AccidentalMode::Sharp));
+        draw_tuning(BringUpControls::FineTuneField,name_y+2*row_pitch,host.text.Get(WarningText::FineTune),cents);
     } else if(host.instrument_identity=="MIDI") {
         const int channel_y=name_y+row_pitch;
         text(inset,channel_y,"Channel",row_header_bright);

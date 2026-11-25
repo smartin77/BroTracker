@@ -994,6 +994,7 @@ TEST_CASE(InstrumentTuningDrawsFocusedFrameAndExteriorArrowsAtTheEndpoints) {
     HostPanelInformation panel;
     panel.instrument_number=1;panel.instrument_identity="Sample";
     panel.instrument_focus=BringUpControls::FineTuneField;
+    panel.instrument_tuning_editable=true;
     const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
     const int x=24+std::max(HostBitmap::Measure(face,"Root Note").width,HostBitmap::Measure(face,"Fine Tune").width);
     const int w=HostBitmap::Measure(face,"00").width;
@@ -1007,11 +1008,19 @@ TEST_CASE(InstrumentTuningDrawsFocusedFrameAndExteriorArrowsAtTheEndpoints) {
         RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
         CHECK(pixel(x-4,y+6,{255,160,64}));
         CHECK(pixel(x+w+3,y+6,{255,160,64}));
-        CHECK_EQ(pixel(x-8,y+6,{143,143,159}),cents>0);
-        CHECK_EQ(pixel(x+w+7,y+6,{143,143,159}),cents<99);
+        CHECK(pixel(x-8,y+6,{143,143,159}));
+        CHECK(pixel(x+w+7,y+6,{143,143,159}));
         CHECK(!pixel(x-5,y+6,{143,143,159}));
         CHECK(!pixel(x+w+4,y+6,{143,143,159}));
     }
+    panel.instrument_tuning={};
+    RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
+    CHECK(pixel(x-4,y+6,{255,160,64}));
+    CHECK(pixel(x-8,y+6,{143,143,159}));
+    CHECK(pixel(x+w+7,y+6,{143,143,159}));
+    panel.instrument_tuning_editable=false;
+    RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
+    CHECK(!pixel(x-8,y+6,{143,143,159}));
 }
 
 TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {

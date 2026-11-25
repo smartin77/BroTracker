@@ -14,6 +14,9 @@ struct SampleTuning {
     constexpr bool operator!=(SampleTuning other) const noexcept { return !(*this==other); }
 };
 constexpr SampleTuning kDefaultSampleTuning{kSampleRootDefault,0};
+constexpr SampleTuning ResolveSampleTuning(SampleTuning tuning) noexcept {
+    return {tuning.root?tuning.root:kSampleRootDefault,tuning.cents};
+}
 
 // Rounded Q0.32 deltas, round((2^(cents/1200) - 1) * 2^32).
 constexpr std::uint32_t kSampleFineTuneDeltas[]={

@@ -836,11 +836,19 @@ void BringUpSerial::OnLine(std::uint32_t now)
         return;
     }}
     if(!std::strcmp(line_,"BTINS1 LIVEEDITCAP 1")){live_edit_supported_=connected_;return;}
-    if(!std::strcmp(line_,"BTINS1 TUNINGCAP 1")){sample_tuning_supported_=connected_;return;}
+    if(!std::strcmp(line_,"BTINS1 TUNINGCAP 1")) {
+        if(connected_ && !sample_tuning_supported_) {
+            sample_tuning_supported_=true;
+            if(identity_number_ && identity_number_<=99 && !identity_tuning_.Valid())identity_request_=true;
+        }
+        return;
+    }
     {
         std::uint32_t f[5]{};
-        if(SampleTuningSupported() && BroTracker::SnapshotFields(line_,used_,"BTINS1 TUNING ",f,4) &&
+        if(connected_ && BroTracker::SnapshotFields(line_,used_,"BTINS1 TUNING ",f,4) &&
             f[0]==1 && identity_number_ && f[1]==identity_number_-1 && BroTracker::SampleTuning{f[2],f[3]}.Valid()) {
+            // TUNING 1 also identifies a peer with EDIT 4 support.
+            sample_tuning_supported_=true;
             identity_tuning_={f[2],f[3]};
             return;
         }
@@ -1533,8 +1541,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
         else if(connected_ && collection_supported_ && collection_request_ && !pattern_assembler_.Active()) {
             std::strcpy(tx_,"BTINS1 COLLECTION GET 1\n");tx_size_=std::strlen(tx_);tx_offset_=0;collection_request_=false;
         }
-        else if(connected_ && identity_supported_ && identity_request_ && !pattern_assembler_.Active()) {
+        else if(connected_ && identity_supported_ && !pattern_assembler_.Active() &&
+            (identity_request_ || (SampleTuningSupported() && InspectedSample(identity_number_) &&
+                !identity_tuning_.Valid() && !define_pending_ && now-identity_requested_at_>=1000))) {
             tx_size_=std::snprintf(tx_,sizeof(tx_),"BTINS1 GET %u %u\n",path_supported_?3u:identity_extended_?2u:1u,identity_number_-1);tx_offset_=0;identity_request_=false;
+            identity_requested_at_=now;
         }
         else if(connected_ && volume_.Supported() && !pattern_assembler_.Active() &&
             (volume_.NeedsRead(now) || volume_.Sending() || volume_.Begin())) {

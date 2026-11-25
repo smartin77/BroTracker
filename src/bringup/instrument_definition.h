@@ -53,6 +53,7 @@ public:
         return expected==count_ && count_<99 && (type==1?(ValidResource(resource)&&ResourcePaths().CanAcquire(resource)):(type==2 || type==3) && !resource);
     }
     bool Append(unsigned expected,unsigned type,const char* resource,unsigned channel=0,SampleTuning tuning=kDefaultSampleTuning) noexcept {
+        tuning=ResolveSampleTuning(tuning);
         if(!CanAppend(expected,type,resource) || channel>16 || (channel && type!=2) || !tuning.Valid())return false;
         if(!resources_[count_].Assign(resource))return false;
         definitions_[count_]={type==1?InstrumentType::Sample:type==2?InstrumentType::MIDI:InstrumentType::Synth,resources_[count_].Get(),std::uint8_t(type==2?(channel?channel:kNewMidiInstrumentChannel):0),tuning};++count_;return true;
@@ -61,6 +62,7 @@ public:
         return slot<count_ && (type==1?(ValidResource(resource)&&ResourcePaths().CanAcquire(resource)):(type==2 || type==3) && !resource);
     }
     bool Replace(unsigned slot,unsigned type,const char* resource,unsigned channel=0,SampleTuning tuning=kDefaultSampleTuning) noexcept {
+        tuning=ResolveSampleTuning(tuning);
         if(!CanReplace(slot,type,resource) || channel>16 || (channel && type!=2) || !tuning.Valid())return false;
         if(type==2 && !channel)channel=definitions_[slot].midi_channel?definitions_[slot].midi_channel:kNewMidiInstrumentChannel;
         if(!resources_[slot].Assign(resource))return false;

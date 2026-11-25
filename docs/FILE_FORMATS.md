@@ -656,9 +656,10 @@ its waveform namespace (see [Instrument Foundation](INSTRUMENT_FOUNDATION.md#per
 
 ## BTM versions 5 and 6 Sample tuning
 
-A session with non-default Sample tuning uses v5 without lineage or v6 with
+A session containing a Sample instrument uses v5 without lineage or v6 with
 lineage. Definition records grow from three to five bytes. The two appended
 bytes are the Sample Root Note (raw 24–127) and Fine Tune (0–99 cents). Non-Sample
 records have zero in both bytes. The existing path table, trailer, MIDI channel
 and CRC rules apply. Versions 1–4 and legacy BTWS/BTSS restore Sample tuning to
-C-3 and 00 because those formats lack tuning fields.
+C-3 and 00 because those formats lack tuning fields. A zero Root Note byte
+in a tuning record resolves to C-3 and retains the stored Fine Tune.

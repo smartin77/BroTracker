@@ -139,6 +139,9 @@ Instrument file Save is deferred. With current firmware, defined Samples expose
 Root Note as a BroTracker note name and Fine Tune as two decimal digits. Left and
 Right step Root Note by a semitone and Fine Tune by a cent. Holding a Fine Tune
 arrow accelerates the steps. Both values clamp at their endpoints.
+Both arrows remain visible at the endpoints. BTX displays C-3 and 00 while
+waiting for tuning metadata or when connected to firmware without tuning support.
+Edits require a confirmed Sample baseline from compatible firmware.
 Transpose remains undecided. Sample waveform/parameters together, graphical
 Synth controls, presets and engine parameter editing are deferred. Browser audition
 behavior is documented below.

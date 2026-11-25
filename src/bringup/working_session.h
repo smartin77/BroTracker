@@ -139,7 +139,7 @@ public:
         if(r!=PatternFileResult::Ok)return r;
         bool with_tuning=false;
         for(unsigned i=0;i<s.definitions.Count();++i)
-            with_tuning|=s.definitions.At(i)->tuning!=kDefaultSampleTuning;
+            with_tuning|=s.definitions.At(i)->type==InstrumentType::Sample;
         const unsigned record_size=with_tuning?5:3;
         std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=(with_tuning?5:3)+bool(s.lineage[0]);bytes_[6]=24;
         const auto trailer=8+(s.lineage[0]?kSessionLineageSize:0);

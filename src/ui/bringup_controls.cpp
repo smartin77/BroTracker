@@ -106,7 +106,18 @@ bool BringUpControls::LiveTypesSettled()const {
 bool BringUpControls::CaptureLiveDefinition() {
     if(!instrument_number_ || instrument_number_>serial_.InstrumentCollectionSize())return false;
     const auto slot=instrument_number_-1;
-    if(original_types_[slot])return true;
+    if(original_types_[slot]) {
+        if(applied_types_[slot]==1 && !applied_tuning_[slot].Valid()) {
+            const auto tuning=serial_.InspectedSampleTuning(instrument_number_);
+            if(tuning.Valid()) {
+                applied_tuning_[slot]=tuning;
+                if(desired_types_[slot]==1 && !desired_tuning_[slot].Valid())desired_tuning_[slot]=tuning;
+                if(original_types_[slot]==1 && applied_resources_[slot]==original_resources_[slot] &&
+                    !original_tuning_[slot].Valid())original_tuning_[slot]=tuning;
+            }
+        }
+        return true;
+    }
     const auto type=serial_.InspectedType(instrument_number_);
     const auto tuning=serial_.InspectedSampleTuning(instrument_number_);
     if(!type || (type==2 && serial_.MidiInstrumentChannelSupported() && !serial_.InspectedMidiChannel(instrument_number_)) ||
@@ -137,6 +148,9 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
             const auto channel=serial_.InstrumentCommitMidiChannel();
             applied_channels_[live_type_slot_]=channel?channel:live_channel_sent_;
             applied_tuning_[live_type_slot_]=serial_.InstrumentCommitTuning();
+            if(applied_tuning_[live_type_slot_].Valid() && desired_types_[live_type_slot_]==1 &&
+                !desired_tuning_[live_type_slot_].Valid())
+                desired_tuning_[live_type_slot_]=applied_tuning_[live_type_slot_];
             // A zero draft requested the device's default. Resolve it without
             // changing the visit baseline or a draft queued while in flight.
             if(channel && desired_types_[live_type_slot_]==2 && !desired_channels_[live_type_slot_])
@@ -261,16 +275,23 @@ unsigned BringUpControls::InstrumentMidiChannel()const {
 BroTracker::SampleTuning BringUpControls::InstrumentSampleTuning()const {
     if(!serial_.SampleTuningSupported() || InstrumentDraftTypeCode()!=1 || !instrument_number_ || instrument_number_>99)return {};
     const auto slot=instrument_number_-1;
-    return original_types_[slot]?applied_tuning_[slot]:serial_.InspectedSampleTuning(instrument_number_);
+    return original_types_[slot] && applied_tuning_[slot].Valid()?
+        applied_tuning_[slot]:serial_.InspectedSampleTuning(instrument_number_);
 }
 bool BringUpControls::InstrumentSampleTuningEditable()const {
-    return instrument_screen_ && serial_.InstrumentVisitReady() && InstrumentSampleTuning().Valid();
+    if(!instrument_screen_ || !serial_.InstrumentVisitReady() || !serial_.SampleTuningSupported() ||
+        !instrument_number_ || instrument_number_>99 || InstrumentDraftTypeCode()!=1)return false;
+    const auto slot=instrument_number_-1;
+    return original_types_[slot]?applied_types_[slot]==1:serial_.InspectedSample(instrument_number_);
 }
 void BringUpControls::ReleaseInstrumentFineTune(BringUpAction action) {
     if(action==BringUpAction::None || action==fine_tune_held_)fine_tune_held_=BringUpAction::None;
 }
 void BringUpControls::StepSampleTuning(BringUpAction action,std::uint32_t now) {
-    if(!CaptureLiveDefinition())return;
+    if(!CaptureLiveDefinition()) {
+        screen_status_="Waiting for confirmed Sample tuning";
+        return;
+    }
     auto& tuning=desired_tuning_[instrument_number_-1];
     if(!tuning.Valid())return;
     auto& value=instrument_field_==RootNoteField?tuning.root:tuning.cents;

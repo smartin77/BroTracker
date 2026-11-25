@@ -208,6 +208,7 @@ int main(int argc, char* argv[]) try {
         panel.instrument_name=controls.CacheInstrumentName(panel.instrument_resource);
         panel.instrument_midi_channel=controls.InstrumentMidiChannel();
         panel.instrument_tuning=controls.InstrumentSampleTuning();
+        panel.instrument_tuning_editable=controls.InstrumentSampleTuningEditable();
         panel.instrument_number=controls.InstrumentScreen() && !controls.WavPicker()?controls.InstrumentNumber():0;
         panel.instrument_focus=controls.InstrumentFocus();panel.instrument_load_warning=controls.InstrumentLoadWarning();
         panel.sample_browser_confirmation=controls.ReplacementConfirming();panel.browser_directory=controls.WavDirectory();panel.sample_picker=controls.WavPicker();panel.instrument_load_available=controls.InstrumentLoadAvailable();

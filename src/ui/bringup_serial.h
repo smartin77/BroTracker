@@ -527,6 +527,7 @@ private:
     bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
     unsigned identity_availability_=0;char identity_resource_[BroTracker::kSamplePathMaximum+1]{};
     unsigned identity_number_=0,identity_type_=0;
+    std::uint32_t identity_requested_at_=0;
     bool snapshot_metadata_supported_=false,restore_view_pending_=false,host_view_seen_=false;
     EditCursor host_view_{},restored_view_{},save_view_{};
     BroTracker::HostChannelMute mute_; bool tx_mute_=false;

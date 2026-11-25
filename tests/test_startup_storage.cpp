@@ -64,7 +64,7 @@ struct StoragePeer:SerialTransport {
     bool waveform_cap=false;
     bool transport_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
-    bool midi_instrument_cap=false,sample_tuning_cap=false;
+    bool midi_instrument_cap=false,sample_tuning_cap=false,hold_sample_tuning=false,reject_sample_tuning=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
     void EditReply(unsigned id,unsigned result,unsigned slot=99) {
@@ -74,7 +74,7 @@ struct StoragePeer:SerialTransport {
     }
     void ApplyEdit(const InstrumentDefineRequest& request) {
         const bool tuning=request.tuning.Valid();
-        const auto result=visit.Cancelled(request.request)?7u:tuning?
+        const auto result=visit.Cancelled(request.request)?7u:tuning && reject_sample_tuning?4u:tuning?
             EditSampleTuning(definitions,definition_bindings,request.expected,request.tuning,
                 [&](unsigned id,SampleTuning value){return !definition_player || definition_player->SetSampleTuning(id,value);}):
             reject_wav && request.type==1?6u:
@@ -245,7 +245,7 @@ struct StoragePeer:SerialTransport {
                 if(midi_instrument_cap && definition && definition->type==InstrumentType::MIDI)
                     (hold_identity?identity_reply:rx)+="BTINS1 CHANNEL 1 "+std::to_string(id)+" "+
                         std::to_string(definition->midi_channel)+"\n";
-                if(sample_tuning_cap && definition && definition->type==InstrumentType::Sample)
+                if(sample_tuning_cap && !hold_sample_tuning && definition && definition->type==InstrumentType::Sample)
                     (hold_identity?identity_reply:rx)+="BTINS1 TUNING 1 "+std::to_string(id)+" "+
                         std::to_string(definition->tuning.root)+" "+std::to_string(definition->tuning.cents)+"\n";
             }
@@ -2735,6 +2735,41 @@ TEST_CASE(AllSixLiveTypeTransitionsUseProductionTriggersAndConfirmOrRestoreExact
             CHECK(it->rfind("BTSTORE1 SAVE",0)!=0);CHECK(it->rfind("BTSTORE1 READY",0)!=0);
         }
     }
+}
+
+TEST_CASE(SampleTuningRetriesAfterLateCapabilityAndNeverDisplaysRejectedChanges) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+        wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
+    CHECK(wire->definitions.SetSampleTuning(0,{67,42}));
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,0};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+    controls.ObserveEditor(editor);
+    std::uint32_t now=0;
+    const auto drive=[&](unsigned duration){for(const auto end=now+duration;now<end;){now+=10;controls.Tick(now);serial.SyncEditor(editor,now);}};
+    drive(1500);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    controls.Request(BringUpAction::ScreenUp,"Instrument",now);drive(300);
+    CHECK(serial.InspectedSample(1));CHECK(!controls.InstrumentSampleTuningEditable());
+    CHECK(BroTracker::ResolveSampleTuning(controls.InstrumentSampleTuning())==BroTracker::kDefaultSampleTuning);
+    const auto count_get=[&]{return std::count(wire->commands.begin(),wire->commands.end(),"BTINS1 GET 2 0");};
+    const auto before=count_get();
+    wire->sample_tuning_cap=true;wire->hold_sample_tuning=true;
+    wire->rx+="BTINS1 TUNINGCAP 1\n";drive(200);
+    CHECK(count_get()>before);CHECK(controls.InstrumentSampleTuningEditable());
+    CHECK(!controls.InstrumentSampleTuning().Valid());
+    controls.Request(BringUpAction::InstrumentNextField,"Root Note",now);
+    CHECK_EQ(controls.InstrumentFocus(),BringUpControls::RootNoteField);
+    controls.Request(BringUpAction::InstrumentIncrease,"Await confirmed baseline",now);
+    CHECK(!serial.InstrumentCommitPending());
+    wire->hold_sample_tuning=false;drive(1100);
+    const SampleTuning saved{67,42};
+    CHECK(controls.InstrumentSampleTuning()==saved);
+    wire->reject_sample_tuning=true;
+    controls.Request(BringUpAction::InstrumentIncrease,"Rejected root edit",now);drive(200);
+    CHECK(controls.InstrumentSampleTuning()==saved);
+    CHECK(wire->definitions.At(0)->tuning==saved);
+    CHECK(!serial.InstrumentCommitSucceeded());
 }
 
 TEST_CASE(SampleTuningControlsClampRepeatAndKeepOrRestoreDuringPlayback) {

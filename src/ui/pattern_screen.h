@@ -39,6 +39,7 @@ struct HostPanelInformation
     std::string instrument_name;
     unsigned instrument_midi_channel=0;
     BroTracker::SampleTuning instrument_tuning{};
+    bool instrument_tuning_editable=false;
     int instrument_focus=-1;std::string instrument_load_warning,instrument_candidate,instrument_status,instrument_transport;
     std::string browser_directory;
     bool sample_browser_confirmation=false;
