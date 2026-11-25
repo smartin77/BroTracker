@@ -261,6 +261,29 @@ TEST_CASE(HostDevelopmentStartupPatternConfiguration) {
     CHECK(ParseHostConfig(base+"[development]\nstartup_pattern=patern4\nstartup_pattern=patern1",c)==HostConfigStatus::Invalid);
 }
 
+TEST_CASE(HostConfigSwapChannelsUsesBooleanConventionsIndependentlyOfRoute) {
+    const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n[audio]\noutput=pt8211\n";
+    HostConfig c;
+    CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);
+    CHECK(!c.swap_channels && !c.swap_channels_invalid);
+    for(auto value:{"yes","on","true","1","no","off","false","0","","invalid"}) {
+        CHECK(ParseHostConfig(base+"swap_channels="+value,c)==HostConfigStatus::Loaded);
+        const std::string_view raw=value;
+        CHECK_EQ(c.swap_channels,raw=="yes" || raw=="on" || raw=="true" || raw=="1");
+        CHECK_EQ(c.swap_channels_invalid,raw=="invalid");
+        CHECK(c.audio_output==AudioOutputChoice::Pt8211);
+    }
+    CHECK(ParseHostConfig(base+"swap_channels=on\nswap_channels=off",c)==HostConfigStatus::Invalid);
+    AudioOutputChoice route=AudioOutputChoice::Default;
+    bool swap=false;
+    CHECK(ParseAudioOutputRequestV2("BTAUDIO1 SET 2 audio_shield 1",route,swap));
+    CHECK(route==AudioOutputChoice::AudioShield && swap);
+    CHECK(!ParseAudioOutputRequestV2("BTAUDIO1 SET 2 bridge 0 extra",route,swap));
+    CHECK(route==AudioOutputChoice::AudioShield && swap);
+    CHECK(ParseAudioOutputRequestV2("BTAUDIO1 SET 2 default 0",route,swap));
+    CHECK(route==AudioOutputChoice::Default && !swap);
+}
+
 TEST_CASE(HostConfigCaptureHoldbackFramesDefaultsBoundsAndWarnings) {
     const std::string base="[btx]\nschema_version=1\nnew_pattern_length=64\n";
     HostConfig c; CHECK(ParseHostConfig(base,c)==HostConfigStatus::Loaded);

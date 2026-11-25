@@ -178,6 +178,7 @@ namespace
         CollectMidiBlock(g_control,g_midi,render_us,AUDIO_BLOCK_SAMPLES);
     }
 #endif
+    ProductionAudioOutput g_output;
     class PatternAudioSource : public AudioStream
     {
     public:
@@ -228,6 +229,7 @@ namespace
 #endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
             CollectMidi(render_us);
+            g_output.OrderStereoBlocks(block,right);
 #endif
             transmit(block);
             release(block);
@@ -253,11 +255,14 @@ namespace
     };
     PatternAudioSource g_source;
     AudioOutputUSB g_usb; // Enumeration retained; no PCM connections in PT8211 mode.
-    ProductionAudioOutput g_output;
     DeviceIdentity g_identity;
-    const char* SelectAudio(AudioOutputChoice request) {
+    const char* SelectAudio(AudioOutputChoice request, bool swap=false) {
         const auto* error=g_output.Select(request,g_source,g_usb);
-        if(!error) { InterruptGuard guard; g_audio_ready=true; }
+        if(!error) {
+            InterruptGuard guard;
+            g_output.SetSwapChannels(swap);
+            g_audio_ready=true;
+        }
         return error;
     }
 
@@ -382,8 +387,13 @@ namespace
             status.running ? "BTTEST1 STATE PLAYING\n" :
             status.transport == PatternTransportState::Paused ? "BTTEST1 STATE PAUSED\n" : "BTTEST1 STATE IDLE\n";
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
-        char status_line[136];
-        std::snprintf(status_line,sizeof(status_line),"%sBTSESSION1 LINEAGE 1 %u %s\n%s",state,
+        // Keep CAP before STATE even when the host reads the reply in pieces.
+        const char* audio_cap="";
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+        if(advertise_snapshot) audio_cap="BTAUDIO1 CAP 2\n";
+#endif
+        char status_line[152];
+        std::snprintf(status_line,sizeof(status_line),"%s%sBTSESSION1 LINEAGE 1 %u %s\n%s",audio_cap,state,
             unsigned(g_session.lineage_persisted),g_session.lineage[0]?g_session.lineage:"-",
             advertise_snapshot?"BTCLOCK1 CAP 1\n":"");
         (void)QueueLine(status_line);
@@ -1356,11 +1366,20 @@ namespace
             }
             else if (!std::strncmp(line,"BTAUDIO1",8)) {
                 AudioOutputChoice request=AudioOutputChoice::Default;
-                const bool valid=ParseAudioOutputRequest(line,request);
-                const char* error=!valid ? "malformed" : !g_protocol_connected ? "not-connected" : SelectAudio(request);
+                bool swap=false;
+                bool v2=false;
+#ifdef BROTRACKER_PATTERN_VARIABLE_RATE
+                v2=ParseAudioOutputRequestV2(line,request,swap);
+#endif
+                const bool valid=v2 || ParseAudioOutputRequest(line,request);
+                const char* error=!valid ? "malformed" : !g_protocol_connected ? "not-connected" : SelectAudio(request,swap);
                 char reply[96];
                 if(error) std::snprintf(reply,sizeof(reply),"BTAUDIO1 ERROR 1 %s active=%s\n",error,AudioOutputName(g_output.Active()));
-                else std::snprintf(reply,sizeof(reply),"BTAUDIO1 SELECTED 1 %s\n",AudioOutputName(g_output.Active()));
+                else {
+                    if(v2) std::snprintf(reply,sizeof(reply),"BTAUDIO1 SELECTED 2 %s %u\n",
+                        AudioOutputName(g_output.Active()),unsigned(g_output.SwapChannels()));
+                    else std::snprintf(reply,sizeof(reply),"BTAUDIO1 SELECTED 1 %s\n",AudioOutputName(g_output.Active()));
+                }
                 (void)QueueLine(reply);
             }
             else if(!std::strncmp(line,"BTTEMPO1",8)) {

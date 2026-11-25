@@ -40,6 +40,16 @@ TEST_CASE(ProductionRoutesPreserveGraphsAndNeverConstructAlternativeHardware) {
         for(auto other : {AudioOutputChoice::Bridge,AudioOutputChoice::Pt8211,AudioOutputChoice::AudioShield})
             if(other!=route) CHECK_EQ(std::strcmp(output.Select(other,source,usb),"restart-required"),0);
         CHECK_EQ(g.controls,controls);CHECK_EQ(g.pt+g.mqs+g.i2s,1u);CHECK(output.Active()==route);
+        int source_left=1,source_right=2;
+        for(bool swap:{false,true,false}) {
+            auto* left=&source_left;
+            auto* right=&source_right;
+            output.SetSwapChannels(swap);
+            output.OrderStereoBlocks(left,right);
+            CHECK_EQ(*left,swap?2:1);
+            CHECK_EQ(*right,swap?1:2);
+            CHECK(output.Active()==route);
+        }
     }
 }
 TEST_CASE(ProductionDefaultRemainsBridge) {

@@ -2,6 +2,7 @@
 #include <Audio.h>
 #include <new>
 #include <type_traits>
+#include <utility>
 #include "audio_output_config.h"
 #include "../../../src/bringup/audio_output_selection.h"
 #include "../../../src/bringup/device_facts.h"
@@ -36,9 +37,18 @@ public:
         identity.route=Active();identity.audio=Initialization();return identity;
     }
     const char* Select(AudioOutputChoice request, AudioStream& source, AudioOutputUSB& usb);
+    // Publish from the foreground with audio interrupts masked, and read at the
+    // final stereo transmit boundary after rendering.
+    void SetSwapChannels(bool swap) noexcept { swap_channels_=swap; }
+    bool SwapChannels() const noexcept { return swap_channels_; }
+    template<class Block>
+    void OrderStereoBlocks(Block*& left, Block*& right) const noexcept {
+        if(swap_channels_) std::swap(left,right);
+    }
 
 private:
     AudioOutputSelection selection_;
+    bool swap_channels_=false;
     using Hardware=typename std::aligned_union<0,AudioOutputPT8211,AudioOutputMQS,AudioOutputI2S>::type;
     using Patch=typename std::aligned_storage<sizeof(AudioConnection),alignof(AudioConnection)>::type;
     Hardware hardware_;

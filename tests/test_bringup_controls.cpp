@@ -311,6 +311,27 @@ int main() {
         }
         { Test t; t.Ready("BTTEST1 STATE IDLE\n"); CHECK(t.serial.Start());
           CHECK(std::strstr(t.serial.MidiStatus(),"unsupported")); }
+        for(bool swap:{true,false}) {
+            Test t;
+            t.serial.SetSwapChannelsPreference(swap);
+            t.serial.SetAudioOutputPreference(BroTracker::AudioOutputChoice::Pt8211);
+            t.Tick(); t.port->Expect("BTTEST1 HELLO\n");
+            t.Reply("BTAUDIO1 CAP 2\n"); t.port->Expect("");
+            t.Reply("BTTEST1 STATE IDLE\n");
+            t.Tick(); t.port->Expect(swap?"BTAUDIO1 SET 2 pt8211 1\n":"BTAUDIO1 SET 2 pt8211 0\n");
+            CHECK(!t.serial.AudioTransportReady());
+            t.Reply(swap?"BTAUDIO1 SELECTED 2 pt8211 1\n":"BTAUDIO1 SELECTED 2 pt8211 0\n");
+            CHECK(t.serial.AudioOutputConfirmed());
+        }
+        for(const char* ack:{"BTAUDIO1 SELECTED 2 bridge 0\n","BTAUDIO1 SELECTED 1 bridge\n",
+                             "BTAUDIO1 ERROR 1 malformed active=default\n"}) {
+            Test t;
+            t.serial.SetSwapChannelsPreference(true);
+            t.Ready("BTTEST1 STATE IDLE\n",false);
+            t.Tick(); t.port->Expect("BTAUDIO1 SET 2 default 1\n");
+            t.Reply(ack);
+            CHECK(!t.serial.AudioTransportReady()); CHECK(!t.serial.Start());
+        }
         for(auto choice : {BroTracker::AudioOutputChoice::Bridge,BroTracker::AudioOutputChoice::Pt8211,BroTracker::AudioOutputChoice::AudioShield}) {
             Test t; t.serial.SetAudioOutputPreference(choice);
             t.Ready("BTTEST1 STATE IDLE\nBTAUDIO1 CAP 1\n",false);

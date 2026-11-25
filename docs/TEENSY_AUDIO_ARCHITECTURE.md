@@ -255,6 +255,7 @@ the former per-user location. Missing config uses built-in defaults.
 ```ini
 [audio]
 output=bridge
+swap_channels=off
 ```
 
 Supported explicit values are `bridge` (Teensy USB Audio -> existing host bridge)
@@ -279,9 +280,27 @@ BTX to reload the file. Once Teensy has activated a route, selecting a different
 route requires restarting Teensy too. No hot switch, probing or automatic fallback
 is implemented. Changing the firmware fallback itself requires rebuild/upload.
 
+`swap_channels` controls final stereo order independently of `output`. It applies
+after Teensy mixing and panning, including sample audition, for USB bridge
+playback on ArkOS and Windows, PT8211, and Audio Shield. The source channels used
+for WAV decoding, panning, and waveforms retain their original order. Use
+`yes/on/true/1` to enable or `no/off/false/0` to disable. Missing or empty uses
+off, and an invalid value logs a warning and uses off.
+
+Restart BTX after editing the config. BTX applies the value on the next serial
+connection and repeats it on reconnect. Updated production firmware acknowledges
+the channel order together with the route. Changing channel order alone requires
+no Teensy restart. Older firmware supports the default off behavior. Enabling the
+setting requires updated firmware and blocks START if the request fails.
+
 ### Startup and reconnect protocol
 
-Firmware advertises `BTAUDIO1 CAP 1` during the existing serial handshake. BTX
+Production firmware advertises `BTAUDIO1 CAP 2` before the handshake state and
+retains `BTAUDIO1 CAP 1` for older terminals. BTX uses
+`BTAUDIO1 SET 2 <route> <0|1>` and verifies both fields in
+`BTAUDIO1 SELECTED 2 <active-route> <0|1>`.
+
+With version 1 firmware and channel swapping off, BTX
 sends exactly one `BTAUDIO1 SET 1 bridge` or `pt8211` per connection for an explicit
 preference, or `BTAUDIO1 SET 1 default` on capable firmware without an override.
 `default` is a wire operation, not a supported explicit INI value. Teensy replies
@@ -454,8 +473,9 @@ retains the detailed lifecycle and playback checks for further validation.
 1. For repeat validation with PT8211 attached, stop BTX; merge/edit the
    user INI (retain required `[btx]`) to `output=pt8211`. With all power disconnected,
    verify module wiring, then reconnect Teensy and launch the rebuilt BTX.
-2. Confirm the logged config path/value, `BTAUDIO1 SET 1 pt8211` and matching
-   `BTAUDIO1 SELECTED 1 pt8211`. No playback should start without START. Start,
+2. With channel swapping off, confirm the logged config path/value,
+   `BTAUDIO1 SET 2 pt8211 0` and matching `BTAUDIO1 SELECTED 2 pt8211 0`.
+   No playback should start without START. Start,
    stop and restart; verify equal mono on DAC L/R, silent USB PCM, SD samples and
    telemetry. Check pause/continue where supported.
 3. Reconnect serial/BTX using the same configuration, both idle and during playback.
