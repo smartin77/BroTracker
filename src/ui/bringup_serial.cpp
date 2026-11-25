@@ -164,6 +164,14 @@ void BringUpSerial::ServiceExit(std::uint32_t now) {
     }
 }
 
+void BringUpSerial::MarkDefinitionUnconfirmed()
+{
+    define_reconcile_required_=true;
+    if(define_preserves_source_)return;
+    define_source_unconfirmed_=true;
+    if(visit_id_ && (define_replace_ || define_relink_))visit_source_changed_[define_slot_]=true;
+}
+
 void BringUpSerial::Disconnect(const char* reason)
 {
     waveform_.Disconnect();
@@ -225,7 +233,7 @@ void BringUpSerial::Disconnect(const char* reason)
     transport_->Close();
     opened_ = false;
     connected_ = false;
-    define_reconcile_required_=define_reconcile_required_ || define_pending_;
+    if(define_pending_)MarkDefinitionUnconfirmed();
     replace_supported_=relink_supported_=false;
     path_supported_=false;
     audition_live_supported_=audition_supported_=audition_queued_=audition_cancel_=false;audition_path_.clear();audition_error_.clear();
@@ -885,22 +893,29 @@ void BringUpSerial::OnLine(std::uint32_t now)
         if(connected_ && define_pending_ && define_relink_==relink_reply && define_replace_==replace_reply && parsed && request==define_id_) {
             if(!result && define_edit_ && define_type_==1 && SampleTuningSupported() &&
                 (!define_applied_tuning_.Valid() || (define_tuning_.Valid() && define_tuning_!=define_applied_tuning_))) {
-                define_pending_=define_success_=false;define_result_=8;define_reconcile_required_=true;
+                define_pending_=define_success_=false;define_result_=8;MarkDefinitionUnconfirmed();
                 define_error_="Sample tuning acknowledgement missing or mismatched";
                 return;
             }
             define_pending_=false;define_cancelled_=result==7;define_result_=result;
-            if(!result && define_edit_ && define_restore_)define_reconcile_required_=false;
             if(!result && count==define_expected_+((relink_reply || replace_reply)?0:1)) {
                 collection_count_=count;collection_ready_=true;define_success_=true;
-                if(define_edit_ && define_tuning_.Valid()) {
+                if(define_edit_ && define_restore_)define_reconcile_required_=define_source_unconfirmed_=false;
+                if(visit_id_ && (define_replace_ || define_relink_) && !define_preserves_source_)
+                    visit_source_changed_[define_slot_]=!define_restore_;
+                if(define_preserves_source_) {
                     if(identity_number_==define_slot_+1)identity_tuning_=define_applied_tuning_;
                 } else {
+                    // An acknowledgement can arrive before the next render.
+                    waveform_.Select(0,{},false);
                     identity_midi_channel_=0;identity_tuning_={};identity_ready_=identity_facts_ready_=false;
                     identity_request_=identity_number_>0 && identity_number_<=99;
                 }
             }
-            else {define_success_=false;define_error_=result==9?"Sample path storage full; previous binding retained":result==7?"Instrument preparation cancelled":result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: check format, file readability or source capacity":"Definition commit rejected (code "+std::to_string(result)+")";}
+            else {
+                if(!result){define_result_=8;MarkDefinitionUnconfirmed();}
+                define_success_=false;define_error_=result==9?"Sample path storage full; previous binding retained":result==7?"Instrument preparation cancelled":result==4?"WAV reference unavailable or invalid":result==6?"WAV preparation failed: check format, file readability or source capacity":"Definition commit rejected (code "+std::to_string(result)+")";
+            }
         }return;
     }
     if(!std::strcmp(line_,"BTINS1 COLLECTIONCAP 1")) {
@@ -909,7 +924,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
     }
     if(!std::strncmp(line_,"BTINS1 COLLECTION STATE ",24)) {
         unsigned count=0;if(connected_ && collection_supported_ && !collection_ready_ &&
-            BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;define_reconcile_required_=false;}
+            BroTracker::ParseInstrumentCollectionCount(line_,used_,count)) {collection_count_=count;collection_ready_=true;define_reconcile_required_=define_source_unconfirmed_=false;}
         return;
     }
     if(!std::strcmp(line_,"BTINS1 MIDICHANNELCAP 1")) {
@@ -1237,7 +1252,7 @@ void BringUpSerial::Tick(std::uint32_t now)
     }
     if(define_pending_ && now-define_started_>=(define_edit_?30000u:6000u)) {
         if(define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}define_result_=8;
-        define_pending_=define_queued_=define_success_=false;define_reconcile_required_=true;
+        define_pending_=define_queued_=define_success_=false;MarkDefinitionUnconfirmed();
         define_error_="Definition commit unconfirmed; reconnect to reconcile before retry";
     }
     // Fixed burst: ready transfers do not pay one UI/render interval per cell.

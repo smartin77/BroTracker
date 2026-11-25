@@ -2836,6 +2836,105 @@ TEST_CASE(SampleTuningControlsClampRepeatAndKeepOrRestoreDuringPlayback) {
     }
 }
 
+TEST_CASE(DisplayedWaveformSurvivesPendingTuningAndRevalidatesReplacedSource) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+        wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=
+        wire->waveform_cap=wire->sample_tuning_cap=wire->replace_cap=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,0};
+    static const std::int16_t replacement[32]{};
+    wire->live_prepared={0,60,{replacement,32,44100}};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+    controls.ObserveEditor(editor);
+    const auto view=[&]() -> const SampleWaveformCache& {
+        return serial.SelectWaveform(controls.InstrumentNumber(),controls.AcknowledgedSamplePath());
+    };
+    std::uint32_t now=0;
+    const auto drive=[&](unsigned duration){
+        for(const auto end=now+duration;now<end;){
+            now+=5;controls.Tick(now);serial.SyncEditor(editor,now);
+            if(controls.InstrumentScreen() && !controls.WavPicker())(void)view();
+        }
+    };
+    const auto action=[&](BringUpAction value){controls.Request(value,"waveform test",now);};
+    const auto count=[&](std::string_view prefix){return std::count_if(wire->commands.begin(),wire->commands.end(),
+        [&](const auto& line){return line.rfind(prefix,0)==0;});};
+    const auto reply=[&]{
+        wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    };
+    drive(1200);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    wire->rx+=std::string(kWaveformFingerprintCapability)+"\n";drive(20);
+    action(BringUpAction::ScreenUp);drive(250);
+    CHECK_EQ(count("BTWAVE1 GET 2 1 0 "),1);
+    wire->rx+="BTWAVE1 META 1 1 17 8 44100 1 16\nBTWAVE1 FP 1 1 17 0 60 44 16 4 5\n";drive(30);
+    char line[kWaveformLineCapacity];
+    std::uint8_t pcm[16]{};
+    const auto send_pcm=[&](unsigned id){
+        wire->rx.append(line,FormatWaveformData(line,id,0,pcm,sizeof(pcm)));drive(30);
+    };
+    send_pcm(1);
+    const auto unchanged=[&]{
+        CHECK_EQ(view().Status(),SampleWaveformCache::State::Ready);
+        CHECK_EQ(view().Metadata().token,17u);CHECK_EQ(view().BytesLoaded(),16u);
+        CHECK(serial.WaveformFingerprint()!=nullptr);
+        CHECK_EQ(count("BTWAVE1 GET "),1);CHECK_EQ(count("BTWAVE1 CANCEL "),0);
+    };
+    unchanged();
+    action(BringUpAction::InstrumentNextField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();unchanged();
+    wire->hold_define=true;action(BringUpAction::InstrumentDecrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK_EQ(count("BTINS1 RESTORE "),1);
+    unchanged();reply();unchanged();
+    wire->reject_sample_tuning=true;wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    unchanged();reply();CHECK(!serial.InstrumentCommitSucceeded());unchanged();
+    wire->reject_sample_tuning=false;action(BringUpAction::InstrumentIncrease);drive(30);
+    action(BringUpAction::InstrumentNextField);
+    action(BringUpAction::InstrumentIncrease);drive(650);controls.ReleaseInstrumentFineTune();
+    CHECK(controls.InstrumentSampleTuning().cents>1);unchanged();
+    wire->hold_define=true;action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();drive(100);
+    CHECK(!controls.InstrumentScreen());
+    action(BringUpAction::ScreenUp);drive(150);unchanged();
+    action(BringUpAction::InstrumentNextField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30050);
+    CHECK(!serial.InstrumentCommitPending());CHECK_EQ(serial.InstrumentCommitResult(),8u);unchanged();
+    wire->define_reply.clear();action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();drive(100);
+    CHECK(!controls.InstrumentScreen());
+    action(BringUpAction::ScreenUp);drive(150);unchanged();
+    action(BringUpAction::InstrumentNextField);action(BringUpAction::InstrumentNextField);
+    action(BringUpAction::InstrumentNextField);action(BringUpAction::InstrumentActivate);drive(150);
+    CHECK(controls.WavPicker());
+    wire->hold_define=true;action(BringUpAction::BrowserDown);action(BringUpAction::BrowserConfirm);
+    if(controls.ReplacementConfirming())action(BringUpAction::BrowserConfirm);
+    drive(50);
+    CHECK(serial.InstrumentCommitPending());
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Unavailable);
+    reply();CHECK_EQ(controls.AcknowledgedSamplePath(),"Samples/selected.wav");
+    CHECK_EQ(count("BTWAVE1 GET 2 2 0 @53616d706c65732f73656c65637465642e776176"),1);
+    const unsigned frames=(kWaveformIdleBytes+sizeof(pcm))/2;
+    wire->rx+="BTWAVE1 META 1 2 18 "+std::to_string(frames)+" 44100 1 16\n";drive(30);
+    std::uint8_t prefix[kWaveformIdleBytes]{};
+    wire->rx.append(line,FormatWaveformData(line,2,0,prefix,sizeof(prefix)));drive(30);
+    CHECK_EQ(view().BytesLoaded(),sizeof(prefix));
+    for(unsigned i=0;i<5 && controls.InstrumentField()!=BringUpControls::RootNoteField;++i)
+        action(BringUpAction::InstrumentNextField);
+    CHECK_EQ(controls.InstrumentField(),BringUpControls::RootNoteField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK_EQ(view().BytesLoaded(),sizeof(prefix));
+    CHECK_EQ(view().Metadata().token,18u);
+    wire->rx.append(line,FormatWaveformData(line,2,sizeof(prefix),pcm,sizeof(pcm)));drive(30);
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Ready);
+    CHECK_EQ(view().BytesLoaded(),sizeof(prefix)+sizeof(pcm));reply();
+    CHECK_EQ(view().Metadata().token,18u);
+    wire->hold_define=true;action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Unavailable);
+    reply();drive(100);CHECK(!controls.InstrumentScreen());
+}
+
 TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRollback) {
     for(bool original_sample:{false,true}) {
         auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();

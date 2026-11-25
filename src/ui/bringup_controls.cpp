@@ -156,7 +156,10 @@ void BringUpControls::TickLiveTypes(std::uint32_t now) {
             if(channel && desired_types_[live_type_slot_]==2 && !desired_channels_[live_type_slot_])
                 desired_channels_[live_type_slot_]=channel;
         }
-        else if(!known_failure)applied_types_[live_type_slot_]=0;
+        else if(!known_failure) {
+            applied_types_[live_type_slot_]=0;
+            if(!serial_.InstrumentCommitPreservesSource())applied_resources_[live_type_slot_].clear();
+        }
         live_type_failed_=!success && !serial_.InstrumentCommitCancelled() && !assignment_rollback_;
         live_type_inflight_=false;
         if(!success && !serial_.InstrumentCommitCancelled()) {
@@ -249,8 +252,7 @@ std::string BringUpControls::InstrumentAssignedResource()const {
 std::string_view BringUpControls::AcknowledgedSamplePath()const {
     if(!serial_.Connected() || !instrument_number_ || instrument_number_>99)return {};
     const auto slot=instrument_number_-1;
-    if(original_types_[slot])
-        return applied_types_[slot]==1?std::string_view(applied_resources_[slot]):std::string_view{};
+    if(original_types_[slot])return applied_resources_[slot];
     return serial_.AcknowledgedSamplePath(instrument_number_);
 }
 const std::string& BringUpControls::CacheInstrumentName(const std::string& resource) {

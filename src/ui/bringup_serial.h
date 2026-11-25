@@ -39,7 +39,8 @@ public:
         waveform_.EnableDiskCache(BroTracker::WaveformDiskCache::UserCachePath(),budget,log_);
     }
     const BroTracker::SampleWaveformCache& SelectWaveform(unsigned number,std::string_view acknowledged_path) {
-        waveform_.Select(number,define_pending_ || define_reconcile_required_?std::string_view{}:acknowledged_path,
+        const bool source_unconfirmed=define_source_unconfirmed_ || (define_pending_ && !define_preserves_source_);
+        waveform_.Select(number,source_unconfirmed?std::string_view{}:acknowledged_path,
             connected_ && waveform_supported_ && SdStatus()!=SdAvailability::Unavailable);
         return waveform_.View();
     }
@@ -98,6 +99,7 @@ public:
             define_error_="Sample relink unavailable: synchronize/reconnect and STOP before retry";return false;
         }
         define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=1;define_relink_=true;define_replace_=false;
+        define_preserves_source_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource);
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -119,6 +121,7 @@ public:
         }
         if(define_id_==UINT32_MAX){define_error_="Reconnect before definition commit";return false;}
         define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_type_=type;define_relink_=false;define_replace_=false;
+        define_preserves_source_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",resource?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -130,6 +133,7 @@ public:
         }
         if(type<1 || type>3 || (type==1 && !BroTracker::InstrumentDefinitions::ValidResource(resource))) {define_error_="WAV reference unavailable or invalid";return false;}
         define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;define_relink_=false;define_replace_=true;
+        define_preserves_source_=false;
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -142,12 +146,14 @@ public:
         if(!LiveEditSupported() || UserActionsBlocked())return false;
         if(visit_id_)return true;
         if(visit_sequence_==UINT32_MAX)return false;
+        visit_source_changed_.fill(false);
         visit_id_=++visit_sequence_;visit_ready_=false;visit_begin_queued_=true;visit_end_queued_=visit_ending_=false;visit_sent_at_=now;return true;
     }
     void EndInstrumentVisit(){if(visit_id_){visit_ending_=true;visit_end_queued_=true;}}
     void CancelLiveDefinition(){if(define_pending_ && define_edit_){cancel_live_id_=define_id_;cancel_live_queued_=true;}}
     bool InstrumentCommitCancelled()const{return define_cancelled_;}
     unsigned InstrumentCommitResult()const{return define_result_;}
+    bool InstrumentCommitPreservesSource()const{return define_preserves_source_;}
     bool ReplaceLiveDefinition(unsigned number,unsigned type,const char* resource,std::uint32_t now,bool restore=false,unsigned midi_channel=0,
         BroTracker::SampleTuning tuning={}) {
         if(tuning.root && (type!=1 || !SampleTuningSupported() || !tuning.Valid() || restore))return false;
@@ -161,6 +167,7 @@ public:
         define_relink_=false;define_replace_=true;define_edit_=true;define_midi_channel_=midi_channel;define_restore_=restore;define_cancelled_=false;
         define_applied_channel_=0;
         define_tuning_=tuning;define_applied_tuning_={};
+        define_preserves_source_=tuning.Valid() || (restore && type==1 && !visit_source_changed_[define_slot_]);
         std::snprintf(define_resource_,sizeof(define_resource_),"%s",type==1 && resource?resource:"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -170,6 +177,7 @@ public:
             define_error_="Live Type update unavailable: synchronize/reconnect with LIVETYPECAP firmware";return false;
         }
         define_edit_=define_restore_=define_cancelled_=false;++define_id_;define_expected_=collection_count_;define_slot_=number-1;define_type_=type;
+        define_preserves_source_=false;
         define_relink_=false;define_replace_=true;std::strcpy(define_resource_,"-");
         define_pending_=define_queued_=true;define_success_=false;define_started_=now;define_error_.clear();return true;
     }
@@ -522,6 +530,11 @@ private:
     bool visit_ready_=false,visit_begin_queued_=false,visit_end_queued_=false,visit_ending_=false;
     std::uint32_t visit_id_=0,visit_sequence_=0,visit_sent_at_=0,cancel_live_id_=0;
     bool define_reconcile_required_=false; // Cleared only by a fresh count after disconnect.
+    bool define_preserves_source_=false,define_source_unconfirmed_=false;
+    // A restore is source-safe only until the device may have replaced this
+    // slot's binding during the retained visit, even if its path matches.
+    std::array<bool,99> visit_source_changed_{};
+    void MarkDefinitionUnconfirmed();
     unsigned define_expected_=0,define_type_=0;std::uint32_t define_id_=0,define_started_=0;char define_resource_[BroTracker::kSamplePathMaximum+1]{};std::string define_error_;
     bool collection_supported_=false,collection_request_=false,collection_ready_=false;unsigned collection_count_=0;
     bool identity_supported_=false,identity_request_=false,identity_ready_=false,identity_extended_=false,identity_facts_ready_=false;
