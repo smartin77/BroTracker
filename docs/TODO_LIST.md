@@ -83,9 +83,11 @@
 
 ## Audio, MIDI and hardware qualification
 
-* [ ] Investigate reversed L/R on the ArkOS handheld audio bridge with a
-  channel-isolated signal. Owner reports Windows bridge and PT8211 order correct.
-  [Audio architecture](TEENSY_AUDIO_ARCHITECTURE.md#arkos--handheld-use)
+* [ ] Physically verify `[audio] swap_channels` on the R36H with updated BTX and
+  Teensy firmware. Compare off and on with a channel-isolated signal on the same
+  output. Direct `aplay` reproduced the reversal. The physical cause and the
+  compensation test remain open.
+  [Audio architecture](TEENSY_AUDIO_ARCHITECTURE.md#startup-and-reconnect-protocol)
 * [ ] Keep residual bridge crackle analysis and optional latency tuning deferred.
   Investigate analog hum separately and measure the effect of charging/power
   connection. [Bridge closeout](BRIDGE_POP_CLOSEOUT_20261021.md)
