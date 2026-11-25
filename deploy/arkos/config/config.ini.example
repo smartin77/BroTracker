@@ -45,6 +45,9 @@ row_numbering=d1
 ; Shield Rev D2: mono HP 0.80, line-out muted. Never ground HP_VGND or
 ; connect it to a grounded amplifier.
 output=bridge
+; Swap final Teensy stereo output for any route. Restart BTX to apply.
+; yes/on/true/1 or no/off/false/0; missing/empty/invalid uses off.
+swap_channels=off
 ; Linux ALSA USB bridge only; Windows ignores. 0-128; 0 disables.
 ; Missing/invalid: 0; invalid warns. Opt-in starting value: 45, owner-tested
 ; on dArkOS. Others need tests. Keeps reads behind newest frames;

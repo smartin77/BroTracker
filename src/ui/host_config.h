@@ -25,6 +25,8 @@ struct HostConfig {
     bool row_numbering_invalid = false;
     AudioOutputChoice audio_output = AudioOutputChoice::Default;
     bool audio_output_invalid = false; // Warn, ignore this field, retain other settings.
+    bool swap_channels = false;
+    bool swap_channels_invalid = false;
     unsigned midi_delay_ms=0;
     bool midi_delay_ms_invalid=false; // Reject playback setup; retain unrelated config.
     std::uint64_t waveform_cache_bytes = 0; // [btx] decimal MB. Zero retains the durable lineage.

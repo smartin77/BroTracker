@@ -198,6 +198,7 @@ void BringUpSerial::Disconnect(const char* reason)
     midi_supported_=false;
     midi_output_status_[0]=0; midi_output_state_=UINT32_MAX;
     audio_supported_=audio_sent_=audio_confirmed_=audio_failed_=false;
+    audio_swap_supported_=audio_request_v2_=false;
     device_facts_supported_=device_facts_valid_=false;device_facts_={};
     midi_delay_.Disconnect();logged_midi_delay_[0]=0;
     audio_failure_reason_="rejected";
@@ -597,7 +598,12 @@ void BringUpSerial::Send(Command command, std::uint32_t now)
                        command == Command::Pause ? "PAUSE" : command == Command::Continue ? "CONTINUE" : command == Command::Audio ? "AUDIO" : command == Command::Storage ? "SD LOAD" : command==Command::File ? "SD SAVE" : command==Command::StorageReady ? "SD READY" : "STOP";
     tx_size_ = std::snprintf(tx_, sizeof(tx_), "BTTEST1 %s\n", verb);
     if(command==Command::Audio) {
-        tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
+        audio_request_v2_=audio_swap_supported_ || swap_channels_preference_;
+        if(audio_request_v2_)
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 2 %s %u\n",
+                BroTracker::AudioOutputName(audio_preference_),unsigned(swap_channels_preference_));
+        else
+            tx_size_=std::snprintf(tx_,sizeof(tx_),"BTAUDIO1 SET 1 %s\n",BroTracker::AudioOutputName(audio_preference_));
         audio_sent_=true;
     }
     if(command==Command::StorageReady) {
@@ -996,15 +1002,27 @@ void BringUpSerial::OnLine(std::uint32_t now)
         return;
     }
     if(!std::strcmp(line_,"BTAUDIO1 CAP 1")) { if(connected_) audio_supported_=true; return; }
-    if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED 1 ",20)) {
-        const char* route=line_+20;
-        const bool known=!std::strcmp(route,"bridge") || !std::strcmp(route,"pt8211") || !std::strcmp(route,"audio_shield");
-        const bool matches=known && (audio_preference_==BroTracker::AudioOutputChoice::Default ||
-            !std::strcmp(route,BroTracker::AudioOutputName(audio_preference_)));
+    if(!std::strcmp(line_,"BTAUDIO1 CAP 2")) {
+        if(connected_ || pending_==Command::Hello) audio_swap_supported_=true;
+        return;
+    }
+    if(pending_==Command::Audio && !std::strncmp(line_,"BTAUDIO1 SELECTED ",18)) {
+        const std::string_view fields(line_+18);
+        const auto payload=fields.size()>=2 ? fields.substr(2) : std::string_view{};
+        const auto space=payload.find(' ');
+        BroTracker::AudioOutputChoice active;
+        const bool known=BroTracker::ParseAudioOutputName(payload.substr(0,space),active) &&
+            active!=BroTracker::AudioOutputChoice::Default;
+        const bool order_matches=audio_request_v2_ ?
+            fields.substr(0,2)=="2 " && space!=payload.npos &&
+                payload.substr(space+1)==(swap_channels_preference_?"1":"0") :
+            fields.substr(0,2)=="1 " && space==payload.npos;
+        const bool matches=known && order_matches &&
+            (audio_preference_==BroTracker::AudioOutputChoice::Default || audio_preference_==active);
         audio_confirmed_=matches; audio_failed_=!matches;
-        if(!matches)audio_failure_reason_="mismatched acknowledgment; requested route not confirmed";
+        if(!matches)audio_failure_reason_="mismatched acknowledgment; audio configuration not confirmed";
         if(!matches) start_queued_=false;
-        if(known) std::snprintf(audio_active_,sizeof(audio_active_),"%s",route);
+        if(known) std::snprintf(audio_active_,sizeof(audio_active_),"%s",BroTracker::AudioOutputName(active));
         pending_=Command::None;
         Log(matches ? "audio selection confirmed:" : "audio selection ERROR mismatched acknowledgment:",line_);
         return;
@@ -1021,7 +1039,7 @@ void BringUpSerial::OnLine(std::uint32_t now)
         const bool restart_required=!std::strncmp(line_,restart,sizeof(restart)-1) &&
             (line_[sizeof(restart)-1]==' ' || line_[sizeof(restart)-1]=='\0');
         audio_failure_reason_=restart_required ?
-            "restart-required; restart Teensy to change route" : "rejected; requested route not confirmed (see log)";
+            "restart-required; restart Teensy to change route" : "rejected; audio configuration not confirmed (see log)";
         audio_confirmed_=false;audio_failed_=true;start_queued_=false;pending_=Command::None;
         Log("audio selection ERROR:",line_);Log(AudioReadinessStatus());return;
     }
@@ -1392,7 +1410,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 tx_size_=std::snprintf(tx_,sizeof(tx_),"BTWAV1 PLAY %u %lu %s\n",path_supported_?2:1,(unsigned long)audition_id_,path);}
             tx_offset_=0;audition_cancel_=audition_queued_=false;
         }
-        else if(connected_ && !audio_sent_ && (audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default)) {
+        else if(connected_ && !audio_sent_ && AudioConfigurationRequired()) {
             Send(Command::Audio,now);
         }
         else if(connected_ && !stop_queued_ && transport_queued_==Command::None &&

@@ -331,6 +331,7 @@ int main(int argc, char* argv[])
     },audible.get());
     std::uint32_t next_audible_observation=0;
     serial.SetAudioOutputPreference(diagnostic.Enabled()?BroTracker::AudioOutputChoice::Bridge:host_config.config.audio_output);
+    serial.SetSwapChannelsPreference(host_config.config.swap_channels);
     serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     BroTracker::MidiStatusExchange midi_exchange(BroTracker::MidiRuntimeDirectory(),bring_up_log);
     serial.SetStartupPattern(host_config.config.startup_pattern);

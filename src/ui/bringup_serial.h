@@ -308,6 +308,7 @@ public:
     }
     bool MidiRecoveryStopped() const {return connected_ && !std::strcmp(state_,"IDLE") && !TransportPending();}
     void SetAudioOutputPreference(BroTracker::AudioOutputChoice value) { audio_preference_=value; }
+    void SetSwapChannelsPreference(bool value) { swap_channels_preference_=value; }
     bool AudioOutputConfirmed() const { return audio_confirmed_; }
     void SetMidiNoteDelay(unsigned ms,bool invalid=false){midi_delay_.Configure(ms,invalid);}
     bool MidiDelayReady()const{return midi_delay_.Ready();}
@@ -315,7 +316,7 @@ public:
     bool DeviceFactsSupported() const {return device_facts_supported_;}
     const BroTracker::DeviceFacts* DeviceFacts() const {return device_facts_valid_?&device_facts_:nullptr;}
     bool AudioTransportReady() const {
-        return !(audio_supported_ || audio_preference_!=BroTracker::AudioOutputChoice::Default) || audio_confirmed_;
+        return !AudioConfigurationRequired() || audio_confirmed_;
     }
     const char* AudioReadinessStatus() const;
     // Diagnostic-only read: close only at a complete-line, command-idle boundary.
@@ -464,6 +465,13 @@ private:
     char logged_publication_status_[192]{},logged_gain_status_[192]{};
     const char* test_device_;
     BroTracker::AudioOutputChoice audio_preference_=BroTracker::AudioOutputChoice::Default;
+    bool swap_channels_preference_=false;
+    bool audio_swap_supported_=false;
+    bool audio_request_v2_=false;
+    bool AudioConfigurationRequired() const {
+        return audio_supported_ || audio_swap_supported_ || swap_channels_preference_ ||
+            audio_preference_!=BroTracker::AudioOutputChoice::Default;
+    }
     mutable char midi_output_status_[192]{};
     std::uint32_t midi_health_at_=0;
     unsigned midi_output_state_=UINT32_MAX;

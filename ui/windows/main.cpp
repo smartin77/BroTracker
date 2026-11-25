@@ -89,6 +89,7 @@ int main(int argc, char* argv[]) try {
     BringUpSerial serial(log_file);
     serial.EnableWaveformDiskCache(host_config.config.waveform_cache_bytes);
     serial.SetAudioOutputPreference(host_config.config.audio_output);
+    serial.SetSwapChannelsPreference(host_config.config.swap_channels);
     serial.SetMidiNoteDelay(host_config.config.midi_delay_ms,host_config.config.midi_delay_ms_invalid);
     serial.SetStartupPattern(host_config.config.startup_pattern);
     serial.ConfigureStartupFallback(host_config.config.new_pattern_length);
