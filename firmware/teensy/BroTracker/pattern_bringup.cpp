@@ -411,7 +411,7 @@ namespace
         if(advertise_snapshot) {
             (void)QueueLine("BTINS1 WAVSTEREOCAP 1\nBTINS1 WAVRATECAP 1\nBTINS1 WAVPCM8CAP 1\nBTINS1 WAVLQCAP 1\n");
         }
-        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
+        if(advertise_snapshot) {(void)QueueLine("BTMUTE1 CAP 1\n");(void)QueueLine("BTINS1 CAP 1\n");(void)QueueLine("BTINS1 CAP 2\n");(void)QueueLine("BTINS1 COLLECTIONCAP 1\n");(void)QueueLine("BTINS1 DEFINECAP 1\n");(void)QueueLine("BTINS1 WAVCAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 1\n");(void)QueueLine("BTINS1 WAVBROWSECAP 2\n");(void)QueueLine("BTINS1 RELINKCAP 1\n");(void)QueueLine("BTINS1 REPLACECAP 1\n");(void)QueueLine("BTINS1 LIVETYPECAP 1\n");(void)QueueLine("BTINS1 LIVEEDITCAP 1\nBTINS1 MIDICHANNELCAP 1\nBTINS1 TUNINGCAP 1\nBTINS1 TUNINGBUILD 1 " __DATE__ " " __TIME__ "\n");(void)QueueLine("BTWAV1 CAP 1\nBTWAV1 CAP 2\n"
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             "BTWAVE1 CAP 3\nBTWAVE1 RANGECAP 1\nBTWAVE1 FPCAP 1\n"
 #endif
@@ -598,7 +598,9 @@ namespace
             const auto* saved=g_session.definitions.At(i);
             const auto* before=original.At(i);
             if(saved && (saved->type==InstrumentType::MIDI || before->type==InstrumentType::MIDI))
-                (void)g_session.definitions.Replace(i,InstrumentTypeCode(before->type),before->resource,before->midi_channel);
+                (void)g_session.definitions.Replace(i,InstrumentTypeCode(before->type),before->resource,before->midi_channel,before->tuning);
+            else if(saved && saved->type==InstrumentType::Sample)
+                (void)g_session.definitions.SetSampleTuning(i,before->type==InstrumentType::Sample?before->tuning:kDefaultSampleTuning);
         }
     }
     void LiveReply(unsigned request,unsigned result,unsigned slot=99) {
@@ -616,6 +618,13 @@ namespace
             g_sample_availability[request.expected]=request.type==2?InstrumentAvailability::ExternalUnknown:InstrumentAvailability::Ready;
             g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());
         }
+        return result;
+    }
+    unsigned InstallSampleTuning(const InstrumentDefineRequest& request) {
+        InterruptGuard guard;
+        const auto result=EditSampleTuning(g_instrument_definitions,g_selected_bindings,request.expected,request.tuning,
+            [&](unsigned slot,SampleTuning tuning){return g_control.OutputPlayer().MidiPlayer().SetSampleTuning(slot,tuning);});
+        if(!result)g_live_visit.MarkEdited(request.expected,false);
         return result;
     }
     bool AuditionCommand(const char* line) {
@@ -656,7 +665,7 @@ namespace
         if(SnapshotFields(line,length,"BTINS1 VISIT END ",fields,2) && fields[0]==1 && fields[1]) {
             const bool ok=!g_live_pending && (g_live_visit.Identity()==fields[1] || !g_live_visit.Active());
             if(ok){
-                if(g_live_visit.MidiChannelsChanged(g_instrument_definitions))g_session_save.Changed();
+                if(g_live_visit.PersistedParametersChanged(g_instrument_definitions))g_session_save.Changed();
                 (void)g_live_visit.End(fields[1]);g_streaming.UnpinRollback();
             }
             std::snprintf(reply,sizeof(reply),"BTINS1 VISIT %s 1 %lu\n",ok?"ENDED":"BUSY",(unsigned long)fields[1]);(void)QueueLine(reply);return true;
@@ -675,7 +684,12 @@ namespace
             }
             unsigned result;
             {InterruptGuard guard;result=g_live_visit.Restore(fields[2],g_instrument_definitions,g_selected_bindings,
-                [&](unsigned slot,const VariableRateSampleBinding* binding){auto& player=g_control.OutputPlayer().MidiPlayer();return binding?player.ReplaceLiveInstrumentBinding(*binding):player.RemoveLiveInstrumentBinding(slot);});
+                [&](unsigned slot,const VariableRateSampleBinding* binding){
+                    auto& player=g_control.OutputPlayer().MidiPlayer();
+                    if(g_live_visit.TuningOnly(slot))
+                        return !binding || player.SetSampleTuning(slot,{binding->reference_note,binding->fine_tune_cents});
+                    return binding?player.ReplaceLiveInstrumentBinding(*binding):player.RemoveLiveInstrumentBinding(slot);
+                });
                 if(!result){g_sample_availability[fields[2]]=g_visit_availability[fields[2]];g_midi.CancelChannels(g_control.OutputPlayer().MidiPlayer().TakeMidiCancelMask());g_streaming.Publish(g_control.OutputPlayer().MidiPlayer());}}
             LiveReply(fields[1],result,fields[2]);return true;
         }
@@ -684,14 +698,14 @@ namespace
         if(!ParseInstrumentEdit(line,length,request)){LiveReply(0,1);return true;}
         if(!g_protocol_connected || !g_live_visit.Active() || !g_instrument_definitions.At(request.expected)){LiveReply(request.request,2);return true;}
         if(g_live_visit.Cancelled(request.request)){LiveReply(request.request,7);return true;}
-        if(request.request==g_last_live_request.request && request.expected==g_last_live_request.expected && request.type==g_last_live_request.type && request.midi_channel==g_last_live_request.midi_channel && !std::strcmp(request.resource,g_last_live_request.resource)) {
+        if(request.request==g_last_live_request.request && request.expected==g_last_live_request.expected && request.type==g_last_live_request.type && request.midi_channel==g_last_live_request.midi_channel && request.tuning==g_last_live_request.tuning && !std::strcmp(request.resource,g_last_live_request.resource)) {
             LiveReply(request.request,g_last_live_result,request.expected);return true;
         }
         if(g_live_pending){if(request.request!=g_live_request.request)LiveReply(request.request,3);return true;}
         if(!g_audio_ready || Snapshot().fault!=PatternFault::None){LiveReply(request.request,3);return true;}
-        if(request.type==1){g_live_request=request;g_live_pending=true;g_live_preparing=false;return true;}
+        if(request.type==1 && !request.tuning.Valid()){g_live_request=request;g_live_pending=true;g_live_preparing=false;return true;}
         VariableRateSampleBinding unused;
-        g_last_live_request=request;g_last_live_result=InstallLive(request,unused);
+        g_last_live_request=request;g_last_live_result=request.tuning.Valid()?InstallSampleTuning(request):InstallLive(request,unused);
         LiveReply(request.request,g_last_live_result,request.expected);return true;
     }
     unsigned BackgroundReserve() {
@@ -820,7 +834,7 @@ namespace
                     if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedMixedView();result=InstallLive(g_live_request,binding);}
                     else result=prepared==InstrumentAvailability::PathCapacity?9:prepared==InstrumentAvailability::ResourceUnavailable?4:6;
                 }
-                g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result);
+                g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result,g_live_request.expected);
             }
         } else if(g_live_browser.Busy())g_live_browser.Step();
         else if(!g_live_browser.Done() && !g_streaming.ReclaimOne(g_selected_bindings)) {
@@ -1309,7 +1323,14 @@ namespace
                     }
                     char reply[kPathProtocolCapacity];
                     const auto facts=InstrumentDefinitionFacts(id,g_instrument_definitions.At(id),availability);
-                    if(FormatInstrumentFacts(facts,reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2))(void)QueueLine(reply);
+                    const bool formatted=FormatInstrumentFacts(facts,reply,sizeof(reply),!std::strncmp(line,"BTINS1 GET 3 ",13)?3:2);
+                    if(formatted && facts.type==1) {
+                        const auto tuning=g_instrument_definitions.At(id)->tuning;
+                        const auto length=std::strlen(reply);
+                        const auto written=std::snprintf(reply+length,sizeof(reply)-length,
+                            "BTINS1 TUNING 1 %u %u %u\n",id,tuning.root,tuning.cents);
+                        if(written>0 && std::size_t(written)<sizeof(reply)-length)(void)QueueLine(reply);
+                    } else if(formatted)(void)QueueLine(reply);
                     if(facts.type==2) {
                         std::snprintf(reply,sizeof(reply),"BTINS1 CHANNEL 1 %u %u\n",id,
                             unsigned(g_instrument_definitions.At(id)->midi_channel));

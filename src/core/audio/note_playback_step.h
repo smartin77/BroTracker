@@ -15,9 +15,8 @@ enum class NotePlaybackStepStatus { Success, InvalidTargetNote, InvalidReference
 // or clock. One validation and lookup; values fit positive uint64 without overflow.
 // Reference pitch is caller metadata/playback anchor, never inferred from duration
 // or BPM; existing beeper bindings are not a claim of physical tuning.
-// Whole-note interval mapping only. Fractional-semitone tuning and source/output
-// rate conversion are separate future composition layers; do not round detune to
-// a note or silently apply either here. No playback integration in this primitive.
+// Whole-note interval mapping. Trigger preparation composes fine tuning and
+// source/output rate conversion separately.
 [[nodiscard]] inline NotePlaybackStepStatus NoteToPlaybackStep(unsigned target_note,
     unsigned reference_note,std::uint64_t& output) noexcept {
     static_assert(kPatternNoteMinimum==24 && kPatternNoteMaximum==127, "Regenerate note step range if pitch bounds change");

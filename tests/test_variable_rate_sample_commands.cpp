@@ -2,6 +2,8 @@
 #include "core/playback/variable_rate_sample_commands.h"
 #include "core/audio/pcm16_mixer.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <vector>
 
 using namespace BroTracker;
@@ -238,6 +240,25 @@ TEST_CASE(VariableSampleCommandsDeferredOffRemainsPlayerOwned) {
     CHECK_EQ(result.count,1); CHECK_EQ(result.commands[0].action,VariableRateVoiceAction::Stop);
     result=PrepareOne(preparer,EventAt(0,50,kNoInstrumentUpdate)); // Explicit reference 62: octave down.
     CHECK_EQ(result.commands[0].step_q32_32,kSourceFrameStepUnity/2);
+}
+TEST_CASE(VariableSampleCommandsFineTuneComposesWithSourceRate) {
+    for(unsigned rate:{22050u,44100u})for(unsigned cents:{0u,1u,50u,99u}) {
+        auto bindings=Bindings();
+        StreamedVoiceBuffer voices[kStreamVoiceCount]{};
+        const StreamedSample stream{pcm_a,4,voices,{rate,1,16}};
+        bindings.bindings[0].sample={pcm_a,4,rate,&stream};
+        bindings.bindings[0].fine_tune_cents=cents;
+        VariableRateSampleCommandPreparer preparer;
+        CHECK_EQ(preparer.Configure(44100,bindings),VariableSampleCommandStatus::Success);
+        for(unsigned note:{60u,72u}) {
+            const auto result=PrepareOne(preparer,EventAt(0,Note(note),0));
+            const auto expected=std::llround(kSourceFrameStepUnity*(rate/44100.0)*
+                std::exp2((int(note)-60)/12.0+cents/1200.0));
+            CHECK(std::llabs(std::int64_t(result.commands[0].step_q32_32)-expected)<=1);
+        }
+        bindings.bindings[0].fine_tune_cents=100;
+        CHECK_EQ(preparer.Configure(44100,bindings),VariableSampleCommandStatus::InvalidReferenceNote);
+    }
 }
 TEST_CASE(VariableSampleCommandsRendererMixerExpectedFractionalPcmAndPartitions) {
     const std::int16_t ramp[]={0,100,200,300,400,500};

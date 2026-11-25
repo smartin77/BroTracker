@@ -45,6 +45,7 @@ Pattern Load/Save retains STOP and session-save entry coordination.
 | Previous / next actionable field | Up / Down (also Shift+Tab / Tab) | D-pad Up / Down |
 | Previous / next defined slot (focus Instrument slot) | Left / Right | D-pad Left / Right |
 | Edit MIDI Channel 1?16, on Channel | Left / Right | D-pad Left / Right |
+| Edit Sample Root Note or Fine Tune | Left / Right | D-pad Left / Right |
 | Cycle Type backward / forward | Left / Right on Type | D-pad Left / Right on Type |
 | Open Sample Browser | Enter on Load | A on Load |
 | Start / pause / continue Pattern playback | Space | Start |
@@ -63,7 +64,10 @@ Preview, Zoom 1x, Fit, Set Start, Set End and the orange endpoints are visual
 placeholders. See [Sample waveform](INSTRUMENT_FOUNDATION.md#sample-waveform).
 
 Entry focuses Type. The orange frame marks focus; field navigation cycles Type,
-available Load WAV or MIDI Channel, and Instrument slot. Left/Right on slot clamps to 01-N (at
+Sample Root Note and Fine Tune when available, Load WAV or MIDI Channel as
+applicable, and Instrument slot. Root Note steps by semitone from C-0 to G-8.
+Fine Tune steps by one cent, accelerates when held, and clamps at 00 and 99.
+Left/Right on slot clamps to 01-N (at
 most 99). Browsing leaves the captured Pattern cell unchanged. Keep assigns
 a different browsed slot. Keeping the resolved entry slot preserves its raw
 assignment, including an empty source cell. `*` marks outstanding visit changes.
@@ -86,6 +90,9 @@ original source assignment and every touched existing definition/binding. Return
 waits for definition, working-Pattern and visit-end acknowledgements as applicable;
 disconnection/recovery can keep it pending. Both restore the captured cursor.
 Browser cancellation only leaves the picker, preserving previous Instrument work.
+Acknowledged Sample tuning edits affect subsequent triggers during playback.
+Keep retains both values for normal session saving and Cancel restores both
+entry values. The pitch of an already sounding voice stays at its trigger setting.
 
 A trailing undefined slot is a local draft, not a live-created instrument. Confirmed
 return requires STOP: without a WAV its default Sample stays undefined and its

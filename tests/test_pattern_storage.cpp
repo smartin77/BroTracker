@@ -574,14 +574,14 @@ TEST_CASE(TemporaryBtmMalformedDefinitionsAndIoRestorePreserveActiveSession) {
     CHECK(active.definitions.Append(5,3,nullptr));active.working_tempo=14550;
     for(unsigned fault=0;fault<8;++fault) {
         auto bad=good;const auto offset=24+PatternFileU32(bad.data()+8);
-        const auto paths=offset+source.definitions.Count()*3;const auto length=unsigned(bad[paths])+(unsigned(bad[paths+1])<<8);
+        const auto paths=offset+source.definitions.Count()*5;const auto length=unsigned(bad[paths])+(unsigned(bad[paths+1])<<8);
         if(fault==0)bad[offset]=0;
         if(fault==1)bad[offset+1]=0; // Sample requires a resource identity.
         if(fault==2)bad[offset+1]=255; // Outside unique-path table.
         if(fault==3)PatternFilePut32(bad.data()+16,100);
         if(fault==4){bad[paths]=0;bad[paths+1]=1;} // Over-limit path length.
         if(fault==5)bad[paths+2+length]='x'; // No terminator.
-        if(fault==6)bad[offset+3+1]=17; // MIDI channel exceeds 16.
+        if(fault==6)bad[offset+5+1]=17; // MIDI channel exceeds 16.
         if(fault==7)PatternFilePut32(bad.data()+12,100);
         PatternFilePut32(bad.data()+20,PatternFileCrc(bad.data(),bad.size()));
         FakePatternSd::files[kSessionPath].bytes=bad;
@@ -721,12 +721,12 @@ TEST_CASE(TemporaryBtmPreservesNoteWithoutInstrumentThroughSessionSaveRestore) {
     CHECK_EQ(restored.working_tempo,13725u);
 }
 
-TEST_CASE(BtmVersionThreeStoresUniqueFullPathsAndStillReadsVersionOne) {
+TEST_CASE(BtmStoresUniqueFullPathsAndStillReadsVersionOne) {
     FakePatternSd::Reset();SdPatternFiles backend;backend.ready=true;WorkingSessionStore<SdPatternFiles> store;
     WorkingSession s;s.working=MakeDevelopmentPattern();s.definitions.Reset(false);
     const auto path="Samples/Jungle riddims/"+std::string(90,'d')+"/long sample.wav";
     CHECK(s.definitions.Append(0,1,path.c_str()));CHECK(s.definitions.Append(1,1,path.c_str()));CHECK_EQ(store.Save(backend,s),PatternFileResult::Ok);
-    const auto bytes=FakePatternSd::files[kSessionPath].bytes;CHECK_EQ(bytes[4],3u);CHECK_EQ(PatternFileU32(bytes.data()+16),1u);
+    const auto bytes=FakePatternSd::files[kSessionPath].bytes;CHECK_EQ(bytes[4],5u);CHECK_EQ(PatternFileU32(bytes.data()+16),1u);
     WorkingSession loaded;CHECK_EQ(store.Load(backend,loaded),PatternFileResult::Ok);CHECK_EQ(std::string(loaded.definitions.At(0)->resource),path);CHECK_EQ(loaded.definitions.At(0)->resource,loaded.definitions.At(1)->resource);
     std::size_t size=0;std::vector<std::uint8_t> old(kWorkingSessionCapacity);CHECK_EQ(EncodePatternFile(PatternFileKind::Session,s.working,12500,old.data()+24,kPatternFileCapacity,size),PatternFileResult::Ok);
     std::memcpy(old.data(),"BTM1",4);old[4]=1;old[6]=24;PatternFilePut32(old.data()+8,size);PatternFilePut32(old.data()+12,1);
@@ -735,6 +735,7 @@ TEST_CASE(BtmVersionThreeStoresUniqueFullPathsAndStillReadsVersionOne) {
     PatternFilePut32(old.data()+20,PatternFileCrc(old.data(),old.size()));
     CHECK_EQ(DecodeWorkingSession(old.data(),old.size(),loaded),PatternFileResult::Ok);
     CHECK_EQ(std::string(loaded.definitions.At(0)->resource),std::string("Samples/legacy.wav"));
+    CHECK(loaded.definitions.At(0)->tuning==kDefaultSampleTuning);
     CHECK_EQ(loaded.definitions.At(1)->midi_channel,12u);
 }
 
@@ -801,6 +802,63 @@ TEST_CASE(ConvertedLegacyNonMidiSlotPersistsEditedChannel) {
     CHECK_EQ(restored.bindings[0].midi_channel,12u);
     CHECK_EQ(restored.bindings[5].type,InstrumentType::MIDI);
     CHECK_EQ(restored.bindings[5].midi_channel,2u);
+}
+
+TEST_CASE(SampleTuningSessionRoundTripAndWavReplacement) {
+    for(bool lineage:{false,true}) {
+        FakePatternSd::Reset();
+        SdPatternFiles backend;backend.ready=true;
+        WorkingSessionStore<SdPatternFiles> store;
+        WorkingSession session;session.working=MakeDevelopmentPattern();
+        if(lineage)session.EstablishLineage("1234567890abcdef1234567890abcdef");
+        CHECK_EQ(store.Save(backend,session),PatternFileResult::Ok);
+        // Remove the tuning bytes to construct a v3/v4 record for an older session.
+        auto& legacy=FakePatternSd::files[kSessionPath].bytes;
+        const auto records=24+PatternFileU32(legacy.data()+8);
+        for(unsigned slot=session.definitions.Count();slot>0;--slot) {
+            const auto at=legacy.begin()+records+(slot-1)*5+3;
+            legacy.erase(at,at+2);
+        }
+        legacy[4]=lineage?4:3;
+        PatternFilePut32(legacy.data()+20,PatternFileCrc(legacy.data(),legacy.size()));
+        WorkingSession restored;
+        CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK(restored.definitions.At(0)->tuning==kDefaultSampleTuning);
+        CHECK_EQ(std::string(restored.lineage),std::string(session.lineage));
+        CHECK_EQ(store.Save(backend,restored),PatternFileResult::Ok);
+        auto& resolved=FakePatternSd::files[kSessionPath].bytes;
+        CHECK_EQ(resolved[4],lineage?6:5);
+        CHECK_EQ(resolved[records+3],60u);CHECK_EQ(resolved[records+4],0u);
+        resolved[records+3]=0;resolved[records+4]=17;
+        PatternFilePut32(resolved.data()+20,PatternFileCrc(resolved.data(),resolved.size()));
+        CHECK_EQ(store.Load(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(restored.definitions.At(0)->tuning.root,60u);
+        CHECK_EQ(restored.definitions.At(0)->tuning.cents,17u);
+        const SampleTuning tuning{72,99};
+        CHECK(restored.definitions.SetSampleTuning(0,tuning));
+        static const std::int16_t old_pcm[32]{},new_pcm[32]{};
+        const auto prepare=[](unsigned,const char*,Pcm16MixedSampleView& view){
+            view={old_pcm,32,22050};return InstrumentAvailability::Ready;
+        };
+        auto bindings=PrepareSessionBindings(restored.definitions,prepare);
+        VariableRateSampleBinding replacement{0,60,{new_pcm,32,44100}};
+        InstrumentDefineRequest request;request.type=1;
+        std::strcpy(request.resource,"Samples/replacement.wav");
+        const auto install=[&](const auto& binding){
+            CHECK_EQ(binding.reference_note,tuning.root);
+            CHECK_EQ(binding.fine_tune_cents,tuning.cents);
+            CHECK_EQ(binding.sample.data,new_pcm);
+            return true;
+        };
+        CHECK_EQ(ReplaceInstrumentDefinition(restored.definitions,bindings,request,replacement,true,install),0u);
+        CHECK_EQ(store.Save(backend,restored),PatternFileResult::Ok);
+        CHECK_EQ(FakePatternSd::files[kSessionPath].bytes[4],lineage?6:5);
+        WorkingSession roundtrip;
+        CHECK_EQ(store.Load(backend,roundtrip),PatternFileResult::Ok);
+        CHECK(roundtrip.definitions.At(0)->tuning==tuning);
+        CHECK_EQ(std::string(roundtrip.definitions.At(0)->resource),"Samples/replacement.wav");
+        CHECK_EQ(PrepareSessionBindings(roundtrip.definitions,prepare).bindings[0].fine_tune_cents,99u);
+    }
 }
 
 TEST_CASE(WorkingSessionLineageMigratesOnlyAfterDurablePromotion) {

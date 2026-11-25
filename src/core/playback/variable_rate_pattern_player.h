@@ -35,9 +35,9 @@ namespace BroTracker
     // Single-owner Sample/Synth, looping-pattern audio consumer. Reuses logical
     // scheduling positions; no wall/CPU clock, USB authority, physical clock
     // selection, synchronization, tempo correction or MIDI scheduling policy.
-    // Explicit reference-note mapping, matching source/output rates only. No finetune,
-    // source-rate conversion or tempo matching; interpolation changes pitch/duration
-    // together and may alias. Existing native-rate orchestration remains separate.
+    // Trigger preparation maps the reference note, fine tuning and source rate.
+    // Interpolation changes pitch and duration together. Tempo matching belongs
+    // to a separate operation.
     // Pattern/binding metadata is copied. Caller keeps all bound PCM immutable,
     // with valid actual extents/lifetimes until successful reconfiguration or
     // destruction releases the bindings (Stop still retains configuration).
@@ -267,6 +267,9 @@ namespace BroTracker
         bool ReplaceLiveInstrumentBinding(const VariableRateSampleBinding& binding)noexcept {
             if(!configured_ || !preparer_.ReplaceBinding(binding))return false;
             ReleaseInstrumentVoices(binding.instrument);return true;
+        }
+        bool SetSampleTuning(unsigned id, SampleTuning tuning) noexcept {
+            return configured_ && preparer_.SetSampleTuning(id,tuning);
         }
         bool RemoveLiveInstrumentBinding(unsigned id)noexcept {
             if(!configured_ || id>=99)return false;

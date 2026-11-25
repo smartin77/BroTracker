@@ -7,10 +7,16 @@
 * [ ] Implement Instrument Name and Description editing and read embedded WAV Title
   for Sample descriptions. Define how metadata and user edits interact.
   [Descriptive fields](INSTRUMENT_FOUNDATION.md#midi-channel-and-descriptive-fields)
-* [ ] Define and implement Sample playback parameters, starting from the existing
-  reference-pitch model. Specify Fine Tune, gain and start/end behavior; resolve
-  transpose and optional original-tempo metadata and loop-tempo matching separately.
+* [ ] Physically verify Sample Root Note and Fine Tune on handheld with updated
+  BTX and Teensy firmware. Windows BTX and Teensy verified defaults and edits
+  on the restored Sample 06, Cancel, and Keep across save and restart. Automated
+  checks cover hold acceleration, clamping, source-rate pitch and live triggers.
   [Sample format](SAMPLE_FORMAT.md)
+* [ ] Define Sample instrument gain separately from track and master gain.
+* [ ] Define Sample start/end behavior and its interaction with slices.
+* [ ] Resolve Sample transpose independently of Root Note and Fine Tune.
+* [ ] Define Sample loop handling and loop-tempo matching.
+* [ ] Define optional original-tempo and musical-length metadata.
 * [ ] Add waveform zoom and precise source-frame editing with exact data in the
   visible range. Design loops and persistent non-destructive slicing, including
   Pattern slice selection and both playback modes. FIT visualization and its

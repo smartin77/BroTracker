@@ -2,6 +2,25 @@
 #include "instrument_identity.h"
 #include "core/playback/variable_rate_sample_commands.h"
 namespace BroTracker {
+// Caller excludes audio. Updating the trigger binding never replaces its PCM
+// or releases a voice. An unavailable Sample still retains editable metadata.
+template<class Install>
+unsigned EditSampleTuning(InstrumentDefinitions& definitions,VariableRateSampleBindings& bindings,
+    unsigned slot,SampleTuning tuning,Install install) noexcept {
+    const auto* definition=definitions.At(slot);
+    if(!definition || definition->type!=InstrumentType::Sample || !tuning.Valid())return 4;
+    for(unsigned i=0;i<bindings.count;++i) {
+        auto& binding=bindings.bindings[i];
+        if(binding.instrument!=slot)continue;
+        if(!install(slot,tuning))return 5;
+        binding.reference_note=tuning.root;
+        binding.fine_tune_cents=tuning.cents;
+        break;
+    }
+    (void)definitions.SetSampleTuning(slot,tuning);
+    return 0;
+}
+
 // Boot-only derivation. Prepared PCM remains owned by the existing asset loader.
 // Missing resources deliberately produce no binding; definitions remain authoritative.
 inline VariableRateSampleBindings RestoreInstrumentBindings(const InstrumentDefinitions& definitions,
@@ -13,7 +32,7 @@ inline VariableRateSampleBindings RestoreInstrumentBindings(const InstrumentDefi
         if(d->type==InstrumentType::Sample)for(unsigned j=0;j<assets.count;++j) {
             const auto& asset=assets.bindings[j];const auto* source=DevelopmentInstrumentDefinition(asset.instrument);
             if(asset.type==InstrumentType::Sample && source && source->resource && !std::strcmp(source->resource,d->resource)) {
-                binding=asset;ready=true;break;
+                binding=asset;binding.reference_note=d->tuning.root;binding.fine_tune_cents=d->tuning.cents;ready=true;break;
             }
         }
         binding.instrument=id;if(ready)restored.bindings[restored.count++]=binding;
@@ -34,7 +53,7 @@ template<class Prepare> VariableRateSampleBindings PrepareSessionBindings(const 
                 if(prepare(id,d->resource,mono)!=InstrumentAvailability::Ready)continue;
                 binding.sample=mono;
             }
-            binding.reference_note=60;binding.sample_level_percent=80;
+            binding.reference_note=d->tuning.root;binding.fine_tune_cents=d->tuning.cents;binding.sample_level_percent=80;
         }
         result.bindings[result.count++]=binding;
     }
@@ -63,6 +82,7 @@ unsigned CommitInstrumentDefinition(InstrumentDefinitions& definitions,VariableR
         binding=*prepared;binding.instrument=request.expected;resource=request.resource;playable=true;
     }
     if(resource && !ResourcePaths().CanAcquire(resource))return 9;
+    if(request.type==1){binding.reference_note=kSampleRootDefault;binding.fine_tune_cents=0;}
     if(!definitions.CanAppend(request.expected,request.type,resource))return 4;
     if(playable && (bindings.count>=kVariableRateSampleBindingCapacity || !append(binding)))return 5;
     if(playable)bindings.bindings[bindings.count++]=binding;
@@ -80,15 +100,18 @@ template<class Install> unsigned RelinkSampleDefinition(InstrumentDefinitions& d
     if(!ready)return 3;
     if(!InstrumentDefinitions::ValidResource(request.resource) || prepared.type!=InstrumentType::Sample || !prepared.sample.data || !prepared.sample.frame_count)return 4;
     auto candidate=prepared;candidate.instrument=request.expected;
+    candidate.reference_note=definition->tuning.root;candidate.fine_tune_cents=definition->tuning.cents;
     unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=request.expected)++index;
     if(index<bindings.count) {
         if(bindings.bindings[index].type!=InstrumentType::Sample)return 4;
         candidate.reference_note=bindings.bindings[index].reference_note;
+        candidate.fine_tune_cents=bindings.bindings[index].fine_tune_cents;
         candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
     } else if(bindings.count>=kVariableRateSampleBindingCapacity)return 5;
     if(!ResourcePaths().CanAcquire(request.resource))return 9;
     if(!install(candidate))return 5;
     (void)definitions.ReplaceSample(request.expected,request.resource);
+    (void)definitions.SetSampleTuning(request.expected,{candidate.reference_note,candidate.fine_tune_cents});
     if(index==bindings.count)++bindings.count;
     bindings.bindings[index]=candidate;return 0;
 }
@@ -109,11 +132,15 @@ template<class Install> unsigned ReplaceInstrumentDefinition(InstrumentDefinitio
     if(request.type==1) {
         if(prepared.type!=InstrumentType::Sample || !prepared.sample.data || !prepared.sample.frame_count)return 4;
         candidate=prepared;candidate.instrument=request.expected;
+        candidate.reference_note=kSampleRootDefault;candidate.fine_tune_cents=0;
+        if(previous->type==InstrumentType::Sample) {
+            candidate.reference_note=previous->tuning.root;candidate.fine_tune_cents=previous->tuning.cents;
+        }
     }
     unsigned index=0;while(index<bindings.count && bindings.bindings[index].instrument!=request.expected)++index;
     if(index==bindings.count && bindings.count>=kVariableRateSampleBindingCapacity)return 5;
     if(request.type==1 && index<bindings.count && bindings.bindings[index].type==InstrumentType::Sample) {
-        candidate.reference_note=bindings.bindings[index].reference_note;candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
+        candidate.reference_note=bindings.bindings[index].reference_note;candidate.fine_tune_cents=bindings.bindings[index].fine_tune_cents;candidate.sample_level_percent=bindings.bindings[index].sample_level_percent;
     }
     if(request.type==2) {
         if(request.midi_channel>16 || (request.midi_channel && previous->type!=InstrumentType::MIDI))return 4;
@@ -121,7 +148,8 @@ template<class Install> unsigned ReplaceInstrumentDefinition(InstrumentDefinitio
             previous->type==InstrumentType::MIDI?previous->midi_channel:kNewMidiInstrumentChannel;
     }
     if(!install(candidate))return 5;
-    (void)definitions.Replace(request.expected,request.type,resource,candidate.midi_channel);
+    const auto tuning=request.type==1?SampleTuning{candidate.reference_note,candidate.fine_tune_cents}:kDefaultSampleTuning;
+    (void)definitions.Replace(request.expected,request.type,resource,candidate.midi_channel,tuning);
     if(index==bindings.count)++bindings.count;bindings.bindings[index]=candidate;return 0;
 }
 }

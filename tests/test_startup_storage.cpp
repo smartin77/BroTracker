@@ -64,17 +64,22 @@ struct StoragePeer:SerialTransport {
     bool waveform_cap=false;
     bool transport_cap=false;
     bool relink_cap=false,replace_cap=false,live_type_cap=false,live_edit_cap=false;
-    bool midi_instrument_cap=false;
+    bool midi_instrument_cap=false,sample_tuning_cap=false,hold_sample_tuning=false,reject_sample_tuning=false;
     LiveInstrumentVisit visit;bool hold_prepare=false,edit_pending=false;InstrumentDefineRequest pending_edit;
     VariableRateSampleBinding live_prepared;
     void EditReply(unsigned id,unsigned result,unsigned slot=99) {
         char reply[128];
-        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap?slot:99);
+        FormatLiveInstrumentReply(reply,id,result,definitions,midi_instrument_cap || sample_tuning_cap?slot:99);
         (hold_define?define_reply:rx)+=reply;
     }
     void ApplyEdit(const InstrumentDefineRequest& request) {
-        const auto result=visit.Cancelled(request.request)?7u:reject_wav && request.type==1?6u:
+        const bool tuning=request.tuning.Valid();
+        const auto result=visit.Cancelled(request.request)?7u:tuning && reject_sample_tuning?4u:tuning?
+            EditSampleTuning(definitions,definition_bindings,request.expected,request.tuning,
+                [&](unsigned id,SampleTuning value){return !definition_player || definition_player->SetSampleTuning(id,value);}):
+            reject_wav && request.type==1?6u:
             ReplaceInstrumentDefinition(definitions,definition_bindings,request,live_prepared,true,[&](const auto& b){return !definition_player || definition_player->ReplaceLiveInstrumentBinding(b);});
+        if(!result)visit.MarkEdited(request.expected,!tuning);
         EditReply(request.request,result,request.expected);
     }
     void CompleteEdit(){CHECK(edit_pending);edit_pending=false;ApplyEdit(pending_edit);}
@@ -116,6 +121,7 @@ struct StoragePeer:SerialTransport {
             if(line=="BTTEST1 HELLO" && live_type_cap)rx+="BTINS1 LIVETYPECAP 1\n";
             if(line=="BTTEST1 HELLO" && live_edit_cap)rx+="BTINS1 LIVEEDITCAP 1\n";
             if(line=="BTTEST1 HELLO" && midi_instrument_cap)rx+="BTINS1 MIDICHANNELCAP 1\n";
+            if(line=="BTTEST1 HELLO" && sample_tuning_cap)rx+="BTINS1 TUNINGCAP 1\n";
             if(line=="BTTEST1 HELLO" && relink_cap)rx+="BTINS1 RELINKCAP 1\n";
             if(line=="BTTEST1 HELLO" && path_cap)rx+="BTPATH1 CAP 1 255 8192\n";
             if(line=="BTTEST1 HELLO" && wav_cap)rx+="BTINS1 WAVCAP 1\nBTINS1 WAVBROWSECAP 2\n";
@@ -206,7 +212,11 @@ struct StoragePeer:SerialTransport {
         }
         else if(line.rfind("BTINS1 RESTORE ",0)==0) {
             std::uint32_t f[3]{};CHECK(SnapshotFields(line.data(),line.size(),"BTINS1 RESTORE ",f,3));
-            const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){return !definition_player || (b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id));});
+            const auto result=visit.Restore(f[2],definitions,definition_bindings,[&](unsigned id,const VariableRateSampleBinding* b){
+                if(!definition_player)return true;
+                if(visit.TuningOnly(id))return !b || definition_player->SetSampleTuning(id,{b->reference_note,b->fine_tune_cents});
+                return b?definition_player->ReplaceLiveInstrumentBinding(*b):definition_player->RemoveLiveInstrumentBinding(id);
+            });
             EditReply(f[1],result,f[2]);
         }
         else if(line.rfind("BTINS1 EDIT ",0)==0) {
@@ -235,6 +245,9 @@ struct StoragePeer:SerialTransport {
                 if(midi_instrument_cap && definition && definition->type==InstrumentType::MIDI)
                     (hold_identity?identity_reply:rx)+="BTINS1 CHANNEL 1 "+std::to_string(id)+" "+
                         std::to_string(definition->midi_channel)+"\n";
+                if(sample_tuning_cap && !hold_sample_tuning && definition && definition->type==InstrumentType::Sample)
+                    (hold_identity?identity_reply:rx)+="BTINS1 TUNING 1 "+std::to_string(id)+" "+
+                        std::to_string(definition->tuning.root)+" "+std::to_string(definition->tuning.cents)+"\n";
             }
         }
         else if(line.rfind("BTINS1 GET 1 ",0)==0) {
@@ -2722,6 +2735,204 @@ TEST_CASE(AllSixLiveTypeTransitionsUseProductionTriggersAndConfirmOrRestoreExact
             CHECK(it->rfind("BTSTORE1 SAVE",0)!=0);CHECK(it->rfind("BTSTORE1 READY",0)!=0);
         }
     }
+}
+
+TEST_CASE(SampleTuningRetriesAfterLateCapabilityAndNeverDisplaysRejectedChanges) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+        wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=true;
+    CHECK(wire->definitions.SetSampleTuning(0,{67,42}));
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,0};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+    controls.ObserveEditor(editor);
+    std::uint32_t now=0;
+    const auto drive=[&](unsigned duration){for(const auto end=now+duration;now<end;){now+=10;controls.Tick(now);serial.SyncEditor(editor,now);}};
+    drive(1500);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    controls.Request(BringUpAction::ScreenUp,"Instrument",now);drive(300);
+    CHECK(serial.InspectedSample(1));CHECK(!controls.InstrumentSampleTuningEditable());
+    CHECK(BroTracker::ResolveSampleTuning(controls.InstrumentSampleTuning())==BroTracker::kDefaultSampleTuning);
+    const auto count_get=[&]{return std::count(wire->commands.begin(),wire->commands.end(),"BTINS1 GET 2 0");};
+    const auto before=count_get();
+    wire->sample_tuning_cap=true;wire->hold_sample_tuning=true;
+    wire->rx+="BTINS1 TUNINGCAP 1\n";drive(200);
+    CHECK(count_get()>before);CHECK(controls.InstrumentSampleTuningEditable());
+    CHECK(!controls.InstrumentSampleTuning().Valid());
+    controls.Request(BringUpAction::InstrumentNextField,"Root Note",now);
+    CHECK_EQ(controls.InstrumentFocus(),BringUpControls::RootNoteField);
+    controls.Request(BringUpAction::InstrumentIncrease,"Await confirmed baseline",now);
+    CHECK(!serial.InstrumentCommitPending());
+    wire->hold_sample_tuning=false;drive(1100);
+    const SampleTuning saved{67,42};
+    CHECK(controls.InstrumentSampleTuning()==saved);
+    wire->reject_sample_tuning=true;
+    controls.Request(BringUpAction::InstrumentIncrease,"Rejected root edit",now);drive(200);
+    CHECK(controls.InstrumentSampleTuning()==saved);
+    CHECK(wire->definitions.At(0)->tuning==saved);
+    CHECK(!serial.InstrumentCommitSucceeded());
+}
+
+TEST_CASE(SampleTuningControlsClampRepeatAndKeepOrRestoreDuringPlayback) {
+    for(bool keep:{false,true}) {
+        auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+        wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+            wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=wire->sample_tuning_cap=true;
+        std::int16_t pcm[4096];for(unsigned i=0;i<4096;++i)pcm[i]=i*4;
+        StreamedVoiceBuffer voices[kStreamVoiceCount]{};
+        const StreamedSample stream{pcm,4096,voices,{22050,1,16}};
+        wire->definition_bindings.count=1;
+        wire->definition_bindings.bindings[0]={0,60,{pcm,4096,22050,&stream},InstrumentType::Sample};
+        wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+        wire->simulated_working.cells[0][0]={60,0};wire->simulated_working.cells[1][0]={61,0};
+        VariableRatePatternPlayer player;
+        CHECK_EQ(player.Configure(15500,44100,wire->simulated_working,wire->definition_bindings),VariableRatePatternPlayerStatus::Success);
+        wire->definition_player=&player;
+        BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+        controls.ObserveEditor(editor);
+        std::uint32_t now=0;
+        const auto drive=[&](unsigned duration){for(const auto end=now+duration;now<end;){now+=5;controls.Tick(now);serial.SyncEditor(editor,now);}};
+        const auto action=[&](BringUpAction a){controls.Request(a,"test",now);};
+        drive(1200);editor.RestoreCursor({0,0,EditField::Instrument,false});
+        wire->state="PLAYING";wire->rx+="BTTEST1 STATE PLAYING\n";drive(20);
+        CHECK_EQ(player.Start(),VariableRatePatternPlayerStatus::Success);
+        std::int16_t audio[128];
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(player.TakeMidiCommands().commands[0].step_q32_32,kSourceFrameStepUnity/2);
+        action(BringUpAction::ScreenUp);drive(250);
+        action(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentField(),BringUpControls::RootNoteField);
+        wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,60u);
+        wire->hold_define=false;wire->rx+=wire->define_reply;drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,61u);
+        action(BringUpAction::InstrumentNextField);CHECK_EQ(controls.InstrumentField(),BringUpControls::FineTuneField);
+        action(BringUpAction::InstrumentDecrease);controls.ReleaseInstrumentFineTune();drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,0u);
+        action(BringUpAction::InstrumentIncrease);drive(30);
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,1u);
+        drive(350);CHECK_EQ(controls.InstrumentSampleTuning().cents,1u);
+        drive(60);CHECK_EQ(controls.InstrumentSampleTuning().cents,2u);
+        drive(1000);const auto medium=controls.InstrumentSampleTuning().cents;
+        drive(1000);CHECK(controls.InstrumentSampleTuning().cents-medium>20);
+        drive(4500);controls.ReleaseInstrumentFineTune();
+        CHECK_EQ(controls.InstrumentSampleTuning().cents,99u);
+        CHECK_EQ(controls.InstrumentSampleTuning().root,61u);
+        CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+        CHECK_EQ(audio[0],256);CHECK_EQ(audio[127],510); // Original voice still advances half a frame per sample.
+        bool saw_next=false;
+        for(unsigned i=0;i<60 && !saw_next;++i) {
+            CHECK_EQ(player.Render(audio,128),VariableRatePatternPlayerStatus::Success);
+            const auto commands=player.TakeMidiCommands();
+            for(unsigned j=0;j<commands.count;++j)if(commands.commands[j].action==VariableRateVoiceAction::Trigger) {
+                CHECK_EQ(commands.commands[j].step_q32_32,(ApplySampleFineTune(kSourceFrameStepUnity,99)+1)/2);
+                saw_next=true;break;
+            }
+        }
+        CHECK(saw_next);
+        action(keep?BringUpAction::ScreenDown:BringUpAction::InstrumentCancel);drive(500);
+        CHECK(!controls.InstrumentScreen());CHECK(!wire->visit.Active());CHECK(serial.Playing());
+        CHECK_EQ(wire->definitions.At(0)->tuning.root,keep?61u:60u);
+        CHECK_EQ(wire->definitions.At(0)->tuning.cents,keep?99u:0u);
+        CHECK_EQ(wire->definition_bindings.bindings[0].fine_tune_cents,keep?99u:0u);
+    }
+}
+
+TEST_CASE(DisplayedWaveformSurvivesPendingTuningAndRevalidatesReplacedSource) {
+    auto peer=std::make_unique<StoragePeer>();auto* wire=peer.get();
+    wire->metadata_cap=wire->collection_cap=wire->facts_cap=wire->live_edit_cap=
+        wire->define_cap=wire->wav_cap=wire->preview_cap=wire->simulate_working=
+        wire->waveform_cap=wire->sample_tuning_cap=wire->replace_cap=true;
+    wire->configured_rows=2;wire->simulated_working.active_rows=2;wire->simulated_working.active_channels=8;
+    wire->simulated_working.cells[0][0]={60,0};
+    static const std::int16_t replacement[32]{};
+    wire->live_prepared={0,60,{replacement,32,44100}};
+    BringUpSerial serial(nullptr,std::move(peer));LocalPatternEditor editor;BringUpControls controls(serial,nullptr);
+    controls.ObserveEditor(editor);
+    const auto view=[&]() -> const SampleWaveformCache& {
+        return serial.SelectWaveform(controls.InstrumentNumber(),controls.AcknowledgedSamplePath());
+    };
+    std::uint32_t now=0;
+    const auto drive=[&](unsigned duration){
+        for(const auto end=now+duration;now<end;){
+            now+=5;controls.Tick(now);serial.SyncEditor(editor,now);
+            if(controls.InstrumentScreen() && !controls.WavPicker())(void)view();
+        }
+    };
+    const auto action=[&](BringUpAction value){controls.Request(value,"waveform test",now);};
+    const auto count=[&](std::string_view prefix){return std::count_if(wire->commands.begin(),wire->commands.end(),
+        [&](const auto& line){return line.rfind(prefix,0)==0;});};
+    const auto reply=[&]{
+        wire->hold_define=false;wire->rx+=wire->define_reply;wire->define_reply.clear();drive(30);
+    };
+    drive(1200);editor.RestoreCursor({0,0,EditField::Instrument,false});
+    wire->rx+=std::string(kWaveformFingerprintCapability)+"\n";drive(20);
+    action(BringUpAction::ScreenUp);drive(250);
+    CHECK_EQ(count("BTWAVE1 GET 2 1 0 "),1);
+    wire->rx+="BTWAVE1 META 1 1 17 8 44100 1 16\nBTWAVE1 FP 1 1 17 0 60 44 16 4 5\n";drive(30);
+    char line[kWaveformLineCapacity];
+    std::uint8_t pcm[16]{};
+    const auto send_pcm=[&](unsigned id){
+        wire->rx.append(line,FormatWaveformData(line,id,0,pcm,sizeof(pcm)));drive(30);
+    };
+    send_pcm(1);
+    const auto unchanged=[&]{
+        CHECK_EQ(view().Status(),SampleWaveformCache::State::Ready);
+        CHECK_EQ(view().Metadata().token,17u);CHECK_EQ(view().BytesLoaded(),16u);
+        CHECK(serial.WaveformFingerprint()!=nullptr);
+        CHECK_EQ(count("BTWAVE1 GET "),1);CHECK_EQ(count("BTWAVE1 CANCEL "),0);
+    };
+    unchanged();
+    action(BringUpAction::InstrumentNextField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();unchanged();
+    wire->hold_define=true;action(BringUpAction::InstrumentDecrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK_EQ(count("BTINS1 RESTORE "),1);
+    unchanged();reply();unchanged();
+    wire->reject_sample_tuning=true;wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    unchanged();reply();CHECK(!serial.InstrumentCommitSucceeded());unchanged();
+    wire->reject_sample_tuning=false;action(BringUpAction::InstrumentIncrease);drive(30);
+    action(BringUpAction::InstrumentNextField);
+    action(BringUpAction::InstrumentIncrease);drive(650);controls.ReleaseInstrumentFineTune();
+    CHECK(controls.InstrumentSampleTuning().cents>1);unchanged();
+    wire->hold_define=true;action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();drive(100);
+    CHECK(!controls.InstrumentScreen());
+    action(BringUpAction::ScreenUp);drive(150);unchanged();
+    action(BringUpAction::InstrumentNextField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30050);
+    CHECK(!serial.InstrumentCommitPending());CHECK_EQ(serial.InstrumentCommitResult(),8u);unchanged();
+    wire->define_reply.clear();action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());unchanged();reply();drive(100);
+    CHECK(!controls.InstrumentScreen());
+    action(BringUpAction::ScreenUp);drive(150);unchanged();
+    action(BringUpAction::InstrumentNextField);action(BringUpAction::InstrumentNextField);
+    action(BringUpAction::InstrumentNextField);action(BringUpAction::InstrumentActivate);drive(150);
+    CHECK(controls.WavPicker());
+    wire->hold_define=true;action(BringUpAction::BrowserDown);action(BringUpAction::BrowserConfirm);
+    if(controls.ReplacementConfirming())action(BringUpAction::BrowserConfirm);
+    drive(50);
+    CHECK(serial.InstrumentCommitPending());
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Unavailable);
+    reply();CHECK_EQ(controls.AcknowledgedSamplePath(),"Samples/selected.wav");
+    CHECK_EQ(count("BTWAVE1 GET 2 2 0 @53616d706c65732f73656c65637465642e776176"),1);
+    const unsigned frames=(kWaveformIdleBytes+sizeof(pcm))/2;
+    wire->rx+="BTWAVE1 META 1 2 18 "+std::to_string(frames)+" 44100 1 16\n";drive(30);
+    std::uint8_t prefix[kWaveformIdleBytes]{};
+    wire->rx.append(line,FormatWaveformData(line,2,0,prefix,sizeof(prefix)));drive(30);
+    CHECK_EQ(view().BytesLoaded(),sizeof(prefix));
+    for(unsigned i=0;i<5 && controls.InstrumentField()!=BringUpControls::RootNoteField;++i)
+        action(BringUpAction::InstrumentNextField);
+    CHECK_EQ(controls.InstrumentField(),BringUpControls::RootNoteField);
+    wire->hold_define=true;action(BringUpAction::InstrumentIncrease);drive(30);
+    CHECK(serial.InstrumentCommitPending());CHECK_EQ(view().BytesLoaded(),sizeof(prefix));
+    CHECK_EQ(view().Metadata().token,18u);
+    wire->rx.append(line,FormatWaveformData(line,2,sizeof(prefix),pcm,sizeof(pcm)));drive(30);
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Ready);
+    CHECK_EQ(view().BytesLoaded(),sizeof(prefix)+sizeof(pcm));reply();
+    CHECK_EQ(view().Metadata().token,18u);
+    wire->hold_define=true;action(BringUpAction::InstrumentCancel);drive(30);
+    CHECK(serial.InstrumentCommitPending());
+    CHECK_EQ(view().Status(),SampleWaveformCache::State::Unavailable);
+    reply();drive(100);CHECK(!controls.InstrumentScreen());
 }
 
 TEST_CASE(EscapeCancelsInFlightSamplePreparationAndLateCompletionCannotReplaceRollback) {

@@ -5,7 +5,7 @@
 namespace BroTracker {
 // Temporary BTM stores one working Pattern/BPM and the complete definition table.
 // Legacy BTWS/BTSS remain readable. No transport/request identity is persisted.
-constexpr std::size_t kWorkingSessionCapacity=32+kSessionLineageSize+kPatternFileCapacity+kResourcePathBytes+99*5;
+constexpr std::size_t kWorkingSessionCapacity=32+kSessionLineageSize+kPatternFileCapacity+kResourcePathBytes+99*7;
 struct SessionView {
     std::uint8_t row=0,channel=0,field=0,header=0;
 };
@@ -39,17 +39,20 @@ struct WorkingSession {
 };
 inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t n,WorkingSession& out) noexcept {
     if(b && n>=32 && !std::memcmp(b,"BTM1",4)) {
-        if(b[4]>=2 && b[4]<=4) {
+        if(b[4]>=2 && b[4]<=6) {
             const bool with_channel=b[4]>=3;
-            const auto trailer=8+(b[4]==4?kSessionLineageSize:0);
+            const bool with_lineage=b[4]==4 || b[4]==6;
+            const bool with_tuning=b[4]>=5;
+            const unsigned record_size=with_tuning?5:3;
+            const auto trailer=8+(with_lineage?kSessionLineageSize:0);
             if(n<24+trailer)return PatternFileResult::Invalid;
             const auto payload_end=n-trailer;
-            const std::string_view lineage(b[4]==4?reinterpret_cast<const char*>(b+n-kSessionLineageSize):"",b[4]==4?kSessionLineageSize:0);
-            if(b[4]==4 && !ValidSessionLineage(lineage))return PatternFileResult::Invalid;
+            const std::string_view lineage(with_lineage?reinterpret_cast<const char*>(b+n-kSessionLineageSize):"",with_lineage?kSessionLineageSize:0);
+            if(with_lineage && !ValidSessionLineage(lineage))return PatternFileResult::Invalid;
             if(b[5] || b[6]!=24 || b[7] || PatternFileU32(b+20)!=PatternFileCrc(b,n))return PatternFileResult::Invalid;
             const auto a=PatternFileU32(b+8),count=PatternFileU32(b+12),paths=PatternFileU32(b+16);
-            if(a>kPatternFileCapacity || count>99 || paths>99 || n>kWorkingSessionCapacity || payload_end<24+a+count*3)return PatternFileResult::Invalid;
-            const auto records=24+a;std::size_t at=records+count*3;
+            if(a>kPatternFileCapacity || count>99 || paths>99 || n>kWorkingSessionCapacity || payload_end<24+a+count*record_size)return PatternFileResult::Invalid;
+            const auto records=24+a;std::size_t at=records+count*record_size;
             const char* resources[99]{};unsigned path_bytes=0;
             for(unsigned i=0;i<paths;++i){
                 if(at+2>payload_end)return PatternFileResult::Invalid;
@@ -62,14 +65,16 @@ inline PatternFileResult DecodeWorkingSession(const std::uint8_t* b,std::size_t 
             }
             if(at!=payload_end)return PatternFileResult::Invalid;
             InstrumentDefinitions definitions(false);
-            for(unsigned i=0;i<count;++i){const auto* d=b+records+i*3;const auto id=unsigned(d[1])+(unsigned(d[2])<<8);
+            for(unsigned i=0;i<count;++i){const auto* d=b+records+i*record_size;const auto id=unsigned(d[1])+(unsigned(d[2])<<8);
                 const bool midi=d[0]==2;
                 const auto path=d[0]==1?id:0u;
                 if(midi && with_channel) {if(id<1 || id>16)return PatternFileResult::Invalid;}
                 else if(id>paths || (d[0]==1)!=bool(id))return PatternFileResult::Invalid;
                 if(path && !ResourcePaths().CanAcquire(resources[path-1]))return PatternFileResult::ResourceCapacity;
+                if(with_tuning && !path && (d[3] || d[4]))return PatternFileResult::Invalid;
+                const auto tuning=with_tuning && path?SampleTuning{d[3],d[4]}:kDefaultSampleTuning;
                 if(!definitions.Append(i,d[0],path?resources[path-1]:nullptr,
-                    midi?(with_channel?id:kLegacyMidiInstrumentChannel):0))return PatternFileResult::Invalid;
+                    midi?(with_channel?id:kLegacyMidiInstrumentChannel):0,tuning))return PatternFileResult::Invalid;
             }
             const auto* m=b+payload_end;if(m[5]||m[6]||m[7] || ValidatePatternFile(PatternFileKind::Session,b+24,a)!=PatternFileResult::Ok)return PatternFileResult::Invalid;
             DecodePatternFile(PatternFileKind::Session,b+24,a,out.working,out.working_tempo);
@@ -132,12 +137,20 @@ public:
         std::size_t a=0;
         auto r=EncodePatternFile(PatternFileKind::Session,s.working,s.working_tempo,bytes_+24,kPatternFileCapacity,a);
         if(r!=PatternFileResult::Ok)return r;
-        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=s.lineage[0]?4:3;bytes_[6]=24;
+        bool with_tuning=false;
+        for(unsigned i=0;i<s.definitions.Count();++i)
+            with_tuning|=s.definitions.At(i)->type==InstrumentType::Sample;
+        const unsigned record_size=with_tuning?5:3;
+        std::memset(bytes_,0,24);std::memcpy(bytes_,"BTM1",4);bytes_[4]=(with_tuning?5:3)+bool(s.lineage[0]);bytes_[6]=24;
         const auto trailer=8+(s.lineage[0]?kSessionLineageSize:0);
         PatternFilePut32(bytes_+8,a);PatternFilePut32(bytes_+12,s.definitions.Count());
-        const char* paths[99]{};unsigned path_count=0;std::size_t at=24+a+s.definitions.Count()*3;
+        const char* paths[99]{};unsigned path_count=0;std::size_t at=24+a+s.definitions.Count()*record_size;
         for(unsigned i=0;i<s.definitions.Count();++i) {
-            const auto* d=s.definitions.At(i);auto* record=bytes_+24+a+i*3;record[0]=InstrumentTypeCode(d->type);unsigned id=0;
+            const auto* d=s.definitions.At(i);auto* record=bytes_+24+a+i*record_size;record[0]=InstrumentTypeCode(d->type);unsigned id=0;
+            if(with_tuning) {
+                record[3]=d->type==InstrumentType::Sample?d->tuning.root:0;
+                record[4]=d->type==InstrumentType::Sample?d->tuning.cents:0;
+            }
             if(d->resource){
                 while(id<path_count && std::strcmp(paths[id],d->resource))++id;
                 if(id==path_count){const auto length=std::strlen(d->resource);if(at+2+length+1+trailer>sizeof(bytes_))return PatternFileResult::ResourceCapacity;

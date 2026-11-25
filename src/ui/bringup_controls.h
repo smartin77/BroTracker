@@ -30,7 +30,14 @@ public:
     unsigned InstrumentField()const{return instrument_field_;}
     unsigned InstrumentMidiChannel()const;
     bool InstrumentMidiChannelEditable()const;
-    int InstrumentFocus()const{return instrument_field_==3?(InstrumentMidiChannelEditable()?3:-1):instrument_field_==2?2:InstrumentTypeEditable()?int(instrument_field_):serial_.InspectedSample(instrument_number_)?1:-1;}
+    static constexpr unsigned RootNoteField=4,FineTuneField=5;
+    BroTracker::SampleTuning InstrumentSampleTuning()const;
+    bool InstrumentSampleTuningEditable()const;
+    int InstrumentFocus()const{
+        if(instrument_field_>=RootNoteField)return InstrumentSampleTuningEditable()?int(instrument_field_):-1;
+        return instrument_field_==3?(InstrumentMidiChannelEditable()?3:-1):instrument_field_==2?2:InstrumentTypeEditable()?int(instrument_field_):serial_.InspectedSample(instrument_number_)?1:-1;
+    }
+    void ReleaseInstrumentFineTune(BringUpAction action=BringUpAction::None);
     bool ReplacementConfirming()const{return replace_prompt_;}
     std::string InstrumentLoadWarning()const;
     std::string SavedInstrumentPath()const;
@@ -94,7 +101,13 @@ private:
     // MIDI/Synth definitions have no Sample resource. First-touch originals,
     // latest desired values, and acknowledged values stay separate for rollback.
     std::array<unsigned,99> original_channels_{},desired_channels_{},applied_channels_{};
+    std::array<BroTracker::SampleTuning,99> original_tuning_{},desired_tuning_{},applied_tuning_{};
+    BringUpAction fine_tune_held_=BringUpAction::None;
+    std::uint32_t fine_tune_started_=0,fine_tune_last_=0;
+    bool fine_tune_repeated_=false;
+    void StepSampleTuning(BringUpAction action,std::uint32_t now);
     unsigned live_channel_sent_=0;
+    BroTracker::SampleTuning live_tuning_sent_{};
     std::array<unsigned,99> original_types_{},desired_types_{},applied_types_{};
     std::array<std::string,99> original_resources_{},desired_resources_{},applied_resources_{};
     std::string live_resource_sent_;

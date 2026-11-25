@@ -3,6 +3,7 @@
 #include "ui/editor_repeat.h"
 #include "ui/editor_step_input.h"
 #include "ui/pattern_screen.h"
+#include "ui/bringup_controls.h"
 #include "ui/sample_waveform.h"
 #include "ui/text_renderer.h"
 #include "ui/bitmap_font.h"
@@ -986,6 +987,40 @@ TEST_CASE(InstrumentViewportSwapsFrameHeightsAndIgnoresSidebarText) {
     panel.instrument_status="Preparation failed; previous binding retained";
     RenderMainScreen(second,tune,pattern,view,nullptr,panel);
     CHECK(std::memcmp(first.PixelData(),second.PixelData(),640*480*sizeof(Color))!=0);
+}
+
+TEST_CASE(InstrumentTuningDrawsFocusedFrameAndExteriorArrowsAtTheEndpoints) {
+    Framebuffer fb(640,480);Tune tune;Pattern pattern;
+    HostPanelInformation panel;
+    panel.instrument_number=1;panel.instrument_identity="Sample";
+    panel.instrument_focus=BringUpControls::FineTuneField;
+    panel.instrument_tuning_editable=true;
+    const auto face=HostBitmap::Bdf("assets/fonts/terminus/ter-u14n.bdf");
+    const int x=24+std::max(HostBitmap::Measure(face,"Root Note").width,HostBitmap::Measure(face,"Fine Tune").width);
+    const int w=HostBitmap::Measure(face,"00").width;
+    constexpr int y=90;
+    const auto pixel=[&](int px,int py,Color expected){
+        const auto actual=fb.PixelData()[py*640+px];
+        return actual.r==expected.r && actual.g==expected.g && actual.b==expected.b;
+    };
+    for(unsigned cents:{0u,9u,99u}) {
+        panel.instrument_tuning={60,cents};
+        RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
+        CHECK(pixel(x-4,y+6,{255,160,64}));
+        CHECK(pixel(x+w+3,y+6,{255,160,64}));
+        CHECK(pixel(x-8,y+6,{143,143,159}));
+        CHECK(pixel(x+w+7,y+6,{143,143,159}));
+        CHECK(!pixel(x-5,y+6,{143,143,159}));
+        CHECK(!pixel(x+w+4,y+6,{143,143,159}));
+    }
+    panel.instrument_tuning={};
+    RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
+    CHECK(pixel(x-4,y+6,{255,160,64}));
+    CHECK(pixel(x-8,y+6,{143,143,159}));
+    CHECK(pixel(x+w+7,y+6,{143,143,159}));
+    panel.instrument_tuning_editable=false;
+    RenderMainScreen(fb,tune,pattern,ConnectedDraft(),nullptr,panel);
+    CHECK(!pixel(x-8,y+6,{143,143,159}));
 }
 
 TEST_CASE(InstrumentWaveformRendersAcknowledgedSourceAndReusesItAcrossVisits) {

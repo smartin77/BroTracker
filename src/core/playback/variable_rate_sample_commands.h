@@ -1,4 +1,5 @@
 #pragma once
+#include "core/sample_tuning.h"
 
 #include "channel_state.h"
 #include "core/instrument_type.h"
@@ -18,6 +19,7 @@ namespace BroTracker
         // Optional binding attenuation; ordinary instruments remain exact unity.
         std::uint8_t sample_level_percent = 100;
         std::uint8_t midi_channel = 0; // Zero uses the existing output default.
+        std::uint8_t fine_tune_cents = 0;
     };
     struct VariableRateSampleBindings
     {
@@ -51,7 +53,8 @@ namespace BroTracker
     public:
         // Validate count and every active binding before mutation (inactive slots
         // are not consumed). IDs 0..254 are unique;
-        // Sample reference notes are 24..127; PCM must match the output rate.
+        // Sample reference notes are 24..127. Streamed PCM can use a supported
+        // native source rate independently of the output rate.
         // Synth has no PCM/reference-note dependency; MIDI has no local PCM.
         // Zero bindings is valid (NOTE_OFF still works). Success copies metadata
         // and clears logical state; failure preserves bindings, rate and state.
@@ -70,7 +73,7 @@ namespace BroTracker
                 const auto& binding = bindings.bindings[i];
                 if (binding.instrument == kNoInstrumentUpdate)
                     return VariableSampleCommandStatus::ReservedInstrument;
-                if (binding.type == InstrumentType::Sample && !IsPitchedPatternNote(binding.reference_note))
+                if (binding.type == InstrumentType::Sample && !SampleTuning{binding.reference_note,binding.fine_tune_cents}.Valid())
                     return VariableSampleCommandStatus::InvalidReferenceNote;
                 for (std::size_t j = 0; j < i; ++j)
                     if (bindings.bindings[j].instrument == binding.instrument)
@@ -112,6 +115,7 @@ namespace BroTracker
         // Preserve channel, uint64_t offset and input order (including ties).
         bool AppendBinding(const VariableRateSampleBinding& binding) noexcept {
             if(bindings_.count>=kVariableRateSampleBindingCapacity || binding.instrument>=99)return false;
+            if(binding.type==InstrumentType::Sample && !SampleTuning{binding.reference_note,binding.fine_tune_cents}.Valid())return false;
             for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument)return false;
             if(binding.type!=InstrumentType::MIDI && binding.type!=InstrumentType::Synth && binding.type!=InstrumentType::Sample)return false;
             bindings_.bindings[bindings_.count++]=binding;return true;
@@ -137,6 +141,18 @@ namespace BroTracker
             if(binding.type!=InstrumentType::Sample)return false;
             for(std::size_t i=0;i<bindings_.count;++i)if(bindings_.bindings[i].instrument==binding.instrument && bindings_.bindings[i].type!=InstrumentType::Sample)return false;
             return ReplaceBinding(binding);
+        }
+        bool SetSampleTuning(unsigned id, SampleTuning tuning) noexcept {
+            if(!tuning.Valid())return false;
+            for(std::size_t i=0;i<bindings_.count;++i) {
+                auto& binding=bindings_.bindings[i];
+                if(binding.instrument!=id)continue;
+                if(binding.type!=InstrumentType::Sample)return false;
+                binding.reference_note=tuning.root;
+                binding.fine_tune_cents=tuning.cents;
+                return true;
+            }
+            return false;
         }
         // Reject decreasing offsets; renderer validates block bounds/ownership.
         // Work bounded by eight events, eight channel-state entries and 8*99 lookups.
@@ -204,6 +220,7 @@ namespace BroTracker
                         return VariableSampleCommandStatus::InvalidNote;
                     if (mapped == NotePlaybackStepStatus::InvalidReferenceNote)
                         return VariableSampleCommandStatus::InvalidReferenceNote;
+                    command.step_q32_32=ApplySampleFineTune(command.step_q32_32,selected->fine_tune_cents);
                     if(!ComposeStreamingStep(command.step_q32_32,selected->sample.sample_rate_hz,
                         sample_rate_hz_,command.step_q32_32))
                         return VariableSampleCommandStatus::SampleRateMismatch;
