@@ -86,6 +86,62 @@ Closing BTX does not confirm assignment.
   value may be informational without being editable. Controls require supported
   commands, validation and acknowledged results before becoming actionable.
 
+### Shared text entry (proposal)
+
+Use one text-entry design for Tune Name, the Save As filename and future
+instrument names. This is documentation only; implementing text entry is a
+separate task and does not block the host-only BTT validator.
+
+Choose the initial presentation from the input that activates the field:
+physical-keyboard activation starts normal text editing; controller activation
+opens an on-screen keyboard overlay. Support normal physical-keyboard text input
+on both desktop and handheld hosts, including while the overlay is open. Do not
+infer input mode solely from the host platform or from an earlier unrelated input.
+
+Edit a draft text value while retaining the original value. The overlay uses the
+existing orange focus frame to identify the selected character key or action.
+Character-key focus is separate from the text's insertion position: moving the
+frame must not move the insertion position or change the draft. Character
+activation and physical typing insert at that position; Backspace removes the
+preceding character. Exact insertion-position navigation remains to be designed.
+
+The accepted initial on-screen keyboard has no diacritics. Provide A–Z and a–z through an
+`ABC/abc` toggle, digits `0–9`, a `Space` key, and these symbols:
+
+```text
+- _ . ( ) ! & + = @ # $ %
+```
+
+Provide explicit `Backspace`, `OK` and `Cancel` actions alongside the character
+keys. The accepted controller bindings are:
+
+| Input | Accepted action |
+| --- | --- |
+| D-pad | Move the orange focus frame between keys/actions |
+| A | Activate the selected character key, case toggle or action |
+| Y | Quick Backspace |
+| B | Cancel the entire edit and leave the original value unchanged |
+
+Only explicit `OK` commits the draft after field-specific validation. `Cancel`
+has the same whole-edit rollback behavior as B; it does not merely close the
+keyboard while retaining changes. Physical typing remains available without
+requiring a switch away from the overlay. Invalid input keeps the draft editable
+and reports the reason. Committing a field edit is distinct from durably saving
+the tune or file.
+
+Keep the tune title separate from the filesystem filename. Save As may derive
+an editable filename from the title, but editing or validating that filename
+does not silently rename the tune. Validate the filename explicitly against
+storage rules before saving, with automatic `.btt` extension handling that
+avoids duplicate extensions. A title valid as tune text need not be a valid
+filename; do not silently sanitize it into an unreviewed save destination.
+
+The initial on-screen character repertoire and controller bindings above are
+accepted design. Physical-keyboard character acceptance, per-field length limits,
+exact overlay layout, insertion-position controls and filename/suffix edge cases
+remain open design details. This design does not expand the current backend's
+filename or path support; text entry is not yet implemented.
+
 ## Screen responsibilities
 
 ### 1. PAT — Pattern

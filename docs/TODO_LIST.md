@@ -68,6 +68,17 @@
 
 ## Controls and tracker workflow
 
+* [ ] Implement shared text entry for Tune Name, Save As and future instrument
+  names: physical-keyboard input on desktop/handheld and during the controller
+  overlay, draft/OK/whole-edit Cancel, orange key focus separate from insertion
+  position. Accepted initial on-screen repertoire: ABC/abc, digits 0–9, Space,
+  `- _ . ( ) ! & + = @ # $ %`. Accepted bindings: D-pad navigation, A activation,
+  Y Backspace and B whole-edit Cancel. Keep physical-keyboard character acceptance,
+  per-field length limits, overlay layout, insertion controls and filename edge
+  cases open; keep
+  title and editable filename separate with filename validation and automatic
+  `.btt` handling. This separate task does not block the host-only BTT validator.
+  [Text-entry proposal](UI_SCREEN_MAP.md#shared-text-entry-proposal)
 * [ ] Move handheld L1+D-pad actions to an ergonomic R1-based layout. Resolve
   collisions with R1+Up/Down beat navigation and R1+Left/Right BPM before changing
   bindings. [Pattern controls](BTX_CONTROLS.md#pattern)
