@@ -5,7 +5,8 @@ BroTracker uses three related formats for tunes, projects and project distributi
 The BTT/BTP/BTM sections are a **BTT Foundation documentation draft** refining
 [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats).
 The ownership draft is complete; the BTT v1 proposal below awaits review.
-Its layout and limits are proposed, not approved or implemented. BTP/ZIP BTM
+Its layout and limits are proposed, not approved for runtime use. The isolated
+host validator/rewriter subset below is implemented; BTP/ZIP BTM
 details remain open. Existing working-session formats below retain their
 separately documented behavior.
 
@@ -454,6 +455,129 @@ Current `Event`, `RealtimePattern` and temporary session records have no three-F
 payload or independent FX presence representation. They cannot roundtrip this
 proposed data. A lossless saved-pattern representation and eventual runtime
 projection are new work; none is connected to application or firmware here.
+
+#### Host-only envelope/schema foundation
+
+`tools/btt/foundation.h` and `.cpp` implement an isolated native C++17 saved
+document validator, direct pattern materializer and lossless streamed rewriter.
+Only `BroTrackerBttFoundationTests` links these sources. This does not enable
+application/firmware storage, UI, transport, playback prefetch or FX execution.
+The format, codec numbers, profile limits and device admission remain provisional.
+Fixed16 is the baseline; the existing experimental Fixed8/Sparse8/Sparse16
+layouts also have structural coverage. No compression or encoding selection is
+performed, and rewrites retain each pattern's original encoding.
+
+Implemented acceptance checks cover the header, exact contiguous directory,
+both CRC levels, IDs/counters, required sections/fields, all TLV framing and
+duplicate tags (including unknown tags), known encoding lengths, UTF-8 without
+NUL, order references, note/timing/FX structure and sparse-record rules.
+Every pattern definition is scanned sequentially through reusable scratch;
+acceptance retains no decoded pattern bank or complete tune/file buffer.
+Definitions occur once, while repeated order entries stay stable-ID references.
+Unresolved nonzero references below their namespace's next-ID counter are valid
+saved data. Zero order IDs and references at/above the counter are invalid;
+instrument ID zero remains no update. Unknown required data rejects acceptance
+as `Unsupported`; malformed structure, capacity and I/O failures have separate
+results. A later minor version survives unchanged when required schema is known.
+
+`Status` separately reports unsupported saved interpretation, unresolved pattern
+and instrument IDs, and unchecked resources. No resource is resolved through the
+host filesystem, and unchecked does not mean located or playable. Missing Sample
+bindings, SD/BTP context, resource validation and effective runtime defaults need
+a future resource layer. Unknown FX numbers are retained in all three slots,
+including FX-only cells and explicit zero operands; no FX command registry or
+execution meaning is assigned here. Unsupported BPM/tuning/type values and
+inappropriate parameters remain saved data. Known optional tags with an unknown
+encoding remain opaque and present, so saving does not overwrite them with a
+default. Valid UTF-8 paths, including invalid runtime paths/bases, remain raw.
+
+The `Reader` contract requires owned, immutable, seekable backing for its entire
+lifetime. `Document` retains a `shared_ptr<const Reader>`, never a naked filename
+or a caller's borrowed byte array. Implementations must guarantee immutability;
+`const` alone cannot freeze external storage. There is no runtime filesystem
+adapter in this step. The host test reader owns its file handle and denies write
+sharing on Windows; its POSIX test fallback assumes exclusive test ownership.
+Adapters must give all wrappers of the same backing the same identity, and the
+rewriter rejects a writer with the source identity before writing. It checks the
+source whole CRC against its saved acceptance fingerprint again (including
+saved size), so substituting another valid file also blocks saving. Recoverable bytes are
+never dropped. Source and candidate storage must remain distinct through save.
+
+`Validate`, `Materialize` and `Save` take caller-owned candidate state. On failure
+the candidate may be partially filled and must be discarded; acceptance/ready
+flags stay false. Callers must never pass active state as a candidate. `Rewrite`
+may leave partial temporary bytes, which are disposable. `Save` requires an
+abstract store to finish/sync/close, reopen with owned immutable backing, fully
+validate, compare exact intended rewritten bytes, then promote. The original
+document/backing remains available. The store's promotion contract retains the
+previous valid destination on failure. The fake-store test establishes software
+failure ordering only: real exclusive creation, SD leases, `.previous`/rollback,
+FAT errors and power-loss recovery remain unimplemented and unvalidated here.
+
+No-edit rewrites are byte-identical when Sample tuning fields are explicit,
+including explicit defaults and unsupported values. A BPM edit changes only
+that field and dependent CRCs. Each absent Sample Root Note/Fine Tune field is
+independently appended as uint16 60 (C-3)/0 (00); present fields are never
+substituted. Default insertion can change section lengths/offsets and bytes and
+is rejected if it exceeds section/file/TLV capacity. Unknown optional sections
+and complete TLVs are copied through a 512-byte buffer from the stable source.
+
+Measured GNU 16.1.0 Release Windows x64 ABI: `Document` is 6,200 bytes (fixed
+256-entry index plus backing owner/state), `Workspace` 1,136 bytes (512-byte block,
+512-byte duplicate-tag array, eight known spans and counters), and one decoded
+`Pattern` **7,684 bytes**, or **15,368 bytes for two buffers**. Naturally aligned
+structure-of-arrays storage holds 7,680 logical cell bytes plus four bytes for
+rows, channels and readiness. The temporary `Cell` remains 20 bytes; its padding
+is never retained per cell. Compile-time size and alignment checks guard the
+compact buffer budget, and tests cover all fields/defaults and reused sparse
+candidates. No packed structs, unaligned accesses or on-disk changes are used.
+These are fixed capacities, independent of file size within the provisional limits. Validation
+and rewriting need 7,336 bytes of named caller state and no decoded pattern;
+materialization adds one pattern for 15,020 bytes. Save adds a second candidate
+index/state and a 512-byte comparison array: 14,048 bytes of named buffers/state.
+Those totals exclude scalar locals, compiler call frames, backing control blocks
+and CRT FILE state, and are not process RSS or stack high-water measurements.
+No recursion or variable-size stack arrays are used. The saved GCC
+`foundation-audit.su` reports per-function stack frames, including optimized
+clones; it is not a complete call-chain/virtual-backend stack bound.
+
+The 2/32-pattern by 8/65,536-byte optional-section matrix spans files from 15,781
+to 313,269 bytes without changing resident types. Each 64x8 Fixed16 direct access
+uses **36 backing reads** with **515 logical cursor/TLV accesses**, independent
+of unrelated pattern/optional payload counts. Reads are capped at 512 bytes and
+the test confines direct access to the selected pattern span. Logical access
+counts mean TLV-header scans plus cursor requests (cells, sparse indices and
+UTF-8 bytes); scalar/random reads are counted as backing calls, not cursor calls.
+Whole validation uses 138..1,956 backing calls; rewriting uses 158..2,560 in this
+matrix. Increased bytes cost I/O and CRC work, not proportional resident data.
+Validate/materialize/rewrite have **zero counted C++ new/new[] allocations**.
+File setup, fixture generation, reports and shared ownership creation are outside
+those scopes. Successful fake Save includes one backend allocation for its
+reopened File/control block; its injected wrong-document generator is measured
+separately and does allocate fixture vectors. Fixture generation intentionally
+uses full envelope vectors; `fixture-memory.csv` records their live capacities
+and conservative reallocation-overlap bounds, separate from operation memory.
+None of these host numbers establishes Teensy RAM admission or SD deadlines.
+
+Reproduce only the host tests (no delivery/firmware build):
+
+```powershell
+cmake -S . -B build/btt-foundation/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBROTRACKER_BUILD_WINDOWS_TERMINAL=OFF -DBROTRACKER_BUILD_ARKOS_UI=OFF -DBROTRACKER_BUILD_FONT_PREVIEW=OFF
+cmake --build build/btt-foundation/cmake --target BroTrackerBttFoundationTests BroTrackerBttPatternLayoutTests
+ctest --test-dir build/btt-foundation/cmake -R '^BroTrackerBtt(Foundation|PatternLayout)Tests$' --output-on-failure
+```
+
+`build/btt-foundation/` contains generated valid/malformed fixtures, the actual
+complete patch, test/build logs, memory/read-call CSVs and stack audit. Coverage
+includes non-sequential IDs 17/9001 with repeated order, missing Sample references,
+unsupported tuning and optional data; exact rewrites/BPM edits/default insertion;
+large opaque sections/TLVs; malformed envelopes/schema/sparse data and capacity
+boundaries; every small-fixture backing read/write failure, including failures
+during pattern materialization; and fake finish/reopen/validation/comparison/
+promotion failures retaining the prior document. Remaining work includes format
+review, real immutable storage adapters, device memory/source admission,
+resource availability, SD transaction/recovery, runtime projection, prefetch,
+FX execution and separately guarded UI/transport integration.
 
 #### Host-only pattern measurements
 

@@ -23,7 +23,7 @@
   refill-first scheduling, jump invalidation, dirty-pattern ownership, separate
   FX runtime state, prefetch deadlines and failure policy before integration.
   [Buffering design](FILE_FORMATS.md#proposed-currentnext-pattern-buffering-and-deferred-validation)
-* [ ] After layout review, extend the host-only experiment to a full bounded envelope/TLV
+* [x] Implement the provisional host-only bounded envelope/TLV
   validator and rewriter: byte-identical no-edit roundtrip with explicit defaults,
   then a BPM edit retaining unknown optional data, unresolved references and
   explicit unsupported values. Separately verify insertion of absent Sample
@@ -31,7 +31,17 @@
   All proposed profile limits still await review. Keep UI Load/Save integration
   separate. Preserve all three FX slots and numeric unknown effects on rewrite;
   use bounded file-backed access without a whole-file allocation.
-  [Next step](FILE_FORMATS.md#open-decisions-and-first-validation-step)
+  Caller-owned candidates, owned immutable backing contracts, sequential block
+  reads, direct stable-ID materialization, capacity/short-I/O failures and fake
+  reopen/compare/promotion checks are covered. Fixed16 remains the baseline;
+  decoded pattern storage uses naturally aligned arrays with a size-budget
+  regression check: 7,684 bytes per buffer and 15,368 for two on the measured
+  host ABI. Codec assignments and device admission remain provisional.
+  [Validated host subset](FILE_FORMATS.md#host-only-envelopeschema-foundation)
+* [ ] Review the host schema/backing contracts and implement real immutable
+  storage adapters and resource availability separately. Validate device RAM,
+  complete stack budgets, SD timing and FAT/power-loss recovery before runtime
+  admission. Keep playback prefetch, FX execution, UI and transport separate.
 * [ ] Extend LOAD/SAVE entry coordination to require STOP/acknowledgement from
   other states that are not confirmed stopped; failed or timed-out STOP keeps
   entry blocked. Confirmed device IDLE with no pending transport command already
