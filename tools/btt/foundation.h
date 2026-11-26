@@ -1,8 +1,9 @@
 #pragma once
-// Provisional host-only BTT schema. Never linked into runtime or firmware.
+// Provisional developer-only BTT schema. No production runtime integration.
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 namespace btt {
 enum class Result { Ok, Invalid, Unsupported, Capacity, Io, Backing };
@@ -13,6 +14,40 @@ struct Reader {
     virtual uint32_t size() const = 0;
     virtual const void* identity() const = 0;
     virtual unsigned read(uint32_t, void*, unsigned) const = 0;
+};
+// Foreground-only fixed owners implement this small control boundary. The
+// control must outlive its pins. Copies only increment an existing control;
+// they never allocate. Acquisition/exhaustion belongs to the bounded owner.
+struct ReaderControl {
+    virtual void retain() noexcept = 0;
+    virtual void release() noexcept = 0;
+    virtual const Reader* reader() const noexcept = 0;
+    virtual uint32_t count() const noexcept = 0;
+protected:
+    ~ReaderControl() = default;
+};
+class ReaderOwner {
+    std::shared_ptr<const Reader> shared_; // Compatibility with existing host fixtures.
+    ReaderControl* fixed_=nullptr;
+public:
+    ReaderOwner() noexcept = default;
+    template<class T> ReaderOwner(std::shared_ptr<T> p) noexcept:shared_(std::move(p)){}
+    static ReaderOwner Pin(ReaderControl& c) noexcept {
+        ReaderOwner p;
+        if(c.reader()) {c.retain();p.fixed_=&c;}
+        return p;
+    }
+    ReaderOwner(const ReaderOwner& p) noexcept:shared_(p.shared_),fixed_(p.fixed_) {if(fixed_)fixed_->retain();}
+    ReaderOwner(ReaderOwner&& p) noexcept:shared_(std::move(p.shared_)),fixed_(p.fixed_) {p.fixed_=nullptr;}
+    ~ReaderOwner() {if(fixed_)fixed_->release();}
+    ReaderOwner& operator=(ReaderOwner p) noexcept {swap(p);return *this;}
+    void swap(ReaderOwner& p) noexcept {shared_.swap(p.shared_);std::swap(fixed_,p.fixed_);}
+    void reset() noexcept {ReaderOwner{}.swap(*this);}
+    const Reader* get() const noexcept {return fixed_?fixed_->reader():shared_.get();}
+    const Reader* operator->() const noexcept {return get();}
+    const Reader& operator*() const noexcept {return *get();}
+    explicit operator bool() const noexcept {return get()!=nullptr;}
+    long use_count() const noexcept {return fixed_?static_cast<long>(fixed_->count()):shared_.use_count();}
 };
 struct Writer {
     virtual ~Writer() = default;
@@ -36,7 +71,7 @@ struct Status {
     bool resources_unchecked=false;
 };
 struct Document {
-    std::shared_ptr<const Reader> backing;
+    ReaderOwner backing;
     std::array<Entry,256> entries{};
     unsigned count=0, channels=0;
     uint32_t bpm=0, next_instrument=0, next_pattern=0;
@@ -62,7 +97,7 @@ struct Pattern {
     uint8_t channels=0;
     bool ready=false;
 
-    Pattern() { notes.fill(255); }
+    Pattern() noexcept { notes.fill(255); }
     void Clear(unsigned r,unsigned c) {
         ready=false;rows=static_cast<uint16_t>(r);channels=static_cast<uint8_t>(c);
         notes.fill(255);timing.fill(0);instruments.fill(0);fx.fill({});values.fill({});
@@ -75,7 +110,7 @@ struct Pattern {
 const Entry* Find(const Document&, const char*, uint32_t);
 // All outputs are caller-owned candidates, disposable on failure. No operation
 // publishes state. Never pass active/current state as a candidate.
-Result Validate(std::shared_ptr<const Reader>, Document& candidate, Workspace&, Limits = {});
+Result Validate(ReaderOwner, Document& candidate, Workspace&, Limits = {});
 Result Materialize(const Document&, uint32_t id, Pattern& candidate, Workspace&, unsigned capacity=512);
 // bpm=0 retains saved BPM. Inserts each absent Sample tuning default independently.
 // Writes only a distinct temporary backing. Caller must finish/sync/close, reopen,
@@ -87,7 +122,7 @@ Result Rewrite(const Document&, Writer& temporary, Workspace&, uint32_t bpm=0);
 struct Store {
     virtual ~Store() = default;
     virtual bool finish() = 0;
-    virtual std::shared_ptr<const Reader> reopen() = 0;
+    virtual ReaderOwner reopen() = 0;
     virtual bool promote() = 0;
 };
 Result Save(const Document&, Writer& temporary, Store&, Document& reopened_candidate,

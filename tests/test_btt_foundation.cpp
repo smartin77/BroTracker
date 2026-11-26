@@ -143,7 +143,7 @@ struct FakeStore final:Store {
         if(wrong_valid) {auto s=Sections();PatchTag(s[0].bytes,3,18000,4);fixture::Write(path.string().c_str(),fixture::Envelope(s));}
         return ok;
     }
-    std::shared_ptr<const Reader> reopen() override {
+    ReaderOwner reopen() override {
         if(fail_reopen)return {};
         auto file=std::make_shared<File>(path);file->fail=fail_candidate_read;candidate=file;return candidate;
     }

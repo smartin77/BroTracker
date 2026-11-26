@@ -4,9 +4,14 @@ These are capacity scenarios, not admission guarantees. Run after analyze.py.
 """
 import csv
 import json
+import argparse
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parents[3] / "build/btt-teensy-admission"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--out", type=Path, default=Path("build/btt-teensy-admission"))
+parser.add_argument("--prototype", action="store_true")
+options = parser.parse_args()
+OUT = Path(__file__).resolve().parents[3] / options.out
 layout = json.loads((OUT / "layouts.json").read_text())
 
 
@@ -63,13 +68,17 @@ persistent = {
     "active_document": size("Document"),
     "current_next_patterns": size("TwoPatterns"),
     "active_id_map_reserved": 99 * 8,
-    "active_backing_control_shape": size("SharedBackingControl"),
+    "active_backing_control_shape": 0 if options.prototype else size("SharedBackingControl"),
 }
+if options.prototype:
+    # All three controls and FsFile handles are embedded in the measured pool,
+    # not separate heap allocations per backing. Metadata also lives in RAM2.
+    persistent.update(fixed_pool=size("FsBackings"), arena_metadata=size("Arena"), backend=size("FsBackend"))
 validation = {
     **persistent,
     "candidate_document": size("Document"),
     "workspace": size("Workspace"),
-    "candidate_backing_control_shape": size("SharedBackingControl"),
+    "candidate_backing_control_shape": 0 if options.prototype else size("SharedBackingControl"),
     "sd_staging_reserved": 2 * 512,
     "store_owner_reserved": 64,
 }
@@ -90,7 +99,7 @@ phases = {
         "sd_staging_reserved": 2 * 512,
         "scheduler_owner_reserved": 64,
     },
-    "stopped_save_verify": {**validation, "writer_shape": size("WriterShape")},
+    "stopped_save_verify": {**validation, "writer_shape": size("FsOutput") if options.prototype else size("WriterShape")},
 }
 with (OUT / "lifecycle.csv").open("w", newline="") as stream:
     writer = csv.writer(stream)

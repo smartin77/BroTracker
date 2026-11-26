@@ -44,10 +44,14 @@
   RAM2 BTT arena has static capacity room; reliable runtime admission is still
   unproven. Preserve the existing sample/session/publication/rollback state.
   [Target assessment](FILE_FORMATS.md#teensy-41-without-psram-compilelink-memory-assessment)
-* [ ] Next implement an isolated fixed-capacity FsFile immutable backing/arena
-  prototype and four-call uint32_t/std::min portability fix, with explicit owner
-  slots, exhaustion/source-alias checks and a fresh target map. Keep it outside
-  production storage handlers. Resolve path-pool/source coexistence and validate
+* [x] Implement the isolated fixed-capacity FsFile immutable backing/arena
+  prototype and actual four-call uint32_t/std::min portability fix. Three fixed
+  slots, generation-file mutation exclusion, checked arena lifetimes, zero counted
+  bounded-path ownership allocations, host fault tests and real ARM compile/link
+  verification are complete. No production handler or playback integration.
+  [Prototype](FILE_FORMATS.md#isolated-bounded-backingarena-prototype)
+* [ ] Next isolate the candidate path-pool/sample-source admission contract;
+  production namespace/media enforcement remains required. Resolve coexistence and validate
   actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
   64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,
   playback prefetch, FX execution, UI and transport remain separate work.

@@ -138,6 +138,10 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 enable_testing()
+add_executable(BroTrackerBttBackingTests tests/test_btt_backing.cpp tools/btt/foundation.cpp)
+target_include_directories(BroTrackerBttBackingTests PRIVATE tests tools/btt)
+add_test(NAME BroTrackerBttBackingTests COMMAND BroTrackerBttBackingTests
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-backing-prototype)
 add_executable(BroTrackerBttFoundationTests tests/test_btt_foundation.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttFoundationTests PRIVATE tests tools/btt)
 add_test(NAME BroTrackerBttFoundationTests COMMAND BroTrackerBttFoundationTests

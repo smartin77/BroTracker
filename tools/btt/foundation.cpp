@@ -24,10 +24,10 @@ public:
         if(n>end-at)return false;
         while(n) {
             if(!available || at<base || at>=base+available) {
-                base=at; available=std::min(512u,end-at);
+                base=at; available=std::min<uint32_t>(512u,end-at);
                 if(!Read(r,base,w.block.data(),available))return false;
             }
-            const auto take=std::min(n,base+available-at);
+            const auto take=std::min<uint32_t>(n,base+available-at);
             std::memcpy(p,w.block.data()+at-base,take); at+=take; p+=take; n-=take;
         } return true;
     }
@@ -35,7 +35,7 @@ public:
 Result Crc(const Reader& r,uint32_t at,uint32_t length,Workspace& w,uint32_t& value,bool whole=false) {
     uint32_t c=0xffffffffu;
     while(length) {
-        const auto n=std::min(512u,length);
+        const auto n=std::min<uint32_t>(512u,length);
         if(!Read(r,at,w.block.data(),n))return Result::Io;
         if(whole && at==0) { c=Step(c,w.block.data(),20); c=Step(c,w.block.data()+24,n-24); }
         else c=Step(c,w.block.data(),n);
@@ -155,7 +155,7 @@ const Entry* Find(const Document& d,const char* type,uint32_t id) {
     for(unsigned i=0;i<d.count;++i)if(d.entries[i].id==id && Type(d.entries[i],type))return &d.entries[i];
     return nullptr;
 }
-Result Validate(std::shared_ptr<const Reader> source,Document& d,Workspace& w,Limits limits) {
+Result Validate(ReaderOwner source,Document& d,Workspace& w,Limits limits) {
     d.accepted=false;d.backing=std::move(source);d.count=0;d.status={};
     if(!d.backing || !d.backing->identity())return Result::Backing;
     const auto& r=*d.backing;uint8_t h[32];
@@ -263,7 +263,7 @@ struct Sink {
 };
 Result Copy(const Reader& r,uint32_t at,uint32_t n,Workspace& w,Sink& sink) {
     while(n) {
-        const auto take=std::min(512u,n);
+        const auto take=std::min<uint32_t>(512u,n);
         if(!Read(r,at,w.block.data(),take))return Result::Io;
         if(!sink.bytes(w.block.data(),take))return Result::Io;
         at+=take;n-=take;

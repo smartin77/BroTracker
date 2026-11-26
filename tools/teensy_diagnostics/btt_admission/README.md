@@ -32,18 +32,24 @@ their `sizeof` results are proposed handle-owner costs, not working SD adapters.
 The internal libstdc++ `make_shared` control type is deliberately toolchain
 specific; a changed library may require reviewing this diagnostic.
 
-The unchanged host foundation currently fails ARM compilation because four
-`std::min` calls mix unsigned int and uint32_t (unsigned long on this ABI).
-`foundation-original-compile.log` and `foundation-original-result.txt` retain
-that result. The runner generates **only in build/** a copy with explicit
-`std::min<uint32_t>` arguments at those four locations. Stack/code evidence from
-`foundation-abi.*` applies to that copy, not the unchanged reviewed source.
-No FILE/test code is introduced. Original and adapted compiler commands are saved.
+The four mixed unsigned/uint32_t `std::min` calls are fixed in the actual
+foundation. It is compiled directly as `foundation.o`, with no generated source
+replacement shim. `foundation-result.txt` and the exact command record success.
+No FILE/test code is introduced into the ARM inputs.
+
+For the fixed-owner/arena prototype use `--out build/btt-backing-prototype` on
+runner commands, `--prototype --measure` on analyze.py and `--prototype` on
+budgets.py. Build that output directory's map-platformio.ini first. This also
+compiles and roots the real FsFile adapter via `backing_probe.cpp`; fixed-pool
+and arena-metadata costs replace hypothetical shared-control costs. See
+`tools/btt/README.md` for commands and the write-once policy.
 
 `placement.cpp` reserves a 64 KiB aligned `.dmabuffers` arena and 128 bytes of
 DTCM owner state. The separate `reservation.elf` roots all foundation entry
 points and these reservations against the same production objects/libraries.
-It neither constructs BTT types nor calls BTT operations. Its map measures
+Without `--prototype`, it neither constructs BTT types nor calls BTT operations.
+With it, a separate rooted diagnostic entry point contains explicit object
+initialization/destruction, never called by production. Its map measures
 code/bank effects and proposed static placement, not runtime admission. The
 NOLOAD arena needs explicit initialization/lifetime management in any future
 adapter. Do not upload this diagnostic ELF as a product.

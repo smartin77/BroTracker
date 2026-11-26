@@ -37,7 +37,7 @@ def prepare():
         config.write(stream)
 
 
-def measure():
+def measure(prototype=False):
     original = ROOT / ".pio/build/teensy41_dev"
     mapped = OUT / "mapped/teensy41_dev"
     info = json.loads((original / "idedata.json").read_text())
@@ -52,33 +52,20 @@ def measure():
     for folder in info["includes"]["build"] + [str(ROOT), str(ROOT / "tools/btt")]:
         flags += ["-I", folder]
     commands = []
-    for name, source in [("layout", HERE / "layout.cpp"), ("placement", HERE / "placement.cpp")]:
+    inputs = [("layout", HERE / "layout.cpp"), ("placement", HERE / "placement.cpp")]
+    if prototype:
+        inputs.append(("backing-probe", HERE / "backing_probe.cpp"))
+    for name, source in inputs:
         args = [compiler, *flags, "-fstack-usage", "-c", source, "-o", OUT / (name + ".o")]
         commands.append([str(a) for a in args])
         run(args, name + "-compile.log")
-    # Preserve the reviewed foundation and record its real ARM portability
-    # result. A generated diagnostic copy permits frame/code measurements after
-    # explicitly typing the four mixed unsigned/uint32_t min calls.
     source = ROOT / "tools/btt/foundation.cpp"
-    args = [compiler, *flags, "-fstack-usage", "-c", source, "-o", OUT / "foundation-original.o"]
+    args = [compiler, *flags, "-fstack-usage", "-c", source, "-o", OUT / "foundation.o"]
     commands.append([str(a) for a in args])
-    result = subprocess.run([str(a) for a in args], cwd=ROOT, text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    (OUT / "foundation-original-compile.log").write_text(result.stdout)
-    (OUT / "foundation-original-result.txt").write_text(f"exit={result.returncode}\n")
-    adapted = source.read_text()
-    for expression in ["512u,end-at", "n,base+available-at", "512u,length", "512u,n"]:
-        old = "std::min(" + expression + ")"
-        if adapted.count(old) != 1:
-            raise RuntimeError("Reviewed foundation changed; review portability shim")
-        adapted = adapted.replace(old, "std::min<uint32_t>(" + expression + ")")
-    adapted_path = OUT / "foundation-abi.cpp"
-    adapted_path.write_text(adapted)
-    args = [compiler, *flags, "-fstack-usage", "-c", adapted_path, "-o", OUT / "foundation-abi.o"]
-    commands.append([str(a) for a in args])
-    run(args, "foundation-abi-compile.log")
-    run([size, "-A", OUT / "foundation-abi.o"], "foundation-object-sections.txt")
-    run([nm, "-S", "-C", OUT / "foundation-abi.o"], "foundation-object-symbols.txt")
+    run(args, "foundation-compile.log")
+    (OUT / "foundation-result.txt").write_text("PASS: real tools/btt/foundation.cpp, exit=0; no generated source shim.\n")
+    run([size, "-A", OUT / "foundation.o"], "foundation-object-sections.txt")
+    run([nm, "-S", "-C", OUT / "foundation.o"], "foundation-object-symbols.txt")
     (OUT / "probe-commands.json").write_text(json.dumps(commands, indent=2))
     run([compiler, "--version"], "compiler-version.txt")
     symbols = run([nm, "-S", "--size-sort", OUT / "layout.o"], "layout-symbols.txt")
@@ -123,12 +110,20 @@ def measure():
     link[link.index("-o") + 1] = str(OUT / "reservation.elf")
     link = ["-Wl,-Map," + str(OUT / "reservation.map") if a.startswith("-Wl,-Map,") else a for a in link]
     idx = link.index("-Wl,--start-group")
-    link[idx:idx] = [str(OUT / "foundation-abi.o"), str(OUT / "placement.o")]
-    raw = run([nm, "--defined-only", "-g", OUT / "foundation-abi.o"], "foundation-roots.txt")
+    link[idx:idx] = [str(OUT / "foundation.o"), str(OUT / "placement.o")]
+    if prototype:
+        link[idx:idx] = [str(OUT / "backing-probe.o")]
+    raw = run([nm, "--defined-only", "-g", OUT / "foundation.o"], "foundation-roots.txt")
     for line in raw.splitlines():
         fields = line.split()
         if len(fields) == 3 and fields[1] == "T" and fields[2].startswith("_ZN3btt"):
             link += ["-Wl,--undefined=" + fields[2]]
+    if prototype:
+        raw = run([nm, "--defined-only", "-g", OUT / "backing-probe.o"], "backing-probe-roots.txt")
+        for line in raw.splitlines():
+            fields = line.split()
+            if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] == "btt_backing_probe"):
+                link += ["-Wl,--undefined=" + fields[2]]
     link += ["-Wl,--undefined=btt_admission_arena", "-Wl,--undefined=btt_admission_owner"]
     (OUT / "reservation-link-command.json").write_text(json.dumps(link, indent=2))
     run(link, "reservation-link.log")
@@ -141,9 +136,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare-config", action="store_true")
     parser.add_argument("--measure", action="store_true")
+    parser.add_argument("--out", type=Path, help="Generated artifact directory relative to repository root")
+    parser.add_argument("--prototype", action="store_true", help="Compile/root the real fixed-owner FsFile adapter")
     options = parser.parse_args()
+    if options.out:
+        OUT = (ROOT / options.out).resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     if options.prepare_config:
         prepare()
     if options.measure:
-        measure()
+        measure(options.prototype)

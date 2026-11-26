@@ -1,5 +1,6 @@
 // Compile-only ARM ABI probe. No setup/loop, FILE, test framework or runtime link.
 #include "tools/btt/foundation.h"
+#include "tools/btt/fs_backend.h"
 #include "bringup/working_session.h"
 #include "bringup/live_instrument_visit.h"
 #include "bringup/pattern_player_selection.h"
@@ -41,6 +42,12 @@ SIZE(Cell,btt::Cell)
 SIZE(Entry,btt::Entry)
 SIZE(Span,btt::Span)
 SIZE(SharedReader,std::shared_ptr<const btt::Reader>)
+SIZE(ReaderOwner,btt::ReaderOwner)
+SIZE(Arena,btt::prototype::Arena)
+SIZE(FsBackings,btt::prototype::FsBackings)
+SIZE(FsOutput,btt::prototype::FsBackings::Output)
+SIZE(FsToken,btt::prototype::FsBackings::Token)
+SIZE(FsBackend,btt::prototype::FsBackend)
 SIZE(Reader,btt::Reader)
 SIZE(Writer,btt::Writer)
 SIZE(Store,btt::Store)

@@ -460,7 +460,7 @@ projection are new work; none is connected to application or firmware here.
 
 `tools/btt/foundation.h` and `.cpp` implement an isolated native C++17 saved
 document validator, direct pattern materializer and lossless streamed rewriter.
-Only `BroTrackerBttFoundationTests` links these sources. This does not enable
+Only isolated BTT host tests and compile/link diagnostics link these sources. This does not enable
 application/firmware storage, UI, transport, playback prefetch or FX execution.
 The format, codec numbers, profile limits and device admission remain provisional.
 Fixed16 is the baseline; the existing experimental Fixed8/Sparse8/Sparse16
@@ -492,10 +492,10 @@ encoding remain opaque and present, so saving does not overwrite them with a
 default. Valid UTF-8 paths, including invalid runtime paths/bases, remain raw.
 
 The `Reader` contract requires owned, immutable, seekable backing for its entire
-lifetime. `Document` retains a `shared_ptr<const Reader>`, never a naked filename
-or a caller's borrowed byte array. Implementations must guarantee immutability;
-`const` alone cannot freeze external storage. There is no runtime filesystem
-adapter in this step. The host test reader owns its file handle and denies write
+lifetime. `Document` retains a `ReaderOwner` pin (fixed prototype control or compatibility
+host shared pointer), never a naked filename or borrowed byte array. Implementations must guarantee immutability;
+`const` alone cannot freeze external storage. There is no production filesystem
+adapter; the isolated FsFile prototype is described below. The host test reader owns its file handle and denies write
 sharing on Windows; its POSIX test fallback assumes exclusive test ownership.
 Adapters must give all wrappers of the same backing the same identity, and the
 rewriter rejects a writer with the source identity before writing. It checks the
@@ -522,7 +522,7 @@ substituted. Default insertion can change section lengths/offsets and bytes and
 is rejected if it exceeds section/file/TLV capacity. Unknown optional sections
 and complete TLVs are copied through a 512-byte buffer from the stable source.
 
-Measured GNU 16.1.0 Release Windows x64 ABI: `Document` is 6,200 bytes (fixed
+Measured GNU 16.1.0 Release Windows x64 ABI: `Document` is 6,208 bytes (fixed
 256-entry index plus backing owner/state), `Workspace` 1,136 bytes (512-byte block,
 512-byte duplicate-tag array, eight known spans and counters), and one decoded
 `Pattern` **7,684 bytes**, or **15,368 bytes for two buffers**. Naturally aligned
@@ -532,9 +532,9 @@ is never retained per cell. Compile-time size and alignment checks guard the
 compact buffer budget, and tests cover all fields/defaults and reused sparse
 candidates. No packed structs, unaligned accesses or on-disk changes are used.
 These are fixed capacities, independent of file size within the provisional limits. Validation
-and rewriting need 7,336 bytes of named caller state and no decoded pattern;
-materialization adds one pattern for 15,020 bytes. Save adds a second candidate
-index/state and a 512-byte comparison array: 14,048 bytes of named buffers/state.
+and rewriting need 7,344 bytes of named caller state and no decoded pattern;
+materialization adds one pattern for 15,028 bytes. Save adds a second candidate
+index/state and a 512-byte comparison array: 14,064 bytes of named buffers/state.
 Those totals exclude scalar locals, compiler call frames, backing control blocks
 and CRT FILE state, and are not process RSS or stack high-water measurements.
 No recursion or variable-size stack arrays are used. The saved GCC
@@ -658,8 +658,9 @@ access, not the full BTT schema, lossless rewriter, source preparation or player
 Production baseline: `feature/dev` at `2fd2c413a8207d0f711463086431483590d6d8ce`,
 `pio run -e teensy41_dev`, Teensy platform 5.2.0, Teensyduino 1.62,
 ARM GCC 15.2.1, Cortex-M7 hard-float, GNU C++17, `-O2`, no exceptions/RTTI.
-This is a target-memory feasibility assessment, not BTT runtime integration or
-final admission. Reviewed foundation sources and production behavior are unchanged.
+This records the initial target-memory feasibility assessment, not BTT runtime
+integration or final admission. The later backing prototype below supersedes its
+owner costs and resolves the four-call compile blocker; production is unchanged.
 Reproduction tools live in `tools/teensy_diagnostics/btt_admission/`; maps, ELF
 section/symbol reports, compiler probes, stack frames, lifecycle CSV and report
 are saved under `build/btt-teensy-admission/`.
@@ -763,10 +764,11 @@ a duplicate Sample cache or discard rollback resources.
 
 Interface blockers and stack evidence:
 
-- The unchanged foundation does **not compile** on this ARM ABI: four `std::min`
-  calls mix unsigned int and uint32_t (unsigned long). A generated build-only
-  copy explicitly types those four calls for the code/frame probe. The reviewed
-  host implementation was not edited; this portability fix remains required.
+- At the initial assessment, four `std::min` calls failed on this ARM ABI because
+  unsigned int and uint32_t (unsigned long) differ. These calls are now fixed in
+  the actual foundation; the admission tool compiles it directly, without its
+  former generated replacement shim. Historical adapted-copy evidence remains
+  in the original assessment artifacts.
 - `shared_ptr` construction/control blocks allocate even though operation tests
   allocate none after backing setup. With exceptions disabled, ordinary allocator
   exhaustion is not a recoverable candidate-capacity path. Prefer a bounded
@@ -795,14 +797,127 @@ real backing owner and path/source coexistence remain admission blockers. Dirty
 pattern retention and future FX runtime state also require separate bounds.
 
 Conclusion: compact BTT storage has substantial static capacity room without
-PSRAM, but **reliable device admission is not yet established**. The smallest
-recommended next implementation is an isolated fixed-capacity FsFile immutable
-backing/arena prototype (including the four-call portability fix), with slot
-exhaustion/source-alias fault checks and a fresh target link map. Keep it outside
-production handlers. It must make resource/candidate lifetimes explicit before
-device integration; later authorized on-target stack/heap high-water diagnostics
+PSRAM, but **reliable device admission is not yet established**. The isolated fixed-capacity FsFile immutable backing/arena prototype described
+below implements that assessment's next step. Resource/candidate lifetimes still
+need admission review before device integration; later authorized on-target stack/heap high-water diagnostics
 are still required to validate the provisional reserves. Compile/link evidence
 proves no SD latency/prefetch deadline, FAT/power-loss recovery or physical behavior.
+
+#### Isolated bounded backing/arena prototype
+
+`tools/btt/arena.h`, `backing.h` and `fs_backend.h` implement developer-only
+ownership/I/O, with the same registry/arena logic exercised by a fake host disk.
+No production Load/Save, session handler, UI or player uses it. The real
+foundation now has the four explicit uint32_t `std::min` template arguments and
+compiles directly with production Teensy flags, no exceptions/RTTI. The admission
+tool no longer generates a replacement source copy.
+
+Concrete policy: exclusive-create **write-once generation files** under
+`/BroTracker/.btt-prototype/`, then check sync/close and reopen read-only before
+sealing. This is not a complete snapshot/recovery subsystem: no arbitrary path
+imports, renames, recovery scanning or automatic deletion of old files. The
+caller must initialize SD and provision the private directory; FsBackend defaults
+to unavailable. Existing-file collisions fail without touching those bytes.
+
+Three fixed in-place slots cover active backing, candidate input/output and a
+spare for verification or failed-close cleanup. Creation is explicitly fallible;
+there is no fallback/control-block heap allocation or exhaustion abort.
+`ReaderOwner` copies pin an existing control, including Document copies and failed
+candidates. Slot identity includes registry domain and generation, not pathname;
+both counters stop before reuse on wrap. Old tokens cannot access a reused slot,
+even after reconstructing a pool at the same address. Writers are move-only;
+sealed files refuse write opens through any prototype wrapper. Rewrite also
+rejects alternate wrappers reporting the source identity before writing.
+
+All prototype mutations/deletion go through the registry; raw FsFile backend
+methods are private to it. A pinned reader or live writer blocks deletion/reuse.
+Last release checks close; failure quarantines the slot and is exposed through
+`Inspect`. Explicit `Discard` retries checked close/removal; failure retains the
+registered bytes. Slot/arena exhaustion and failed acquisitions leave current
+owners and previous valid bytes intact. The caller must discard failed document
+candidates explicitly; holding their pins is intentional ownership, not a leak.
+
+FsFile handles remain idle between operations. Every open, bounded seek/read/
+write, resize, sync, close and deletion uses the existing SD arbitration, with no
+permanent global lock. Transfers are at most 512 bytes; sizes are checked against
+1 MiB and reopened size must match tracked size. There are no FILE/test dependencies
+in the ARM adapter. **Immutability enforcement covers prototype entry points**;
+future production integration must exclude all other writers/deleters/renames
+from that private namespace and handle card/media replacement. An open FsFile
+alone cannot guarantee immutability. Fake I/O and compile/link checks do not prove
+physical SD behavior, latency, cache coherency or durable saves.
+
+The arena has sixteen fixed object/destructor records and 32-byte-aligned,
+caller-owned storage. Checked byte/record capacity and alignment precede noexcept
+placement construction. Destruction invalidates handles; explicit Reset reclaims
+the bump region, without compacting holes. Reset preflights destruction guards
+and refuses a pinned/open/quarantined pool before changing any objects. Destroy
+documents/pins and writers, resolve uncertain closes, then destroy/reset the pool.
+Arena metadata must outlive Object handles; the arena destructor does not silently
+invalidate live objects. The diagnostic initializer places metadata in the first
+aligned part of RAM2, with documents/workspace/patterns in the remaining bytes.
+Only small handles/scalars are on its CPU stack. All lifecycle/refcount operations
+are foreground-only; there is no concurrent ISR owner API.
+
+ARM GCC 15.2.1 target sizes: fixed three-slot FsFile pool **672 bytes**, arena
+metadata **272**, token **12**, movable output **20**, ReaderOwner **12** and
+Document **6,192**. Workspace stays **1,136**, Pattern **7,684**, two patterns
+**15,368**. All three FX slots remain naturally aligned; no packed structs or
+wire-format changes. The empty compatibility shared-pointer field costs eight
+target bytes inside ReaderOwner but never allocates on the bounded path; legacy
+host fixtures may still explicitly create shared controls. Target standalone
+validation state is 7,328 bytes, one-pattern materialization state 15,012, Save's
+two documents/workspace/comparison array 14,032, before pool/arena/scalar frames.
+Host sizes are separately recorded (ReaderOwner 24, Document 6,208, arena 544,
+fake-backed pool 496); these are not target admission numbers.
+
+Fresh isolated reservation link roots the actual foundation, real FsFile adapter
+and arena initializer against production baseline objects, with the same 64 KiB
+RAM2 and 128-byte RAM1 reservations. ITCM code/exidx is **255,132** bytes (eight
+banks), leaving **7,012** reported padding / **7,008** physical padding. RAM1 static
+is **157,952**, stack interval **104,192**; RAM2 static **232,224**, heap interval
+**292,064**. External RAM remains zero. No diagnostic function is called by
+production. Actual adapter/control code is included, replacing hypothetical owner
+shapes; additional resource projection code is still unmeasured.
+
+Updated lifecycle increments keep the entire existing production state resident:
+
+| Phase | With 2,048-byte arena guard |
+| --- | ---: |
+| Stopped validation with old document/current/next retained | 33,761 |
+| Stopped initial-load projection (third candidate pattern, definitions/bindings/path/map reservations) | **58,975** |
+| Playback current/next plus bounded foreground workspace/I/O | 27,569 |
+| Stopped rewrite/reopen verification | 33,781 |
+
+Pool/arena/backend metadata are included inside the 64 KiB RAM2 reservation;
+fixed controls replace per-backing heap control blocks. Largest guarded phase
+leaves **6,561 bytes** in that arena. These are distinct phases, not additive;
+no baseline Sample/session/publication/rollback storage is reclaimed. Candidate
+path-pool and sample-source coexistence are still proposed, not implemented by
+this prototype. The unproven 32 KiB stack and 64 KiB runtime-heap allowances leave
+71,424 RAM1 / 226,528 RAM2 bytes unassigned; one more ITCM bank reduces RAM1 to
+38,656. Current target frames include Validate 176, Materialize 48, Rewrite 688,
+Save 96 and comparison write 536 bytes, plus adapter/library calls. This is not
+a full stack/IRQ bound or runtime heap measurement. Reliable admission remains open.
+
+Host verification covers arena bytes/record/alignment exhaustion, copy/move/release,
+stale generations, source aliases, SD arbitration conflicts, failed closes and
+1,186 individual seek/read/write/resize/sync/close/open positions through bounded
+Save. Allocation accounting includes arena/control/owner creation and lifecycle,
+plus Validate/Materialize/Rewrite/Save: **zero counted C++ heap allocations** on
+the bounded path. Fixture generation, fake disk storage, reporting and framework
+registration are excluded. Existing BTT layout/schema tests still cover unknown
+optional data, all FX slots and independent tuning defaults; bounded-owner tests
+also verify byte-identity, BPM edits and tuning values. Fake promotion failures
+retain previous valid bytes; this is not FAT/power-loss recovery validation.
+
+Reproduce using `tools/btt/README.md`. Generated tests, allocation CSV, ARM logs,
+real-source stack reports, reservation map, lifecycle budget, complete actual
+diff and whitespace result are under `build/btt-backing-prototype/`. Remaining
+integration blockers: namespace/media policy in production, candidate path-pool/
+sample-source coexistence, physical stack/heap peaks, and separately designed
+prefetch, FX execution and FAT/power-loss recovery. Next isolate the path/source
+candidate admission contract before connecting any BTT operation to runtime.
 
 #### Proposed current/next-pattern buffering and deferred validation
 
@@ -847,9 +962,9 @@ The host-only envelope/schema validator and lossless rewriter are complete for
 the provisional subset above, including explicit-default identity roundtrips,
 BPM edits, independent absent-default insertion, unknown/unresolved preservation,
 corruption/capacity rejection and fake-store failures. This is not real SD save
-recovery. Codec/ID-width choices and profile limits still await review. The next
-implementation is the isolated bounded target backing/arena prototype identified
-in the Teensy assessment above, with no UI, playback or firmware-handler integration.
+recovery. Codec/ID-width choices and profile limits still await review. The bounded backing/arena prototype below completes the assessed next step.
+Before production integration, resolve candidate path/source coexistence and
+measure physical stack/heap peaks; UI, playback and recovery remain separate.
 
 ## BTP — BroTracker Project
 
