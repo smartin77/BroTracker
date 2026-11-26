@@ -38,10 +38,19 @@
   regression check: 7,684 bytes per buffer and 15,368 for two on the measured
   host ABI. Codec assignments and device admission remain provisional.
   [Validated host subset](FILE_FORMATS.md#host-only-envelopeschema-foundation)
-* [ ] Review the host schema/backing contracts and implement real immutable
-  storage adapters and resource availability separately. Validate device RAM,
-  complete stack budgets, SD timing and FAT/power-loss recovery before runtime
-  admission. Keep playback prefetch, FX execution, UI and transport separate.
+* [x] Assess Teensy 4.1 without PSRAM using the production teensy41_dev build,
+  target layout probes, identical-layout diagnostic map/stack build and isolated
+  reservation link. Two compact patterns remain 15,368 bytes. A proposed 64 KiB
+  RAM2 BTT arena has static capacity room; reliable runtime admission is still
+  unproven. Preserve the existing sample/session/publication/rollback state.
+  [Target assessment](FILE_FORMATS.md#teensy-41-without-psram-compilelink-memory-assessment)
+* [ ] Next implement an isolated fixed-capacity FsFile immutable backing/arena
+  prototype and four-call uint32_t/std::min portability fix, with explicit owner
+  slots, exhaustion/source-alias checks and a fresh target map. Keep it outside
+  production storage handlers. Resolve path-pool/source coexistence and validate
+  actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
+  64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,
+  playback prefetch, FX execution, UI and transport remain separate work.
 * [ ] Extend LOAD/SAVE entry coordination to require STOP/acknowledgement from
   other states that are not confirmed stopped; failed or timed-out STOP keeps
   entry blocked. Confirmed device IDLE with no pending transport command already

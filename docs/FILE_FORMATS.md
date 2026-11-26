@@ -653,6 +653,157 @@ affected by filesystem caching and are **not Teensy SD throughput, latency or
 prefetch deadline evidence**. This experiment validates layout and bounded
 access, not the full BTT schema, lossless rewriter, source preparation or player.
 
+#### Teensy 4.1 without PSRAM: compile/link memory assessment
+
+Production baseline: `feature/dev` at `2fd2c413a8207d0f711463086431483590d6d8ce`,
+`pio run -e teensy41_dev`, Teensy platform 5.2.0, Teensyduino 1.62,
+ARM GCC 15.2.1, Cortex-M7 hard-float, GNU C++17, `-O2`, no exceptions/RTTI.
+This is a target-memory feasibility assessment, not BTT runtime integration or
+final admission. Reviewed foundation sources and production behavior are unchanged.
+Reproduction tools live in `tools/teensy_diagnostics/btt_admission/`; maps, ELF
+section/symbol reports, compiler probes, stack frames, lifecycle CSV and report
+are saved under `build/btt-teensy-admission/`.
+
+| Production linker evidence | Bytes / placement |
+| --- | --- |
+| RAM1 static `.data` + `.bss` | 79,552 + 78,272 = **157,824**, ending `0x20026880` |
+| ITCM code/exidx reported by size tool | **238,940**, eight 32 KiB banks = 262,144 |
+| ITCM padding reported | **23,204**; another bank costs DTCM 32,768 |
+| DTCM stack top / link-time gap | `0x20040000` / **104,320** bytes above static data |
+| RAM2 `.bss.dma` | **166,688**, `0x20200000..0x20228b20` |
+| RAM2 heap interval | `0x20228b20..0x20280000`: **357,600** bytes before runtime allocations |
+| External RAM section | **0** bytes; no PSRAM budget used |
+| Actual flash image / remaining | **331,776 / 7,794,688** bytes from linker symbols |
+
+The installed linker places normal code in ITCM, normal globals and even normal
+read-only tables in DTCM, `FLASHMEM` code in flash and `DMAMEM` in RAM2. RAM1 is
+shared ITCM/DTCM, not a separate 512 KiB data budget. The size tool omits a
+four-byte orphan `.fini` from its code arithmetic: physical ITCM end is 238,944
+and padding 23,200; its flash free count is correspondingly four bytes larger
+than the linker-symbol result above. The 32 KiB bank assignment is unchanged.
+The diagnostic map/stack build has identical ELF section sizes and addresses to
+the production baseline. All gaps are linker capacity, not observed free stack
+or heap after initialization/playback.
+
+Existing Sample storage is retained: nine 8,192-byte rings (eight channels plus
+audition), sixteen 4,096-byte source prefixes and one 4,096-byte staging buffer
+total **143,360 RAM2 bytes**. AudioMemory(8) reserves another 2,080 bytes; other
+DMA/USB/audio objects/alignment account for the remaining 21,248. Do not borrow
+these buffers or change refill priority. RAM1 already includes the 12,160-byte
+selected control/player, 4,704-byte streaming metadata with sixteen `FsFile`s,
+2,184-byte active instrument definitions, 5,308-byte WorkingSession (including
+its own definitions and two legacy patterns), 5,168-byte live-visit rollback
+snapshot, 10,509-byte session serialization store, 10,240-byte shared path pool,
+3,088-byte preview readback and other publication/active/storage/snapshot copies.
+These have different publication, undo, recovery and session lifetimes. This
+assessment removes none of them or their static/boot binding tables.
+
+Target compiler layout (not host ABI): `Document` **6,188**, `Workspace` **1,136**,
+`Pattern` **7,684**, two patterns **15,368**, temporary `Cell` 20 bytes. Compact,
+naturally aligned storage still preserves three FX slots. `shared_ptr` is eight
+bytes; `FsFile` 80; existing SDClass/SdFs 1,236/1,228 are already in the baseline.
+A hypothetical virtual FsFile backing owner is 92 bytes, its toolchain-specific
+`allocate_shared`-style combined control/object 104, and writer owner 88. These
+shapes have no adapter implementation. Standalone validator state is 7,324 bytes,
+one-pattern materialization state 15,008, and Save's two documents/workspace plus
+512-byte comparison array 14,024, before backend/scalar/call-stack costs.
+
+Proposed ownership plan: at most **64 KiB of additional RAM2** for explicit
+lifecycle arenas, **128 bytes RAM1** for owner/handoff state. Keep active document,
+two clean current/next patterns and a bounded stable-ID map resident; reuse one
+workspace for sequential validation/prefetch/rewrite under foreground ownership.
+Retain unknown bytes in owned immutable SD backing, not RAM. Keep cold schema/SD
+operations candidates for flash placement; do not move audio hot paths. DMA
+staging needs 32-byte alignment and reviewed cache maintenance. Initialize
+DMAMEM NOLOAD storage explicitly and construct/destruct owners safely.
+
+The separate link-only reservation probe roots the minimally ABI-adapted
+foundation against production objects, with that arena and owner reservation.
+ITCM grows **8,256 bytes**, retains eight banks and has 14,948 reported padding
+(14,944 physical). RAM1 static becomes **157,952**, leaving **104,192** stack gap;
+RAM2 static becomes **232,224**, leaving **292,064** heap interval. No BTT adapter
+or runtime calls are added; additional adapter/allocator code remains unmeasured.
+
+Lifecycle increments below are above the complete production baseline, not
+phases to sum together. They conservatively cover replacing an already loaded
+BTT document; the first load without an old BTT owner may need less. Each includes
+a separate proposed 2,048-byte arena guard:
+
+| Phase | Increment before guard | With guard | Key concurrent ownership |
+| --- | ---: | ---: | --- |
+| Stopped validation | 30,968 | **33,016** | Old document/current/next/map/backing; candidate document/backing; workspace and bounded I/O |
+| Stopped initial-load projection | 56,182 | **58,230** | Validation owners plus one candidate BTT pattern, one legacy runtime projection, definitions/bindings, candidate path arena/map |
+| Playback current/next | 24,676 | **26,724** | One document, two patterns, ID map, backing, workspace and I/O/scheduler allowance |
+| Stopped rewrite/reopen verification | 31,056 | **33,104** | Keep active owners; one candidate index, workspace, output/reopened backing; no candidate definitions or decoded bank |
+
+Thus the proposed 64 KiB arena has **7,306 bytes** beyond its largest guarded
+phase. Only one workspace is concurrent; validation and materialization reuse
+it. Stopped load conservatively retains both old buffers and allocates a third
+candidate; it does not assume the old next pattern is clean/evictable. Save scans
+candidate definitions without materializing a pattern. Its 512-byte comparison
+array remains within the stack reserve, not counted again as arena storage.
+Existing session serialization and BTT work cannot run simultaneously if a later
+implementation overlays scratch, but this budget credits no existing scratch
+reclamation, including `g_storage_pattern` or the legacy session byte store.
+
+Candidate projection reserves target-sized definitions 2,184, bindings 2,776,
+path-pool shape 10,240 and two 99-entry eight-byte ID maps (active/candidate).
+The 1,024-byte I/O staging, 64-byte store/scheduler and 2,048-byte guard are
+proposed allowances, not measured adapter requirements. Known type sizes are
+measured; instance counts/placement/lifetime reuse are a derived design scenario.
+Today's singleton path pool has only 8,192 string bytes/256 entries, shared by
+active, session, rollback and streaming owners. Copies retain paths; they do not
+duplicate strings. A second pool cannot be used by current two-byte path refs
+without an explicit context/commit design. Even 99 distinct 255-byte paths exceed
+one pool; preserve raw saved paths in backing and reject binding admission rather
+than truncate. The sixteen source prefixes/handles are a separate resource
+limit: old pinned sources cannot be recycled for a new candidate before commit.
+Use free admitted slots or report capacity/unavailability; do not silently add
+a duplicate Sample cache or discard rollback resources.
+
+Interface blockers and stack evidence:
+
+- The unchanged foundation does **not compile** on this ARM ABI: four `std::min`
+  calls mix unsigned int and uint32_t (unsigned long). A generated build-only
+  copy explicitly types those four calls for the code/frame probe. The reviewed
+  host implementation was not edited; this portability fix remains required.
+- `shared_ptr` construction/control blocks allocate even though operation tests
+  allocate none after backing setup. With exceptions disabled, ordinary allocator
+  exhaustion is not a recoverable candidate-capacity path. Prefer a bounded
+  foreground backing-slot owner or explicitly fallible fixed control-block pool;
+  count readers, writers, verification and rollback ownership before publishing.
+  Virtual I/O itself adds a four-byte vptr per object, not a hidden file buffer;
+  it can stay foreground-only. No FILE/test dependencies need reach firmware.
+- `FsFile` ownership alone does not freeze SD contents. Use isolated immutable
+  snapshots/generation identities and prevent writers from targeting a live
+  backing, with per-operation SD leases that do not pin out existing session
+  writes. Rewrite source and destination must remain distinct until owners release
+  the old backing. Resource paths remain Teensy SD-domain references.
+- The target frame probe reports Validate 176, Materialize 40, Rewrite 688, Save
+  88 and comparison write 536 bytes. Existing linked RenderBlock is **10,032**,
+  initialization 7,224, ReplaceBinding 5,672, StorageCommand 3,800, session decode
+  2,696 and ServiceSerial 1,552. Some can nest or be interrupted; these are not
+  stack high-water bounds. Prebuilt libc/allocator frames, IRQ nesting and FPU
+  exception stacking remain unknown. Do not put documents/patterns on the stack.
+
+Reserve **32 KiB DTCM stack** and **64 KiB RAM2 runtime heap** as unproven policy
+allowances. The reservation link then leaves **71,424 RAM1 bytes** and **226,528
+RAM2 bytes** unassigned. Allowing one further ITCM bank still leaves **38,656
+RAM1 bytes** after that stack allowance. Those are explicit conditional margins,
+not measured live headroom. Runtime heap peak/fragmentation, full stack/IRQ bound,
+real backing owner and path/source coexistence remain admission blockers. Dirty
+pattern retention and future FX runtime state also require separate bounds.
+
+Conclusion: compact BTT storage has substantial static capacity room without
+PSRAM, but **reliable device admission is not yet established**. The smallest
+recommended next implementation is an isolated fixed-capacity FsFile immutable
+backing/arena prototype (including the four-call portability fix), with slot
+exhaustion/source-alias fault checks and a fresh target link map. Keep it outside
+production handlers. It must make resource/candidate lifetimes explicit before
+device integration; later authorized on-target stack/heap high-water diagnostics
+are still required to validate the provisional reserves. Compile/link evidence
+proves no SD latency/prefetch deadline, FAT/power-loss recovery or physical behavior.
+
 #### Proposed current/next-pattern buffering and deferred validation
 
 Keep one current validated pattern buffer pinned and fill a separate next buffer
@@ -692,27 +843,13 @@ sequence transport/transition semantics, future effects and pattern lengths,
 external-state schemas, project cache lifecycle and RAM/backing strategy before
 approving v1. Changing the profile must not silently discard unsupported data.
 
-The host-only pattern layout/access experiment above is complete; codec/ID-width
-choices and profile limits still await review. The recommended next step is a
-full bounded envelope/TLV validator and lossless rewriter behind seekable
-reader/writer interfaces, without UI or device integration. Extend the measured
-file-backed pattern path rather than requiring an in-memory whole-file reader.
-Keep unknown optional pattern fields/codecs and FX data recoverable. Use a fixture with
-two patterns, repeated order, stable instrument IDs, a missing sample and an
-unsupported tuning value plus unknown optional data. Require byte-identical
-no-edit output for a fixture whose Sample tuning defaults are already explicit.
-Then change one known field, such as BPM, rewrite, reopen and assert that unknown
-optional TLVs/sections, unresolved references and explicit unsupported saved
-values survive unchanged; only the edited field and derived lengths/offsets/CRCs
-may change. Use a separate fixture with absent Sample Root Note and/or Fine Tune:
-normal Save must insert C-3/00 only for the missing tags, retain any present
-unsupported tag verbatim, and produce stable no-edit output on the next rewrite.
-This default-insertion case is not expected to be byte-identical to its input.
-Reject corrupt CRCs, truncation, duplicate IDs and overlapping
-sections without changing a sentinel destination. Inject candidate write failure
-in a fake store and assert the previous valid bytes survive. This validates the
-foundation before attempting runtime projection or UI Load/Save. The current
-host experiment does not implement that full validator/rewriter or save recovery.
+The host-only envelope/schema validator and lossless rewriter are complete for
+the provisional subset above, including explicit-default identity roundtrips,
+BPM edits, independent absent-default insertion, unknown/unresolved preservation,
+corruption/capacity rejection and fake-store failures. This is not real SD save
+recovery. Codec/ID-width choices and profile limits still await review. The next
+implementation is the isolated bounded target backing/arena prototype identified
+in the Teensy assessment above, with no UI, playback or firmware-handler integration.
 
 ## BTP — BroTracker Project
 
