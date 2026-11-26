@@ -12,13 +12,26 @@
   reference bases, bounded loading and recoverable saves. Review proposed limits,
   sequencing choices and memory/backing ownership before implementation.
   [Proposal](FILE_FORMATS.md#btt-v1-proposal--awaiting-review)
-* [ ] After review, validate the foundation with a host-only bounded envelope/TLV
+* [x] Measure bounded pattern access in a native host-only experiment: fixed and
+  independently decodable sparse layouts, 8/16-bit numeric FX IDs with three
+  slots, repeated order IDs, FX-only/zero/unknown data, direct file access and
+  malformed/capacity cases. No application, firmware or FX execution integration.
+  [Measurements](FILE_FORMATS.md#host-only-pattern-measurements)
+* [ ] Review fixed16 as the pattern baseline and optional smaller sparse16, ID
+  namespace/presence rules, bounded seekable section interfaces and current/next
+  buffering. Keep every profile limit provisional; validate device admission,
+  refill-first scheduling, jump invalidation, dirty-pattern ownership, separate
+  FX runtime state, prefetch deadlines and failure policy before integration.
+  [Buffering design](FILE_FORMATS.md#proposed-currentnext-pattern-buffering-and-deferred-validation)
+* [ ] After layout review, extend the host-only experiment to a full bounded envelope/TLV
   validator and rewriter: byte-identical no-edit roundtrip with explicit defaults,
   then a BPM edit retaining unknown optional data, unresolved references and
   explicit unsupported values. Separately verify insertion of absent Sample
   C-3/00 tuning defaults, corruption rejection and fake-store write failure.
   All proposed profile limits still await review. Keep UI Load/Save integration
-  separate. [First step](FILE_FORMATS.md#open-decisions-and-first-validation-step)
+  separate. Preserve all three FX slots and numeric unknown effects on rewrite;
+  use bounded file-backed access without a whole-file allocation.
+  [Next step](FILE_FORMATS.md#open-decisions-and-first-validation-step)
 * [ ] Extend LOAD/SAVE entry coordination to require STOP/acknowledgement from
   other states that are not confirmed stopped; failed or timed-out STOP keeps
   entry blocked. Confirmed device IDLE with no pending transport command already

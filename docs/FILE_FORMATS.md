@@ -83,6 +83,9 @@ rather than wrapping. Explicit replacement can retain an instrument ID.
 
 The order list is a sequence of pattern IDs, with repetition permitted: patterns
 17 and 42 plus order `[17, 42, 17]` play pattern 17 twice without duplicating it.
+Store each pattern definition exactly once under its stable ID; order entries
+contain references, not embedded copies. The pattern-count limit bounds distinct
+definitions, independently of the longer order-list limit.
 Each entry means one full pattern, first through last stored row. An empty order
 means no song sequence; unused patterns remain stored. End-of-list is the stored
 sequence boundary. Whether transport stops or loops, restart position, cross-
@@ -153,10 +156,18 @@ occur exactly once with the stated encoding and required flag.
 | --- | --- |
 | `TUNE` | 1: ID (encoding 4); 2: name (5); 3: BPM hundredths (3); 4: channel count (1); 5: next instrument ID (3); 6: next pattern ID (3) |
 | `ORDR` | 1: order (6), consecutive uint32 pattern IDs; length divisible by 4, each ID nonzero |
-| `PATT` | 1: row count (2); 2: cells (6), exactly rows × tune channels × 6 bytes |
+| `PATT` | 1: row count (2); 2: cell payload (6), sized by its codec; 3: pattern codec selector (2) |
 | `INST` | 1: instrument type (2), 1 Sample / 2 MIDI / 3 Sine Synth |
 
-Each row-major cell is uint8 note, uint8 NOTE OFF timing, uint32 instrument ID.
+Each logical row-major cell starts with uint8 note, uint8 NOTE OFF timing and
+uint32 stable instrument ID, followed by **all three FX slots**. The earlier
+six-byte-cell-only proposal is replaced by the layouts below. FX-only cells are
+stored even when note is empty and instrument ID is zero. FX contain numeric
+effect IDs and numeric values, never display mnemonic strings. Per the
+[general FX draft](BT_GENERAL_EFFECT_DRAFT.md), keep the accepted three-character
+mnemonic and two-hex-digit compact UI value. Command ID assignments, units and
+execution semantics are not finalized by these storage experiments.
+
 Notes reuse 24..127 pitched, 254 OFF, 255 empty. Timing is 0 arrival or 1 end of
 position, retained even on non-OFF cells. Other note/timing codes are structurally
 invalid for this cell encoding. BPM belongs only to `TUNE`, with supported
@@ -164,6 +175,86 @@ runtime range 3200..30000; it is not repeated in patterns. Nonzero BPM outside
 that range is preserved as unsupported and blocks playback; zero is structurally
 invalid. Channel and row counts must be nonzero; counts above the profile are
 capacity failures.
+
+#### Pattern layout alternatives and bounded access
+
+Proposed fixed-width baseline: append three `(uint16 effect ID, uint8 value)`
+pairs to the six-byte note/timing/instrument prefix: **15 bytes per cell** with
+explicit little-endian encoding and no ABI padding. ID 0/value 0 denotes an empty
+slot; any nonzero ID with value 0 is a present effect and must survive unchanged.
+ID 0 with nonzero value is malformed under this proposed encoding. Nonzero
+unknown IDs and their values remain saved data, reported as unsupported and
+never executed. Slot order is preserved even if all three are populated.
+
+The compared compact option uses `(uint8 ID, uint8 value)` pairs, giving 12-byte
+cells. Reserving ID 0 for empty leaves 255 usable numeric IDs, versus 65,535 in
+the 16-bit option. A separate presence mask could allow all 256 narrow IDs but
+would make the narrow fixed cell 13 bytes and still leave a small ID space; that
+variant is not measured here. Neither proposed ID width assigns commands to
+numbers. Widening later needs a distinct required codec/schema, not truncation
+or an escape that an old reader silently interprets as an ordinary command.
+The 16-bit baseline spends 3 extra bytes per cell (1,536 per 64×8 pattern) to
+leave ID space for future commands/import mappings. Values remain uint8 in both
+experiments, matching compact `00..FF` representation without settling each
+command's legal range. Wider/detail operands would require a separately designed
+extension and preservation contract; the UI design does not force every future
+internal operand to eight bits.
+
+Compare one simple sparse alternative: a uint16 populated-cell count followed
+by records `(uint16 linear cell index, fixed cell)`, in strictly increasing index
+order. Index is row × tune channel count + channel. Omitted cells reconstruct as
+note 255, timing 0, instrument 0 and three empty FX slots. Only exactly that
+default cell is omitted; FX-only cells, present zero-valued effects, instrument-
+only updates and retained nondefault OFF timing must all be included. Reject
+duplicates, descending/out-of-range indices, default-valued records and length
+mismatches. There are no inter-pattern dictionaries, delta chains, compression
+history or dependencies on the preceding pattern. Both encodings decode into
+the same bounded logical buffer and preserve numeric unknown FX.
+
+The host experiment uses tentative codec selectors 1=fixed8, 2=sparse8,
+3=fixed16, 4=sparse16. These are experimental labels awaiting format review,
+not an approved registry. An unknown required codec prevents playable pattern
+decoding; keep the opaque section recoverable without treating it as empty or
+silently rewriting it as a supported codec. A full-tune loader must reject
+unsupported required interpretation before replacing the current tune, per the
+versioning rules. Known codec plus unknown FX IDs is instead preservable data,
+not structural corruption.
+
+For N cells, K nondefault cells and fixed stride S, fixed payload size is N×S;
+sparse size is 2+K×(2+S). Both have 28 section bytes for required row-count,
+payload-header and codec TLVs. A directory entry adds a separate 24 bytes per
+pattern. Sparse wins below roughly 86% occupancy for 12-byte cells or 88% for
+15-byte cells; dense sparse data costs more than fixed. Recommendation pending
+review: use fixed16 as the correctness and capacity baseline and permit sparse16
+per pattern when smaller. Encoding choice changes storage, not logical identity,
+slot semantics or decoded-buffer capacity. Do not adopt narrow IDs solely from
+size results before reviewing command-space requirements.
+
+Propose a seekable, bounded reader with file size and `ReadAt(offset, buffer,
+length)` operations, plus section-limited cursors. Directory lookup by `(type,
+stable ID)` returns a checked span; tune fields, instrument sections/resource
+references, order ranges and individual patterns each have independent readers.
+Read one `PATT` by ID without decoding preceding patterns or retaining the BTT in
+RAM. A small fixed directory can be indexed in RAM or rescanned with a bounded
+entry buffer; neither approach needs pattern bodies resident. Order references
+can be read in bounded ranges instead of retaining all 1,024 entries. Keep
+metadata/opaque bytes in owned backing storage, not every descriptive TLV in RAM.
+
+Initial stopped Load still scans the whole file for envelope integrity and all
+required structural checks, through bounded scratch memory, before acceptance.
+That scan need not materialize patterns or decode them in playback order.
+Subsequent direct pattern access uses the retained validated index/backing and
+revalidates its section CRC. Whole-file CRC must not be mistaken for a need to
+allocate the whole file or decode preceding patterns on each access. Immutable
+backing/source-change safeguards remain required.
+
+Plan to load tune settings, instrument definitions and original resource
+references ahead of playback, with a stable-ID-to-runtime-slot map. Loading a
+definition does **not** prepare its source: resolving paths, validating WAVs,
+reserving source capacity and preparing streaming buffers are distinct steps
+with distinct failure/status reporting. Missing/unsupported instruments remain
+defined. Sample PCM stays external and uses the existing streaming source model;
+neither BTT patterns nor definition preload embeds or fully loads sample audio.
 
 `INST` optional known tags are 2: resource reference (encoding 6), 3: Sample Root
 Note (2), 4: Sample Fine Tune in positive cents (2), 5: MIDI channel (2), 6: name
@@ -359,21 +450,116 @@ The proposal is grounded in these current representations:
   saved references (8,192 string bytes and 256 entries are shared with live and
   rollback owners).
 
-A maximal pattern uses 3,072 on-disk cell bytes; 32 use 98,304 bytes before TLVs.
-The full directory is 6,144 bytes and order is 4,096 bytes. A uint32 ID per cell
-therefore increases document storage relative to the current three-byte triples.
-Do not hold a 1 MiB file or multiple full Tune vectors on the stack. Proposed
-document storage is a bounded pattern bank plus saved-field/backing indexes;
-only prepared runtime patterns and ID mappings enter playback. At least old and
-candidate ownership must coexist until commit; definitions, path-arena pressure,
-backing storage and existing audio buffers must be budgeted together. The above
-wire sizes are not a completed RAM-placement or admission proof.
+Current `Event`, `RealtimePattern` and temporary session records have no three-FX
+payload or independent FX presence representation. They cannot roundtrip this
+proposed data. A lossless saved-pattern representation and eventual runtime
+projection are new work; none is connected to application or firmware here.
 
-Addressability permits deferred descriptions and bounded copies, but does not
-authorize SD pattern paging during playback. Seamless multi-pattern playback
-needs a separately budgeted resident bank or proven prefetch scheduling. This
-proposal does not change the current one-pattern player. Tune ID and session
-cache lineage also require an explicit lifecycle mapping; they are not aliases.
+#### Host-only pattern measurements
+
+Native C++17 experiment: `tests/btt_pattern_layout.h` and
+`tests/test_btt_pattern_layout.cpp`, using the existing test framework in an
+isolated `BroTrackerBttPatternLayoutTests` CMake/CTest target. Measurements below
+are from a Release GNU 16.1.0 Windows x64 build. Reproduce without building host
+deliveries or firmware:
+
+```powershell
+cmake -S . -B build/btt-pattern-layout/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBROTRACKER_BUILD_WINDOWS_TERMINAL=OFF -DBROTRACKER_BUILD_ARKOS_UI=OFF -DBROTRACKER_BUILD_FONT_PREVIEW=OFF
+cmake --build build/btt-pattern-layout/cmake --target BroTrackerBttPatternLayoutTests
+ctest --test-dir build/btt-pattern-layout/cmake -R '^BroTrackerBttPatternLayoutTests$' --output-on-failure
+```
+
+Measured **complete PATT section bytes**, including its 28-byte TLV overhead
+but excluding its separate directory entry:
+
+| Rows × channels | Fixture | Fixed8 | Sparse8 | Fixed16 | Sparse16 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 32 × 8 | Empty | 3,100 | 30 | 3,868 | 30 |
+| 32 × 8 | Sparse: 8 populated cells | 3,100 | 142 | 3,868 | 166 |
+| 32 × 8 | All 256 cells populated | 3,100 | 3,614 | 3,868 | 4,382 |
+| 64 × 8 | Empty | 6,172 | 30 | 7,708 | 30 |
+| 64 × 8 | Sparse: 16 populated cells | 6,172 | 254 | 7,708 | 302 |
+| 64 × 8 | All 512 cells populated | 6,172 | 7,198 | 7,708 | 8,734 |
+
+Sparse/dense fixtures include three populated FX slots, an explicit zero operand
+and numeric unknown IDs. Sparse fixtures include an FX-only cell. Additional
+wide-ID tests preserve IDs 1,024 and 65,535, empty slots and present zero values;
+narrow encoding refuses those wider IDs instead of truncating. Generated BTT
+envelopes use non-sequential pattern IDs 17 and 9,001, instrument ID 7,001, order
+`[17, 9001, 17]`, and 60,000 bytes of unrelated optional data before the second
+pattern. Direct access is tested in both directions with reads confined to the
+selected pattern span. Truncation, malformed TLVs/cells, CRC damage, duplicate
+IDs, overlapping sections, bad sparse counts/indices, unsupported codecs and
+directory/decoded-cell capacity limits are exercised.
+
+Host measurements: a decoded 64×8 structure-of-arrays pattern reserves 7,680
+cell bytes plus rows/channels and ABI padding, **7,684 bytes** total, even for a
+32-row or sparse pattern. Two such buffers cost **15,368 bytes**. A packed active
+32×8 cell payload is 3,840 bytes, but the experiment deliberately reserves the
+maximum capacity. Explicit decoder workspace is **529 bytes** (512-byte CRC block
+plus 17-byte record buffer); a temporary logical Cell is 20 bytes on this ABI.
+Scalar locals, call frames and C runtime FILE state are additional; this is not
+a measured stack high-water mark. The reader object itself is 48 bytes. There
+are zero counted C++ heap allocations during index loading and pattern decode;
+fixture generation/reporting use dynamic storage outside the measured access.
+No access operation allocates a file-sized buffer. File-backed reads are capped
+at 512 bytes, and a target-only read window rejects preceding-pattern access.
+
+Account separately for indexing and non-pattern state: the maximal 256-entry
+wire directory is 6,144 bytes; the measured fixed Index is 6,148 including count.
+Only 144 wire bytes are needed by the six-entry fixture, but the experiment
+reserves the full index. A resident 1,024-entry uint32 order costs 4,096 bytes;
+range-reading it avoids that full residency. Thirty-two maximum fixed16 patterns
+would consume 245,760 cell bytes (246,656 with section TLVs) if all retained;
+current/next buffering avoids requiring that bank in RAM. TUNE/INST TLVs and
+large metadata remain separately bounded in backing storage. Loaded definitions,
+ID maps, runtime path ownership, prepared sources and rollback copies need
+additional admission budgets. For context only, this host ABI measures the
+current `InstrumentDefinition` at 32 bytes, 99-slot `InstrumentDefinitions` at
+3,376, shared `ResourcePathPool` at 10,240, old `RealtimePattern` at 1,538 and
+`WorkingSession` at 6,504. These runtime types neither budget nor preserve the
+complete proposed BTT model, and host pointer sizes are not Teensy pointer sizes.
+
+Local generated fixtures, `measurements.csv`, `memory.txt` and test/build logs
+live under ignored `build/btt-pattern-layout/`. The CSV records bytes/read calls,
+allocation counts and 100-iteration mean host decode times per case. The decoder
+uses an intentionally simple CRC pass plus validation and decode passes with
+many small seek/read calls. Timings include those host file operations, are
+affected by filesystem caching and are **not Teensy SD throughput, latency or
+prefetch deadline evidence**. This experiment validates layout and bounded
+access, not the full BTT schema, lossless rewriter, source preparation or player.
+
+#### Proposed current/next-pattern buffering and deferred validation
+
+Keep one current validated pattern buffer pinned and fill a separate next buffer
+in foreground work. A repeated order ID can reuse a clean resident definition;
+never store a second definition merely because order repeats it. SD reads,
+CRC checks and decoding occur outside the realtime audio callback/ISR. Audio
+sample refill has priority over pattern prefetch; reads and decode work need
+bounded scheduling/quanta and cancellation before this can become a device path.
+Tune/Project/Module Load/Save remain stopped-only; prefetch here means accessing
+another pattern in the **same already loaded tune**, not opening another tune
+during playback. Confirmed device IDLE/no pending transport remains sufficient
+for the stopped precondition, with Sample/instrument exceptions as documented.
+
+A transition requires a complete validated target and prepared playable sources;
+preloading an instrument definition alone does not meet that condition. Unknown
+FX are retained without execution. Future jumps can invalidate sequential
+prefetch and require target lookup/cancellation. Dirty edited patterns cannot
+simply be evicted: a separately budgeted edited-pattern store/backing policy and
+consistent save snapshot are prerequisites. FX runtime state (effect memory,
+slides, delayed events, loops and channel/voice state) may outlive a buffer and
+must remain separate from saved cell storage. Do not clear it merely on reuse.
+
+On-device memory admission, active/candidate coexistence, prefetch deadlines,
+storage contention and failure/late-transition behavior remain unvalidated.
+Whether to block Start, stop at a safe boundary or report another explicit
+failure requires design and device evidence; do not silently use stale data,
+skip a pattern or promise gapless playback. No firmware pattern streaming or FX
+execution is implemented by the experiment. Seamless **whole-tune** loading
+during playback stays deferred until PSRAM is available as a prerequisite;
+pattern buffering is a distinct design question. Tune ID and session cache
+lineage still require an explicit lifecycle mapping rather than aliasing.
 
 #### Open decisions and first validation step
 
@@ -382,9 +568,12 @@ sequence transport/transition semantics, future effects and pattern lengths,
 external-state schemas, project cache lifecycle and RAM/backing strategy before
 approving v1. Changing the profile must not silently discard unsupported data.
 
-The first implementation step, after proposal review, is a host-only bounded
-envelope/TLV validator and lossless no-edit rewriter behind a seekable in-memory
-reader/writer interface, without UI or device integration. Use one fixture with
+The host-only pattern layout/access experiment above is complete; codec/ID-width
+choices and profile limits still await review. The recommended next step is a
+full bounded envelope/TLV validator and lossless rewriter behind seekable
+reader/writer interfaces, without UI or device integration. Extend the measured
+file-backed pattern path rather than requiring an in-memory whole-file reader.
+Keep unknown optional pattern fields/codecs and FX data recoverable. Use a fixture with
 two patterns, repeated order, stable instrument IDs, a missing sample and an
 unsupported tuning value plus unknown optional data. Require byte-identical
 no-edit output for a fixture whose Sample tuning defaults are already explicit.
@@ -398,8 +587,8 @@ This default-insertion case is not expected to be byte-identical to its input.
 Reject corrupt CRCs, truncation, duplicate IDs and overlapping
 sections without changing a sentinel destination. Inject candidate write failure
 in a fake store and assert the previous valid bytes survive. This validates the
-foundation before attempting runtime projection or UI Load/Save. No such code
-or tests are introduced by this documentation task.
+foundation before attempting runtime projection or UI Load/Save. The current
+host experiment does not implement that full validator/rewriter or save recovery.
 
 ## BTP — BroTracker Project
 

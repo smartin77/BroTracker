@@ -138,6 +138,10 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 enable_testing()
+add_executable(BroTrackerBttPatternLayoutTests tests/test_btt_pattern_layout.cpp)
+target_include_directories(BroTrackerBttPatternLayoutTests PRIVATE tests src libraries/scheduler/src)
+add_test(NAME BroTrackerBttPatternLayoutTests COMMAND BroTrackerBttPatternLayoutTests
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-pattern-layout)
 # Exercise exactly the compile-time player/control selection used by the opt-in
 # firmware, without Arduino/SD or building/uploading a board image.
 add_executable(BroTrackerVariableRateBringUpTests
