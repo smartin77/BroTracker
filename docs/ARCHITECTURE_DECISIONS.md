@@ -640,27 +640,51 @@ These formats are not three different playback representations. The BroTracker r
 
 ### BTT — BroTracker Tune
 
-BTT is a lightweight tune/module representation.
+BTT Foundation is a documentation draft refining this decision in the existing
+[file format sections](FILE_FORMATS.md#btt--brotracker-tune). Layout, schema
+versioning and implementation remain open.
 
-Sample instruments in a BTT may reference samples by their external storage locations rather than containing the sample data itself.
+BTT is `<TuneName>.btt`. It owns the tune name, BPM, patterns, instrument
+definitions, saved instrument parameters (including Sample Root Note and Fine
+Tune), and future tune-scoped settings. These settings remain in the tune even
+without a separately saved instrument preset. BroTracker and BTX application
+preferences remain outside BTT.
 
-This makes BTT suitable when the samples are intentionally kept outside the tune container.
+BTT references external samples and future external instruments or modules
+without embedding their assets. Standalone portability within the same system
+depends on the original stored paths remaining resolvable.
 
-If a referenced sample cannot be found when loading a BTT, the tune and instrument definition must remain available. The missing sample shall be reported as **not located**, and the user should be able to locate the sample manually.
-
-Instrument parameters must not be discarded merely because the referenced sample is unavailable.
+Stored references and parameters are separate from runtime resolution and
+validation. Missing or invalid sample references and unavailable external
+instruments retain and display their original paths/references and saved values.
+Missing samples are **not located**; failures and unsupported settings are
+visible. Any effective fallback is distinguishable from the original saved
+value. Loading, playback and ordinary saving preserve unresolved references and
+settings without silent replacement or normalization. Relinking is an explicit
+user action.
 
 ### BTP — BroTracker Project
 
 BTP is the native BroTracker project format and is the initial project format.
 
-A BTP project is stored together with its samples in a dedicated project directory on the attached storage device.
+A BTP project is a dedicated directory on the attached storage device containing
+its BTT, copies of the samples used by the project, and a separate project
+waveform cache. There is no separate `.btp` tune file in this draft.
 
 The project directory uses the tune/project name. Renaming the tune/project should also rename the associated project directory automatically.
 
-All samples used by the project are copied into the project directory so that the project does not depend on their original external locations.
+All samples used by the project are copied into the project directory, with
+project-relative references in its BTT, so those samples no longer depend on
+their original locations. Unavailable samples remain unresolved and visible;
+collection must not silently drop them or report a complete project. External
+instrument/module references do not collect their assets or hardware.
 
-The BTP format shall be designed as an **addressable format**.
+The project waveform cache is rebuildable derived data, separate from tune data
+and samples. It is future work, distinct from the implemented host-local
+[working-session waveform cache](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache).
+
+The project's BTT shall support **addressable tune data**. This is a conceptual
+loading goal; the binary layout remains open.
 
 Important runtime-relevant data shall be stored so that it can be loaded first and efficiently into memory when required. Optional or non-essential information shall be placed later in the file and may be loaded independently from the storage device.
 
@@ -675,23 +699,28 @@ This allows descriptive information to have practical or effectively unrestricte
 
 Instrument descriptions are particularly useful for MIDI instruments. A creator may document the external hardware used, MIDI channel, bank/program information, or short notes describing the external instrument configuration.
 
-The exact binary structure and field sizes of BTP are intentionally left open for a future file format specification.
+The exact binary structure, schema versioning and field sizes of these future
+formats are intentionally left open for a future file format specification.
 
 ### BTM — BroTracker Module
 
-BTM is a transport and distribution container for a complete BTP project.
+Future BTM is a transport and distribution container for a complete BTP project,
+distinct from the existing temporary BTM working-session format.
 
 A BTM file is a ZIP container containing the complete BTP project directory, including the project data and all required samples.
+
+Inclusion of the rebuildable project waveform cache remains an open packaging
+policy; it is not required to recover the tune and collected samples.
 
 BTM therefore does not define a separate musical or playback representation. It packages an existing BTP project into a single portable file.
 
 The intended relationship is:
 
-BTT = lightweight tune with external sample references
+BTT = `<TuneName>.btt`, tune and saved instruments/settings with external asset references
 
-BTP = complete native BroTracker project
+BTP = native project directory with BTT, copied samples using project-relative references, and separate waveform cache
 
-BTM = ZIP container containing a complete BTP project
+BTM = future ZIP container containing a complete BTP project; derived-cache packaging policy open
 
 The separation allows the native project format to remain optimized for BroTracker's storage and runtime requirements while BTM provides a convenient single-file format for transfer, backup and distribution.
 

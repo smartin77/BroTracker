@@ -1,5 +1,14 @@
 # TODO List
 
+## Current task: BTT Foundation
+
+* [ ] BTT Foundation documentation draft: define tune ownership, external
+  references and lossless preservation of unavailable resources/settings; align
+  BTP sample collection and project waveform cache boundaries. This is a draft,
+  not implemented persistence. Binary layout, schema versioning and implementation
+  details remain open. [File formats](FILE_FORMATS.md#btt--brotracker-tune)
+  [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats)
+
 ## Instrument and Sample
 
 * [ ] Add Instrument-screen A audition of the acknowledged Sample at default pitch.
@@ -60,10 +69,19 @@
 
 ## Storage, recovery and terminal runtime
 
-* [ ] Add Pattern Save As and filename entry. Design Tune and Project Load/Save
-  and self-contained Sample storage. Establish durable lineage at the project
-  transition boundary. [File formats](FILE_FORMATS.md)
+* [ ] Follow BTT Foundation with BTT Load/Save, preserving tune-owned instrument
+  parameters and unresolved references/settings through loading, playback and
+  ordinary saves. [File formats](FILE_FORMATS.md#btt--brotracker-tune)
+* [ ] Add unavailable-reference display and explicit relinking for missing/invalid
+  samples and unavailable external instruments. Show original paths and saved
+  values, failures/unsupported settings, and any effective fallback distinctly.
+  [BTT preservation contract](FILE_FORMATS.md#btt--brotracker-tune)
+* [ ] Follow BTT Foundation with BTP sample collection, project-relative sample
+  references and separate rebuildable project waveform caching. Design Project
+  Load/Save and establish durable lineage at the project transition boundary.
+  [Project format](FILE_FORMATS.md#btp--brotracker-project)
   [Cache policy](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache)
+* [ ] Add Pattern Save As and filename entry. [File formats](FILE_FORMATS.md)
 * [ ] Qualify session recovery with physical interrupted writes and card failures.
   Test separately powered USB removal during playback for continuity and retained
   edits. Verify detection/recovery if the device reboots without an observed

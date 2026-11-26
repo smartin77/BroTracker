@@ -2,6 +2,12 @@
 
 BroTracker uses three related formats for tunes, projects and project distribution.
 
+The BTT/BTP/BTM sections are a **BTT Foundation documentation draft** refining
+[D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats).
+They define ownership and preservation requirements; layout, schema versioning
+and implementation remain open. Existing working-session formats below retain
+their separately documented behavior.
+
 ## Project/data workspace and host paths
 
 The **Teensy SD card is always BroTracker's project/data workspace**. Tune/project
@@ -23,51 +29,82 @@ contracts, not proof of implemented tune/project persistence.
 
 ## BTT — BroTracker Tune
 
-BTT is a lightweight BroTracker tune/module representation.
+BTT is the lightweight tune file, named `<TuneName>.btt`. It owns:
 
-A BTT contains the tune and instrument information but may reference sample data stored externally.
+- the tune name and BPM;
+- patterns;
+- instrument definitions and their saved parameters, including Sample Root Note
+  and Fine Tune;
+- future tune-scoped settings.
 
-Sample references depend on the physical storage location of the referenced samples.
+Instrument settings belong to the tune even if the user never saves a separate
+instrument preset. BroTracker and BTX application preferences remain outside BTT.
 
-If a referenced sample cannot be found when the BTT is loaded:
+BTT stores references to external samples and, in future, external instruments
+or modules without embedding their assets. A standalone BTT is portable within
+the same system only while its original stored paths remain resolvable. Moving
+the BTT alone does not collect its dependencies or guarantee portability to
+another storage layout or system.
 
-- the instrument definition remains available;
-- the instrument parameters remain available;
-- the missing sample is marked as **not located**;
-- the user may be prompted to locate the missing sample.
+Stored paths and saved parameters are distinct from runtime resolution and
+validation. For missing or invalid sample references and unavailable external
+instruments, preserve and display the original path/reference and saved values.
+Mark a missing sample as **not located**; make other resolution/validation
+failures and unsupported settings visible. Any effective runtime fallback must
+be distinguishable from the original saved value and must not overwrite it.
 
-BTT is therefore useful when sample data is intentionally maintained separately from the tune.
-
-BTT does not need to contain a copy of every referenced sample.
+Loading, playback and ordinary saving must preserve unresolved references,
+instrument definitions and saved settings, including invalid or unsupported
+values. They must not silently clear, normalize or substitute saved intent.
+The user must be able to relink an unavailable reference explicitly; runtime
+resolution alone does not rewrite the stored reference.
 
 ## BTP — BroTracker Project
 
 BTP is the native BroTracker project format.
 
-A BTP project is stored as a directory containing the tune/project data and all samples used by that project.
+A BTP project is a directory containing its BTT, copies of all samples used by
+the project, and a separate project waveform cache. BTP does not imply a second
+`.btp` tune file alongside the BTT.
 
 A typical project may look like:
 
 ```text
 MyTune/
-    MyTune.btp
+    MyTune.btt
     Samples/
         Kick.wav
         Snare.wav
         Bass.wav
+    WaveformCache/   # rebuildable derived data; illustrative directory name
 ```
 
 The project directory is associated with the tune/project name.
 
 When the tune/project is renamed, the associated project directory should be renamed accordingly automatically.
 
-All samples used by the project are copied into the project directory. This makes the project self-contained and removes dependencies on the original locations of imported or user-provided samples.
+All samples used by the project are copied into the project directory. The
+project's BTT uses project-relative references such as `Samples/Kick.wav` for
+those copies. This makes sample storage self-contained and removes dependencies
+on the samples' original locations. Unavailable samples must remain visible as
+unresolved references; collection must not silently drop them or claim a
+complete project. References to external instruments or modules do not imply
+that their assets or required hardware have been collected.
+
+The project waveform cache is rebuildable derived data, separate from the BTT
+and source samples. Its absence or invalidation must not lose tune or instrument
+settings; visualization can be rebuilt from available samples. Cache layout and
+generation are future work. The implemented
+[terminal waveform cache](INSTRUMENT_FOUNDATION.md#persistent-terminal-waveform-cache)
+is host-local and keyed by durable working-session lineage; it is not yet this
+project cache. Its application preferences remain outside BTT.
 
 ### Addressable File Structure
 
-BTP shall use an addressable file structure.
+BTP's BTT shall support addressable tune data. The following is a conceptual
+loading goal, not a separate BTP file layout or a binary schema.
 
-The file shall be organized so that the information required for normal operation can be loaded first.
+The tune data should be organized so that the information required for normal operation can be loaded first.
 
 Runtime-relevant information should therefore appear before optional descriptive information.
 
@@ -91,7 +128,7 @@ Optional information may be read independently from the TF card when required.
 
 ### Descriptive Metadata
 
-BTP may contain descriptive metadata such as:
+BTP's BTT may contain descriptive metadata such as:
 
 - tune description;
 - instrument description;
@@ -130,7 +167,7 @@ The format should remain flexible enough to support different state mechanisms w
 
 ## BTM — BroTracker Module
 
-BTM is a single-file container for a complete BTP project.
+Future BTM is a single-file container for a complete BTP project.
 
 BTM uses ZIP as its container format.
 
@@ -143,15 +180,20 @@ MyTune.btm
          |
          +-- MyTune/
               |
-              +-- MyTune.btp
+              +-- MyTune.btt
               |
               +-- Samples/
-                   +-- Kick.wav
-                   +-- Snare.wav
-                   +-- Bass.wav
+              |    +-- Kick.wav
+              |    +-- Snare.wav
+              |    +-- Bass.wav
+              |
+              +-- WaveformCache/ (rebuildable; packaging policy open)
 ```
 
 A BTM therefore contains a complete BTP project.
+
+Whether derived waveform caches are included in the future package remains
+open; they are not required to recover the tune and its collected samples.
 
 BTM does not introduce a separate playback representation. It is a portable container used for:
 
@@ -169,25 +211,28 @@ The three formats serve different purposes:
 
 ```text
 BTT
-Lightweight tune
-External sample references
+<TuneName>.btt: tune name, BPM, patterns, instruments and saved parameters
+External asset references; assets are not embedded
 
 
 BTP
-Native BroTracker project
-Tune + project data + samples
+Native project directory
+BTT + copied samples with project-relative references + separate waveform cache
 
 
 BTM
-Portable module container
-ZIP containing complete BTP project
+Future portable module container
+ZIP containing complete BTP project; derived-cache packaging policy open
 ```
 
 The BroTracker realtime core does not depend on any of these external container formats directly. File loading and conversion are responsible for producing the internal data representation required by the core.
 
 ## Future Specification
 
-The exact binary layout, headers, versioning, offsets, field sizes, checksums and compatibility rules are intentionally not defined yet.
+For future BTT/BTP/ZIP BTM, the exact binary layout, headers, schema versioning,
+offsets, field sizes, checksums, compatibility rules and implementation details
+are intentionally not defined yet. The temporary session layouts below do not
+specify these future formats.
 
 These details shall be specified separately once the internal data model and storage requirements have stabilized.
 
