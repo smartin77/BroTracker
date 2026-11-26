@@ -72,7 +72,7 @@ public:
     }
     Code Reset() noexcept {
         for(const auto& r:records_)if(r.object && !r.can_destroy(r.object))return Code::Busy;
-        for(unsigned i=records_.size();i;--i) {
+        for(size_t i=records_.size();i;--i) {
             auto& r=records_[i-1];if(r.object) {r.destroy(r.object);r.object=nullptr;}
         }
         used_=0;return Code::Ok;

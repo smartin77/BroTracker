@@ -44,6 +44,15 @@ compiles and roots the real FsFile adapter via `backing_probe.cpp`; fixed-pool
 and arena-metadata costs replace hypothetical shared-control costs. See
 `tools/btt/README.md` for commands and the write-once policy.
 
+`--resources` implies prototype mode and adds the actual candidate admission
+implementation and its arena lifecycle probe. Pass it to budgets.py too: measured
+Candidate state replaces hypothetical second-path-pool/definitions/bindings/maps.
+Only the existing singleton path pool is used. `--mapped-baseline <directory>`
+can reuse an unchanged production-equivalent map build; ELF section equivalence
+is still checked, and callers must verify production source provenance. See
+`tools/btt/RESOURCE_ADMISSION.md`. The actual source-service adapter is unimplemented;
+its 1,024-byte metadata allowance is explicitly unknown, not a measured source cache.
+
 `placement.cpp` reserves a 64 KiB aligned `.dmabuffers` arena and 128 bytes of
 DTCM owner state. The separate `reservation.elf` roots all foundation entry
 points and these reservations against the same production objects/libraries.

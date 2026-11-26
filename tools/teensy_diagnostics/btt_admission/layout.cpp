@@ -1,6 +1,7 @@
 // Compile-only ARM ABI probe. No setup/loop, FILE, test framework or runtime link.
 #include "tools/btt/foundation.h"
 #include "tools/btt/fs_backend.h"
+#include "tools/btt/resource_admission.h"
 #include "bringup/working_session.h"
 #include "bringup/live_instrument_visit.h"
 #include "bringup/pattern_player_selection.h"
@@ -48,6 +49,15 @@ SIZE(FsBackings,btt::prototype::FsBackings)
 SIZE(FsOutput,btt::prototype::FsBackings::Output)
 SIZE(FsToken,btt::prototype::FsBackings::Token)
 SIZE(FsBackend,btt::prototype::FsBackend)
+SIZE(SavedInstrument,btt::SavedInstrument)
+SIZE(ResourceDefinition,btt::prototype::Definition)
+SIZE(ResourceCandidate,btt::prototype::Candidate)
+SIZE(TwoResourceCandidates,btt::prototype::Candidate[2])
+SIZE(AdmissionScratch,btt::prototype::AdmissionScratch)
+SIZE(SourceLease,btt::prototype::SourceLease)
+SIZE(SourceToken,btt::prototype::SourceToken)
+SIZE(SourceService,btt::prototype::SourceService)
+SIZE(StoppedExchange,btt::prototype::StoppedExchange)
 SIZE(Reader,btt::Reader)
 SIZE(Writer,btt::Writer)
 SIZE(Store,btt::Store)

@@ -916,8 +916,144 @@ real-source stack reports, reservation map, lifecycle budget, complete actual
 diff and whitespace result are under `build/btt-backing-prototype/`. Remaining
 integration blockers: namespace/media policy in production, candidate path-pool/
 sample-source coexistence, physical stack/heap peaks, and separately designed
-prefetch, FX execution and FAT/power-loss recovery. Next isolate the path/source
-candidate admission contract before connecting any BTT operation to runtime.
+prefetch, FX execution and FAT/power-loss recovery. The candidate resource
+contract below completes the next isolated step; production adoption is separate.
+
+#### Isolated candidate resource admission
+
+`tools/btt/resource_admission.{h,cpp}` implements a bounded developer-only
+preparation/rollback boundary. It uses the **real singleton ResourcePathPool and
+ResourcePathRef**; a second pool cannot transparently replace the context-free
+two-byte IDs. Active, rollback, session, voice/source and candidate owners share
+the existing 8,192 string bytes and 256 records. Only additional references to
+required runtime paths are acquired; saved paths remain spans in immutable BTT
+backing. No production paths, streaming buffers, bindings or publication APIs
+are changed, and there is no second ring/prefix cache.
+
+`InspectInstrument` exposes a 32-byte saved view after section CRC/schema checks,
+using reusable Workspace scratch. It retains stable uint32 instrument ID, section
+and resource spans, original uint16 Root/Fine/MIDI values and separate presence/
+understood flags. Opaque encodings, names/descriptions and unknown TLVs remain
+recoverable from the complete section in the retained backing. Candidate owns a
+backing pin independently of the original Document. Cancelling/failed runtime
+admission retains saved metadata and original bytes; Discard releases that saved
+owner. Revalidating its backing recreates a Document for lossless rewriting.
+
+All definitions are scanned sequentially without acquiring paths or sources.
+Preparation is limited to one explicitly named initial pattern: all its nonzero
+instrument updates, plus explicit per-channel incoming instruments. A pitched
+note with no known instrument, or a reference to an absent ID, blocks readiness
+without positional rebinding. Later patterns and prefetch remain separate.
+Even a valid initial pattern can exceed the producer's available source slots;
+that returns capacity rather than loading a bank or evicting old resources.
+
+Absent Sample tuning defaults independently to Root 60/C-3 and Fine 0/00.
+Present unsupported values remain saved and visible (including 0 and uint16
+values beyond runtime range); they disable affected required bindings. MIDI has
+effective default channel 1 only when absent. Unknown types, inappropriate
+parameters and unknown optional encodings are distinct unsupported settings.
+An unknown-encoding field must be displayed from its opaque saved bytes, not as
+the uninitialized numeric interpretation. Unsupported unused definitions remain
+stored and do not trigger eager Sample preparation.
+
+Path status distinguishes absent reference, invalid runtime syntax, excessive
+runtime length, unavailable base/context, unsupported encoding and temporary
+pool capacity. Only base-0 SD-root references are admitted; base 1 awaits an
+explicit project context. No host filesystem lookup, normalization, path
+truncation or saved-value substitution occurs. A well-formed UTF-8 saved path
+can remain unsupported by the runtime ASCII path validator. Missing Sample,
+temporary source capacity, path capacity, unsupported source format and I/O have
+separate source statuses. Saved structural validity is independent of these.
+
+Each Step acquires at most one path or one source lease, permitting cancellation
+after every acquisition. Any preparation failure releases only that candidate's
+runtime acquisitions. Sharing compatible resources increments real ownership;
+no active/rollback/voice source or path is evicted. The external SourceService
+contract pins an immutable asset/format generation and owns its cache-key path.
+Root/Fine Tune remain per-definition parameters, so identical PCM paths with
+different tuning share one source. A changed asset/format cannot reuse a still-
+pinned incompatible slot. The host fake implements this contract with metadata
+only; it neither opens physical WAVs nor allocates PCM storage. One Acquire call
+does not establish a physical SD scheduling quantum.
+
+`StoppedExchange` simulates explicit old/current/candidate ownership: Commit
+requires the caller's simulated stopped assertion and resource-ready candidate;
+Rollback swaps current/previous; ReleasePrevious drops only that previous owner.
+SourceLease clones represent sounding voices and survive old-owner release.
+Linked states refuse Cancel/Begin and arena destruction until released/detached.
+Owners/backend contexts must outlive their pins and exchange. No actual audio
+handoff, STOP acknowledgement, MIDI action or production publication occurs.
+Resource-ready is **not playback admission**: saved unsupported FX/order data,
+runtime interpretation, transport and audio resource readiness remain separate.
+
+Concrete integration blocker: production SdSampleStreaming returns borrowed
+views, has one replaceable PinRollback mask and one asynchronous preparation job.
+ReleaseUnused, ReclaimOne and DiscardLastPrepared do not expose an independent
+generation-checked candidate pin. Treating a returned view as a strong candidate
+owner would be unsafe. This prototype therefore leaves the real source adapter
+unimplemented rather than refactoring global ownership. Its next small step is
+a narrow candidate-pin facade in that producer, tested against every reclaim
+route under fake SD while retaining the existing rollback/binding/voice guards.
+
+Measured ARM GCC 15.2.1 sizes: saved view **32 bytes**, Definition **60**,
+Candidate **5,972**, two candidates **11,944**, SourceLease **12**, SourceToken
+**8**, StoppedExchange **8**, path scratch **256**. A candidate includes all 99
+saved views, effective parameters, path refs and source leases; no additional
+definitions/bindings/ID map or second path arena is needed for this prototype.
+Large documents/candidates/pattern scratch are arena-owned, off the CPU stack.
+Target Begin/Step frames are 88/32 bytes before callees; frame sizes are not a
+complete stack/IRQ bound. The path singleton's 10,240 bytes already belong to
+the production baseline and are not added again as candidate storage.
+
+The revised lifecycle model retains the full existing production state, two
+current/next patterns and old/candidate owners during stopped preparation:
+
+| Phase | Additional RAM2 state including 2,048-byte guard |
+| --- | ---: |
+| Stopped saved validation with active resource owner | 39,965 |
+| Stopped initial candidate preparation/projection | **55,415** |
+| Current/next playback with retained resource owner | 33,773 |
+| Stopped rewrite/verification with active resource owner | 39,985 |
+
+The largest phase leaves **10,121 bytes** within the proposed 64 KiB arena.
+These are alternative phases, not additive. Measured Candidate structures replace
+the prior hypothetical duplicate path pool/definitions/bindings/maps. The model
+still reserves 1,538 bytes for a future legacy runtime projection and **1,024
+unmeasured bytes** for a real source-service facade; it is not proof that that
+adapter fits. The fake source metadata is 296 bytes on the host and has no PCM.
+Host simultaneous arena use is **36,340 bytes**, including two Documents, two
+Candidates, one pattern scratch, Workspace, path scratch and fixed fake-backed
+owner pool; the 544-byte host arena metadata and source context are outside that
+region. The complete host harness context is another 992 bytes (arena metadata,
+fake source metadata, handles/tokens), for 37,332 bytes of named simultaneous
+live state plus caller frames; the backing arena reserves 65,536 bytes regardless
+of occupancy. Host Candidate is 7,176 bytes / two 14,352; these are not target sizes.
+
+Actual source and lifecycle probe compile with production Cortex-M7 hard-float
+GNU C++17 flags, exceptions/RTTI disabled, outside production targets. The isolated
+reservation link retains eight ITCM banks with **2,468 reported padding bytes**
+(2,464 physical): another bank is close and would cost 32,768 DTCM bytes. RAM1
+static/gap remain 157,952/104,192; RAM2 static/heap interval 232,224/292,064.
+Existing Sample storage remains 143,360 bytes. The prior unproven stack/heap
+allowances leave 71,424 RAM1 and 226,528 RAM2; one further code bank leaves 38,656
+RAM1 after the 32 KiB stack allowance. No reliable physical admission is claimed.
+
+Host checks cover shared/distinct paths and scan lifetime, real path record/byte
+exhaustion and fragmentation/reuse, pinned old source capacity, missing/invalid
+references, explicit unsupported tuning, independent defaults, compatible-source
+sharing across tuning and incompatible generations, failure/cancellation after
+each acquisition, simulated commit/rollback and old/voice release, 100 repeated
+cycles, saved-backing recovery and lossless save after runtime failure. A 99-
+definition fixture prepares only the explicit initial requirement. Measured
+setup, acquisitions and destructor teardown have **zero counted C++ heap
+allocations**; fixture generation, fake disk bytes, reports and framework setup
+are excluded. Existing BTT and real-path/streaming regression suites also run.
+
+See `tools/btt/RESOURCE_ADMISSION.md` for contracts/commands. Complete diff,
+tests, allocation/memory evidence, target compile/frame/link logs, map and report
+are under `build/btt-resource-admission/`. Physical stack/heap peaks, namespace/
+media enforcement, actual candidate source pins, prefetch, FX execution and
+FAT/power-loss recovery remain separate integration blockers.
 
 #### Proposed current/next-pattern buffering and deferred validation
 

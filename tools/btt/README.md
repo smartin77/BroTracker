@@ -1,5 +1,9 @@
 # Isolated BTT backing and arena prototype
 
+The later candidate resource boundary is documented in
+[RESOURCE_ADMISSION.md](RESOURCE_ADMISSION.md); it shares the real singleton
+path pool and leaves the production streaming-source adapter unimplemented.
+
 Developer-only code. No production Load/Save/session/UI/playback handler links
 these files. No encoding, FX or playback behavior changes are introduced.
 

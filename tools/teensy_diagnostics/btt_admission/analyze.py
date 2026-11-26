@@ -37,9 +37,9 @@ def prepare():
         config.write(stream)
 
 
-def measure(prototype=False):
+def measure(prototype=False, resources=False, mapped_override=None):
     original = ROOT / ".pio/build/teensy41_dev"
-    mapped = OUT / "mapped/teensy41_dev"
+    mapped = ROOT / mapped_override if mapped_override else OUT / "mapped/teensy41_dev"
     info = json.loads((original / "idedata.json").read_text())
     (OUT / "compiler-environment.json").write_text(json.dumps(info, indent=2))
     compiler = Path(info["cxx_path"])
@@ -55,6 +55,9 @@ def measure(prototype=False):
     inputs = [("layout", HERE / "layout.cpp"), ("placement", HERE / "placement.cpp")]
     if prototype:
         inputs.append(("backing-probe", HERE / "backing_probe.cpp"))
+    if resources:
+        inputs += [("resource-admission", ROOT / "tools/btt/resource_admission.cpp"),
+                   ("resource-probe", HERE / "resource_probe.cpp")]
     for name, source in inputs:
         args = [compiler, *flags, "-fstack-usage", "-c", source, "-o", OUT / (name + ".o")]
         commands.append([str(a) for a in args])
@@ -113,6 +116,8 @@ def measure(prototype=False):
     link[idx:idx] = [str(OUT / "foundation.o"), str(OUT / "placement.o")]
     if prototype:
         link[idx:idx] = [str(OUT / "backing-probe.o")]
+    if resources:
+        link[idx:idx] = [str(OUT / "resource-admission.o"), str(OUT / "resource-probe.o")]
     raw = run([nm, "--defined-only", "-g", OUT / "foundation.o"], "foundation-roots.txt")
     for line in raw.splitlines():
         fields = line.split()
@@ -124,6 +129,13 @@ def measure(prototype=False):
             fields = line.split()
             if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] == "btt_backing_probe"):
                 link += ["-Wl,--undefined=" + fields[2]]
+    if resources:
+        for object_name in ["resource-admission", "resource-probe"]:
+            raw = run([nm, "--defined-only", "-g", OUT / (object_name + ".o")], object_name + "-roots.txt")
+            for line in raw.splitlines():
+                fields = line.split()
+                if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] == "btt_resource_probe"):
+                    link += ["-Wl,--undefined=" + fields[2]]
     link += ["-Wl,--undefined=btt_admission_arena", "-Wl,--undefined=btt_admission_owner"]
     (OUT / "reservation-link-command.json").write_text(json.dumps(link, indent=2))
     run(link, "reservation-link.log")
@@ -138,6 +150,8 @@ if __name__ == "__main__":
     parser.add_argument("--measure", action="store_true")
     parser.add_argument("--out", type=Path, help="Generated artifact directory relative to repository root")
     parser.add_argument("--prototype", action="store_true", help="Compile/root the real fixed-owner FsFile adapter")
+    parser.add_argument("--resources", action="store_true", help="Compile/root resource candidate lifecycle (implies --prototype)")
+    parser.add_argument("--mapped-baseline", type=Path, help="Reuse an existing production-equivalent mapped build; section equivalence is still checked")
     options = parser.parse_args()
     if options.out:
         OUT = (ROOT / options.out).resolve()
@@ -145,4 +159,4 @@ if __name__ == "__main__":
     if options.prepare_config:
         prepare()
     if options.measure:
-        measure(options.prototype)
+        measure(options.prototype or options.resources,options.resources,options.mapped_baseline)

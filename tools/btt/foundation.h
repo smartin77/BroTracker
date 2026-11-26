@@ -112,6 +112,16 @@ const Entry* Find(const Document&, const char*, uint32_t);
 // publishes state. Never pass active/current state as a candidate.
 Result Validate(ReaderOwner, Document& candidate, Workspace&, Limits = {});
 Result Materialize(const Document&, uint32_t id, Pattern& candidate, Workspace&, unsigned capacity=512);
+// Compact saved-data view. Opaque/unsupported field bytes remain recoverable
+// through section_offset/length and an owned backing; never a runtime projection.
+struct SavedInstrument {
+    uint32_t id=0,section_offset=0,section_length=0,resource_offset=0,resource_length=0;
+    uint16_t type=0,root=0,fine=0,midi=0;
+    uint8_t resource_encoding=0,present=0,understood=0;
+    bool resource_present=false;
+    // Bit 0 Root, bit 1 Fine, bit 2 MIDI. Presence is independent of value.
+};
+Result InspectInstrument(const Document&,uint32_t id,SavedInstrument& candidate,Workspace&);
 // bpm=0 retains saved BPM. Inserts each absent Sample tuning default independently.
 // Writes only a distinct temporary backing. Caller must finish/sync/close, reopen,
 // Validate and compare before promotion; original ownership survives every failure.

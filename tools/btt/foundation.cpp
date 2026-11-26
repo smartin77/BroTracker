@@ -251,6 +251,29 @@ Result Materialize(const Document& d,uint32_t id,Pattern& p,Workspace& w,unsigne
     auto status=d.status;return Cells(d,*e,w,status,&p,std::min(512u,capacity));
 }
 
+Result InspectInstrument(const Document& d,uint32_t id,SavedInstrument& out,Workspace& w) {
+    if(!d.accepted || !d.backing)return Result::Backing;
+    const auto* e=Find(d,"INST",id);if(!e)return Result::Invalid;
+    auto result=Check(*d.backing,*e,w);if(result!=Result::Ok)return result;
+    auto status=d.status;result=Fields(*d.backing,*e,w,status);if(result!=Result::Ok)return result;
+    SavedInstrument value;value.id=id;value.section_offset=e->offset;value.section_length=e->length;
+    uint32_t n=0;result=Scalar(*d.backing,w.fields[1],n);if(result!=Result::Ok)return result;
+    value.type=static_cast<uint16_t>(n);
+    const auto resource=w.fields[2];
+    if(resource.present) {value.resource_present=true;value.resource_offset=resource.offset;value.resource_length=resource.length;value.resource_encoding=resource.encoding;}
+    uint16_t* values[]={&value.root,&value.fine,&value.midi};
+    for(unsigned i=0;i<3;++i) {
+        const auto field=w.fields[3+i];
+        if(!field.present)continue;
+        value.present|=uint8_t(1u<<i);
+        if(field.encoding==2) {
+            result=Scalar(*d.backing,field,n);if(result!=Result::Ok)return result;
+            value.understood|=uint8_t(1u<<i);*values[i]=static_cast<uint16_t>(n);
+        }
+    }
+    out=value;return Result::Ok;
+}
+
 namespace {
 // Build one section at a time, copying opaque data through the one work block.
 // This sink supports a dry CRC/length pass, then exact bounded writes.

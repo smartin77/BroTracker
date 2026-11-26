@@ -50,8 +50,17 @@
   bounded-path ownership allocations, host fault tests and real ARM compile/link
   verification are complete. No production handler or playback integration.
   [Prototype](FILE_FORMATS.md#isolated-bounded-backingarena-prototype)
-* [ ] Next isolate the candidate path-pool/sample-source admission contract;
-  production namespace/media enforcement remains required. Resolve coexistence and validate
+* [x] Isolate candidate resource admission: real singleton path refs, saved stable
+  IDs/values and backing spans, initial-pattern-only source requirements, fallible
+  ownership, rollback/cancellation and simulated stopped handoff. Host fault and
+  real path/source regression tests plus target compile/layout evidence are saved.
+  No second path pool or PCM caches, and no production integration.
+  [Resource prototype](FILE_FORMATS.md#isolated-candidate-resource-admission)
+* [ ] Next expose a narrow generation-checked candidate source pin facade in the
+  existing streaming producer and exercise all reclaim routes under fake SD,
+  without overwriting the current rollback mask. Borrowed PreparePath views and
+  the single rollback mask cannot yet implement the prototype's source contract.
+  Production namespace/media enforcement remains required. Validate
   actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
   64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,
   playback prefetch, FX execution, UI and transport remain separate work.

@@ -10,7 +10,9 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--out", type=Path, default=Path("build/btt-teensy-admission"))
 parser.add_argument("--prototype", action="store_true")
+parser.add_argument("--resources", action="store_true")
 options = parser.parse_args()
+options.prototype = options.prototype or options.resources
 OUT = Path(__file__).resolve().parents[3] / options.out
 layout = json.loads((OUT / "layouts.json").read_text())
 
@@ -101,6 +103,28 @@ phases = {
     },
     "stopped_save_verify": {**validation, "writer_shape": size("FsOutput") if options.prototype else size("WriterShape")},
 }
+if options.resources:
+    # Real singleton path storage is already in production. Each Candidate
+    # includes stable-ID metadata/effective bindings/path refs/source leases;
+    # no hypothetical second path pool or duplicate definitions/bindings/map.
+    persistent.pop("active_id_map_reserved")
+    persistent.update(active_resource_candidate=size("ResourceCandidate"),
+                      source_service_metadata_reserved=1024)
+    validation.update(persistent)
+    validation.pop("active_id_map_reserved")
+    phases = {
+        "stopped_validation": validation,
+        "stopped_initial_load": {
+            **validation,
+            "candidate_initial_pattern": size("Pattern"),
+            "candidate_realtime_projection_reserved": size("RealtimePattern"),
+            "resource_candidate": size("ResourceCandidate"),
+            "admission_scratch": size("AdmissionScratch"),
+        },
+        "playback_current_next": {**persistent,"workspace":size("Workspace"),
+                                  "sd_staging_reserved":1024,"scheduler_owner_reserved":64},
+        "stopped_save_verify": {**validation,"writer":size("FsOutput")},
+    }
 with (OUT / "lifecycle.csv").open("w", newline="") as stream:
     writer = csv.writer(stream)
     writer.writerow(["phase", "component", "bytes", "evidence"])
