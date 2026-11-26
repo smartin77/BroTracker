@@ -4,9 +4,10 @@ BroTracker uses three related formats for tunes, projects and project distributi
 
 The BTT/BTP/BTM sections are a **BTT Foundation documentation draft** refining
 [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats).
-They define ownership and preservation requirements; layout, schema versioning
-and implementation remain open. Existing working-session formats below retain
-their separately documented behavior.
+The ownership draft is complete; the BTT v1 proposal below awaits review.
+Its layout and limits are proposed, not approved or implemented. BTP/ZIP BTM
+details remain open. Existing working-session formats below retain their
+separately documented behavior.
 
 ## Project/data workspace and host paths
 
@@ -58,6 +59,347 @@ instrument definitions and saved settings, including invalid or unsupported
 values. They must not silently clear, normalize or substitute saved intent.
 The user must be able to relink an unavailable reference explicitly; runtime
 resolution alone does not rewrite the stored reference.
+
+### BTT v1 proposal — awaiting review
+
+This is a proposed binary envelope and initial Teensy loading profile, not a
+runtime implementation or an upgrade to `current.btsession`. All limits and
+new field assignments below require review. No asset PCM, waveform cache,
+application preferences, transport state or working/published history is stored.
+
+#### Tune model, identity and order
+
+A nonzero 16-byte opaque tune ID is independent of the UTF-8 name and filename.
+Rename and ordinary Save retain it. Creation generates a new ID; Save As/copy
+identity policy remains a product decision. The name is authoritative tune data;
+filename sanitization and automatic rename behavior need UI policy.
+
+Patterns and instruments have separate nonzero uint32 ID namespaces, scoped to
+the tune. IDs survive reordering and ordinary saves; they are not array indices,
+display numbers, runtime path-pool IDs or session lineage. Two persisted next-ID
+counters allocate monotonically and must exceed every defined or referenced ID
+in their namespace. Deletion never reuses an ID; exhaustion blocks allocation
+rather than wrapping. Explicit replacement can retain an instrument ID.
+
+The order list is a sequence of pattern IDs, with repetition permitted: patterns
+17 and 42 plus order `[17, 42, 17]` play pattern 17 twice without duplicating it.
+Each entry means one full pattern, first through last stored row. An empty order
+means no song sequence; unused patterns remain stored. End-of-list is the stored
+sequence boundary. Whether transport stops or loops, restart position, cross-
+pattern voices/NOTE OFF, Pattern Break/Jump, ranges and per-order transforms are
+open product choices; v1 introduces no hidden loop or jump opcodes. Existing
+single-pattern looping is not evidence that song sequencing is implemented.
+
+Instrument reference 0 in a cell means no instrument update. Other values name
+stable instrument IDs. A reference to an absent instrument or pattern is retained
+and reported as unresolved, never rebound by position. An unresolved order entry
+blocks song playback until resolved; an unavailable instrument has no playable
+binding. Defined but unsupported instrument types are retained similarly.
+
+#### Envelope and addressable directory
+
+Integers are unsigned little-endian unless stated otherwise; offsets are absolute
+file byte offsets. No native struct dumps, compression or implicit alignment.
+The 32-byte header is:
+
+| Offset | Bytes | Proposed meaning |
+| --- | --- | --- |
+| 0 | 4 | ASCII `BTT1`, distinct from `BTM1`, BTSS and BTDP |
+| 4 | 2 | Major version, 1 |
+| 6 | 2 | Minor version, 0 |
+| 8 | 4 | Directory offset, exactly 32 in v1 |
+| 12 | 2 | Directory entry count |
+| 14 | 2 | Directory entry size, exactly 24 |
+| 16 | 4 | Exact total file bytes, no trailing bytes |
+| 20 | 4 | Whole-file CRC-32/ISO-HDLC, excluding bytes 20..23 |
+| 24 | 4 | Required envelope feature bits, zero for v1.0 |
+| 28 | 4 | Reserved zero |
+
+Each 24-byte directory entry contains, in order: four ASCII section-type bytes,
+uint32 object ID, uint32 offset, uint32 length, uint32 payload CRC, uint32 flags.
+Flag bit 0 means required for interpretation; all other bits must be zero in
+v1.0. Unknown flag bits are an unsupported capability, not permission to ignore
+them. Payload CRC covers exactly that section's bytes. Both CRCs use reflected
+polynomial `0xEDB88320`, initial/final XOR `0xFFFFFFFF`; they detect accidental
+damage, not malicious changes. The directory is covered by the whole-file CRC.
+
+Sections follow the directory, contiguous in ascending offset order, without
+overlap, gaps or padding. Directory order matches physical order. Require unique
+`(type, object ID)` pairs, exactly one `TUNE` and `ORDR` with ID 0, one or more
+`PATT` sections and zero or more `INST` sections with nonzero IDs. These four types
+are required sections. Writers place `TUNE`, `ORDR`, `INST`, then `PATT` before
+optional descriptive/extension sections; readers address objects through the
+directory rather than assuming their positions. Unknown optional sections have
+opaque payloads; their type, ID, flags and bytes must survive ordinary saves.
+
+Reject unsupported major versions. A later minor version is readable only if
+the envelope structure is unchanged and all required features, sections and
+fields are understood. Preserve its minor version on Save; never silently
+downgrade. Future incompatible envelope structures require a major change.
+
+#### Section fields and cell encoding
+
+Known sections contain a sequence of TLVs: uint16 tag, uint8 encoding, uint8
+flags, uint32 byte length, then exactly that many value bytes. TLV flag bit 0
+means required; other bits are unsupported capability bits. Tags are unique
+within a section; order is insignificant but preserved when possible. TLVs must
+consume the section exactly. Encodings are 1=uint8, 2=uint16, 3=uint32,
+4=16-byte ID, 5=UTF-8 without NUL, 6=opaque bytes. Numeric lengths must match
+their encoding; text must be valid UTF-8. Unknown encodings remain opaque for
+optional unknown tags. No terminators are stored. Required fields below must
+occur exactly once with the stated encoding and required flag.
+
+| Section | Required tags and values |
+| --- | --- |
+| `TUNE` | 1: ID (encoding 4); 2: name (5); 3: BPM hundredths (3); 4: channel count (1); 5: next instrument ID (3); 6: next pattern ID (3) |
+| `ORDR` | 1: order (6), consecutive uint32 pattern IDs; length divisible by 4, each ID nonzero |
+| `PATT` | 1: row count (2); 2: cells (6), exactly rows × tune channels × 6 bytes |
+| `INST` | 1: instrument type (2), 1 Sample / 2 MIDI / 3 Sine Synth |
+
+Each row-major cell is uint8 note, uint8 NOTE OFF timing, uint32 instrument ID.
+Notes reuse 24..127 pitched, 254 OFF, 255 empty. Timing is 0 arrival or 1 end of
+position, retained even on non-OFF cells. Other note/timing codes are structurally
+invalid for this cell encoding. BPM belongs only to `TUNE`, with supported
+runtime range 3200..30000; it is not repeated in patterns. Nonzero BPM outside
+that range is preserved as unsupported and blocks playback; zero is structurally
+invalid. Channel and row counts must be nonzero; counts above the profile are
+capacity failures.
+
+`INST` optional known tags are 2: resource reference (encoding 6), 3: Sample Root
+Note (2), 4: Sample Fine Tune in positive cents (2), 5: MIDI channel (2), 6: name
+(5), 7: description (5). Sample writers include tags 2, 3 and 4; MIDI writers
+include tag 5. For a known Sample, absent Root Note resolves to 60 (C-3) and
+absent Fine Tune resolves to 0 (00), independently. Normal Save writes those
+resolved defaults into whichever tuning tags were missing, even if the resource
+is unavailable. This is the explicit exception to preserving field absence;
+it never replaces a present value. An absent MIDI channel has effective default
+1; its absence remains saved absence. Explicit Root 0 is a saved unsupported
+value, not an absent-field sentinel. Supported ranges are Root 24..127, Fine Tune
+0..99 and MIDI channel 1..16. uint16 values outside those ranges survive unchanged;
+they disable the affected binding with a visible unsupported-setting status.
+Display the original saved value separately from runtime availability/status;
+unsupported values are not treated as absent and are not defaulted on Save.
+Settings inappropriate to the stored type are also retained and reported.
+Unknown type codes preserve the whole instrument without constructing a binding.
+Future settings use new TLVs; v1 defines no synth patch or external state schema.
+
+Resource tag 2 is one uint8 base followed by the remaining UTF-8 path/reference
+bytes, without NUL. Base 0 is SD-workspace-root-relative: e.g.
+`Samples/Kick.wav` resolves from `/` on the Teensy SD workspace, independent of
+the BTT's folder. Base 1 is project-relative: `Samples/Kick.wav` resolves from
+the parent directory of the BTT inside its BTP directory. That directory is the
+project root; nesting the BTT elsewhere is not inferred or searched upwards.
+Thus base is stored per reference, not guessed from extension, host cwd or a
+mounted host path. Standalone writers use base 0; project collection explicitly
+copies samples and rewrites selected references to base 1. Moving a standalone
+BTT does not rewrite base-0 references. Base-1 references require an explicit BTP
+load context; opening them standalone reports an unavailable base.
+
+Paths must resolve within their declared base. Runtime rejects leading slash,
+traversal, invalid components, unsupported characters, excessive resolved length
+or unknown base codes without changing saved bytes. A reference with no base byte
+is malformed; a base with an empty path is retained as an invalid resource.
+The current ASCII 255-byte path validator applies only when making a runtime
+Sample binding. Valid UTF-8 that this backend cannot resolve remains saved and
+visible. Future external instruments/modules may use additional base codes and
+settings; their assets are not embedded by this proposal.
+
+#### Bounded loading, preservation and failure behavior
+
+Initial profile, all limits awaiting review: file at most 1,048,576 bytes; at most 256 directory
+entries, 32 patterns, 99 instruments, 1,024 order entries, 8 channels and 64 rows
+per pattern. Each section is at most 65,536 bytes and contains at most 256 TLVs;
+name is 1..255 UTF-8 bytes. Resource payloads may exceed the runtime path limit
+within the section bound and remain unbound. These are explicit initial support
+limits, not claims about available firmware RAM or permanent product maxima.
+Exceeding a profile/budget returns a capacity error without partial load.
+
+Loading is stopped foreground work under the SD read guard. First check header,
+checked offset/length arithmetic, counts, complete directory, section bounds,
+TLV framing, required fields, unique IDs, ID counters and both levels of CRC.
+Stream CRC checks through a proposed 512-byte scratch buffer, including unknown
+sections; do not allocate from untrusted lengths. Only after complete validation
+and reservation of candidate storage may a candidate become current. Missing
+resources and unsupported settings do not make structurally valid data corrupt.
+Bad CRC, truncation, overlapping ranges, duplicate fields/IDs, missing required
+fields, malformed known encodings/lengths or malformed cells reject the load.
+An understood but incorrect encoding for a known tag is a structural error;
+the optional unknown-encoding exception below is preserved as unsupported.
+Unknown required sections/TLVs/features reject as unsupported, separately from
+corruption. Every rejection, I/O error or capacity failure retains the current
+tune, edits and bindings. Loading never automatically starts playback.
+
+Use a lossless saved-document layer separate from effective runtime definitions.
+Retain unknown optional TLVs (including header and value), unknown optional
+sections, unsupported values and unresolved references. Editing one understood
+field replaces only that field; ordinary Save must not serialize just the
+runtime projection. Insert only absent known Sample tuning defaults as specified
+above. No clamping, default insertion over present saved values, path
+normalization, ID renumbering or stripping extensions is permitted implicitly.
+Known optional tags with an unknown encoding are retained as unsupported rather
+than decoded; required tags cannot be interpreted that way and reject the load.
+
+Large opaque data can be copied through bounded buffers from a retained immutable
+backing snapshot, with CRC revalidation before promotion. A naked filename/offset
+into a replaceable source is insufficient. Candidate load must establish owned
+backing storage or an equivalent guaranteed immutable source before acceptance;
+if that cannot be guaranteed within budgets, reject without replacing the tune.
+Backing loss/change later blocks Save visibly, rather than dropping recoverable
+bytes. Exact backing ownership (RAM versus SD snapshot) needs implementation
+review; the preservation guarantee is required for either approach.
+
+Save uses the existing exclusive-SD-lease and candidate/previous recovery model,
+adapted to streamed BTT data: create an exclusive sibling candidate, check every
+write/sync/close, reopen and fully validate/compare it, then retain the old valid
+canonical as `.previous` before promoting the candidate. Promotion failure rolls
+back where possible; rollback failure retains `.previous` and reports recovery
+required. Never truncate the previous valid file, remove existing recovery
+markers automatically or treat an uncommitted candidate as committed. Failure
+must preserve the previous valid bytes, even if recovery must use `.previous`.
+Retained backups are reported. FAT power-loss atomicity is not promised. No SD
+load/save I/O runs while Playing or in an audio callback/ISR.
+
+#### Transport boundaries: requirements and current guards
+
+Confirmed device IDLE with no pending transport command satisfies the stopped
+precondition for LOAD/SAVE screen entry; no fresh STOP exchange is required.
+From Playing, Paused or any other state that is not confirmed stopped, entry
+requires STOP and the device's STOP acknowledgement before proceeding to storage
+readiness and any required session save, then screen activation. Sending STOP
+alone does not confirm stopped transport. Failed or timed-out STOP must leave
+entry blocked. Loading or saving a Tune, Project or Module
+requires confirmed stopped playback at every entry point, including commands,
+shortcuts, import/package routes and future APIs outside that screen. Paused is
+not stopped. Recheck transport and pending-operation guards at dispatch and on
+the device; a screen-entry check alone cannot guard a later operation.
+
+| Operation | Playback boundary |
+| --- | --- |
+| Tune / Project / Module Load or Save | Stopped only; future requirement for BTT/BTP/ZIP BTM, not implemented support |
+| Sample loading / instrument loading | May continue playback only through supported live operations and their existing guards; no blanket permission for preset formats not yet implemented |
+| Sample saving | Unavailable while Playing; future requirement, no standalone Sample Save operation implemented |
+| Instrument saving | During-playback permission remains open pending processing, snapshot consistency and SD I/O cost analysis; no standalone preset Save implemented |
+
+Current code review (static inspection, not a runtime test):
+
+- `BringUpControls::Request` / `Tick` in `src/ui/bringup_controls.cpp` send STOP
+  on Pattern LOAD/SAVE entry from Playing, Paused or Done, wait for `Stopped()`
+  and `MidiRecoveryStopped()` (acknowledged IDLE, no pending transport), then wait
+  for successful session Save before showing the screen. Already confirmed IDLE
+  proceeds directly to session Save without a new STOP exchange, satisfying the
+  stopped precondition. Other unconfirmed states currently block entry rather
+  than initiating STOP; extending that entry coordination remains future work. The
+  retained-work recovery review route also opens without this entry handshake;
+  it is a recovery presentation, not authorization for file operations. Review
+  that route separately to ensure its presentation never bypasses operation-level
+  guards; confirmed IDLE itself requires no additional STOP handshake.
+- `BringUpSerial::RequestPatternLoad`, `RequestFile(PatternSave)` and pattern
+  listing require confirmed IDLE/no pending transport independently of screen
+  entry. Firmware `StorageBlock` / `StorageControlBlock` guard load readiness;
+  `SavePattern` additionally rejects transport other than Stopped. These protect
+  existing `.btdev` Pattern operations, not future full-tune persistence.
+- Working-session Save is different: current firmware returns `deferred-playing`
+  and retains RAM intent while Playing, and can persist on settled Pause/Stop.
+  This temporary-session policy does not authorize Tune/Project/Module Save while
+  Playing or Paused. Shared `SdAccess` read/write leases enforce exclusivity,
+  not transport state; future handlers need their own stopped-state guards.
+- Live Instrument entry preserves transport; WAV browser/preparation and existing
+  instrument updates use supported live visits, pending-operation/recovery,
+  source-capacity and refill/headroom guards. Failure retains the old binding.
+  Keep updates session intent; it is not a standalone instrument-file Save.
+
+[BTX Controls](BTX_CONTROLS.md#pattern-loadsave) describes the existing Pattern
+screen and [live Instrument controls](BTX_CONTROLS.md#instrument) describe the
+playback exception. Neither promises BTT/BTP/ZIP BTM loading. The general
+screen-entry wording in [UI screen map](UI_SCREEN_MAP.md) must be read with its
+live Instrument exception and the shortcuts above. D0030 in
+[Architecture Decisions](ARCHITECTURE_DECISIONS.md#d0030---loading-a-new-tune-during-playback)
+still calls for immediate playback when opening a new tune during playback.
+That historical direction conflicts with this stopped-only scope and requires
+later reconciliation; it is not authorization to implement live tune loading.
+
+Defer analysis of seamless Tune loading during playback until PSRAM is available.
+PSRAM is a prerequisite for considering that feature, not proof it is feasible
+or permission to enable it. Later analysis must address candidate-state memory
+alongside the active tune, source preparation and SD scheduling, safe handoff of
+definitions/patterns/voices, and playback continuity including internal audio and
+external MIDI. No live Tune loading implementation is part of BTT v1 foundation.
+
+#### Reuse, gaps and memory consequences
+
+The proposal is grounded in these current representations:
+
+- `src/core/tune.h` already has title, BPM hundredths, channel count and a vector
+  of patterns. `pattern.h` has a uint16 display number, uint8 length and vectors
+  of channels; neither supplies stable IDs, order or tune-owned instruments.
+  `tune_loader.cpp` is a whole-file development JSON reader that skips unknown
+  keys; it is not a bounded or lossless BTT reader.
+- `core/event.h`, `note.h`, `tempo.h` and `playback/row_events.h` supply note,
+  tempo and NOTE OFF semantics and the 64×8 `RealtimePattern`. Conversion can
+  reuse them, translating stable instrument IDs through a checked ID-to-runtime-
+  slot map; Event's uint8 instrument cannot hold an on-disk uint32 ID directly.
+- `bringup/instrument_definition.h` supplies Sample/MIDI/Synth definitions and
+  availability separately. Its 99 slots use array-position identities;
+  Append/Replace validate resources and resolve tuning defaults. It cannot own
+  raw unsupported BTT fields. `sample_tuning.h` can supply effective defaults
+  and range checks, not lossless storage of original values.
+- `bringup/working_session.h` writes temporary `BTM1` v3..v6 with one working
+  Pattern/BPM, definitions, view/mute and optional lineage. Restore initializes
+  working and published from that one pattern. Legacy BTWS has two revisions,
+  not two song patterns. None stores tune identity/name, a pattern collection,
+  order, stable IDs or opaque extensions. Its full-buffer decoder and strict
+  instrument validation cannot be used as the BTT document model.
+- `bringup/pattern_file.h` supplies explicit LE encoding and CRC semantics, and
+  `pattern_file_store.h` / `working_session.h` supply recovery logic. The current
+  CRC helper skips bytes 20..23, so section CRC needs a separate generic path.
+  `firmware/teensy/BroTracker/sd_pattern_storage.h` supplies guarded FsFile I/O,
+  exclusive creation, sync/close and reopen comparison; its whole-buffer API
+  needs bounded seek/read/copy operations. `runtime/storage.cpp` is only an
+  initialization stub. `resource_path.h` owns validated runtime paths, not raw
+  saved references (8,192 string bytes and 256 entries are shared with live and
+  rollback owners).
+
+A maximal pattern uses 3,072 on-disk cell bytes; 32 use 98,304 bytes before TLVs.
+The full directory is 6,144 bytes and order is 4,096 bytes. A uint32 ID per cell
+therefore increases document storage relative to the current three-byte triples.
+Do not hold a 1 MiB file or multiple full Tune vectors on the stack. Proposed
+document storage is a bounded pattern bank plus saved-field/backing indexes;
+only prepared runtime patterns and ID mappings enter playback. At least old and
+candidate ownership must coexist until commit; definitions, path-arena pressure,
+backing storage and existing audio buffers must be budgeted together. The above
+wire sizes are not a completed RAM-placement or admission proof.
+
+Addressability permits deferred descriptions and bounded copies, but does not
+authorize SD pattern paging during playback. Seamless multi-pattern playback
+needs a separately budgeted resident bank or proven prefetch scheduling. This
+proposal does not change the current one-pattern player. Tune ID and session
+cache lineage also require an explicit lifecycle mapping; they are not aliases.
+
+#### Open decisions and first validation step
+
+Review the proposed profile limits, ID/copy lifecycle, editable name/path policy,
+sequence transport/transition semantics, future effects and pattern lengths,
+external-state schemas, project cache lifecycle and RAM/backing strategy before
+approving v1. Changing the profile must not silently discard unsupported data.
+
+The first implementation step, after proposal review, is a host-only bounded
+envelope/TLV validator and lossless no-edit rewriter behind a seekable in-memory
+reader/writer interface, without UI or device integration. Use one fixture with
+two patterns, repeated order, stable instrument IDs, a missing sample and an
+unsupported tuning value plus unknown optional data. Require byte-identical
+no-edit output for a fixture whose Sample tuning defaults are already explicit.
+Then change one known field, such as BPM, rewrite, reopen and assert that unknown
+optional TLVs/sections, unresolved references and explicit unsupported saved
+values survive unchanged; only the edited field and derived lengths/offsets/CRCs
+may change. Use a separate fixture with absent Sample Root Note and/or Fine Tune:
+normal Save must insert C-3/00 only for the missing tags, retain any present
+unsupported tag verbatim, and produce stable no-edit output on the next rewrite.
+This default-insertion case is not expected to be byte-identical to its input.
+Reject corrupt CRCs, truncation, duplicate IDs and overlapping
+sections without changing a sentinel destination. Inject candidate write failure
+in a fake store and assert the previous valid bytes survive. This validates the
+foundation before attempting runtime projection or UI Load/Save. No such code
+or tests are introduced by this documentation task.
 
 ## BTP — BroTracker Project
 
@@ -229,10 +571,10 @@ The BroTracker realtime core does not depend on any of these external container 
 
 ## Future Specification
 
-For future BTT/BTP/ZIP BTM, the exact binary layout, headers, schema versioning,
-offsets, field sizes, checksums, compatibility rules and implementation details
-are intentionally not defined yet. The temporary session layouts below do not
-specify these future formats.
+The BTT v1 layout, versioning, encodings and integrity rules above are a proposal
+awaiting review, not a finalized specification. BTP/ZIP BTM packaging details
+and runtime implementation remain open. The temporary session layouts below do
+not specify these future formats.
 
 These details shall be specified separately once the internal data model and storage requirements have stabilized.
 

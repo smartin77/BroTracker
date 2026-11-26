@@ -2,12 +2,40 @@
 
 ## Current task: BTT Foundation
 
-* [ ] BTT Foundation documentation draft: define tune ownership, external
+* [x] BTT Foundation ownership documentation draft: define tune ownership, external
   references and lossless preservation of unavailable resources/settings; align
   BTP sample collection and project waveform cache boundaries. This is a draft,
-  not implemented persistence. Binary layout, schema versioning and implementation
-  details remain open. [File formats](FILE_FORMATS.md#btt--brotracker-tune)
+  not implemented persistence. [File formats](FILE_FORMATS.md#btt--brotracker-tune)
   [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats)
+* [ ] BTT v1 format proposal — awaiting review: stable tune/pattern/instrument
+  identity, order list, addressable binary envelope, lossless saved fields,
+  reference bases, bounded loading and recoverable saves. Review proposed limits,
+  sequencing choices and memory/backing ownership before implementation.
+  [Proposal](FILE_FORMATS.md#btt-v1-proposal--awaiting-review)
+* [ ] After review, validate the foundation with a host-only bounded envelope/TLV
+  validator and rewriter: byte-identical no-edit roundtrip with explicit defaults,
+  then a BPM edit retaining unknown optional data, unresolved references and
+  explicit unsupported values. Separately verify insertion of absent Sample
+  C-3/00 tuning defaults, corruption rejection and fake-store write failure.
+  All proposed profile limits still await review. Keep UI Load/Save integration
+  separate. [First step](FILE_FORMATS.md#open-decisions-and-first-validation-step)
+* [ ] Extend LOAD/SAVE entry coordination to require STOP/acknowledgement from
+  other states that are not confirmed stopped; failed or timed-out STOP keeps
+  entry blocked. Confirmed device IDLE with no pending transport command already
+  satisfies the stopped precondition and needs no fresh STOP exchange. Review
+  the retained-work recovery route separately so its presentation never bypasses
+  file-operation guards. Existing Playing/Paused/Done entry already waits for
+  STOP and session Save. Add stopped-only guards to every
+  future Tune/Project/Module Load/Save entry point, including device handlers;
+  Paused and deferred working-session Save are not exceptions for those formats.
+  [Transport review](FILE_FORMATS.md#transport-boundaries-requirements-and-current-guards)
+* [ ] Reconcile D0030 and general screen-entry wording with the stopped-only
+  Tune/Project/Module scope and existing live Instrument exception. Defer seamless
+  Tune loading analysis until PSRAM is available, as a prerequisite; then assess
+  candidate-state memory, source preparation, safe handoff and playback continuity.
+* [ ] Keep guarded Sample/instrument loading available during playback. Make
+  future Sample Save unavailable while Playing; leave instrument-file Save during
+  playback open for processing, consistent-snapshot and SD I/O cost analysis.
 
 ## Instrument and Sample
 
