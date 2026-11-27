@@ -1,5 +1,5 @@
 #pragma once
-// Developer-only adapter; include/instantiate only in isolated ARM diagnostics.
+// Private immutable-backing SD adapter for developer loading and diagnostics.
 #include "backing.h"
 #include <sd_access.h>
 

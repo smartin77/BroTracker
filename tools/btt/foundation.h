@@ -1,5 +1,5 @@
 #pragma once
-// Provisional developer-only BTT schema. No production runtime integration.
+// Provisional BTT schema, shared by developer loading and isolated diagnostics.
 #include "code_placement.h"
 #include <array>
 #include <cstdint>

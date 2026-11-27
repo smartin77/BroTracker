@@ -125,6 +125,7 @@ public:
         unsigned index=0;while(index<kSlots && slots_[index].state!=State::Free)++index;
         if(index==kSlots)return Code::Capacity;
         auto& s=slots_[index];s.token={domain_,next_++,index};s.last=Code::Ok;
+        token=s.token; // Failed-open quarantine must remain addressable for checked cleanup.
         s.length=0;s.poisoned=false;s.created=false;s.sealed=false;
         std::snprintf(s.path,sizeof(s.path),BTT_BACKING_DIRECTORY "/%08lx-%u-%08lx.btt",
             static_cast<unsigned long>(domain_),index,static_cast<unsigned long>(s.token.generation));

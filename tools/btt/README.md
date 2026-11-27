@@ -1,11 +1,16 @@
 # Isolated BTT backing and arena prototype
 
+Historical prototype contract below. The primary developer firmware now reuses
+this backing registry and resource/source ownership through `stopped_load.cpp`;
+see [the production load contract](../../docs/FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27).
+The real asynchronous source adapter is implemented. BTT Save remains separate.
+
 The later candidate resource boundary is documented in
 [RESOURCE_ADMISSION.md](RESOURCE_ADMISSION.md); it shares the real singleton
-path pool and leaves the production streaming-source adapter unimplemented.
+path pool and the real asynchronous streaming-source adapter.
 
-Developer-only code. No production Load/Save/session/UI/playback handler links
-these files. No encoding, FX or playback behavior changes are introduced.
+Developer-only format code. The stopped-load coordinator links validation,
+backing and resource ownership; BTT Save and UI loading remain unimplemented.
 
 `ReaderOwner` holds either a compatibility host `shared_ptr` fixture or a pin
 on an already-created fixed control. The bounded path never constructs a shared

@@ -94,8 +94,20 @@
   physical collision/failure evidence on private artifacts. Stopped-only success
   does not establish production stack/heap/IRQ admission, concurrent playback
   deadlines, media/source policy or FAT power-loss recovery.
-* [ ] Integrate a production scheduler/publication and Tune Load/Save lifecycle,
-  including explicit legacy-job acknowledgement and source-change enforcement.
+* [x] Implement the first stopped-only production BTT load transaction behind
+  `BTBTT1 LOAD <stable-pattern-ID> <SD-path>` in `teensy41_dev`: private sealed
+  snapshot, Candidate/source admission, stable-ID projection, coherent existing
+  audio handoff/ACK, legacy completion acknowledgement and full saved ownership.
+  The initial projection refuses FX and unavailable required behavior. Legacy
+  session writes/editing are blocked for the ephemeral retained tune. Real
+  coordinator/producer fake-SD tests, target build/maps/lifecycle figures and
+  read-only device status are under `build/btt-stopped-load/`.
+  [Contract and limitations](FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27)
+* [ ] Verify production load physically after private no-FX fixture staging and
+  exact working-state/SD restoration are available. No upload/load was performed
+  for this step; the earlier standalone diagnostic was not repeated.
+* [ ] Complete a production scheduler and lossless Tune Load/Save lifecycle,
+  including dirty ownership/recovery and stronger source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate
   actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
   64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,

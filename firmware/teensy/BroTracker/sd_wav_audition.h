@@ -54,6 +54,9 @@ public:
                 }
                 completed_=id_;
             }
+            // This owner has consumed or deliberately discarded its completion.
+            // A pending/foreign owned job never reaches this boundary.
+            (void)stream_.AcknowledgePreparation();
         }
         if(pending_) {
             if(stream_.ReclaimOne(bindings))return;

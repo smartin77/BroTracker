@@ -1,4 +1,8 @@
 #include "bringup/serial_tx_queue.h"
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+#include "../../../tools/btt/stopped_load.h"
+#include "bringup/btt_serial_policy.h"
+#endif
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
 #include "bringup/midi_generation_gate.h"
 #include "bringup/instrument_identity.h"
@@ -95,6 +99,9 @@ namespace
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
     DMAMEM alignas(32) static SdSampleStreaming::Storage g_stream_memory;
     SdSampleStreaming g_streaming;
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+    DMAMEM static btt::production::StoppedLoad g_btt_load(g_streaming);
+#endif
     SdWavAudition g_audition(g_streaming);
     SdWavPreparation& g_preparation=g_streaming.reports[1];
     SdWavPreparation& g_preparation3=g_streaming.reports[2];
@@ -542,6 +549,56 @@ namespace
         if(g_pattern_transfer.HasData()) return "readback";
         return StorageControlBlock(allow_paused);
     }
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+    bool BttIdle() {
+        return g_storage_backend.ready && !g_audition.Busy() && !g_audition.Snapshot().sample &&
+            !g_live_pending && !g_live_preparing && !g_live_visit.Active() && !g_live_browser.Busy() &&
+            !g_storage_ready_wait.Active() && !StorageBlock();
+    }
+    void BttReply() {
+        char reply[192];
+        std::snprintf(reply,sizeof(reply),"BTBTT1 STATE 1 %u %s %lu %lu %u %u\n",
+            unsigned(g_btt_load.phase()),g_btt_load.reason(),(unsigned long)g_btt_load.pattern_id(),
+            (unsigned long)g_btt_load.tempo(),g_btt_load.omitted(),unsigned(g_btt_load.RetainsTune()));
+        (void)QueueLine(reply);
+    }
+    void BttCommand(const char* line) {
+        if(!std::strcmp(line,"BTBTT1 STATUS")){BttReply();return;}
+        if(!std::strcmp(line,"BTBTT1 CANCEL")){
+            if(!g_btt_load.Cancel())(void)QueueLine("BTBTT1 ERROR frozen-until-ack\n");
+            else BttReply();
+            return;
+        }
+        constexpr char prefix[]="BTBTT1 LOAD ";
+        if(!std::strncmp(line,prefix,sizeof(prefix)-1)) {
+            const char* number=line+sizeof(prefix)-1;const char* split=std::strchr(number,' ');
+            uint32_t id=0;bool valid=split && split!=number;
+            if(valid)for(const char* p=number;p<split;++p) {
+                if(*p<'0' || *p>'9' || id>(UINT32_MAX-unsigned(*p-'0'))/10){valid=false;break;}
+                id=id*10+unsigned(*p-'0');
+            }
+            if(valid && g_btt_load.Begin(split+1,id,BttIdle()))BttReply();
+            else (void)QueueLine("BTBTT1 ERROR idle-required-or-busy-or-invalid\n");
+            return;
+        }
+        (void)QueueLine("BTBTT1 ERROR command\n");
+    }
+    void ServiceBttLoad() {
+        if(!TxRoom(2))return;
+        const auto before=g_btt_load.phase();
+        // Active refills were serviced at the start of this foreground turn.
+        if(g_streaming.RefillNeeded() || !g_streaming.BackgroundHeadroom())return;
+        g_btt_load.Step(BttIdle());
+        if(g_btt_load.phase()==btt::production::LoadPhase::Ready) {
+            InterruptGuard guard;
+            (void)g_btt_load.Submit(g_control,g_publication,millis());
+        }
+        if(before!=g_btt_load.phase())BttReply();
+    }
+    BttSerialDisposition BttCommandPolicy(std::string_view line) {
+        return BttSerialPolicy(line,g_btt_load.Busy(),g_btt_load.RetainsTune());
+    }
+#endif
     void ClockCommand(const char* line,std::size_t count,std::uint32_t now) {
         std::uint32_t f[6]{};
         const std::string_view request(line,count);
@@ -825,7 +882,7 @@ namespace
         }
         if(g_live_pending) {
             if(!g_live_preparing) {
-                if(!g_streaming.ReclaimOne(g_selected_bindings)){(void)g_streaming.BeginPrepareAsync(g_live_request.resource);g_live_preparing=true;}
+                if(!g_streaming.ReclaimOne(g_selected_bindings))g_live_preparing=g_streaming.BeginPrepareAsync(g_live_request.resource);
             } else g_streaming.PreparationStep();
             if(g_live_preparing && g_streaming.PreparationDone()) {
                 unsigned result=7;
@@ -834,7 +891,8 @@ namespace
                     if(prepared==InstrumentAvailability::Ready){VariableRateSampleBinding binding;binding.type=InstrumentType::Sample;binding.reference_note=60;binding.sample_level_percent=80;binding.sample=g_streaming.PreparedMixedView();result=InstallLive(g_live_request,binding);}
                     else result=prepared==InstrumentAvailability::PathCapacity?9:prepared==InstrumentAvailability::ResourceUnavailable?4:6;
                 }
-                g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;LiveReply(g_live_request.request,result,g_live_request.expected);
+                (void)g_streaming.AcknowledgePreparation();
+                g_last_live_request=g_live_request;g_last_live_result=result;g_live_pending=false;g_live_preparing=false;LiveReply(g_live_request.request,result,g_live_request.expected);
             }
         } else if(g_live_browser.Busy())g_live_browser.Step();
         else if(!g_live_browser.Done() && !g_streaming.ReclaimOne(g_selected_bindings)) {
@@ -1056,6 +1114,9 @@ namespace
             }
             else if (applied.request == PatternRequest::Replace)
             {
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+                const bool btt_completed=g_btt_load.Complete(applied,g_instrument_definitions,g_selected_bindings,g_sample_availability);
+#endif
                 // Audio has finished reading frozen staging. Synchronize the
                 // main-owned readback source OUTSIDE interrupt exclusion, BEFORE
                 // APPLIED and before accepting GET/another publication.
@@ -1069,6 +1130,17 @@ namespace
                 } else std::snprintf(reply,sizeof(reply),"BTPUBLISH1 REJECTED 1 %" PRIu32 " %s\n",
                     applied.publication_id,synchronized ? ReplacementRejection(applied.result) : "handoff-error");
                 (void)QueueLine(reply);
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+                if(btt_completed){
+                    if(applied.result==PatternPlayerStatus::Success) {
+                        // Ephemeral full tune has no legacy saved-session lineage.
+                        // Leave the existing on-card session and recovery files alone.
+                        g_session.RestoreLineage();g_session_saved_valid=false;
+                        (void)QueueLine("BTSESSION1 LINEAGE 1 0 -\n");
+                    }
+                    BttReply();QueueTempo();
+                }
+#endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                 if(g_storage_restore_id && applied.publication_id==g_storage_restore_id) {
                     StorageReply(g_storage_restore_operation,synchronized && applied.result==PatternPlayerStatus::Success?"ok":"application-rejected",
@@ -1145,7 +1217,11 @@ namespace
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
         if(status.mute_mask!=g_session_mute) {g_session_mute=status.mute_mask;g_session_save.Changed();}
         if(status.tempo && status.tempo!=g_session_tempo) {g_session_tempo=status.tempo;g_session_save.Changed();}
-        if((!g_protocol_connected || TxRoom(1)) && g_session_save.Ready(!g_session_recovery_blocked && g_storage_backend.ready && !StorageBlock(true))) {
+        if(
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+            !g_btt_load.Busy() && !g_btt_load.RetainsTune() &&
+#endif
+            (!g_protocol_connected || TxRoom(1)) && g_session_save.Ready(!g_session_recovery_blocked && g_storage_backend.ready && !StorageBlock(true))) {
             g_session.published=g_active_pattern;g_session.published_tempo=g_published_tempo;
             g_session.working=g_working.pending_id?g_working.pending:g_working.working;
             g_session.working_tempo=status.tempo;g_session.mute_mask=status.mute_mask;
@@ -1187,6 +1263,12 @@ namespace
                 } else (void)QueueLine(!std::strncmp(line, "BTPATTERN1 GET", 14) ?
                     "BTPATTERN1 SNAPERR 1 0\n" : "BTTEST1 ERROR line-too-long\n");
             }
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+            else if(BttCommandPolicy({line,used})==BttSerialDisposition::Reject)(void)QueueLine("BTBTT1 ERROR retained-tune-or-load-busy\n");
+            else if(BttCommandPolicy({line,used})==BttSerialDisposition::EphemeralLineage)
+                (void)QueueLine("BTSESSION1 LINEAGE 1 0 -\n");
+            else if(!std::strncmp(line,"BTBTT1",6))BttCommand(line);
+#endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             else if (!std::strncmp(line,"BTSTORE1",8)) {StorageCommand(line,now);}
 #endif
@@ -1686,6 +1768,9 @@ namespace
         const bool refill_serviced=g_streaming.Service(BackgroundReserve());
 #endif
         ServiceSerial();
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+        ServiceBttLoad();
+#endif
 #if defined(BROTRACKER_PATTERN_VARIABLE_RATE) && defined(BROTRACKER_PATTERN_SD_PREPARE)
         ServiceLiveJobs(refill_serviced);
 #endif

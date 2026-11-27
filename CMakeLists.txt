@@ -443,6 +443,23 @@ if(BROTRACKER_BUILD_ARKOS_UI OR BROTRACKER_BUILD_WINDOWS_TERMINAL OR BROTRACKER_
 endif()
 
 # Foreground Teensy TX byte ring and slow-reader/backpressure invariants.
+add_executable(BroTrackerBttStoppedLoadTests tests/test_main.cpp tests/test_btt_stopped_load.cpp
+    tools/btt/stopped_load.cpp tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
+    libraries/sd_access/src/sd_access.cpp libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/pattern_position.cpp)
+target_include_directories(BroTrackerBttStoppedLoadTests PRIVATE tests/stubs/btt_device tests/stubs/sd
+    src tests tools/btt libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerBttStoppedLoadTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE
+    BTT_BACKING_DIRECTORY="/BroTracker/.btt-load")
+add_test(NAME BroTrackerBttStoppedLoadTests COMMAND BroTrackerBttStoppedLoadTests)
+
+add_executable(BroTrackerBttSerialPolicyTests tests/test_main.cpp tests/test_btt_serial_policy.cpp
+    src/ui/serial_unavailable.cpp libraries/scheduler/src/musical_timing.cpp
+    libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/pattern_position.cpp)
+target_link_libraries(BroTrackerBttSerialPolicyTests PRIVATE BroTrackerBringUp BroTrackerCore)
+target_compile_definitions(BroTrackerBttSerialPolicyTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE)
+add_test(NAME BroTrackerBttSerialPolicyTests COMMAND BroTrackerBttSerialPolicyTests)
+
 add_executable(BroTrackerSerialTxQueueTests tests/test_main.cpp tests/test_serial_tx_queue.cpp)
 target_include_directories(BroTrackerSerialTxQueueTests PRIVATE tests src)
 add_test(NAME BroTrackerSerialTxQueueTests COMMAND BroTrackerSerialTxQueueTests)

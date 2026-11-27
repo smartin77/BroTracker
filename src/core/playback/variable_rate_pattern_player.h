@@ -99,6 +99,17 @@ namespace BroTracker
         }
 
         unsigned MuteMask() const noexcept { return mute_mask_; }
+        // Foreground staging preflight, without constructing a second player or
+        // touching voices. Validate both the first pass and loop continuation.
+        static VariableRatePatternPlayerStatus ValidateTune(const RealtimePattern& pattern,
+            const VariableRateSampleBindings& bindings) noexcept {
+            const auto valid=ValidatePattern(pattern);
+            if(valid!=VariableRatePatternPlayerStatus::Success)return valid;
+            VariableRateSampleCommandPreparer preparer;
+            const auto configured=preparer.Configure(44100,bindings);
+            if(configured!=VariableSampleCommandStatus::Success)return SampleStatus(configured);
+            return ApplyLogicalRows(pattern,preparer,2*pattern.active_rows);
+        }
         // Audio owner at block boundary, before pattern generation. No output I/O.
         [[nodiscard]] VariableRatePatternPlayerStatus SetMuteMask(unsigned mask) noexcept {
             if(mask>255) return VariableRatePatternPlayerStatus::InvalidGain;

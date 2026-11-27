@@ -93,6 +93,16 @@ namespace BroTracker
             ++request_count_; publication_pending_ = true;
             return PatternRequestStatus::Accepted;
         }
+        // Frozen bindings share the pattern's ACK lifetime. Only an already
+        // stopped, settled owner may enqueue a complete tune configuration.
+        [[nodiscard]] PatternRequestStatus SubmitStoppedTune(const RealtimePattern& pattern,
+            const Bindings& bindings,std::uint32_t id,std::uint32_t tempo) noexcept {
+            if(!StorageReady())return PatternRequestStatus::InvalidRequest;
+            const auto result=SubmitPattern(pattern,id,tempo);
+            if(result==PatternRequestStatus::Accepted)
+                requests_[(request_head_+request_count_-1)%kPatternRequestCapacity].bindings=&bindings;
+            return result;
+        }
         // Same frozen ownership as publication, but replacement may stage while Playing.
         [[nodiscard]] PatternRequestStatus SubmitPreview(const RealtimePattern& pattern,
             std::uint32_t id) noexcept {
@@ -238,7 +248,18 @@ namespace BroTracker
                     }
                 }
                 else if (request == PatternRequest::Replace) {
-                    result = player_.GetTransportState() == PatternTransportState::Paused
+                    if(entry.bindings) {
+                        if(player_.GetTransportState()!=PatternTransportState::Stopped)
+                            result=PatternPlayerStatus::InvalidTransportState;
+                        else {
+                            const auto gains=player_.GetChannelGains();
+                            result=player_.Configure(entry.tempo,44100,*entry.pattern,*entry.bindings);
+                            if(result==PatternPlayerStatus::Success) {
+                                (void)player_.SetChannelGains(gains);
+                                if constexpr(SupportsChannelMute<Player>::value)(void)player_.SetMuteMask(status_.mute_mask);
+                            }
+                        }
+                    } else result = player_.GetTransportState() == PatternTransportState::Paused
                         ? player_.ReplacePausedPattern(*entry.pattern) : player_.ReplacePattern(*entry.pattern);
                     if (result == PatternPlayerStatus::Success) {
                         if(entry.tempo) (void)player_.RequestTempo(entry.tempo);
@@ -355,7 +376,7 @@ namespace BroTracker
         MasterVolume volume_;std::uint32_t highest_volume_id_=0;
         Player player_;
         PatternBringUpStatus status_;
-        struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; std::uint32_t tempo=0; };
+        struct RequestEntry { PatternRequest request = PatternRequest::Stop; const RealtimePattern* pattern = nullptr; std::uint32_t id = 0; Pcm16ChannelGains gains; std::uint32_t tempo=0; const Bindings* bindings=nullptr; };
         RequestEntry requests_[kPatternRequestCapacity]{};
         std::uint32_t highest_gain_id_ = 0, highest_tempo_id_=0, tempo_cancel_through_=0;
         bool publication_pending_ = false;

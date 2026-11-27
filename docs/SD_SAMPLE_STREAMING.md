@@ -1,5 +1,29 @@
 # Production SD sample streaming — 2026-11-07
 
+## Stopped-only production BTT consumer (2026-11-27)
+
+The primary developer firmware now uses Candidate/SdSourceService through the
+production `tools/btt/stopped_load.cpp` coordinator. Active Sample refills remain
+first in `PatternBringUpKernelRun`; the owned preparation driver advances one
+action per turn only with refill headroom. Arbitrary BTT inputs are snapshotted
+into sealed private backing before validation/admission. Required Sample pins
+survive until the stopped audio Configure/ACK and producer voice publication;
+failed staging retains the old pattern, definitions, bindings and full backing.
+
+The live Sample installer and audition now call `AcknowledgePreparation()` at
+their actual result-consumption/discard boundary, including cancelled audition
+results. A failed Begin does not mark the live caller as preparing. BTT only
+polls/cancels its own tickets and cannot consume or acknowledge a foreign legacy
+result. Uncertain closes remain owned/quarantined until checked cleanup succeeds.
+
+This developer use requires exclusive Teensy SD ownership and unchanged WAV
+contents/card for the retained lifetime. Source pins protect metadata/prefix
+generation and resources; they do not freeze physical streamed SD contents.
+See [the complete load/media/session contract](FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27).
+There is no song prefetch, FX execution, BTT Save or physical playback timing
+claim from these host/compile results. Earlier isolated API descriptions below
+retain their historical scope.
+
 ## Candidate source pins (2026-11-27)
 
 `SdSampleStreaming` exposes a foreground-only ownership API, independent of

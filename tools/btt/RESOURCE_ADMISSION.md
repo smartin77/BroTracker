@@ -1,5 +1,13 @@
 # Candidate resource admission (developer prototype)
 
+The later `stopped_load.{h,cpp}` production coordinator now consumes this layer
+in primary developer firmware. It copies arbitrary SD input into private sealed
+backing, stages one explicit pattern and uses the production publication FIFO.
+See [the stopped-load contract](../../docs/FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27)
+for its exclusive-media policy, runtime projection, session exclusion and current
+physical-verification blocker. Historical isolated measurements below retain
+their original scope; compile/link admission is distinct from runtime peaks.
+
 An opt-in stopped physical diagnostic is prepared. Its first run failed during
 no-edit rewrite, and the corrected stopped-only run passed both cases, 16 async cycles and final
 cleanup; normal firmware was restored. Production admission remains unproven. See

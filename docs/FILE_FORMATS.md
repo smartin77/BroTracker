@@ -5,10 +5,173 @@ BroTracker uses three related formats for tunes, projects and project distributi
 The BTT/BTP/BTM sections are a **BTT Foundation documentation draft** refining
 [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats).
 The ownership draft is complete; the BTT v1 proposal below awaits review.
-Its layout and limits are proposed, not approved for runtime use. The isolated
+The primary developer firmware has a narrow stopped-only load projection;
+see [the production transaction](#stopped-only-developer-btt-load-2026-11-27).
+Its layout and limits remain provisional; developer loading is experimental. The isolated
 host validator/rewriter subset below is implemented; BTP/ZIP BTM
 details remain open. Existing working-session formats below retain their
 separately documented behavior.
+
+## Stopped-only developer BTT load (2026-11-27)
+
+`teensy41_dev` enables `BROTRACKER_BTT_STOPPED_LOAD`. This is a developer command
+against the provisional schema, with no BTX UI, song sequencing, prefetch, FX
+execution or BTT Save. Earlier isolated-foundation descriptions below describe
+their original measurement scope; this section defines the added production use.
+
+Send ASCII lines terminated by LF:
+
+```text
+BTBTT1 LOAD 303 Tunes/example.btt
+BTBTT1 STATUS
+BTBTT1 CANCEL
+```
+
+The nonzero decimal stable pattern ID is mandatory; the order list never chooses
+it implicitly. Paths are SD-root-relative conservative ASCII FAT paths, at most
+255 bytes, including internal spaces. No traversal, truncation or host paths.
+The production output must already be configured and audio initialization
+acknowledged. Confirmed IDLE alone does not bypass pending control/ACK, MIDI,
+publication/readback, storage, live-visit or audition exclusion. Playing and Paused
+reject without staging or changing transport. LOAD never sends STOP or START.
+Other commands cannot mutate the baseline while staging or awaiting its ACK.
+
+`BTBTT1 STATE 1 <phase> <reason> <selected-ID> <BPM-hundredths> <omitted> <retained>`
+reports the latest attempt. Phases are 0 Empty, 1 Open, 2 Copy, 3 Seal, 4 Validate,
+5 Scan, 6 Prepare, 7 Project, 8 Ready, 9 Submitted, 10 Cleanup, 11 Complete,
+12 Failed. Only Complete/`ok` establishes a successful load. Cleanup may remain
+pending under quarantine; it never implies that the new tune replaced the old.
+`committed-old-backing-cleanup-pending` explicitly means the new tune is already
+committed and only retirement of its predecessor remains. `retained=1` can also
+describe the old successful tune after a later rejected attempt. CANCEL is
+cooperative before submission; a submitted input stays frozen until the audio
+ACK and cannot be cancelled. STATUS is available while work is pending.
+
+The selected pattern supports the existing note, instrument-update and NOTE OFF
+timing projection, 1..64 rows, 1..8 channels, and BPM 3200..30000. Every nonempty
+FX slot in that pattern rejects as `initial-pattern-fx-unsupported`, including
+FX-only cells and present zero operands. All three FX slots of all patterns stay
+in saved backing. FX in an unselected pattern do not prevent this single-pattern
+projection. The player still loops the selected pattern; the saved order is not
+executed. First-pass and loop-continuation musical compatibility are preflighted
+with the real command preparer before publication.
+
+Supported definitions receive compact runtime slots through explicit stable-ID
+maps, independently for active and staged owners. No stable ID is interpreted as
+an array index. Sample root and fine defaults are independently 60/C-3 and 0/00
+only when absent. Saved unsupported values/encodings, missing paths, unavailable
+types and inappropriate parameters remain unchanged in Candidate saved metadata
+and the original bytes. Unrepresentable unused definitions are omitted from the
+runtime table and counted in STATE; required ones reject publication. Supported
+unused Sample definitions remain present but NotPrepared, without PCM acquisition.
+Runtime Sample level uses the existing 80 percent preparation convention.
+MIDI channels and the existing sine Synth projection use current runtime support.
+
+The full accepted BTT is retained byte-for-byte: tune settings/name/ID, definitions,
+order, unselected patterns, all FX and unknown optional sections/TLVs. The active
+Candidate pins this backing and required source generations. Saved intent is not
+rewritten to match defaults or runtime availability. A rejected request leaves
+the original input and the previous working state intact.
+
+### SD snapshot and media policy
+
+This developer command requires sole Teensy ownership of the mounted SD and a
+stable card for the complete retained lifetime. No host mass-storage/MTP writer,
+second controller, card removal/replacement or out-of-band mutation is supported.
+Firmware does not write WAV sources. Prepared Sample generations pin producer
+metadata/PCM prefixes, not the rest of a mutable physical WAV; external edits to
+WAV files during the retained lifetime violate this explicit policy. No claim of
+detecting same-size external edits or arbitrary card replacement is made.
+
+An arbitrary input FsFile is **not** used as an immutable Reader. The coordinator
+copies at most 1 MiB in <=512-byte chunks to a new `O_EXCL` registry file in the
+reserved `/BroTracker/.btt-load/` namespace. It checks source size/read/write,
+source close, snapshot sync/close/reopen and full BTT validation before admission.
+The existing registry seals that write-once backing; all mutations in its namespace
+must pass through it. No original file is removed, renamed or overwritten.
+The namespace uses process-domain/slot/generation names. Leftovers after reset
+are never permitted as arbitrary LOAD inputs, including FAT case aliases, and
+are not imported, scanned or deleted; collisions fail explicitly. A later explicit
+LOAD advances the in-process generation without overwriting the colliding file.
+
+Cancelled/failed snapshots and superseded owned snapshots use checked close and
+Discard only after all reader/voice/source owners release them. Failed closes or
+removals retain ownership and block reuse until checked cleanup succeeds. An
+active snapshot remains on SD after reset; it is not a saved session or recovery
+record. An original file can be changed later only under the exclusive media
+policy; its sealed snapshot remains the accepted saved input.
+
+### Publication, sessions and verification boundaries
+
+The real foreground coordinator uses the existing Candidate/SdSourceService and
+singleton path pool/producer PCM storage. Refills run first. Source preparation
+advances at most one owned job action per foreground turn; no blocking prepare
+loop exists. Full envelope validation and initial materialization are bounded
+stopped foreground operations, not a concurrent-playback timing guarantee.
+Live preparation and audition acknowledge only their consumed/discarded legacy
+completion. Neither BTT nor a foreign caller acknowledges unfinished work.
+
+The existing pattern publication identity, frozen storage and audio request/ACK
+FIFO now carry an optional frozen complete binding table. Transactional player
+Configure applies pattern/BPM/bindings at one stopped audio boundary; failure
+retains the prior configuration. Existing output gain/mute policy is restored.
+Foreground definitions, availability, full-tune ownership and readback synchronize
+at the matching ACK before further command/readback consumption. The old owner
+stays pinned until that point and until the producer publishes detached voices.
+
+While a BTT is retained, legacy storage/definition/edit commands and autosave are
+blocked. The production dispatcher uses a shared, fully parsed command policy;
+protocol namespace prefixes are not permission to mutate state. Safe status/fact
+queries (including DEVICE, TEMPO, MUTE, VOL, GAIN, MIDI, instrument facts, clock
+and streaming diagnostics) remain available during staging and retention. Pattern
+and waveform readback/credit operations are available once settled; they are
+blocked while staging/submitted/cleanup because an independent transfer can
+conflict with admission or frozen publication. Explicit transport commands remain
+available after retention, and are blocked while a load is busy.
+
+BTX reconnect also needs operations beyond read-only queries. Once settled,
+HELLO performs its existing connection/discovery reset, audio SET confirms the
+locked output route and applies the application channel-swap preference, MIDI
+delay GET/SET uses the existing stopped/queue/cleanup guards, and clock GET/SET
+synchronizes RTC/timezone metadata. These setup operations do not edit tune data
+or authorize legacy persistence. HELLO and setup writes are blocked while busy.
+A valid session-lineage CLAIM receives `BTSESSION1 LINEAGE 1 0 -` without claiming
+an identity or changing saved-session state. Volume/mute/gain SET, tune/instrument/
+pattern mutations, audition/visits and all legacy BTSTORE commands (including
+readiness/listing) remain blocked. Reconnect never starts playback.
+
+The successful handoff clears the legacy saved lineage (`0 -`) in RAM,
+without touching any session/recovery file. Reboot still restores the preexisting
+legacy session, not the BTT. UI editing, retained-work recovery, BTT dirty state,
+lossless Save and returning to a legacy session without reboot remain future work.
+
+Target memory/map/lifecycle evidence, host fake-SD tests and read-only device
+evidence belong to `build/btt-stopped-load/`. The coordinator is one static RAM2
+object with two Candidate owners, one validation Document, one decoded Pattern,
+one realtime projection and candidate definitions/bindings. It adds no player,
+path pool, PCM cache or current/next pattern bank. All large persistent objects
+remain off the CPU stack. Compiler stack frames and linker gaps are not measured
+runtime heap/stack/IRQ peaks. Physical load verification remains blocked until
+private fixture staging and restoration of the owner's current state are verified.
+
+Source-verified HEAD versus stopped-load mapped `teensy41_dev` (compile/link only):
+
+| Metric | Reviewed baseline | Stopped load |
+| --- | ---: | ---: |
+| ITCM banks | 8 | 8 |
+| RAM1 static | 157,888 | 158,944 |
+| RAM1 local/stack linker gap | 104,256 | 103,200 |
+| RAM2 static | 166,688 | 202,368 |
+| RAM2 heap linker interval | 357,600 | 321,920 |
+
+The complete coordinator is 35,672 bytes (35,680 after RAM2 alignment). Its
+simultaneous state plus a 2,048-byte allowance is 37,720 bytes, below the 65,536
+compile-time ceiling. With the earlier **unproven** 32 KiB stack/IRQ and 64 KiB
+heap allowances, linker remainder is 70,432 and 256,384 bytes respectively.
+No extra 64 KiB arena is allocated: the measured coordinator itself owns all its
+fixed members. Compiler frames for Begin/Step/Cleanup are 48/160/32 bytes;
+the existing Configure and foreground musical preparer still use bounded
+temporary metadata. Full call chains/SD/library/IRQ peaks remain unmeasured.
 
 ## Project/data workspace and host paths
 

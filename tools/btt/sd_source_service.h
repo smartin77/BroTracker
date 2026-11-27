@@ -1,5 +1,5 @@
 #pragma once
-// Developer-only bridge; never included by production handlers.
+// Foreground bridge shared by the developer stopped-load coordinator and diagnostic.
 #include "resource_admission.h"
 #include "firmware/teensy/BroTracker/sd_sample_streaming.h"
 

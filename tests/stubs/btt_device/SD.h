@@ -17,6 +17,7 @@ inline unsigned rejected_seeks=0;
 inline uint64_t rejected_offset=0,rejected_size=0;
 inline bool fail_write=false;
 inline std::string fail_write_path,fail_close_path;
+inline std::string fail_read_path,fail_sync_path,fail_remove_path;
 // Optional actual SdFat failure shape: inner close shuts the file even when
 // sync fails, while FsBaseFile retains its pointer/isOpen() result on failure.
 inline bool close_failure_closes_inner=false;
@@ -52,11 +53,11 @@ public:
     uint32_t curPosition()const{return at_;}uint32_t position()const{return at_;}
     int available()const{return int(size()-std::min(size(),at_));}
     unsigned getError()const{return 0;}
-    int read(void* p,size_t n){if(!entry_)return -1;n=std::min(n,size()-std::min(size(),at_));if(n)std::memcpy(p,entry_->bytes.data()+at_,n);at_+=n;return int(n);}
+    int read(void* p,size_t n){if(!entry_ || path_==DeviceSd::fail_read_path)return -1;n=std::min(n,size()-std::min(size(),at_));if(n)std::memcpy(p,entry_->bytes.data()+at_,n);at_+=n;return int(n);}
     size_t write(const void* p,size_t n){++DeviceSd::write_calls;if(!entry_ || !writable_ || DeviceSd::fail_write || path_==DeviceSd::fail_write_path)return 0;
         if(at_+n>entry_->bytes.size())entry_->bytes.resize(at_+n);std::memcpy(entry_->bytes.data()+at_,p,n);at_+=n;return n;}
     bool truncate(uint32_t n){if(!entry_ || !writable_ || n>size())return false;entry_->bytes.resize(n);at_=n;return true;}
-    bool sync(){return entry_!=nullptr;}
+    bool sync(){return entry_!=nullptr && path_!=DeviceSd::fail_sync_path;}
     bool close(){
         if(!entry_)return false;
         if(inner_closed_){entry_=nullptr;return true;}
@@ -73,7 +74,7 @@ using File=FsFile;
 struct DeviceFs {
     bool exists(const char* p){return DeviceSd::files.count(DeviceSd::Path(p));}
     bool mkdir(const char* p,bool=true){const auto name=DeviceSd::Path(p);if(exists(p))return DeviceSd::files[name].directory;DeviceSd::files[name].directory=true;return true;}
-    bool remove(const char* p){++DeviceSd::removed;return DeviceSd::files.erase(DeviceSd::Path(p));}
+    bool remove(const char* p){++DeviceSd::removed;if(DeviceSd::Path(p)==DeviceSd::fail_remove_path)return false;return DeviceSd::files.erase(DeviceSd::Path(p));}
 };
 struct DeviceSD {
     DeviceFs sdfs;
