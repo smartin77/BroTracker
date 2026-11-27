@@ -77,13 +77,23 @@
   serial RUN, exclusive private files, native deterministic fixtures, real
   FsFile rewrite/reopen validation and cooperative candidate prepare/cancel
   cycles, checked cleanup and scoped duration/memory/ownership observations.
-  Compile and host regression evidence are saved; no physical results yet.
+  Compile/host evidence is saved. The first physical run failed during rewrite;
+  its logs and untouched on-card artifacts remain evidence.
   [Owner commands and limits](../tools/btt/DEVICE_DIAGNOSTIC.md)
-* [ ] Owner-run physical BTT/SD diagnostic: capture identity, card/filesystem,
-  all serial steps/counts/timings and copied output hashes. Validate collision
-  and failure evidence using private artifacts. Keep results pending until run;
-  standalone stopped checks do not establish production stack/heap/IRQ admission,
-  concurrent playback deadlines, media/source policy or FAT power-loss recovery.
+* [x] Diagnose the first physical failure: real SdFat rejects beyond-EOF seek,
+  unlike the original fake. Reproduce the rewrite failure, implement bounded
+  EOF growth, and separate sticky I/O history from current cleanup resources.
+  Preserve genuine quarantine and first-failure evidence. Host regressions pass;
+  corrected stopped-only physical run passed both cases, 16 async cycles and
+  final cleanup; normal firmware restored/identity checked. [Findings](../tools/btt/DEVICE_DIAGNOSTIC.md#first-physical-failure-and-software-correction)
+* [x] Run corrected physical BTT/SD diagnostic once in fresh private directory
+  `iofix-261127-b-8d351f`: both cases, 16 async cycles and final cleanup passed;
+  complete serial/upload identity evidence saved under `build/btt-device-io-fix/`.
+  Existing evidence retained; normal `teensy41_dev` restored and HELLO identity checked.
+* [ ] Independently record card/filesystem and off-card output hashes; validate
+  physical collision/failure evidence on private artifacts. Stopped-only success
+  does not establish production stack/heap/IRQ admission, concurrent playback
+  deadlines, media/source policy or FAT power-loss recovery.
 * [ ] Integrate a production scheduler/publication and Tune Load/Save lifecycle,
   including explicit legacy-job acknowledgement and source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate

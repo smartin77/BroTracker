@@ -16,6 +16,21 @@ class FsBackend {
     };
     using Handle=FsFile;
     bool Open(const Handle& h) const noexcept {return h.isOpen();}
+    // SdFat FAT/exFAT seekSet cannot create holes. Extend only by actual bounded
+    // writes from logical EOF; preallocation alone does not grow valid length.
+    BTT_FLASHMEM("fs_grow") bool Grow(Handle& h,uint32_t length) noexcept {
+        const auto current=h.size();
+        if(current>=length)return true;
+        if(!h.seekSet(current))return false;
+        const uint8_t zeros[128]{};
+        uint32_t remaining=length-static_cast<uint32_t>(current);
+        while(remaining) {
+            const auto n=std::min<uint32_t>(remaining,sizeof(zeros));
+            if(h.write(zeros,n)!=n || h.getError())return false;
+            remaining-=n;
+        }
+        return h.size()==length;
+    }
     bool Create(Handle& h,const char* path) noexcept {
         Lease lease(true,ready_);
         return lease && !h.isOpen() && h.open(path,O_RDWR|O_CREAT|O_EXCL);
@@ -35,14 +50,13 @@ class FsBackend {
     bool Write(Handle& h,uint32_t at,const void* p,unsigned n) noexcept {
         Lease lease(true,ready_);
         return lease && h.isOpen() && n<=512 && at<=1048576 && n<=1048576-at &&
-            h.seekSet(at) && h.write(p,n)==n && !h.getError();
+            Grow(h,at) && h.seekSet(at) && h.write(p,n)==n && !h.getError();
     }
     BTT_FLASHMEM("fs_resize") bool Resize(Handle& h,uint32_t n) noexcept {
         Lease lease(true,ready_);
         if(!lease || !h.isOpen() || n>1048576)return false;
         if(n<=h.size())return h.truncate(n);
-        const uint8_t zero=0;
-        return h.seekSet(n-1) && h.write(&zero,1)==1 && !h.getError();
+        return Grow(h,n);
     }
     bool Sync(Handle& h) noexcept {Lease lease(true,ready_);return lease && h.isOpen() && h.sync();}
     bool Close(Handle& h) noexcept {

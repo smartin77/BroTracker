@@ -20,8 +20,8 @@ namespace {
 using namespace btt;
 using namespace btt::prototype;
 using namespace BroTracker;
-constexpr const char* kDirectory="/BroTracker/.btt-prototype";
-constexpr const char* kWav="BroTracker/.btt-prototype/device-diagnostic.wav";
+constexpr const char* kDirectory=BTT_BACKING_DIRECTORY;
+constexpr const char* kWav=(BTT_BACKING_DIRECTORY "/device-diagnostic.wav")+1;
 constexpr unsigned kCycles=8;
 DMAMEM alignas(32) unsigned char arena_bytes[65536]; // NOLOAD: initialized explicitly.
 DMAMEM SdSampleStreaming::Storage pcm; // Same 143,360-byte storage as production.
@@ -47,10 +47,26 @@ struct Diagnostic {
     uint32_t cycle_started=0,service_us=0,max_service_us=0,boundary_msp_min=UINT32_MAX;
     int detail=0;bool started=false,writer_open=false,cleanup_only=false;
     char collision[96]{};
+    struct BackingRecord {FsBackings::Token token{};FsBackings::Resources resources{};bool valid=false;};
+    BackingRecord first_backings[3]{},current_backings[3]{},cleanup_backings[3]{};
+    const char* first_step=nullptr;
+    int first_code=0;unsigned first_case=0,first_cycle=0;
+
+    void CaptureBackings(BackingRecord (&records)[3]) {
+        for(unsigned i=0;i<3;++i){records[i]={};records[i].token=tokens[i];
+            if(pool.get() && tokens[i].generation)records[i].valid=pool->InspectResources(tokens[i],records[i].resources);}
+    }
+    void BackingsEvidence(const char* label,const BackingRecord (&records)[3]) const {
+        for(const auto& record:records)if(record.token.generation){const auto& r=record.resources;
+            Serial.printf("BTTDIAG1 BACKING %s domain=%lu slot=%u generation=%lu valid=%u recorded=%u refs=%lu writer=%u wrapper_open=%u quarantine=%u poisoned=%u\n",
+                label,static_cast<unsigned long>(record.token.domain),record.token.slot,static_cast<unsigned long>(record.token.generation),
+                unsigned(record.valid),unsigned(r.recorded),static_cast<unsigned long>(r.refs),unsigned(r.writer),unsigned(r.open),unsigned(r.quarantined),unsigned(r.poisoned));}
+    }
 
     void Identity() const {
         Serial.printf("BTTDIAG1 BUILD head=%s source=%s schema=1 usb=serial playback=absent physical=PENDING\n",
             BTT_DIAG_GIT_HEAD,BTT_DIAG_SOURCE_SHA);
+        Serial.printf("BTTDIAG1 DIRECTORY %s\n",kDirectory);
     }
     void Memory(const char* label) {
 #if defined(BROTRACKER_BTT_DIAGNOSTIC_HOST_TEST)
@@ -77,9 +93,12 @@ struct Diagnostic {
             sources.get()?sources->CanDestroy():1);
     }
     void Fail(const char* step,int code) {
+        if(!first_step){first_step=step;first_code=code;first_case=case_index;first_cycle=cycle;CaptureBackings(first_backings);}
         phase=Phase::Failed;detail=code;
         Serial.printf("BTTDIAG1 FAIL step=%s code=%d case=%u cycle=%u cleanup=NOT_CONFIRMED files=RETAINED\n",step,code,case_index,cycle);
         if(collision[0])Serial.printf("BTTDIAG1 COLLISION %s\n",collision);
+        Serial.printf("BTTDIAG1 HISTORY first_step=%s first_code=%d first_case=%u first_cycle=%u\n",first_step,first_code,first_case,first_cycle);
+        BackingsEvidence("first_failure",first_backings);CaptureBackings(current_backings);BackingsEvidence("current",current_backings);
         if(candidate.get())for(unsigned i=0;i<candidate->count();++i){const auto* d=candidate->At(i);
             Serial.printf("BTTDIAG1 DEF id=%lu source_status=%u setting_status=%u path_status=%u root=%u fine=%u\n",
                 static_cast<unsigned long>(d->saved.id),unsigned(d->source_status),unsigned(d->settings),unsigned(d->path_status),d->effective_root,d->effective_fine);}
@@ -255,7 +274,12 @@ struct Diagnostic {
             if(!closed){detail=306;return false;}}
         if(sources.get() && !sources->CanDestroy()){detail=307;return false;}
         if(producer.get() && !producer->Reset()){detail=308;return false;}
-        if(pool.get())for(auto token:tokens)if(token.generation && pool->Inspect(token)!=Code::Ok){detail=309;return false;}
+        CaptureBackings(cleanup_backings);
+        for(const auto& record:cleanup_backings)if(record.token.generation){
+            if(!record.valid){detail=309;return false;}
+            const auto& r=record.resources;
+            if(r.refs || r.writer || r.open || r.quarantined){detail=310;return false;}
+        }
         if(pool.get() && !pool->CanDestroy()){detail=310;return false;}
         if(arena){const auto result=arena->Reset();detail=int(result);if(result!=Code::Ok)return false;}
         detail=311;return ResourcePaths().UniqueCount()==0 && ResourcePaths().UsedBytes()==0;
@@ -302,6 +326,8 @@ struct Diagnostic {
                 if(result!=Code::Ok){Fail("cleanup_pending",int(result));return;}}
             Ownership("before_cleanup");
             if(!Measure("arena_handles_checked_cleanup",[&]{return Cleanup();}))return;
+            BackingsEvidence("cleanup_checked",cleanup_backings);
+            if(first_step)Serial.printf("BTTDIAG1 HISTORY first_step=%s first_code=%d first_case=%u first_cycle=%u\n",first_step,first_code,first_case,first_cycle);
             Ownership("after_cleanup");Memory("after_cleanup");
             if(!cleanup_only && case_index==0){case_index=1;cycle=0;tokens[0]=tokens[1]=tokens[2]={};
                 if(Measure("second_case_objects",[&]{detail=int(Code::Capacity);return Objects();}))phase=Phase::Source;
@@ -311,7 +337,9 @@ struct Diagnostic {
         }
     }
     void Command(const char* text) {
-        if(!std::strcmp(text,"BTTDIAG STATUS")){Identity();Serial.printf("BTTDIAG1 STATUS phase=%u started=%u case=%u cycle=%u code=%d\n",unsigned(phase),started,case_index,cycle,detail);return;}
+        if(!std::strcmp(text,"BTTDIAG STATUS")){Identity();Serial.printf("BTTDIAG1 STATUS phase=%u started=%u case=%u cycle=%u code=%d first_step=%s first_code=%d\n",
+            unsigned(phase),started,case_index,cycle,detail,first_step?first_step:"none",first_code);
+            BackingsEvidence("first_failure",first_backings);CaptureBackings(current_backings);BackingsEvidence("current",current_backings);return;}
         if(!std::strcmp(text,"BTTDIAG RUN")){
             if(started){Serial.println("BTTDIAG1 FAIL step=command reason=one_run_per_boot");return;}
             started=true;Identity();phase=Phase::Init;return;

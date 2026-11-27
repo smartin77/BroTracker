@@ -5,6 +5,13 @@
 #include <cstdio>
 #include <limits>
 
+#ifndef BTT_BACKING_DIRECTORY
+#define BTT_BACKING_DIRECTORY "/BroTracker/.btt-prototype"
+#endif
+// Per-build namespace, not a mutable/borrowed runtime path. Diagnostic builds
+// select a fresh private child directory; all default users retain their paths.
+static_assert(sizeof(BTT_BACKING_DIRECTORY)<=64,"Backing directory exceeds bounded slot path");
+
 namespace btt::prototype {
 // All file mutations in the private namespace MUST go through this registry.
 // Files are exclusive-created, write-once, then sealed. No pathname imports,
@@ -14,6 +21,13 @@ public:
     static constexpr unsigned kSlots=3;
     static constexpr uint32_t kMaxBytes=1048576;
     struct Token {uint32_t domain=0,generation=0;unsigned slot=kSlots;};
+    // Inspect() is a recorded operation result, not a live-resource predicate.
+    // This snapshot never clears history/quarantine or retries a close.
+    struct Resources {
+        Code recorded=Code::Ok;
+        uint32_t refs=0;
+        bool writer=false,open=false,quarantined=false,poisoned=false;
+    };
 private:
     enum class State {Free, Writing, Sealed, Retired, Quarantine};
     struct Slot final:Reader,ReaderControl {
@@ -112,7 +126,7 @@ public:
         if(index==kSlots)return Code::Capacity;
         auto& s=slots_[index];s.token={domain_,next_++,index};s.last=Code::Ok;
         s.length=0;s.poisoned=false;s.created=false;s.sealed=false;
-        std::snprintf(s.path,sizeof(s.path),"/BroTracker/.btt-prototype/%08lx-%u-%08lx.btt",
+        std::snprintf(s.path,sizeof(s.path),BTT_BACKING_DIRECTORY "/%08lx-%u-%08lx.btt",
             static_cast<unsigned long>(domain_),index,static_cast<unsigned long>(s.token.generation));
         if(!backend_.Create(s.file,s.path)) {
             // O_EXCL failure never authorizes deletion of an existing file.
@@ -143,6 +157,11 @@ public:
     }
     const void* Identity(Token token) noexcept {return Lookup(token);}
     Code Inspect(Token token) noexcept {auto* s=Lookup(token);return s?s->last:Code::Stale;}
+    bool InspectResources(Token token,Resources& output) noexcept {
+        auto* s=Lookup(token);if(!s)return false;
+        output={s->last,s->refs,s->writer,backend_.Open(s->file),s->state==State::Quarantine,s->poisoned};
+        return true;
+    }
     BTT_FLASHMEM("backing_discard") Code Discard(Token token) noexcept {
         auto* s=Lookup(token);if(!s)return Code::Stale;
         if(s->refs || s->writer)return Code::Busy;

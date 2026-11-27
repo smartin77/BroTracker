@@ -367,10 +367,17 @@ add_executable(BroTrackerBttDeviceFlowTests tests/test_btt_device_flow.cpp
 target_include_directories(BroTrackerBttDeviceFlowTests PRIVATE tests/stubs/btt_device tests/stubs/sd
     src tests tools/btt libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerBttDeviceFlowTests PRIVATE BROTRACKER_BTT_DEVICE_DIAGNOSTIC
-    BROTRACKER_BTT_DIAGNOSTIC_HOST_TEST BTT_DIAG_GIT_HEAD="host-simulation" BTT_DIAG_SOURCE_SHA="host-simulation")
-foreach(scenario success collision write_failure quarantine)
+    BROTRACKER_BTT_DIAGNOSTIC_HOST_TEST BTT_DIAG_GIT_HEAD="host-simulation" BTT_DIAG_SOURCE_SHA="host-simulation"
+    BTT_BACKING_DIRECTORY="/BroTracker/.btt-prototype/iofix-host")
+foreach(scenario success collision write_failure quarantine rewrite_failure backing_quarantine)
     add_test(NAME BroTrackerBttDeviceFlow_${scenario} COMMAND BroTrackerBttDeviceFlowTests ${scenario})
 endforeach()
+
+add_executable(BroTrackerBttFsBackendTests tests/test_main.cpp tests/test_btt_fs_backend.cpp
+    libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerBttFsBackendTests PRIVATE tests/stubs/btt_device tests/stubs/sd
+    tests tools/btt src libraries/sd_access/src)
+add_test(NAME BroTrackerBttFsBackendTests COMMAND BroTrackerBttFsBackendTests)
 
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp

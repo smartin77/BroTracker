@@ -1,9 +1,17 @@
 # Candidate resource admission (developer prototype)
 
-An opt-in stopped physical diagnostic is now prepared; hardware results are
-pending. See [DEVICE_DIAGNOSTIC.md](DEVICE_DIAGNOSTIC.md) for explicit RUN,
+An opt-in stopped physical diagnostic is prepared. Its first run failed during
+no-edit rewrite, and the corrected stopped-only run passed both cases, 16 async cycles and final
+cleanup; normal firmware was restored. Production admission remains unproven. See
+[DEVICE_DIAGNOSTIC.md](DEVICE_DIAGNOSTIC.md) for explicit RUN,
 exclusive-file collision rules, actual producer cycles, measurement scope and
 normal-firmware restoration. It does not integrate production Tune Load/Save.
+
+FsBackend implements the Writer contract by bounded zero-fill writes from EOF;
+SdFat seek/truncate do not grow valid file length. Backing Inspect remains sticky
+history; InspectResources/CanDestroy describe current safety independently.
+Diagnostic first-failure records survive cleanup; quarantine is never cleared by
+observing zero references. New run-ID child directories preserve all old evidence.
 
 `resource_admission.{h,cpp}` is isolated from firmware handlers and playback.
 It uses the **existing singleton** `ResourcePaths()` and real two-byte

@@ -1,0 +1,35 @@
+BTTDIAG1 FAIL step=command reason=invalid_ascii_or_too_long
+BTTDIAG1 FAIL step=command reason=expected_RUN_STATUS_or_failed_CLEANUP
+BTTDIAG1 FAIL step=command reason=expected_RUN_STATUS_or_failed_CLEANUP
+BTTDIAG1 BUILD head=e10d57a6b25960ce4a8bdb13190355241857d4e0 source=8707d1b2e1ce7fb2b9b82ad1a2d7b7269bcfd3a2dfe96a067ac6d940adc238e6 schema=1 usb=serial playback=absent physical=PENDING
+BTTDIAG1 MEM before_mount arena=0 peak=0 heap_used_snapshot=0 heap_free_blocks_snapshot=0 heap_uncommitted_snapshot=302976 heap_break=20236080 heap_snapshot_valid=1 boundary_msp=2005ff68 boundary_msp_min=2005ff68
+BTTDIAG1 PASS step=sd_begin us=23791 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=arena_init us=447 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=exclusive_preflight us=50179 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_exclusive_open us=6508 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=51 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=45 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_chunk us=4876 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=wav_reopen_compare us=7606 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=producer_initialize us=25 code=0 case=0 cycle=0
+BTTDIAG1 MEM objects_ready arena=37372 peak=37372 heap_used_snapshot=0 heap_free_blocks_snapshot=0 heap_uncommitted_snapshot=302976 heap_break=20236080 heap_snapshot_valid=1 boundary_msp=2005ff68 boundary_msp_min=2005ff68
+BTTDIAG1 PASS step=fixture_write_reopen_validate us=32501 code=0 case=0 cycle=0
+BTTDIAG1 PASS step=stable_patterns_order_fx us=1733 code=0 case=0 cycle=0
+BTTDIAG1 FAIL step=noedit_rewrite_reopen_validate us=9761 code=4 case=0 cycle=0
+BTTDIAG1 FAIL step=noedit_rewrite_reopen_validate code=4 case=0 cycle=0 cleanup=NOT_CONFIRMED files=RETAINED
+BTTDIAG1 OWN failure cycle=0 source_slots=3 candidate_leases=0 clone=0 path_records=3 path_bytes=53 backing_refs=1 service_idle=1
+BTTDIAG1 MEM failure arena=37372 peak=37372 heap_used_snapshot=0 heap_free_blocks_snapshot=0 heap_uncommitted_snapshot=302976 heap_break=20236080 heap_snapshot_valid=1 boundary_msp=2005ff10 boundary_msp_min=2005ff10
+BTTDIAG1 FAIL step=command reason=expected_RUN_STATUS_or_failed_CLEANUP
+BTTDIAG1 FAIL step=command reason=one_run_per_boot
+BTTDIAG1 FAIL step=command reason=expected_RUN_STATUS_or_failed_CLEANUP
+BTTDIAG1 FAIL step=command reason=one_run_per_boot

@@ -1146,10 +1146,20 @@ source-change enforcement and production publication/Tune Load/Save integration
 remain unmeasured or separate work. Future runtime pattern prefetch must review
 the shared call graph and cache costs before extending these annotations.
 
-#### Opt-in physical BTT diagnostic (prepared, not run)
+#### Opt-in physical BTT diagnostic (first failure corrected; stopped-only verification passed)
 
 The separate opt-in [physical BTT/SD diagnostic](../tools/btt/DEVICE_DIAGNOSTIC.md)
-is prepared as `teensy41_btt_diagnostic`; **physical results remain pending**.
+is prepared as `teensy41_btt_diagnostic`. The first physical run on 2026-11-27
+passed SD init, WAV write/reopen/compare, source BTT validation and stable pattern
+access, then failed no-edit rewrite/reopen validation (code 4). Explicit cleanup
+later failed at the old sticky-error check (309), with zero path/backing refs.
+Those aggregate codes do not identify the failed I/O call or prove a handle leak.
+Logs are `device-monitor-261127-212130.log` and `device-monitor-261127-212741.log`
+under `logs/`, uploaded source SHA
+`8707d1b2e1ce7fb2b9b82ad1a2d7b7269bcfd3a2dfe96a067ac6d940adc238e6`.
+**The corrected physical run passed both cases, 16 async cycles and final suite
+cleanup on 2026-11-27, using fresh run ID `iofix-261127-b-8d351f`. Normal
+firmware was restored and its serial build identity verified.**
 It waits for `BTTDIAG RUN` before SD initialization/tests/writes and exclusively
 creates retained private artifacts. Native-C++ fixtures cover two stable pattern
 IDs, repeated order references, three FX slots, unknown optional data, explicit
@@ -1158,7 +1168,8 @@ FsFile Backings/arena and producer/source adapter perform rewrite, checked
 sync/close/reopen/validation/byte comparison and asynchronous prepare/cancel/
 share/release cycles. No tune publication, FX execution or audible playback is
 included. Host fixture and full entry-point fake-SD regressions are separate
-from the pending physical run. Build/test logs, firmware identity, maps and
+from the physical failure and successful corrected stopped-only run. Original preparation logs,
+firmware identity, maps and
 memory comparison are saved under `build/btt-device-diagnostic/`.
 
 The diagnostic is a standalone USB-serial image with the same 64 KiB arena and
@@ -1169,11 +1180,23 @@ gaps are peak runtime headroom. Live stack is never painted. Production Tune
 Load/Save remains unchanged; the owner guide covers collisions, evidence capture,
 cleanup failures and restoration of `teensy41_dev`.
 
-Compile/link comparison: the standalone image uses four ITCM banks, 23,936
+The corrected FsBackend fills gaps and growth by bounded writes at logical EOF:
+both installed SdFat FAT/exFAT seek implementations reject beyond-EOF seeks,
+including the first Rewrite directory write at offset 32 on an empty output.
+The corrected fake reproduces the old code-4 failure. Cleanup now inspects
+current refs/writer/wrapper/quarantine independently of sticky Inspect() history;
+genuine quarantine still blocks destruction, and first failure/per-slot history
+survives cleanup. A fresh `BTT_DIAG_RUN_ID` selects a private child namespace for
+each later build, without deleting, overwriting or renaming old evidence.
+See `build/btt-device-io-fix/` for findings and verification. This is a demonstrated
+software contract defect, not an observed identification of the physical I/O call.
+
+Compile/link comparison: the corrected standalone image uses four ITCM banks, 24,960
 RAM1 static bytes and 221,312 RAM2 static bytes, including the 65,536-byte arena
 and 143,360-byte PCM Storage. Normal `teensy41_dev` remains at eight banks,
 157,888 RAM1 static bytes and 166,688 RAM2 static bytes. Its ITCM bytes match the
-pre-change image; only the existing TUNINGBUILD timestamp differs in data. The
+pre-change image. The physical run observed arena peak 37,372 bytes and zero
+post-cleanup owners; allocator/MSP snapshots do not measure runtime peaks. The
 diagnostic's larger linker DTCM gap is not a measured stack reserve or evidence
 that all production and candidate state fits together at runtime.
 
