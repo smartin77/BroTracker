@@ -1,5 +1,10 @@
 # Candidate resource admission (developer prototype)
 
+An opt-in stopped physical diagnostic is now prepared; hardware results are
+pending. See [DEVICE_DIAGNOSTIC.md](DEVICE_DIAGNOSTIC.md) for explicit RUN,
+exclusive-file collision rules, actual producer cycles, measurement scope and
+normal-firmware restoration. It does not integrate production Tune Load/Save.
+
 `resource_admission.{h,cpp}` is isolated from firmware handlers and playback.
 It uses the **existing singleton** `ResourcePaths()` and real two-byte
 `ResourcePathRef`. No second path pool, PCM ring, or Sample prefix cache exists

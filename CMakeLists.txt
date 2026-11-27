@@ -138,6 +138,9 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 enable_testing()
+add_executable(BroTrackerBttDeviceFixtureTests tests/test_main.cpp tests/test_btt_device_fixture.cpp tools/btt/foundation.cpp)
+target_include_directories(BroTrackerBttDeviceFixtureTests PRIVATE tests tools/btt src)
+add_test(NAME BroTrackerBttDeviceFixtureTests COMMAND BroTrackerBttDeviceFixtureTests)
 add_executable(BroTrackerBttResourceTests tests/test_btt_resource_admission.cpp tools/btt/resource_admission.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttResourceTests PRIVATE tests tools/btt src)
 add_test(NAME BroTrackerBttResourceTests COMMAND BroTrackerBttResourceTests
@@ -357,6 +360,17 @@ target_include_directories(BroTrackerBttSdSourceTests PRIVATE tests/stubs/sd src
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerBttSdSourceTests COMMAND BroTrackerBttSdSourceTests
     ${CMAKE_CURRENT_BINARY_DIR}/../adapter-allocations.csv)
+
+add_executable(BroTrackerBttDeviceFlowTests tests/test_btt_device_flow.cpp
+    tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
+    libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerBttDeviceFlowTests PRIVATE tests/stubs/btt_device tests/stubs/sd
+    src tests tools/btt libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(BroTrackerBttDeviceFlowTests PRIVATE BROTRACKER_BTT_DEVICE_DIAGNOSTIC
+    BROTRACKER_BTT_DIAGNOSTIC_HOST_TEST BTT_DIAG_GIT_HEAD="host-simulation" BTT_DIAG_SOURCE_SHA="host-simulation")
+foreach(scenario success collision write_failure quarantine)
+    add_test(NAME BroTrackerBttDeviceFlow_${scenario} COMMAND BroTrackerBttDeviceFlowTests ${scenario})
+endforeach()
 
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp

@@ -1146,6 +1146,37 @@ source-change enforcement and production publication/Tune Load/Save integration
 remain unmeasured or separate work. Future runtime pattern prefetch must review
 the shared call graph and cache costs before extending these annotations.
 
+#### Opt-in physical BTT diagnostic (prepared, not run)
+
+The separate opt-in [physical BTT/SD diagnostic](../tools/btt/DEVICE_DIAGNOSTIC.md)
+is prepared as `teensy41_btt_diagnostic`; **physical results remain pending**.
+It waits for `BTTDIAG RUN` before SD initialization/tests/writes and exclusively
+creates retained private artifacts. Native-C++ fixtures cover two stable pattern
+IDs, repeated order references, three FX slots, unknown optional data, explicit
+unsupported tuning and independent absent defaults. The actual foundation,
+FsFile Backings/arena and producer/source adapter perform rewrite, checked
+sync/close/reopen/validation/byte comparison and asynchronous prepare/cancel/
+share/release cycles. No tune publication, FX execution or audible playback is
+included. Host fixture and full entry-point fake-SD regressions are separate
+from the pending physical run. Build/test logs, firmware identity, maps and
+memory comparison are saved under `build/btt-device-diagnostic/`.
+
+The diagnostic is a standalone USB-serial image with the same 64 KiB arena and
+producer PCM Storage, not the full production application's concurrent state.
+It reports operation durations, actual arena occupancy, known ownership counts
+and current allocator/MSP boundary observations. Neither snapshots nor linker
+gaps are peak runtime headroom. Live stack is never painted. Production Tune
+Load/Save remains unchanged; the owner guide covers collisions, evidence capture,
+cleanup failures and restoration of `teensy41_dev`.
+
+Compile/link comparison: the standalone image uses four ITCM banks, 23,936
+RAM1 static bytes and 221,312 RAM2 static bytes, including the 65,536-byte arena
+and 143,360-byte PCM Storage. Normal `teensy41_dev` remains at eight banks,
+157,888 RAM1 static bytes and 166,688 RAM2 static bytes. Its ITCM bytes match the
+pre-change image; only the existing TUNINGBUILD timestamp differs in data. The
+diagnostic's larger linker DTCM gap is not a measured stack reserve or evidence
+that all production and candidate state fits together at runtime.
+
 #### Proposed current/next-pattern buffering and deferred validation
 
 Keep one current validated pattern buffer pinned and fill a separate next buffer

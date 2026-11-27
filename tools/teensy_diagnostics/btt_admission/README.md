@@ -1,5 +1,10 @@
 # BTT Teensy 4.1 admission diagnostics
 
+These compile/link probes remain distinct from the new opt-in executable
+`teensy41_btt_diagnostic`. See [the owner guide](../../btt/DEVICE_DIAGNOSTIC.md)
+for its explicit serial RUN, private retained artifacts and pending physical
+checks. The standalone image does not prove full production memory admission.
+
 Compile/link diagnostics only, run from the repository root. This tool does not
 upload, open a serial port, run firmware, or add BTT to a production runtime.
 It follows the other developer tools under `tools/teensy_diagnostics/`; generated

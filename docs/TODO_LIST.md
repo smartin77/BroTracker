@@ -73,6 +73,17 @@
   Shared materialization/read helpers and asynchronous admission/adapter work
   remain in ITCM. Cache/SD timing and stack/heap peaks remain unqualified.
   [Placement evidence](FILE_FORMATS.md#cold-btt-code-placement-2026-11-27)
+* [x] Prepare the opt-in stopped-only `teensy41_btt_diagnostic` image: explicit
+  serial RUN, exclusive private files, native deterministic fixtures, real
+  FsFile rewrite/reopen validation and cooperative candidate prepare/cancel
+  cycles, checked cleanup and scoped duration/memory/ownership observations.
+  Compile and host regression evidence are saved; no physical results yet.
+  [Owner commands and limits](../tools/btt/DEVICE_DIAGNOSTIC.md)
+* [ ] Owner-run physical BTT/SD diagnostic: capture identity, card/filesystem,
+  all serial steps/counts/timings and copied output hashes. Validate collision
+  and failure evidence using private artifacts. Keep results pending until run;
+  standalone stopped checks do not establish production stack/heap/IRQ admission,
+  concurrent playback deadlines, media/source policy or FAT power-loss recovery.
 * [ ] Integrate a production scheduler/publication and Tune Load/Save lifecycle,
   including explicit legacy-job acknowledgement and source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate
