@@ -154,6 +154,28 @@ remain off the CPU stack. Compiler stack frames and linker gaps are not measured
 runtime heap/stack/IRQ peaks. Physical load verification remains blocked until
 private fixture staging and restoration of the owner's current state are verified.
 
+The 2026-11-27 production-load preflight in
+`build/btt-production-load-verification/` discovered Teensy serial 17681760 and
+captured checksum-verified published/working readbacks (32 rows, 8 channels,
+155.00 BPM), six instrument definitions and unchanged final IDLE/status facts.
+This is a readback capture, not a restoration backup. No mounted SD workspace
+was available. The inspected firmware/tools cannot export and round-trip the
+complete current session plus byte-preserved session/recovery files before the
+first upload. Existing preview/publication tools can change session autosave
+intent; the legacy session Save stores the working pattern and does not preserve
+an independently different published pattern. Historical restoration HEX/ELF
+artifacts exist, but do not prove restoration of current RAM or unchanged SD.
+The run therefore stopped before audio setup, upload, fixture staging or LOAD.
+No standalone diagnostic was repeated and no physical production-load success
+is claimed. A new staging image alone cannot close this pre-upload restoration
+gap; establish the non-destructive state/file round-trip route first.
+
+The same preflight's fresh unoptimized host regression exposed a coordinator
+destruction-order defect: Candidate source leases outlived their SdSourceService.
+Declaring the service before the candidates fixes reverse-order destruction.
+The existing stopped-load suite now passes in Debug as well as Release; this
+host lifetime correction does not establish physical load/restoration success.
+
 Source-verified HEAD versus stopped-load mapped `teensy41_dev` (compile/link only):
 
 | Metric | Reviewed baseline | Stopped load |

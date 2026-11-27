@@ -104,8 +104,18 @@
   read-only device status are under `build/btt-stopped-load/`.
   [Contract and limitations](FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27)
 * [ ] Verify production load physically after private no-FX fixture staging and
-  exact working-state/SD restoration are available. No upload/load was performed
-  for this step; the earlier standalone diagnostic was not repeated.
+  exact working-state/SD restoration are available. The 2026-11-27 automated
+  preflight captured checksum-verified published/working patterns, all six
+  instrument facts and unchanged IDLE/status on serial 17681760. Evidence is in
+  `build/btt-production-load-verification/`. No mounted SD workspace or complete
+  non-destructive current-session/session-file backup and restore route was
+  established. Existing Save/reboot is insufficient; do not upload a staging
+  image until that prerequisite is verified. No audio setup, upload, fixture
+  write or production LOAD was performed; the standalone diagnostic was not repeated.
+* [x] Correct stopped-load member destruction order after fresh unoptimized host
+  tests exposed Candidate leases calling an already-destroyed SdSourceService.
+  Keep the service alive through candidate destruction; existing Debug and
+  Release stopped-load tests pass. Physical restoration/load remains pending.
 * [ ] Complete a production scheduler and lossless Tune Load/Save lifecycle,
   including dirty ownership/recovery and stronger source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate

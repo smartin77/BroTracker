@@ -23,10 +23,11 @@ class StoppedLoad {
     FsBackings::Output output_;
     FsBackings::Token tokens_[2]{};
     bool token_live_[2]{};
+    // Candidates release source leases during destruction; service outlives them.
+    SdSourceService sources_;
     Candidate owners_[2];
     int active_=-1;
     unsigned staging_=0;
-    SdSourceService sources_;
     FsFile input_;
     ReaderOwner sealed_;
     Document document_;
