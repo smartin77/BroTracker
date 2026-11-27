@@ -59,14 +59,23 @@ PCM or opens real Samples. One virtual Acquire call is not a measured SD work
 quantum; a real adapter must coordinate the existing asynchronous job/refill
 owner and report checked close/quarantine failures.
 
-The specific production blocker is `SdSampleStreaming`: PreparePath returns a
-borrowed view; PinRollback overwrites one mask; ReleaseUnused/ReclaimOne and
-DiscardLastPrepared have no independent generation-checked candidate lease.
-They already preserve binding/rollback/voice owners, which must remain intact.
-Calling them as if the view were a candidate-owned source is unsafe. No adapter
-or global ownership refactor is implemented. A future narrow source pin facade
-must participate in **every** reclaim route without overwriting the existing
-rollback mask. Its backend must outlive all SourceLeases.
+`SdSampleStreaming` now exposes independent generation-checked candidate pins;
+see [the exact API](../../docs/SD_SAMPLE_STREAMING.md#candidate-source-pins-2026-11-27).
+Acquire from `PreparedGeneration(path)`, clone through checked retain, access
+through a valid token and balance every ownership increment with release. The
+producer retains its path and prepared PCM/format generation until all existing
+candidate, binding, rollback and published voice protections are gone. Reset
+refuses live pins; generations never wrap or reset. Full source capacity and
+generation exhaustion are explicit through `PreparationCapacity()`; legacy
+preparation failure results remain unchanged. No physical SD immutability or
+playback admission follows from pins. Root/Fine Tune remain outside the PCM key.
+
+The BTT SourceService adapter is still outside this change. Next map SourceLease
+to producer tokens and define Pending/Ready admission with the single existing
+async preparation job after active refills, including cancellation, job ownership,
+checked close/quarantine and source-change enforcement. A borrowed PreparePath
+view or replaceable rollback mask is still not a candidate ownership credential.
+The backend must outlive all SourceLeases.
 
 `StoppedExchange` simulates pointer/owner handoff. Commit requires a caller's
 simulated stopped assertion, a Ready candidate and no retained previous owner.

@@ -56,11 +56,14 @@
   real path/source regression tests plus target compile/layout evidence are saved.
   No second path pool or PCM caches, and no production integration.
   [Resource prototype](FILE_FORMATS.md#isolated-candidate-resource-admission)
-* [ ] Next expose a narrow generation-checked candidate source pin facade in the
-  existing streaming producer and exercise all reclaim routes under fake SD,
-  without overwriting the current rollback mask. Borrowed PreparePath views and
-  the single rollback mask cannot yet implement the prototype's source contract.
-  Production namespace/media enforcement remains required. Validate
+* [x] Expose a narrow generation-checked candidate source pin API in the existing
+  streaming producer, preserving the separate rollback mask and binding/voice
+  protections. Real fake-SD tests cover reclaim/discard, failed/cancelled jobs,
+  stale reuse, capacity, reset, exhaustion and repeated path/source ownership.
+  [API and adapter boundary](SD_SAMPLE_STREAMING.md#candidate-source-pins-2026-11-27)
+* [ ] Adapt BTT SourceService to producer pins and integrate asynchronous
+  Pending/Ready admission with the single job/refill owner. Define cancellation,
+  checked close/quarantine and production namespace/media enforcement. Validate
   actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
   64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,
   playback prefetch, FX execution, UI and transport remain separate work.

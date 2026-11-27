@@ -60,7 +60,8 @@ public:
     }
     std::size_t getName(char* out,std::size_t cap){const auto name=path_.substr(path_.find_last_of('/')+1);if(cap){std::strncpy(out,name.c_str(),cap-1);out[cap-1]=0;}return name.size();}
     bool sync(){return !FakePatternSd::fail_sync;}
-    bool close(){entry_=nullptr;return !FakePatternSd::fail_close;}
+    // SdFat returns false for an unopened file; failed close retains the handle.
+    bool close(){const bool opened=entry_!=nullptr;if(!FakePatternSd::fail_close)entry_=nullptr;return opened && !FakePatternSd::fail_close;}
 };
 struct FakePatternFs {
     unsigned sdErrorCode()const{return FakePatternSd::fail_open?1:0;}

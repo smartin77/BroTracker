@@ -19,6 +19,9 @@
 using namespace BroTracker;
 
 namespace BroTracker {
+struct SdSampleStreamingTestAccess {
+    static void ExhaustAfterNextSource(SdSampleStreaming& p) {p.source_sequence_=UINT32_MAX-1;}
+};
 StreamInterruptGuard::StreamInterruptGuard() noexcept {
     mask_=FakeStreamPlatform::primask; FakeStreamPlatform::primask=1;
 }
@@ -1291,4 +1294,182 @@ TEST_CASE(LiveInstrumentVisitAllowsCleanTakeoverAndProtectsDirtyRollback) {
     CHECK(visit.Begin(11,definitions,bindings));
     CHECK_EQ(visit.Restore(0,definitions,bindings,[](unsigned,const auto*){return true;}),0u);
     CHECK(visit.Begin(12,definitions,bindings));
+}
+
+namespace {
+using Pin=SdSampleStreaming::CandidatePin;
+using PinResult=SdSampleStreaming::PinResult;
+using Capacity=SdSampleStreaming::SourceCapacity;
+void FinishPreparation(SdSampleStreaming& p) {
+    for(unsigned i=0;i<200 && !p.PreparationDone();++i)p.PreparationStep();
+    CHECK(p.PreparationDone());
+}
+Pin PinPath(SdSampleStreaming& p,const char* path) {
+    Pin pin;
+    CHECK_EQ(p.AcquireCandidatePin(p.PreparedGeneration(path),pin),PinResult::Ready);
+    return pin;
+}
+}
+
+TEST_CASE(CandidatePinsSharePreparedGenerationAndIndependentlyPreventEveryReclaimRoute) {
+    Fixture f;auto& p=f.producer;const char* path="Samples/candidates.wav";
+    FakePatternSd::files[path].bytes=RateFixtureWav(1200,32000,2,8);
+    CHECK(p.BeginPrepareAsync(path));FinishPreparation(p);
+    CHECK_EQ(p.PreparationResult(),InstrumentAvailability::Ready);
+    const auto a=PinPath(p,path);const auto b=PinPath(p,path);
+    Pcm16MixedSampleView view;const char* owned=nullptr;
+    CHECK(p.AccessCandidatePin(a,view,owned));CHECK_EQ(std::string(owned),std::string(path));
+    const auto* source=view.streaming;const auto first=view.data[0];
+    const auto reads=FakePatternSd::reads.size();const auto bytes=ResourcePaths().UsedBytes();
+    CHECK(p.BeginPrepareAsync(path));CHECK(p.PreparationDone());
+    p.CancelPreparation(); // A shared completed job owns no discardable new slot.
+    CHECK_EQ(p.PreparedMixedView().streaming,source);CHECK_EQ(p.SourceCount(),4u);
+    CHECK_EQ(FakePatternSd::reads.size(),reads);CHECK_EQ(ResourcePaths().UsedBytes(),bytes);
+    CHECK(p.RetainCandidatePin(a));CHECK(p.ReleaseCandidatePin(a));
+    Pin nonempty=a;CHECK_EQ(p.AcquireCandidatePin(a.generation,nonempty),PinResult::InvalidGeneration);
+    Pin invalid=a;invalid.slot=SdSampleStreaming::kSourceCapacity;
+    CHECK(!p.RetainCandidatePin(invalid));CHECK(!p.ReleaseCandidatePin(invalid));CHECK(!p.AccessCandidatePin(invalid,view,owned));
+    invalid=a;invalid.producer=nullptr;CHECK(!p.ReleaseCandidatePin(invalid));
+    SdSampleStreaming other;CHECK(!other.RetainCandidatePin(a));CHECK(!other.ReleaseCandidatePin(a));
+    VariableRateSampleBindings none{};
+    p.DiscardLast(path);p.ReleaseUnused(none,true);CHECK(!p.ReclaimOne(none));
+    CHECK(!p.Reset());
+    CHECK(p.ReleaseCandidatePin(a));
+    p.DiscardLast(path);p.ReleaseUnused(none,true);CHECK(!p.ReclaimOne(none));
+    CHECK(p.AccessCandidatePin(b,view,owned));CHECK_EQ(view.streaming,source);CHECK_EQ(view.data[0],first);
+    CHECK(p.ReleaseCandidatePin(b));CHECK(!p.ReleaseCandidatePin(b));
+    CHECK(!p.AccessCandidatePin(b,view,owned));CHECK(!p.RetainCandidatePin(b));
+    CHECK(p.ReclaimOne(none));CHECK_EQ(p.SourceCount(),3u);
+    CHECK(p.BeginPrepareAsync(path));FinishPreparation(p);const auto replacement=PinPath(p,path);
+    CHECK_EQ(replacement.slot,a.slot);CHECK(replacement.generation!=a.generation);
+    CHECK(!p.ReleaseCandidatePin(a));CHECK(!p.RetainCandidatePin(a));CHECK(!p.AccessCandidatePin(a,view,owned));
+    Pin stale_output{};
+    CHECK_EQ(p.AcquireCandidatePin(a.generation,stale_output),PinResult::InvalidGeneration);
+    CHECK(!p.ReclaimOne(none));CHECK(p.ReleaseCandidatePin(replacement));
+    p.DiscardLast(path);CHECK_EQ(p.SourceCount(),3u);
+}
+
+TEST_CASE(CandidatePinsRemainIndependentOfBindingRollbackPatternAndAuditionVoiceOwners) {
+    Fixture f;auto& p=f.producer;const char* path="Samples/protections.wav";
+    FakePatternSd::files[path].bytes=RateFixtureWav(3000,44100,1);
+    Pcm16MixedSampleView view;CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);
+    auto pin=PinPath(p,path);
+    VariableRateSampleBindings binding{};binding.count=1;binding.bindings[0].sample=view;
+    VariableRateSampleBindings none{};
+    p.PinRollback(binding);CHECK(p.ReleaseCandidatePin(pin));
+    CHECK(!p.Reset());
+    p.DiscardLast(path);p.ReleaseUnused(none,true);CHECK(!p.ReclaimOne(none));
+    pin=PinPath(p,path);p.UnpinRollback();CHECK(!p.ReclaimOne(none));
+    CHECK(p.ReleaseCandidatePin(pin));p.ReleaseUnused(binding,true);CHECK(!p.ReclaimOne(binding));
+    for(unsigned channel:{0u,kAuditionStreamChannel}) {
+        StreamedVoiceSnapshot voice{};voice.sample=view.streaming;voice.generation=1;voice.step=kSourceFrameStepUnity;
+        p.PublishVoice(channel,voice);
+        p.DiscardLast(path);p.ReleaseUnused(none,true);CHECK(!p.ReclaimOne(none));CHECK(!p.Reset());
+        p.PublishVoice(channel,{});
+    }
+    CHECK(p.ReclaimOne(none));CHECK_EQ(p.SourceCount(),3u);
+}
+
+TEST_CASE(CandidatePinsSurvivePreparationCancellationFailuresAndReservedSlotExclusion) {
+    Fixture f;auto& p=f.producer;const char* path="Samples/pinned.wav";
+    FakePatternSd::files[path].bytes=PickerWav();Pcm16MixedSampleView view;
+    CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);const auto pin=PinPath(p,path);
+    const auto baseline_paths=ResourcePaths().UsedBytes();
+    for(unsigned phase=0;phase<12;++phase) {
+        const char* pending="Samples/pending.wav";FakePatternSd::files[pending].bytes=PickerWav();
+        CHECK(p.BeginPrepareAsync(pending));
+        for(unsigned i=0;i<phase && !p.PreparationDone();++i)p.PreparationStep();
+        CHECK_EQ(p.PreparedGeneration(pending),0u);
+        p.CancelPreparation();FinishPreparation(p);
+        CHECK_EQ(p.SourceCount(),4u);CHECK_EQ(ResourcePaths().UsedBytes(),baseline_paths);
+        CHECK(!p.ReclaimOne(VariableRateSampleBindings{}));
+    }
+    for(unsigned fault=0;fault<4;++fault) {
+        const char* bad="Samples/bad.wav";FakePatternSd::files[bad].bytes=fault?PickerWav():std::vector<std::uint8_t>{1,2};
+        FakePatternSd::fail_open=fault==1;
+        FakePatternSd::fail_seek_path=fault==2?bad:"";FakePatternSd::short_read_path=fault==3?bad:"";
+        CHECK(p.BeginPrepareAsync(bad));FinishPreparation(p);
+        CHECK(p.PreparationResult()!=InstrumentAvailability::Ready);CHECK_EQ(p.PreparedGeneration(bad),0u);
+        CHECK(p.PreparePath(bad,view)!=InstrumentAvailability::Ready);
+        CHECK_EQ(ResourcePaths().UsedBytes(),baseline_paths);CHECK_EQ(p.SourceCount(),4u);
+        FakePatternSd::fail_open=false;FakePatternSd::fail_seek_path.clear();FakePatternSd::short_read_path.clear();
+    }
+    FakePatternSd::files["Samples/async.wav"].bytes=PickerWav();
+    FakePatternSd::files["Samples/sync.wav"].bytes=PickerWav();
+    CHECK(p.BeginPrepareAsync("Samples/async.wav"));
+    CHECK_EQ(p.PreparePath("Samples/sync.wav",view),InstrumentAvailability::Ready);
+    FinishPreparation(p);CHECK_EQ(p.PreparationResult(),InstrumentAvailability::Ready);
+    CHECK(p.PreparedMixedView().streaming!=view.streaming);
+    CHECK(p.ReleaseCandidatePin(pin));p.ReleaseUnused(VariableRateSampleBindings{},true);CHECK_EQ(p.SourceCount(),3u);
+}
+
+TEST_CASE(CandidateSourceCapacityAndReferenceCapacityNeverEvictOwners) {
+    Fixture f;auto& p=f.producer;std::array<Pin,13> pins{};
+    for(unsigned i=0;i<pins.size();++i) {
+        const auto path="Samples/capacity"+std::to_string(i)+".wav";
+        FakePatternSd::files[path].bytes=PickerWav();CHECK(p.BeginPrepareAsync(path.c_str()));FinishPreparation(p);
+        pins[i]=PinPath(p,path.c_str());
+    }
+    CHECK_EQ(p.PreparationCapacity(),Capacity::Full);
+    FakePatternSd::files["Samples/overflow.wav"].bytes=PickerWav();
+    CHECK(p.BeginPrepareAsync("Samples/overflow.wav"));CHECK(p.PreparationDone());
+    CHECK_EQ(p.PreparationResult(),InstrumentAvailability::PreparationFailed);
+    Pcm16MixedSampleView view;CHECK_EQ(p.PreparePath("Samples/overflow.wav",view),InstrumentAvailability::PreparationFailed);
+    p.ReleaseUnused(VariableRateSampleBindings{},true);CHECK(!p.ReclaimOne(VariableRateSampleBindings{}));
+    const auto reads=FakePatternSd::reads.size();const auto paths=ResourcePaths().UsedBytes();
+    for(unsigned i=1;i<UINT16_MAX;++i)CHECK(p.RetainCandidatePin(pins[0]));
+    CHECK(!p.RetainCandidatePin(pins[0]));Pin output{};
+    CHECK_EQ(p.AcquireCandidatePin(pins[0].generation,output),PinResult::Capacity);CHECK_EQ(output.generation,0u);
+    for(unsigned i=1;i<UINT16_MAX;++i)CHECK(p.ReleaseCandidatePin(pins[0]));
+    CHECK_EQ(FakePatternSd::reads.size(),reads);CHECK_EQ(ResourcePaths().UsedBytes(),paths);
+    for(auto pin:pins){const char* path=nullptr;CHECK(p.AccessCandidatePin(pin,view,path));CHECK(p.ReleaseCandidatePin(pin));}
+    p.ReleaseUnused(VariableRateSampleBindings{},true);CHECK_EQ(p.SourceCount(),3u);
+}
+
+TEST_CASE(CandidateResetReinitializationAndGenerationExhaustionCannotAliasOldTokens) {
+    Fixture f;auto& p=f.producer;const char* path="Samples/reset.wav";
+    FakePatternSd::files[path].bytes=PickerWav();Pcm16MixedSampleView view;const char* owned=nullptr;
+    CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);auto pin=PinPath(p,path);
+    DevelopmentWavInspection inspection{};
+    p.Prepare(true,f.memory,inspection);CHECK(p.AccessCandidatePin(pin,view,owned)); // refused
+    CHECK(p.ReleaseCandidatePin(pin));CHECK(p.Reset());p.Prepare(true,f.memory,inspection);
+    CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);const auto replacement=PinPath(p,path);
+    CHECK_EQ(pin.slot,replacement.slot);CHECK(pin.generation!=replacement.generation);
+    CHECK(!p.RetainCandidatePin(pin));CHECK(!p.ReleaseCandidatePin(pin));CHECK(!p.AccessCandidatePin(pin,view,owned));
+    CHECK(p.ReleaseCandidatePin(replacement));p.DiscardLast(path);
+    CHECK(SdAccess::AcquireWrite());CHECK(!p.Reset());SdAccess::ReleaseWrite();
+    SdSampleStreamingTestAccess::ExhaustAfterNextSource(p);
+    FakePatternSd::files["Samples/late.wav"].bytes=PickerWav();
+    CHECK(p.BeginPrepareAsync("Samples/late.wav"));
+    CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);pin=PinPath(p,path);CHECK_EQ(pin.generation,UINT32_MAX);
+    FinishPreparation(p);CHECK_EQ(p.PreparationResult(),InstrumentAvailability::PreparationFailed);
+    CHECK_EQ(p.PreparedGeneration("Samples/late.wav"),0u);CHECK_EQ(p.SourceCount(),4u);
+    CHECK_EQ(p.PreparationCapacity(),Capacity::GenerationExhausted);
+    CHECK(p.BeginPrepareAsync(path));CHECK_EQ(p.PreparationResult(),InstrumentAvailability::Ready);
+    CHECK_EQ(p.PreparePath("Samples/new.wav",view),InstrumentAvailability::PreparationFailed);
+    CHECK(p.ReleaseCandidatePin(pin));CHECK(p.Reset());p.Prepare(true,f.memory,inspection);
+    CHECK_EQ(p.PreparationCapacity(),Capacity::GenerationExhausted);
+    CHECK(!p.AccessCandidatePin(pin,view,owned));CHECK(p.BeginPrepareAsync(path));
+    CHECK_EQ(p.PreparationResult(),InstrumentAvailability::PreparationFailed);
+}
+
+TEST_CASE(CandidatePinCyclesReleaseSourceAndSharedPathOwnershipAndQuarantineFailedClose) {
+    const auto paths=ResourcePaths().UniqueCount();const auto bytes=ResourcePaths().UsedBytes();
+    {
+        Fixture f;auto& p=f.producer;const auto initial=ResourcePaths().UsedBytes();
+        const char* path="Samples/cycle.wav";FakePatternSd::files[path].bytes=PickerWav();
+        for(unsigned i=0;i<80;++i) {
+            Pcm16MixedSampleView view;CHECK_EQ(p.PreparePath(path,view),InstrumentAvailability::Ready);
+            const auto a=PinPath(p,path),b=PinPath(p,path);CHECK(p.ReleaseCandidatePin(a));CHECK(p.ReleaseCandidatePin(b));
+            if(i%3==0)p.DiscardLast(path);
+            else if(i%3==1)p.ReleaseUnused(VariableRateSampleBindings{},true);
+            else CHECK(p.ReclaimOne(VariableRateSampleBindings{}));
+            CHECK_EQ(p.SourceCount(),3u);CHECK_EQ(ResourcePaths().UsedBytes(),initial);
+        }
+        CHECK(p.BeginPrepareAsync(path));p.PreparationStep();p.CancelPreparation();FakePatternSd::fail_close=true;
+        FinishPreparation(p);CHECK_EQ(p.SourceCount(),4u);CHECK_EQ(p.PreparedGeneration(path),0u);
+        CHECK(ResourcePaths().Find(path)!=0);CHECK(!p.Reset());
+        FakePatternSd::fail_close=false;CHECK(p.Reset());CHECK_EQ(ResourcePaths().Find(path),0u);
+    }
+    CHECK_EQ(ResourcePaths().UniqueCount(),paths);CHECK_EQ(ResourcePaths().UsedBytes(),bytes);
 }

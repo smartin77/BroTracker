@@ -1,5 +1,88 @@
 # Production SD sample streaming — 2026-11-07
 
+## Candidate source pins (2026-11-27)
+
+`SdSampleStreaming` exposes a foreground-only ownership API, independent of
+`PinRollback`. The producer must remain alive at the same address until every
+pin is released; copying/moving the producer is disabled. No production BTT
+SourceService adapter or Tune Load/Save integration is included.
+
+1. Use the existing cooperative `BeginPrepareAsync` / `PreparationStep` job and
+   refill-first scheduling. Once ready, `PreparedGeneration(path)` returns the
+   exact currently prepared source generation, or zero if unavailable. It does
+   not acquire ownership and must be followed by a checked acquisition.
+2. `AcquireCandidatePin(generation, output)` accepts a zero-initialized
+   `CandidatePin` and returns `PinResult::Ready`, `InvalidGeneration`, or
+   `Capacity`. Failure leaves output and ownership unchanged. A nonempty output
+   is rejected. Acquisition rechecks the generation; a borrowed PCM view is not
+   an ownership credential.
+3. `RetainCandidatePin(token)` returns false for invalid tokens or a saturated
+   65,535-reference source. Each successful acquire/retain requires one
+   `ReleaseCandidatePin(token)`, which returns false for an invalid token.
+   Token copies alone do not retain ownership. A released copy must never be
+   used again, even if another owner retains the same generation. Release does
+   not close or reclaim the source. Clear a released token before reusing its
+   output variable. These are balanced reference operations, not unique tickets
+   capable of detecting one owner's double-release while another owner exists.
+4. `AccessCandidatePin(token, view, path)` returns false without modifying outputs
+   for invalid tokens. A successful access exposes source format, immutable
+   prepared prefix and the source-owned path. Keep a pin while using these
+   outputs; later audio binding/voice publication still uses existing rules.
+
+Tokens carry producer address, slot and nonzero uint32 generation. All three,
+occupied/ready state and a positive candidate count are checked on access,
+retain and release. Slot reuse always gets a fresh generation. The existing
+waveform/source sequence never wraps and survives Reset/Prepare. At UINT32_MAX,
+existing prepared sources can still be shared/pinned; new sources are refused.
+`PreparationCapacity()` explicitly distinguishes `Available`, `Full` and
+`GenerationExhausted` for new sources. Legacy prepare results stay unchanged
+(`PreparationFailed` on full/exhausted capacity); compatible path sharing is
+checked before capacity and remains possible when full. No protected owner is
+evicted. Root Note/Fine Tune remain instrument trigger parameters and are absent
+from the source key. Sharing means the same exact runtime path and supported
+prepared format; pins do not establish immutable physical SD contents or detect
+external media/path mutation.
+
+`ReleaseUnused` and `ReclaimOne` preserve independent candidate, binding,
+rollback and all nine published voice/span protections. `DiscardLast` requires
+an uninstalled last source (the caller must already exclude bindings); it also
+refuses candidate, rollback and published pattern/audition owners. All normal
+closes funnel through a final protection check. Async unpublished job slots
+are excluded from reclamation and synchronous slot selection. Failure/cancel
+can only discard that unpublished slot, never a compatible ready source.
+Uncertain closes quarantine the slot and retain its path until a checked close
+succeeds. Retain/release/access perform no I/O, path refcounting or allocation.
+
+`Reset()` requires stopped foreground with external bindings/renderers detached.
+It returns false without changing state if any candidate, rollback or published
+voice/span owner remains, or SD access cannot be acquired. Otherwise it closes
+handles and invalidates all old generations. A failed close disables preparation
+and retains quarantined slot/path ownership; retry Reset before reinitializing.
+`Prepare` first attempts Reset and leaves protected state unchanged on refusal.
+The identity sequence remains exhausted if it was exhausted before Reset.
+Tokens from a destroyed producer must never be used with a new object, including
+one constructed at the same address.
+
+No audio renderer, publication, refill selection or priority code changes.
+Additional fixed storage is sixteen uint16 candidate counts; there are no new
+PCM buffers or path pools. Fresh `teensy41_dev` baseline/final ELF measurements:
+producer 4,704 -> 4,736 bytes; RAM1 static 157,824 -> 157,856 (+32 bytes),
+RAM2 static unchanged at 166,688 bytes, EXTMEM zero. ITCM text grows by 1,344
+bytes within the same eight allocated banks; RAM1 local/stack gap is 104,288
+bytes. PCM storage remains 143,360 bytes. These are compile/link measurements,
+not runtime stack/heap or SD deadline qualification. Real fake-SD regression tests exercise the producer,
+including reference saturation, stale slots, reset, cancellation, close failure,
+capacity and repeated path/source reuse. Evidence and measured firmware RAM delta
+are in `build/btt-source-pins/`.
+
+Next implement a separate BTT SourceService adapter that owns producer tokens,
+maps checked retain/release and capacity, and coordinates Pending/Ready with the
+single asynchronous job after active refills. It must define cancellation/job
+ownership, checked close/quarantine reporting and physical source-change policy.
+The existing admission prototype's synchronous Acquire contract needs an explicit
+asynchronous integration step. Pins alone confer neither playback admission nor
+immutable storage enforcement.
+
 ## Wav-LQ library rates
 
 Native PCM8 and PCM16 mono/stereo also accept 7,040, 10,000, 14,019, 16,000,

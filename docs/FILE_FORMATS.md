@@ -986,14 +986,22 @@ handoff, STOP acknowledgement, MIDI action or production publication occurs.
 Resource-ready is **not playback admission**: saved unsupported FX/order data,
 runtime interpretation, transport and audio resource readiness remain separate.
 
-Concrete integration blocker: production SdSampleStreaming returns borrowed
-views, has one replaceable PinRollback mask and one asynchronous preparation job.
-ReleaseUnused, ReclaimOne and DiscardLastPrepared do not expose an independent
-generation-checked candidate pin. Treating a returned view as a strong candidate
-owner would be unsafe. This prototype therefore leaves the real source adapter
-unimplemented rather than refactoring global ownership. Its next small step is
-a narrow candidate-pin facade in that producer, tested against every reclaim
-route under fake SD while retaining the existing rollback/binding/voice guards.
+Production `SdSampleStreaming` now has an independent generation-checked
+candidate-pin API alongside its unchanged rollback mask, bindings and published
+pattern/audition voice protection. `PreparedGeneration(path)` snapshots identity;
+`AcquireCandidatePin`, `RetainCandidatePin`, `ReleaseCandidatePin` and
+`AccessCandidatePin` check source generation and ownership. `PreparationCapacity`
+reports full/exhausted new-source capacity without eviction. Reset refuses live
+pins and retains the nonwrapping source sequence across reinitialization.
+See [the exact API and reclaim/reset contract](SD_SAMPLE_STREAMING.md#candidate-source-pins-2026-11-27).
+Real fake-SD tests cover all reclaim/discard paths, failed/cancelled preparation,
+multiple owners, stale reuse, reference/source capacity and ownership cycles;
+diff, results and actual firmware RAM delta are in `build/btt-source-pins/`.
+The BTT SourceService adapter remains unimplemented. Next map its leases to these
+tokens and integrate Pending/Ready admission with the single asynchronous job
+after active refills, including cancellation and checked close/quarantine.
+Pins preserve prepared identity/format/path/PCM state, not immutable physical SD
+contents or playback admission. Root/Fine Tune remain per-instrument parameters.
 
 Measured ARM GCC 15.2.1 sizes: saved view **32 bytes**, Definition **60**,
 Candidate **5,972**, two candidates **11,944**, SourceLease **12**, SourceToken
@@ -1052,7 +1060,7 @@ are excluded. Existing BTT and real-path/streaming regression suites also run.
 See `tools/btt/RESOURCE_ADMISSION.md` for contracts/commands. Complete diff,
 tests, allocation/memory evidence, target compile/frame/link logs, map and report
 are under `build/btt-resource-admission/`. Physical stack/heap peaks, namespace/
-media enforcement, actual candidate source pins, prefetch, FX execution and
+media enforcement, asynchronous source-pin adapter integration, prefetch, FX execution and
 FAT/power-loss recovery remain separate integration blockers.
 
 #### Proposed current/next-pattern buffering and deferred validation

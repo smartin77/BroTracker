@@ -32,12 +32,78 @@ private:
 class SdSampleStreaming {
 public:
     static constexpr unsigned kSourceCapacity=16;
+    SdSampleStreaming()=default;
+    SdSampleStreaming(const SdSampleStreaming&)=delete;
+    SdSampleStreaming& operator=(const SdSampleStreaming&)=delete;
+    // Foreground only. Tokens are scoped to this producer's lifetime. Copying a
+    // token does not retain it; each successful acquire/retain needs one release.
+    struct CandidatePin { const SdSampleStreaming* producer=nullptr; std::uint32_t generation=0; unsigned slot=kSourceCapacity; };
+    enum class PinResult { Ready, InvalidGeneration, Capacity };
+    enum class SourceCapacity { Available, Full, GenerationExhausted };
+    SourceCapacity PreparationCapacity() const noexcept {
+        if(source_sequence_==UINT32_MAX)return SourceCapacity::GenerationExhausted;
+        for(unsigned i=3;i<kSourceCapacity;++i)if(!occupied_[i] && i!=job_index_)return SourceCapacity::Available;
+        return SourceCapacity::Full;
+    }
+    // Snapshot identity without borrowing a PCM view. Acquire must recheck it.
+    std::uint32_t PreparedGeneration(const char* path) const noexcept {
+        if(!path)return 0;
+        for(unsigned i=0;i<kSourceCapacity;++i)
+            if(occupied_[i] && reports[i].view.data && !std::strcmp(paths_[i].Get(),path))return source_tokens_[i];
+        return 0;
+    }
+    PinResult AcquireCandidatePin(std::uint32_t generation,CandidatePin& output) noexcept {
+        if(output.generation)return PinResult::InvalidGeneration; // Never overwrite an owned reservation.
+        for(unsigned i=0;generation && i<kSourceCapacity;++i)
+            if(occupied_[i] && reports[i].view.data && source_tokens_[i]==generation) {
+                if(candidate_pins_[i]==UINT16_MAX)return PinResult::Capacity;
+                ++candidate_pins_[i];output={this,generation,i};return PinResult::Ready;
+            }
+        return PinResult::InvalidGeneration;
+    }
+    bool RetainCandidatePin(CandidatePin pin) noexcept {
+        if(!ValidCandidatePin(pin) || candidate_pins_[pin.slot]==UINT16_MAX)return false;
+        ++candidate_pins_[pin.slot];return true;
+    }
+    bool ReleaseCandidatePin(CandidatePin pin) noexcept {
+        if(!ValidCandidatePin(pin))return false;
+        --candidate_pins_[pin.slot];return true;
+    }
+    // Returned view/path remain valid only while caller owns a pin (or another
+    // existing protection). Access does not transfer ownership to an audio voice.
+    bool AccessCandidatePin(CandidatePin pin,Pcm16MixedSampleView& view,const char*& path) const noexcept {
+        if(!ValidCandidatePin(pin))return false;
+        view=reports[pin.slot].view;path=paths_[pin.slot].Get();return true;
+    }
     struct Storage {
         std::int16_t rings[kStreamVoiceCount][kStreamRingFrames];
         std::int16_t starts[kSourceCapacity][kStreamStartFrames];
         std::int16_t staging[kStreamReadFrames];
     };
+    // Stopped foreground, bindings/renderers detached. Pins/rollback/published
+    // voice spans refuse reset. Sequence is never reset, including reinitialization.
+    // An uncertain close quarantines its slot/path and refuses reinitialization.
+    bool Reset() {
+        for(unsigned i=0;i<kSourceCapacity;++i)if(candidate_pins_[i])return false;
+        if(rollback_pins_)return false;
+        {StreamInterruptGuard guard;for(unsigned c=0;c<kStreamVoiceCount;++c)
+            if(states_[c].sample || buffers_[c].sample)return false;}
+        SdReadScope lease;if(!lease)return false;
+        sd_ready_=false;memory_=nullptr;bool closed=true;
+        for(unsigned i=0;i<kSourceCapacity;++i) {
+            source_tokens_[i]=0;reports[i]={};
+            if(files_[i] && !files_[i].close()){occupied_[i]=true;closed=false;continue;}
+            occupied_[i]=false;paths_[i].Reset();sources_[i]={};offsets_[i]=0;fingerprints_[i]={};
+        }
+        count_=3;for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i])++count_;
+        if(!closed){job_phase_=JobIdle;job_index_=kSourceCapacity;return false;}
+        job_path_.Reset();job_view_={};job_phase_=JobIdle;job_index_=kSourceCapacity;job_read_=0;
+        job_result_=InstrumentAvailability::PreparationFailed;last_prepared_=kSourceCapacity;count_=3;
+        for(unsigned c=0;c<kStreamVoiceCount;++c){states_[c]={};buffers_[c]={};failed_generation_[c]=0;}
+        return true;
+    }
     void Prepare(bool sd_ready,Storage& memory,const DevelopmentWavInspection& inspection) {
+        if(!Reset())return;
         memory_=&memory;sd_ready_=sd_ready;
         for(unsigned i=0;i<kStreamVoiceCount;++i) buffers_[i].ring=memory.rings[i];
         for(unsigned i=0;i<3;++i) {
@@ -47,7 +113,7 @@ public:
             auto& source=sources_[i]; auto& report=reports[i];
             report.attempted=true; report.sd_ready=sd_ready; report.capacity=kStreamStartFrames;
             report.address=reinterpret_cast<std::uintptr_t>(memory.starts[i]);
-            if(!sd_ready || found.validation!=WavBufferStatus::Success) continue;
+            if(!sd_ready || found.validation!=WavBufferStatus::Success || source_sequence_==UINT32_MAX) continue;
             SdReadScope ownership; if(!ownership) continue;
             if(!files_[i].open(kDevelopmentWavPaths[i],O_RDONLY)) continue;
             StreamedSample candidate;
@@ -79,7 +145,8 @@ public:
                 stereo,lower_rates,pcm8_and_8363,library_rates))return InstrumentAvailability::PreparationFailed;
             output=reports[i].view;return InstrumentAvailability::Ready;
         }
-        unsigned index=3;while(index<kSourceCapacity && occupied_[index])++index;
+        if(PreparationCapacity()!=SourceCapacity::Available)return InstrumentAvailability::PreparationFailed;
+        unsigned index=3;while(index<kSourceCapacity && (occupied_[index] || index==job_index_))++index;
         if(index==kSourceCapacity)return InstrumentAvailability::PreparationFailed;
         ResourcePathRef candidate;if(!candidate.Assign(path))return InstrumentAvailability::PathCapacity;
         SdReadScope ownership;if(!ownership)return InstrumentAvailability::NotPrepared;
@@ -97,11 +164,11 @@ public:
         StreamedSample source;
         if(InspectWavMetadata(reader,metadata,kWavInspectionChunkLimit,stereo,lower_rates,pcm8_and_8363,library_rates)!=WavBufferStatus::Success ||
             !DescribeSource(metadata,metadata.file_bytes,memory_->starts[index],source)) {
-            file.close();return InstrumentAvailability::PreparationFailed;
+            AbandonPreparation(index,candidate);return InstrumentAvailability::PreparationFailed;
         }
         const auto offset=static_cast<std::uint32_t>(metadata.data_offset);
         if(!ReadFrames(file,offset,source,0,source.PrefixFrames(),memory_->starts[index],kStreamStartBytes)) {
-            file.close();return InstrumentAvailability::PreparationFailed;
+            AbandonPreparation(index,candidate);return InstrumentAvailability::PreparationFailed;
         }
         offsets_[index]=offset;
         sources_[index]=source;
@@ -114,6 +181,7 @@ public:
     // Only the just-prepared, uninstalled candidate is discardable on rejection.
     void DiscardLast(const char* path) {
         if(last_prepared_>=kSourceCapacity || !occupied_[last_prepared_] || std::strcmp(paths_[last_prepared_].Get(),path))return;
+        if(ProtectedSource(last_prepared_))return;
         SdReadScope ownership;if(ownership)ReleaseSource(last_prepared_);
     }
     // Stopped foreground only, after successful binding publication. Never compact
@@ -129,7 +197,7 @@ public:
               if(states_[channel].sample==&sources_[i] || buffers_[channel].sample==&sources_[i])retained[i]=true;
         }
         SdReadScope ownership;if(!ownership)return;
-        for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !retained[i] && !(rollback_pins_&(1u<<i)))ReleaseSource(i);
+        for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !retained[i] && !ProtectedSource(i))ReleaseSource(i);
     }
     unsigned SourceCount()const{return count_;}
     template<class Bindings> void PinRollback(const Bindings& bindings) {
@@ -156,7 +224,7 @@ public:
     }
     // One close at most; retain sources needed by bindings, rollback or voices.
     template<class Bindings> bool ReclaimOne(const Bindings& bindings) {
-        for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !(rollback_pins_&(1u<<i)) && i!=job_index_) {
+        for(unsigned i=3;i<kSourceCapacity;++i)if(occupied_[i] && !ProtectedSource(i)) {
             bool keep=false;
             for(unsigned j=0;j<bindings.count;++j)keep|=bindings.bindings[j].sample.streaming==&sources_[i];
             {StreamInterruptGuard guard;for(unsigned c=0;c<kStreamVoiceCount;++c)keep|=states_[c].sample==&sources_[i] || buffers_[c].sample==&sources_[i];}
@@ -173,6 +241,7 @@ public:
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
             job_view_=reports[i].view;job_result_=InstrumentAvailability::Ready;return true;
         }
+        if(PreparationCapacity()!=SourceCapacity::Available)return true;
         unsigned i=3;while(i<kSourceCapacity && occupied_[i])++i;
         if(i==kSourceCapacity)return true;
         if(!job_path_.Assign(path)){job_result_=InstrumentAvailability::PathCapacity;return true;}
@@ -190,7 +259,7 @@ public:
         SdReadScope lease;if(!lease)return;
         auto& file=files_[job_index_];
         auto& source=sources_[job_index_]; // Reserved foreground slot, unpublished until the prefix is complete.
-        if(job_phase_==JobClose){file.close();source={};job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
+        if(job_phase_==JobClose){AbandonPreparation(job_index_,job_path_);job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
         if(job_phase_==JobOpen) {
             if(!file.open(job_path_.Get(),O_RDONLY)){job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
             job_phase_=JobInspect;return;
@@ -222,6 +291,7 @@ public:
         }
         job_read_+=n;if(job_read_!=frames)return;
         offsets_[job_index_]=offset;
+        if(source_sequence_==UINT32_MAX){job_phase_=JobClose;return;}
         StampSource(job_index_,job_inspection_.Metadata().file_bytes);
         auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view=MakeView(source);
@@ -330,6 +400,24 @@ public:
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
+    friend struct SdSampleStreamingTestAccess;
+    // Failed/cancelled preparations were never pinnable or published. Keep an
+    // uncertain handle and its path reserved, exactly as for failed reclamation.
+    void AbandonPreparation(unsigned i,const ResourcePathRef& path) {
+        if(files_[i] && !files_[i].close()) {occupied_[i]=true;paths_[i]=path;++count_;}
+        else sources_[i]={};
+    }
+    bool ValidCandidatePin(CandidatePin pin) const noexcept {
+        return pin.producer==this && pin.slot<kSourceCapacity && pin.generation && occupied_[pin.slot] &&
+            source_tokens_[pin.slot]==pin.generation && candidate_pins_[pin.slot] && reports[pin.slot].view.data;
+    }
+    bool ProtectedSource(unsigned i) const noexcept {
+        if(candidate_pins_[i] || (rollback_pins_&(1u<<i)) || i==job_index_)return true;
+        StreamInterruptGuard guard;
+        for(unsigned c=0;c<kStreamVoiceCount;++c)
+            if(states_[c].sample==&sources_[i] || buffers_[c].sample==&sources_[i])return true;
+        return false;
+    }
     void StampSource(unsigned index,std::uint64_t file_bytes) {
         const auto& source=sources_[index];
         const auto bytes=source.PrefixFrames()*source.layout.bytes_per_frame;
@@ -369,7 +457,9 @@ private:
 
     // Caller holds foreground SD ownership and has proved this slot unretained.
     void ReleaseSource(unsigned index) {
-        if(!files_[index].close()) {reports[index].view={};return;} // uncertain close: do not reuse
+        if(ProtectedSource(index))return;
+        if(files_[index] && !files_[index].close()) {reports[index].view={};return;} // uncertain close: do not reuse
+        source_tokens_[index]=0;
         occupied_[index]=false;paths_[index].Reset();reports[index]={};sources_[index]={};offsets_[index]=0;--count_;
         if(last_prepared_==index)last_prepared_=kSourceCapacity;
     }
@@ -383,6 +473,7 @@ private:
     FsFile files_[kSourceCapacity]; std::uint32_t offsets_[kSourceCapacity]{};
     WaveformFingerprint fingerprints_[kSourceCapacity]{};
     std::uint32_t source_tokens_[kSourceCapacity]{},source_sequence_=0;
+    std::uint16_t candidate_pins_[kSourceCapacity]{};
     StreamedSample sources_[kSourceCapacity]; StreamedVoiceBuffer buffers_[kStreamVoiceCount];
     StreamedVoiceSnapshot states_[kStreamVoiceCount]; std::uint64_t failed_generation_[kStreamVoiceCount]{};
 };
