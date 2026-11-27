@@ -75,13 +75,81 @@ including reference saturation, stale slots, reset, cancellation, close failure,
 capacity and repeated path/source reuse. Evidence and measured firmware RAM delta
 are in `build/btt-source-pins/`.
 
-Next implement a separate BTT SourceService adapter that owns producer tokens,
-maps checked retain/release and capacity, and coordinates Pending/Ready with the
-single asynchronous job after active refills. It must define cancellation/job
-ownership, checked close/quarantine reporting and physical source-change policy.
-The existing admission prototype's synchronous Acquire contract needs an explicit
-asynchronous integration step. Pins alone confer neither playback admission nor
-immutable storage enforcement.
+The separate developer BTT SourceService adapter below now maps these tokens and
+asynchronous jobs. Pins alone confer neither playback admission nor immutable
+storage enforcement.
+
+## Developer BTT SourceService adapter (2026-11-27)
+
+`tools/btt/sd_source_service.{h,cpp}` connects SourceLease to real producer pins.
+It is built only by developer tests and the isolated ARM probe, never production
+Tune Load/Save, UI or publication handlers. Exact path/prepared-format sharing
+ignores per-instrument Root Note/Fine Tune. Ready leases own a generation and
+retain the producer's existing path/prefix/format state. `Access(token,view,path)`
+checks the producer pin; source/view publication still needs the existing rules.
+
+`Candidate::Step` starts/polls a definition through `AcquireFor(candidate,...)`.
+Pending retains the definition cursor, path and all earlier leases. It returns
+Progress until the final required acquisition has succeeded and a subsequent
+Step has completed the scan. The adapter serializes its one in-flight request by
+requester identity; another candidate can wait and cancel without touching it.
+Prepared sources are pinned immediately without acquiring a job ticket.
+
+The foreground scheduler must service active refills first, then call adapter
+`Service()` at most once per turn. Acquire, admission Step and cancellation never
+advance file work. Service yields while `RefillNeeded()` or insufficient
+`BackgroundHeadroom()` is reported. It otherwise performs one checked owned job
+step: open, inspection action, <=512-byte PCM read, or close. The existing legacy
+`PreparationStep` and `CancelPreparation` do nothing to an owned job. Legacy
+Begin refuses an owned job, and legacy completion getters hide its result.
+Do not also call `StepOwnedPreparation` from an external loop for that ticket.
+
+Producer `BeginOwnedPreparation(path,ticket)`, `OwnedPreparationStatus(ticket)`,
+`StepOwnedPreparation(ticket)`, `CancelOwnedPreparation(ticket)` and
+`TakeOwnedPreparation(ticket,pin)` check a nonzero monotonically increasing job
+ticket. Tickets survive reset and never wrap; exhaustion is explicit. Reset
+refuses any outstanding owned job. A successful completion acquires its candidate
+pin in the same serialized foreground step, before returning control to reclaim
+callers. Take transfers that pin rather than looking up a borrowed view later.
+Stale tickets cannot observe, step, cancel or acknowledge a later job.
+
+Foreign legacy jobs, including completed results, are never consumed or replaced
+by the adapter. The legacy caller/scheduler must explicitly call
+`AcknowledgePreparation()` after consuming/discarding a completed legacy result
+before a new owned job can start. Existing legacy callers still replace their
+own completed jobs as before; no production caller was changed. This conservative
+handoff is a requirement for a future scheduler integration, not evidence that
+the adapter is already integrated into Sample Browser or audition.
+
+`CancelFor(requester)` cancels only that request; a foreign waiter owns no job.
+`Candidate::Cancel` releases runtime leases/paths and returns Busy while its own
+job is closing, Io while that close is quarantined, and Ok only after checked
+cleanup is acknowledged. Inspect `cleanup_status()` for Pending/Quarantined.
+`Discard`/`Begin` and arena destruction refuse outstanding cleanup. Continue
+Service and retry Cancel/Discard; a failed close retains the reserved source slot,
+file and job path until a checked retry succeeds. No new job can replace it.
+Cancelling an already completed result drops its internal pin; its ordinary
+unowned cache entry remains reclaimable, subject to all other protections.
+
+Services/producers must outlive all leases and outstanding cleanup. Candidate
+`CanDestroy()` excludes linked or pending owners; adapter `CanDestroy()` excludes
+jobs and live leases. Do not destroy/reuse a Candidate address until cleanup has
+finished. Destructors do not spin, perform SD work, or hide a failed close.
+The legacy failure-close quarantine behavior is preserved; the new checked retry
+contract applies specifically to owned jobs. Missing/open-unavailable,
+unsupported/malformed source, source/path capacity, I/O, storage unavailable,
+generation exhaustion, stale ticket and uncertain-close outcomes remain distinct.
+
+Production firmware grows by 32 RAM1 static bytes (157,856 -> 157,888), with RAM2
+unchanged at 166,688 and PCM storage unchanged at 143,360. Producer sizeof grows
+24 bytes (4,736 -> 4,760); linker alignment makes the static delta 32. The adapter
+itself is 28 bytes on ARM and is absent from production globals. The isolated BTT
+reservation link instead uses nine ITCM banks, a 64 KiB RAM2 arena and 128-byte
+RAM1 owner; these costs must not be reported as production firmware costs.
+See `build/btt-source-adapter/` for real-producer fake-SD tests, zero counted
+allocations (excluding fake I/O containers), ARM layout/frames/link evidence and
+lifecycle budgets. Physical SD timing, stack/heap peaks, source-change enforcement,
+production publication and Tune Load/Save integration remain separate work.
 
 ## Wav-LQ library rates
 

@@ -61,9 +61,14 @@
   protections. Real fake-SD tests cover reclaim/discard, failed/cancelled jobs,
   stale reuse, capacity, reset, exhaustion and repeated path/source ownership.
   [API and adapter boundary](SD_SAMPLE_STREAMING.md#candidate-source-pins-2026-11-27)
-* [ ] Adapt BTT SourceService to producer pins and integrate asynchronous
-  Pending/Ready admission with the single job/refill owner. Define cancellation,
-  checked close/quarantine and production namespace/media enforcement. Validate
+* [x] Implement the developer-only real SdSampleStreaming SourceService adapter:
+  checked pins, asynchronous Pending/Ready admission, owned job tickets,
+  refill-first service, scoped cancellation and checked close/quarantine retry.
+  Real fake-SD/path tests and measured ARM adapter/lifecycle budgets are saved.
+  [Adapter contract](SD_SAMPLE_STREAMING.md#developer-btt-sourceservice-adapter-2026-11-27)
+* [ ] Integrate a production scheduler/publication and Tune Load/Save lifecycle,
+  including explicit legacy-job acknowledgement and source-change enforcement.
+  Physical SD timing and production namespace/media policy remain separate. Validate
   actual stack/IRQ and heap peaks before device admission; 32 KiB stack and
   64 KiB heap remain provisional allowances. SD deadlines, FAT/power-loss recovery,
   playback prefetch, FX execution, UI and transport remain separate work.

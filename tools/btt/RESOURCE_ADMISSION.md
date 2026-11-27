@@ -40,7 +40,9 @@ not invent; no host filesystem resolution is performed. A valid UTF-8 saved
 reference need not be a supported runtime ASCII path. Nothing is normalized or
 truncated. Every path retained after a temporary scan owns a real pool ref.
 
-`Step` performs at most one path or source acquisition. A source failure rolls
+`Step` performs at most one path or source acquisition/poll. Pending retains the
+same definition, its path and every earlier lease; it is Progress, not failure.
+A source failure rolls
 back only this candidate's acquisitions and retains its saved snapshot/backing.
 `Cancel` releases runtime paths/sources; `Discard` additionally releases saved
 state. `Begin` retries a disposable unlinked candidate. Linked active/rollback
@@ -49,15 +51,16 @@ resource readiness is **not** permission to play: envelope support, unresolved
 order, unknown FX, source preparation, publication and transport have independent
 requirements. The prototype never changes their behavior.
 
-`SourceService` is an explicit external contract, simulated by the host fake.
+`SourceService` has both the original synchronous host fake and a developer-only
+real producer implementation in `sd_source_service.{h,cpp}`.
 Acquisition must pin a compatible immutable asset/format generation and own its
 cache-key path. `SourceLease` is movable and cloneable only through checked
 Retain; source slots cannot be reused while any candidate, active, rollback or
 sounding-voice pin remains. Root/Fine Tune live per instrument, outside the PCM
-key, so two tunings share one compatible source. No code here prepares actual
-PCM or opens real Samples. One virtual Acquire call is not a measured SD work
-quantum; a real adapter must coordinate the existing asynchronous job/refill
-owner and report checked close/quarantine failures.
+key, so two tunings share one compatible source. The real adapter prepares PCM
+through the existing asynchronous producer; Acquire itself does not advance SD
+work. It pins prepared state, not immutable physical SD contents. Physical media
+and source-change policy still need enforcement before production integration.
 
 `SdSampleStreaming` now exposes independent generation-checked candidate pins;
 see [the exact API](../../docs/SD_SAMPLE_STREAMING.md#candidate-source-pins-2026-11-27).
@@ -70,12 +73,52 @@ generation exhaustion are explicit through `PreparationCapacity()`; legacy
 preparation failure results remain unchanged. No physical SD immutability or
 playback admission follows from pins. Root/Fine Tune remain outside the PCM key.
 
-The BTT SourceService adapter is still outside this change. Next map SourceLease
-to producer tokens and define Pending/Ready admission with the single existing
-async preparation job after active refills, including cancellation, job ownership,
-checked close/quarantine and source-change enforcement. A borrowed PreparePath
-view or replaceable rollback mask is still not a candidate ownership credential.
-The backend must outlive all SourceLeases.
+The adapter pins an exact prepared generation immediately or starts one checked
+owned job. `AcquireFor(requester,path,lease)` scopes the request independently of
+lease references; Candidate uses its own stable address. `Acquire` uses the
+adapter address for direct developer clients. A second requester waits without
+owning, consuming or cancelling the first request. Retain/Release map SourceToken
+back to a checked producer pin; Access checks that pin before exposing view/path.
+The service/producers must outlive all SourceLeases and cleanup. Tokens may not
+be transplanted between backend contexts, and a Candidate address must not be
+reused until `CanDestroy()` succeeds.
+
+The scheduler services active refills first and calls adapter `Service()` once
+per foreground turn. Service checks refill need/headroom and advances at most
+one job action. Acquire, Candidate Step and cancellation do not advance it.
+Legacy producer step/cancel/getters cannot advance, cancel or consume an owned
+job. Job tickets never wrap/reset. Completion pins the exact source before
+returning to foreground reclaim callers; Take transfers that pin. Reset refuses
+outstanding owned tickets. A completed foreign legacy job remains reserved until
+its caller explicitly `AcknowledgePreparation()`s the consumed/discarded result.
+Existing legacy callers retain their previous behavior among themselves and no
+production UI/publication caller is changed here.
+
+`CancelFor` affects only the matching requester. Candidate Cancel drops its paths
+and prior leases immediately, returning Busy while its own job closes, Io for
+quarantined close, and Ok only after checked cleanup. `cleanup_status()` preserves
+Pending/Quarantined explicitly. Discard/Begin and arena destruction refuse pending
+cleanup. Continue Service and retry Cancel/Discard; failed close keeps its file,
+reserved slot and path until checked retry succeeds. Cancellation after Ready
+drops the producer's unconsumed completion pin; its now-unowned ordinary cache
+entry is reclaimable, not forcibly evicted past other owners. No destructor spins
+or performs file work. `SdSourceService::CanDestroy()` also excludes live leases.
+
+Missing/open-unavailable, unsupported/malformed format, source/path capacity, I/O,
+storage unavailable, stale identity, generation/ticket exhaustion and quarantine
+have distinct statuses. A borrowed PreparePath view or replaceable rollback mask
+is still not a candidate ownership credential. Production scheduler handoff,
+publication, source-change policy and Tune Load/Save remain unimplemented.
+
+Current ARM sizes: adapter 28 bytes, Candidate 5,976 (two 11,952), SourceLease 12,
+producer 4,760. The producer increases production RAM1 static by 32 bytes after
+linker alignment; RAM2 is unchanged. The actual adapter replaces the old 1,024-byte
+unknown allowance in lifecycle.csv. Peak proposed arena phase is 54,427 bytes
+including the 2,048-byte guard, leaving 11,109 of 65,536. The isolated full BTT
+reservation link crosses to nine ITCM banks and leaves a 71,360-byte RAM1 link gap
+before runtime stack allowances; production stays at eight banks and 104,256.
+These compile/link figures do not establish physical SD or runtime admission.
+Complete evidence is under `build/btt-source-adapter/`.
 
 `StoppedExchange` simulates pointer/owner handoff. Commit requires a caller's
 simulated stopped assertion, a Ready candidate and no retained previous owner.
@@ -101,10 +144,29 @@ generate/build an isolated mapped configuration using the admission tool's
 existing prepare-config workflow. Relevant production sources must match that
 baseline; reusing old code is not authorization to skip this check.
 
-Allocation scopes include setup/destructor teardown, fixed backing ownership,
+Original synchronous-fake allocation scopes include setup/destructor teardown, fixed backing ownership,
 all candidate acquisition/release, and simulated handoff. Fixture vectors, fake
 disk bytes, report I/O and framework registration are excluded. The fake source
 catalog contains metadata/pins only, not a second set of PCM buffers. Host tests
 exercise the real path allocator's record/byte limits and first-fit fragmentation.
 Target layout/frame/link measurements remain distinct from host memory figures.
 No physical SD/stack/heap, realtime deadline, or FAT/power-loss claim follows.
+
+The real-producer target is `BroTrackerBttSdSourceTests`; it is included alongside
+`BroTrackerSdWavTests`, the existing BTT suites, controls and core voice tests.
+Its counted scopes include candidate admission, Pending polls, adapter Service,
+lease clone/release, cancellation and repeated source/path reuse. Only allocations
+inside fake FsFile open/seek/read container/string bookkeeping are excluded;
+fixture/WAV/BTT generation and report I/O happen outside counted scopes. The
+adapter fixture uses the same real singleton path pool and existing producer PCM
+Storage, with no fake SourceService or additional runtime PCM cache.
+
+```powershell
+cmake -S . -B build/btt-source-adapter/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBROTRACKER_BUILD_WINDOWS_TERMINAL=OFF -DBROTRACKER_BUILD_ARKOS_UI=OFF
+cmake --build build/btt-source-adapter/cmake --target BroTrackerBttSdSourceTests BroTrackerBttResourceTests BroTrackerBttBackingTests BroTrackerBttFoundationTests BroTrackerBttPatternLayoutTests BroTrackerSdWavTests BroTrackerTests BroTrackerBringUpControlsTests BroTrackerVariableRateBringUpTests
+ctest --test-dir build/btt-source-adapter/cmake -R '^BroTracker(Tests|Btt(Resource|Backing|Foundation|PatternLayout|SdSource)Tests|SdWavTests|BringUpControlsTests|VariableRateBringUpTests)$' --output-on-failure
+python tools/teensy_diagnostics/btt_admission/analyze.py --out build/btt-source-adapter --prepare-config
+pio run -c build/btt-source-adapter/map-platformio.ini -e teensy41_dev
+python tools/teensy_diagnostics/btt_admission/analyze.py --out build/btt-source-adapter --resources --measure
+python tools/teensy_diagnostics/btt_admission/budgets.py --out build/btt-source-adapter --resources
+```

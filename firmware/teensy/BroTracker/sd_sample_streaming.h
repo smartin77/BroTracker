@@ -40,6 +40,44 @@ public:
     struct CandidatePin { const SdSampleStreaming* producer=nullptr; std::uint32_t generation=0; unsigned slot=kSourceCapacity; };
     enum class PinResult { Ready, InvalidGeneration, Capacity };
     enum class SourceCapacity { Available, Full, GenerationExhausted };
+    enum class PreparationStatus { Pending, Ready, Missing, Capacity, PathCapacity, Unsupported, Io,
+        Cancelled, Quarantined, Stale, GenerationExhausted, StorageUnavailable };
+    // Owned tickets never wrap/reset. Legacy completed results remain reserved
+    // until their caller acknowledges consumption; existing legacy APIs retain
+    // their previous replacement behavior amongst themselves.
+    bool AcknowledgePreparation() noexcept {
+        if(owned_job_ || job_phase_!=JobDone)return false;
+        job_phase_=JobIdle;return true;
+    }
+    bool BeginOwnedPreparation(const char* path,std::uint32_t& ticket) {
+        if(ticket || owned_job_ || job_phase_!=JobIdle || job_sequence_==UINT32_MAX)return false;
+        if(!BeginPrepareAsync(path))return false;
+        ticket=owned_job_=++job_sequence_;
+        PinOwnedCompletion();return true;
+    }
+    bool PreparationTicketsExhausted() const noexcept {return job_sequence_==UINT32_MAX;}
+    PreparationStatus OwnedPreparationStatus(std::uint32_t ticket) const noexcept {
+        if(!ticket || ticket!=owned_job_)return PreparationStatus::Stale;
+        if(owned_quarantined_)return PreparationStatus::Quarantined;
+        return job_phase_==JobDone?job_detail_:PreparationStatus::Pending;
+    }
+    void StepOwnedPreparation(std::uint32_t ticket) {
+        if(!ticket || ticket!=owned_job_)return;
+        PreparationStepImpl();PinOwnedCompletion();
+    }
+    bool CancelOwnedPreparation(std::uint32_t ticket) noexcept {
+        if(!ticket || ticket!=owned_job_)return false;
+        if(owned_pin_.generation){(void)ReleaseCandidatePin(owned_pin_);owned_pin_={};}
+        job_detail_=PreparationStatus::Cancelled;
+        if(job_phase_!=JobDone)job_phase_=JobClose;
+        return true;
+    }
+    // Transfers the completion pin on Ready, otherwise acknowledges a checked
+    // terminal result. Pending/quarantined cleanup cannot be acknowledged away.
+    bool TakeOwnedPreparation(std::uint32_t ticket,CandidatePin& pin) noexcept {
+        if(!ticket || ticket!=owned_job_ || job_phase_!=JobDone || owned_quarantined_ || pin.generation)return false;
+        pin=owned_pin_;owned_pin_={};owned_job_=0;job_phase_=JobIdle;return true;
+    }
     SourceCapacity PreparationCapacity() const noexcept {
         if(source_sequence_==UINT32_MAX)return SourceCapacity::GenerationExhausted;
         for(unsigned i=3;i<kSourceCapacity;++i)if(!occupied_[i] && i!=job_index_)return SourceCapacity::Available;
@@ -84,6 +122,7 @@ public:
     // voice spans refuse reset. Sequence is never reset, including reinitialization.
     // An uncertain close quarantines its slot/path and refuses reinitialization.
     bool Reset() {
+        if(owned_job_)return false;
         for(unsigned i=0;i<kSourceCapacity;++i)if(candidate_pins_[i])return false;
         if(rollback_pins_)return false;
         {StreamInterruptGuard guard;for(unsigned c=0;c<kStreamVoiceCount;++c)
@@ -233,35 +272,47 @@ public:
         return false;
     }
     bool BeginPrepareAsync(const char* path) {
+        if(owned_job_)return false;
         if(job_phase_!=JobIdle && job_phase_!=JobDone)return false;
+        job_detail_=PreparationStatus::Io;owned_quarantined_=false;
         job_path_.Reset();job_view_={};job_result_=InstrumentAvailability::PreparationFailed;job_index_=kSourceCapacity;job_read_=0;job_inspection_.Begin(true,true,true,true);
         job_phase_=JobDone;
-        if(!sd_ready_ || !memory_){job_result_=InstrumentAvailability::StorageUnavailable;return true;}
-        if(!InstrumentDefinitions::ValidResource(path)){job_result_=InstrumentAvailability::NoResource;return true;}
+        if(!sd_ready_ || !memory_){job_detail_=PreparationStatus::StorageUnavailable;job_result_=InstrumentAvailability::StorageUnavailable;return true;}
+        if(!InstrumentDefinitions::ValidResource(path)){job_detail_=PreparationStatus::Unsupported;job_result_=InstrumentAvailability::NoResource;return true;}
         for(unsigned i=0;i<kSourceCapacity;++i)if(occupied_[i] && !std::strcmp(paths_[i].Get(),path) && reports[i].view.data) {
-            job_view_=reports[i].view;job_result_=InstrumentAvailability::Ready;return true;
+            job_detail_=PreparationStatus::Ready;job_view_=reports[i].view;job_result_=InstrumentAvailability::Ready;return true;
         }
-        if(PreparationCapacity()!=SourceCapacity::Available)return true;
+        if(PreparationCapacity()!=SourceCapacity::Available){job_detail_=PreparationCapacity()==SourceCapacity::Full?PreparationStatus::Capacity:PreparationStatus::GenerationExhausted;return true;}
         unsigned i=3;while(i<kSourceCapacity && occupied_[i])++i;
         if(i==kSourceCapacity)return true;
-        if(!job_path_.Assign(path)){job_result_=InstrumentAvailability::PathCapacity;return true;}
+        if(!job_path_.Assign(path)){job_detail_=PreparationStatus::PathCapacity;job_result_=InstrumentAvailability::PathCapacity;return true;}
         job_index_=i;job_phase_=JobOpen;return true;
     }
-    bool PreparationDone()const{return job_phase_==JobDone;}
-    InstrumentAvailability PreparationResult()const{return job_result_;}
-    Pcm16MonoView PreparedView()const{return job_view_.Mono();}
-    Pcm16MixedSampleView PreparedMixedView()const{return job_view_;}
-    void CancelPreparation(){if(job_phase_!=JobIdle && job_phase_!=JobDone)job_phase_=JobClose;}
+    bool PreparationDone()const{return !owned_job_ && job_phase_==JobDone;}
+    InstrumentAvailability PreparationResult()const{return owned_job_?InstrumentAvailability::NotPrepared:job_result_;}
+    Pcm16MonoView PreparedView()const{return owned_job_?Pcm16MonoView{}:job_view_.Mono();}
+    Pcm16MixedSampleView PreparedMixedView()const{return owned_job_?Pcm16MixedSampleView{}:job_view_;}
+    void CancelPreparation(){if(!owned_job_ && job_phase_!=JobIdle && job_phase_!=JobDone)job_phase_=JobClose;}
     // No loop over file chunks: one open, bounded inspection/read, <=512-byte
     // PCM seek/read, or close per foreground turn, after active refills.
     void PreparationStep() {
+        if(!owned_job_)PreparationStepImpl();
+    }
+private:
+    void PreparationStepImpl() {
         if(job_phase_==JobIdle || job_phase_==JobDone)return;
         SdReadScope lease;if(!lease)return;
         auto& file=files_[job_index_];
         auto& source=sources_[job_index_]; // Reserved foreground slot, unpublished until the prefix is complete.
-        if(job_phase_==JobClose){AbandonPreparation(job_index_,job_path_);job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;}
+        if(job_phase_==JobClose){
+            if(owned_job_) {
+                if(file && !file.close()){owned_quarantined_=true;return;}
+                owned_quarantined_=false;source={};
+            } else AbandonPreparation(job_index_,job_path_);
+            job_path_.Reset();job_index_=kSourceCapacity;job_phase_=JobDone;return;
+        }
         if(job_phase_==JobOpen) {
-            if(!file.open(job_path_.Get(),O_RDONLY)){job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
+            if(!file.open(job_path_.Get(),O_RDONLY)){job_detail_=PreparationStatus::Missing;job_result_=InstrumentAvailability::ResourceUnavailable;job_phase_=JobClose;return;}
             job_phase_=JobInspect;return;
         }
         if(job_phase_==JobInspect) {
@@ -276,7 +327,10 @@ public:
             if(job_inspection_.Done()) {
                 const auto& m=job_inspection_.Metadata();
                 if(job_inspection_.Status()!=WavBufferStatus::Success ||
-                    !DescribeSource(m,m.file_bytes,memory_->starts[job_index_],source))job_phase_=JobClose;
+                    !DescribeSource(m,m.file_bytes,memory_->starts[job_index_],source)) {
+                    job_detail_=job_inspection_.Status()==WavBufferStatus::IoError?PreparationStatus::Io:PreparationStatus::Unsupported;
+                    job_phase_=JobClose;
+                }
                 else job_phase_=JobPcm;
             }
             return;
@@ -291,14 +345,15 @@ public:
         }
         job_read_+=n;if(job_read_!=frames)return;
         offsets_[job_index_]=offset;
-        if(source_sequence_==UINT32_MAX){job_phase_=JobClose;return;}
+        if(source_sequence_==UINT32_MAX){job_detail_=PreparationStatus::GenerationExhausted;job_phase_=JobClose;return;}
         StampSource(job_index_,job_inspection_.Metadata().file_bytes);
         auto& report=reports[job_index_];report.attempted=report.sd_ready=true;report.capacity=source.layout.start_frames;
         report.result={SdWavBufferStatus::Success,WavBufferStatus::Success};report.view=MakeView(source);
         paths_[job_index_]=job_path_;job_path_.Reset();occupied_[job_index_]=true;last_prepared_=job_index_;++count_;
         __DMB(); // Publish immutable PCM/source data before the audio binding can reference it.
-        job_view_=report.view;job_result_=InstrumentAvailability::Ready;job_index_=kSourceCapacity;job_phase_=JobDone;
+        job_detail_=PreparationStatus::Ready;job_view_=report.view;job_result_=InstrumentAvailability::Ready;job_index_=kSourceCapacity;job_phase_=JobDone;
     }
+public:
     // Audio owner only, after the transactional render commits. No filesystem
     // side effects from validation/probe copies or discarded tentative renders.
     void PublishVoice(unsigned i,const StreamedVoiceSnapshot& state) noexcept {
@@ -400,6 +455,12 @@ public:
     std::uint32_t reads=0,max_read_us=0,io_errors=0,stale_reads=0,histogram[128]{};
     std::uint64_t total_read_us=0;
 private:
+    void PinOwnedCompletion() noexcept {
+        if(!owned_job_ || job_phase_!=JobDone || job_detail_!=PreparationStatus::Ready || owned_pin_.generation)return;
+        const auto generation=DescribeWaveform(job_view_).token;
+        const auto result=AcquireCandidatePin(generation,owned_pin_);
+        if(result!=PinResult::Ready)job_detail_=result==PinResult::Capacity?PreparationStatus::Capacity:PreparationStatus::Io;
+    }
     friend struct SdSampleStreamingTestAccess;
     // Failed/cancelled preparations were never pinnable or published. Keep an
     // uncertain handle and its path reserved, exactly as for failed reclamation.
@@ -464,6 +525,9 @@ private:
         if(last_prepared_==index)last_prepared_=kSourceCapacity;
     }
     Storage* memory_=nullptr;
+    std::uint32_t owned_job_=0,job_sequence_=0;
+    CandidatePin owned_pin_{};
+    PreparationStatus job_detail_=PreparationStatus::Io;bool owned_quarantined_=false;
     enum JobPhase{JobIdle,JobOpen,JobInspect,JobPcm,JobClose,JobDone};JobPhase job_phase_=JobIdle;
     unsigned job_index_=kSourceCapacity;std::uint32_t job_read_=0;ResourcePathRef job_path_;
     WavInspectionJob job_inspection_;Pcm16MixedSampleView job_view_{};

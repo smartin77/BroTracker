@@ -50,8 +50,13 @@ Candidate state replaces hypothetical second-path-pool/definitions/bindings/maps
 Only the existing singleton path pool is used. `--mapped-baseline <directory>`
 can reuse an unchanged production-equivalent map build; ELF section equivalence
 is still checked, and callers must verify production source provenance. See
-`tools/btt/RESOURCE_ADMISSION.md`. The actual source-service adapter is unimplemented;
-its 1,024-byte metadata allowance is explicitly unknown, not a measured source cache.
+`tools/btt/RESOURCE_ADMISSION.md`. The real `sd_source_service.cpp` is now compiled
+and rooted with a placement-construction probe and one-turn lifecycle probe.
+The old blocking probe loop is removed. Actual `SdSourceService` sizeof replaces
+the former 1,024-byte metadata allowance. Producer job metadata is already in the
+production baseline and must not be counted twice. The isolated reservation can
+cross an ITCM bank boundary even when the production firmware does not; inspect
+both entries in memory.json before assessing RAM1 headroom.
 
 `placement.cpp` reserves a 64 KiB aligned `.dmabuffers` arena and 128 bytes of
 DTCM owner state. The separate `reservation.elf` roots all foundation entry

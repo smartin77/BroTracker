@@ -10,7 +10,8 @@ struct SourceToken {
     unsigned slot=0;
     bool operator==(SourceToken b) const noexcept {return generation==b.generation && slot==b.slot;}
 };
-enum class SourceStatus:uint8_t { NotRequired, NotPrepared, Pending, Ready, Missing, Capacity, PathCapacity, Unsupported, Io, Released };
+enum class SourceStatus:uint8_t { NotRequired, NotPrepared, Pending, Ready, Missing, Capacity, PathCapacity, Unsupported, Io, Released,
+    Quarantined, Stale, GenerationExhausted, StorageUnavailable };
 class SourceService;
 class SourceLease {
     SourceService* service_=nullptr;
@@ -39,6 +40,10 @@ public:
     // service pins immutable PCM/source metadata and independently owns its path.
     // It must not reclaim any active, rollback, voice or candidate pin.
     virtual SourceStatus Acquire(const char* path,SourceLease& candidate) noexcept = 0;
+    // A request identity scopes asynchronous work/cancellation, never lease refs.
+    // Services that complete synchronously need not implement these hooks.
+    virtual SourceStatus AcquireFor(const void*,const char* path,SourceLease& candidate) noexcept {return Acquire(path,candidate);}
+    virtual SourceStatus CancelFor(const void*) noexcept {return SourceStatus::Released;}
     virtual bool Retain(SourceToken) noexcept = 0;
     virtual void Release(SourceToken) noexcept = 0;
 };
@@ -74,6 +79,8 @@ class Candidate {
     uint32_t initial_pattern_=0;
     unsigned count_=0,cursor_=0;
     Admission state_=Admission::Empty;
+    SourceService* pending_service_=nullptr;
+    SourceStatus cleanup_=SourceStatus::Released;
     bool linked_=false,unresolved_=false;
     void ReleaseRuntime() noexcept;
     Admission Block(Admission result) noexcept;
@@ -83,12 +90,15 @@ public:
     Candidate(const Candidate&)=delete;
     Candidate& operator=(const Candidate&)=delete;
     ~Candidate(){ReleaseRuntime();}
-    bool CanDestroy() const noexcept {return !linked_;}
+    bool CanDestroy() const noexcept {return !linked_ && !pending_service_;}
+    SourceStatus cleanup_status() const noexcept {return cleanup_;}
     // Caller supplies arena-owned scratch/Pattern. No complete Document copy.
     Result Begin(const Document&,InitialRequirements,Workspace&,Pattern&,AdmissionScratch&) noexcept;
-    // At most one path or source acquisition per call, making cancellation
-    // possible after each acquisition. Capacity/I/O failures roll back only self.
+    // At most one path or source acquisition/poll. Pending keeps this definition
+    // and all earlier leases. Only the service's foreground driver advances I/O.
     Admission Step(SourceService&,AdmissionScratch&) noexcept;
+    // Busy while owned cleanup is pending, Io while quarantined. Continue the
+    // service driver and retry; CanDestroy remains false until acknowledged.
     Code Cancel() noexcept;
     Code Discard() noexcept;
     unsigned count() const noexcept {return count_;}

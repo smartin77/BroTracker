@@ -2,6 +2,7 @@
 #include "tools/btt/foundation.h"
 #include "tools/btt/fs_backend.h"
 #include "tools/btt/resource_admission.h"
+#include "tools/btt/sd_source_service.h"
 #include "bringup/working_session.h"
 #include "bringup/live_instrument_visit.h"
 #include "bringup/pattern_player_selection.h"
@@ -57,6 +58,8 @@ SIZE(AdmissionScratch,btt::prototype::AdmissionScratch)
 SIZE(SourceLease,btt::prototype::SourceLease)
 SIZE(SourceToken,btt::prototype::SourceToken)
 SIZE(SourceService,btt::prototype::SourceService)
+SIZE(SdSourceService,btt::prototype::SdSourceService)
+SIZE(ProducerCandidatePin,SdSampleStreaming::CandidatePin)
 SIZE(StoppedExchange,btt::prototype::StoppedExchange)
 SIZE(Reader,btt::Reader)
 SIZE(Writer,btt::Writer)

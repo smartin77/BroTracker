@@ -57,6 +57,7 @@ def measure(prototype=False, resources=False, mapped_override=None):
         inputs.append(("backing-probe", HERE / "backing_probe.cpp"))
     if resources:
         inputs += [("resource-admission", ROOT / "tools/btt/resource_admission.cpp"),
+                   ("sd-source-service", ROOT / "tools/btt/sd_source_service.cpp"),
                    ("resource-probe", HERE / "resource_probe.cpp")]
     for name, source in inputs:
         args = [compiler, *flags, "-fstack-usage", "-c", source, "-o", OUT / (name + ".o")]
@@ -117,7 +118,7 @@ def measure(prototype=False, resources=False, mapped_override=None):
     if prototype:
         link[idx:idx] = [str(OUT / "backing-probe.o")]
     if resources:
-        link[idx:idx] = [str(OUT / "resource-admission.o"), str(OUT / "resource-probe.o")]
+        link[idx:idx] = [str(OUT / "resource-admission.o"), str(OUT / "sd-source-service.o"), str(OUT / "resource-probe.o")]
     raw = run([nm, "--defined-only", "-g", OUT / "foundation.o"], "foundation-roots.txt")
     for line in raw.splitlines():
         fields = line.split()
@@ -130,11 +131,11 @@ def measure(prototype=False, resources=False, mapped_override=None):
             if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] == "btt_backing_probe"):
                 link += ["-Wl,--undefined=" + fields[2]]
     if resources:
-        for object_name in ["resource-admission", "resource-probe"]:
+        for object_name in ["resource-admission", "sd-source-service", "resource-probe"]:
             raw = run([nm, "--defined-only", "-g", OUT / (object_name + ".o")], object_name + "-roots.txt")
             for line in raw.splitlines():
                 fields = line.split()
-                if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] == "btt_resource_probe"):
+                if len(fields) == 3 and fields[1] in ("T", "W") and (fields[2].startswith("_ZN3btt") or fields[2] in ("btt_resource_probe", "btt_sd_source_probe", "btt_construct_source_service")):
                     link += ["-Wl,--undefined=" + fields[2]]
     link += ["-Wl,--undefined=btt_admission_arena", "-Wl,--undefined=btt_admission_owner"]
     (OUT / "reservation-link-command.json").write_text(json.dumps(link, indent=2))

@@ -109,7 +109,7 @@ if options.resources:
     # no hypothetical second path pool or duplicate definitions/bindings/map.
     persistent.pop("active_id_map_reserved")
     persistent.update(active_resource_candidate=size("ResourceCandidate"),
-                      source_service_metadata_reserved=1024)
+                      source_service=size("SdSourceService"))
     validation.update(persistent)
     validation.pop("active_id_map_reserved")
     phases = {

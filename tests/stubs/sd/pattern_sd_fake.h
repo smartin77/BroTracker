@@ -5,6 +5,9 @@
 #include <cstring>
 constexpr int O_RDONLY=0,O_WRONLY=1,O_CREAT=2,O_EXCL=4;
 namespace FakePatternSd {
+// Attribute fake container/string bookkeeping separately from production work.
+inline unsigned allocation_exclusions=0;
+struct AllocationExclusion {AllocationExclusion(){++allocation_exclusions;}~AllocationExclusion(){--allocation_exclusions;}};
 struct Entry {bool directory=false;std::vector<std::uint8_t> bytes;};
 inline std::map<std::string,Entry> files;
 inline bool short_write=false,short_read=false,fail_sync=false,fail_close=false,fail_open=false,corrupt_read=false,fail_mkdir=false,fail_remove=false;
@@ -22,6 +25,7 @@ class FsFile {
 public:
     FsFile()=default;explicit FsFile(FakePatternSd::Entry* e,std::string path={}):entry_(e),path_(std::move(path)){}
     bool open(const char* path,int flags) {
+        FakePatternSd::AllocationExclusion fixture_work;
         close();
         const auto it=FakePatternSd::files.find(path);
         if(FakePatternSd::fail_open || flags!=O_RDONLY || it==FakePatternSd::files.end())return false;
@@ -31,6 +35,7 @@ public:
     bool isDirectory() const {return entry_->directory;}
     std::size_t size() const {return entry_->bytes.size();}
     int read(void* p,std::size_t n){
+        FakePatternSd::AllocationExclusion fixture_work;
         FakePatternSd::reads.push_back({path_,at_,n});
         if(FakePatternSd::on_io)FakePatternSd::on_io();
         if(!entry_ || (!FakePatternSd::negative_read_path.empty() && path_==FakePatternSd::negative_read_path))return -1;
@@ -41,6 +46,7 @@ public:
     }
     std::size_t write(const void* p,std::size_t n){if(FakePatternSd::on_io)FakePatternSd::on_io();if(FakePatternSd::short_write && n)--n;const auto* b=static_cast<const std::uint8_t*>(p);entry_->bytes.assign(b,b+n);return n;}
     bool seekSet(std::uint64_t n){
+        FakePatternSd::AllocationExclusion fixture_work;
         FakePatternSd::seeks.push_back({path_,n,0});
         if(FakePatternSd::on_seek)FakePatternSd::on_seek();
         if(!entry_ || (!FakePatternSd::fail_seek_path.empty() && path_==FakePatternSd::fail_seek_path))return false;

@@ -3,6 +3,10 @@
 
 namespace btt::prototype {
 void Candidate::ReleaseRuntime() noexcept {
+    if(pending_service_) {
+        cleanup_=pending_service_->CancelFor(this);
+        if(cleanup_!=SourceStatus::Pending && cleanup_!=SourceStatus::Quarantined)pending_service_=nullptr;
+    }
     for(auto& d:definitions_) {
         d.source.Reset();d.path.Reset();
         if(d.source_status==SourceStatus::Ready)d.source_status=SourceStatus::Released;
@@ -32,7 +36,7 @@ Result Candidate::Path(Definition& d,AdmissionScratch& scratch) noexcept {
 Result Candidate::Begin(const Document& document,InitialRequirements initial,Workspace& work,
                         Pattern& pattern,AdmissionScratch& scratch) noexcept {
     if(linked_)return Result::Backing;
-    (void)Discard();
+    if(Discard()!=Code::Ok)return Result::Backing;
     if(!document.accepted || !document.backing)return Result::Backing;
     backing_=document.backing;initial_pattern_=initial.pattern_id;
     for(unsigned i=0;i<document.count;++i) {
@@ -74,6 +78,7 @@ Result Candidate::Begin(const Document& document,InitialRequirements initial,Wor
 }
 Admission Candidate::Step(SourceService& service,AdmissionScratch& scratch) noexcept {
     if(linked_ || (state_!=Admission::Scanned && state_!=Admission::Progress))return state_;
+    if(pending_service_ && pending_service_!=&service)return Block(Admission::Io);
     if(unresolved_)return Block(Admission::Blocked);
     while(cursor_<count_) {
         auto& d=definitions_[cursor_];
@@ -87,20 +92,27 @@ Admission Candidate::Step(SourceService& service,AdmissionScratch& scratch) noex
             if(!d.path.Assign(scratch.path)) {d.path_status=PathStatus::Capacity;return Block(Admission::Blocked);}
             d.path_status=PathStatus::Owned;d.source_status=SourceStatus::Pending;state_=Admission::Progress;return state_;
         }
-        const auto result=service.Acquire(d.path.Get(),d.source);d.source_status=result;
+        const auto result=service.AcquireFor(this,d.path.Get(),d.source);d.source_status=result;
+        if(result==SourceStatus::Pending) {pending_service_=&service;state_=Admission::Progress;return state_;}
+        if(result==SourceStatus::Quarantined)pending_service_=&service;
+        else pending_service_=nullptr;
         if(result==SourceStatus::Ready && !d.source) {d.source_status=SourceStatus::Io;return Block(Admission::Io);}
-        if(result!=SourceStatus::Ready) return Block(result==SourceStatus::Io?Admission::Io:Admission::Blocked);
+        if(result!=SourceStatus::Ready) return Block(result==SourceStatus::Io || result==SourceStatus::Quarantined || result==SourceStatus::Stale?Admission::Io:Admission::Blocked);
         ++cursor_;state_=Admission::Progress;return state_;
     }
     state_=Admission::Ready;return state_;
 }
 Code Candidate::Cancel() noexcept {
     if(linked_)return Code::Busy;
-    ReleaseRuntime();state_=Admission::Cancelled;return Code::Ok;
+    ReleaseRuntime();state_=Admission::Cancelled;
+    return pending_service_?(cleanup_==SourceStatus::Quarantined?Code::Io:Code::Busy):Code::Ok;
 }
 Code Candidate::Discard() noexcept {
     if(linked_)return Code::Busy;
-    ReleaseRuntime();backing_.reset();
+    state_=Admission::Cancelled; // A pending discard cannot resume admission.
+    ReleaseRuntime();
+    if(pending_service_)return cleanup_==SourceStatus::Quarantined?Code::Io:Code::Busy;
+    backing_.reset();
     for(auto& d:definitions_) {
         d.saved={};d.effective_root=d.effective_fine=d.effective_midi=0;
         d.path_status=PathStatus::Absent;d.settings=SettingStatus::Supported;d.source_status=SourceStatus::NotRequired;d.required=false;

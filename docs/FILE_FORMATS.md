@@ -997,19 +997,27 @@ See [the exact API and reclaim/reset contract](SD_SAMPLE_STREAMING.md#candidate-
 Real fake-SD tests cover all reclaim/discard paths, failed/cancelled preparation,
 multiple owners, stale reuse, reference/source capacity and ownership cycles;
 diff, results and actual firmware RAM delta are in `build/btt-source-pins/`.
-The BTT SourceService adapter remains unimplemented. Next map its leases to these
-tokens and integrate Pending/Ready admission with the single asynchronous job
-after active refills, including cancellation and checked close/quarantine.
+The developer-only `tools/btt/sd_source_service.{h,cpp}` now maps SourceLease to
+these pins and integrates Pending/Ready admission with a checked owned job.
+Candidate Step polls without advancing I/O or losing earlier leases/paths;
+adapter Service is the sole job driver after active refills. Job tickets prevent
+foreign/stale step/cancel/result consumption, and completion acquires a pin before
+returning to reclamation callers. Cancel returns Busy until checked cleanup, Io
+for quarantine, and Ok after acknowledgement; CanDestroy refuses outstanding
+cleanup. Foreign legacy results require explicit `AcknowledgePreparation()` by
+their caller before an owned job can start. Production handlers are unchanged.
+See [the complete adapter lifecycle](SD_SAMPLE_STREAMING.md#developer-btt-sourceservice-adapter-2026-11-27).
 Pins preserve prepared identity/format/path/PCM state, not immutable physical SD
 contents or playback admission. Root/Fine Tune remain per-instrument parameters.
 
 Measured ARM GCC 15.2.1 sizes: saved view **32 bytes**, Definition **60**,
-Candidate **5,972**, two candidates **11,944**, SourceLease **12**, SourceToken
+Candidate **5,976**, two candidates **11,952**, SourceLease **12**, SourceToken
 **8**, StoppedExchange **8**, path scratch **256**. A candidate includes all 99
 saved views, effective parameters, path refs and source leases; no additional
 definitions/bindings/ID map or second path arena is needed for this prototype.
 Large documents/candidates/pattern scratch are arena-owned, off the CPU stack.
-Target Begin/Step frames are 88/32 bytes before callees; frame sizes are not a
+The actual ARM adapter is **28 bytes**, replacing the old unknown allowance.
+Target Begin/Step frames are 88/40 bytes before callees; frame sizes are not a
 complete stack/IRQ bound. The path singleton's 10,240 bytes already belong to
 the production baseline and are not added again as candidate storage.
 
@@ -1018,32 +1026,40 @@ current/next patterns and old/candidate owners during stopped preparation:
 
 | Phase | Additional RAM2 state including 2,048-byte guard |
 | --- | ---: |
-| Stopped saved validation with active resource owner | 39,965 |
-| Stopped initial candidate preparation/projection | **55,415** |
-| Current/next playback with retained resource owner | 33,773 |
-| Stopped rewrite/verification with active resource owner | 39,985 |
+| Stopped saved validation with active resource owner | 38,973 |
+| Stopped initial candidate preparation/projection | **54,427** |
+| Current/next playback with retained resource owner | 32,781 |
+| Stopped rewrite/verification with active resource owner | 38,993 |
 
-The largest phase leaves **10,121 bytes** within the proposed 64 KiB arena.
+The largest phase leaves **11,109 bytes** within the proposed 64 KiB arena.
 These are alternative phases, not additive. Measured Candidate structures replace
 the prior hypothetical duplicate path pool/definitions/bindings/maps. The model
-still reserves 1,538 bytes for a future legacy runtime projection and **1,024
-unmeasured bytes** for a real source-service facade; it is not proof that that
-adapter fits. The fake source metadata is 296 bytes on the host and has no PCM.
-Host simultaneous arena use is **36,340 bytes**, including two Documents, two
+still reserves 1,538 bytes for a future legacy runtime projection; the former
+1,024-byte facade allowance is replaced by the measured 28-byte adapter.
+Producer job metadata is already in the production baseline, not counted twice.
+The earlier synchronous fake-source experiment measured 296 bytes of host source
+metadata with no PCM. Its historical simultaneous arena use was **36,340 bytes**,
+including two Documents, two
 Candidates, one pattern scratch, Workspace, path scratch and fixed fake-backed
 owner pool; the 544-byte host arena metadata and source context are outside that
 region. The complete host harness context is another 992 bytes (arena metadata,
 fake source metadata, handles/tokens), for 37,332 bytes of named simultaneous
 live state plus caller frames; the backing arena reserves 65,536 bytes regardless
-of occupancy. Host Candidate is 7,176 bytes / two 14,352; these are not target sizes.
+of occupancy. That historical host Candidate was 7,176 bytes / two 14,352.
+Current host Candidate is 7,184 bytes and the real adapter is 40 bytes; these are
+not target sizes. The measured fake-source harness remains a separate experiment
+from the real-producer fixture and its shared PCM storage.
 
 Actual source and lifecycle probe compile with production Cortex-M7 hard-float
 GNU C++17 flags, exceptions/RTTI disabled, outside production targets. The isolated
-reservation link retains eight ITCM banks with **2,468 reported padding bytes**
-(2,464 physical): another bank is close and would cost 32,768 DTCM bytes. RAM1
-static/gap remain 157,952/104,192; RAM2 static/heap interval 232,224/292,064.
+reservation link now roots the real adapter and uses **nine ITCM banks** with
+30,628 reported padding bytes (30,624 physical). This additional bank costs
+32,768 DTCM bytes. Isolated RAM1 static/gap are 158,016/71,360; RAM2 static/heap
+interval 232,224/292,064. Production stays at eight banks: RAM1 static/gap
+157,888/104,256, a +32-byte static delta from the fresh pre-adapter build;
+RAM2 static remains 166,688. Producer sizeof is 4,760 (+24 bytes before alignment).
 Existing Sample storage remains 143,360 bytes. The prior unproven stack/heap
-allowances leave 71,424 RAM1 and 226,528 RAM2; one further code bank leaves 38,656
+allowances leave 38,592 RAM1 and 226,528 RAM2; one further code bank leaves 5,824
 RAM1 after the 32 KiB stack allowance. No reliable physical admission is claimed.
 
 Host checks cover shared/distinct paths and scan lifetime, real path record/byte
@@ -1059,8 +1075,14 @@ are excluded. Existing BTT and real-path/streaming regression suites also run.
 
 See `tools/btt/RESOURCE_ADMISSION.md` for contracts/commands. Complete diff,
 tests, allocation/memory evidence, target compile/frame/link logs, map and report
-are under `build/btt-resource-admission/`. Physical stack/heap peaks, namespace/
-media enforcement, asynchronous source-pin adapter integration, prefetch, FX execution and
+from the synchronous fake-source experiment are under `build/btt-resource-admission/`.
+Real producer adapter tests, counted allocation scopes (zero C++ allocations,
+excluding fake-SD container/string work), ARM compile/frame/link and updated
+lifecycle evidence are under `build/btt-source-adapter/`. Tests cover Pending
+retention, tuning/source sharing, foreign jobs, cancelled/stale completions,
+quarantine retry, capacity, refill priority and repeated ownership cycles.
+Physical stack/heap peaks, namespace/media enforcement, production scheduler/
+publication and Tune Load/Save integration, prefetch, FX execution and
 FAT/power-loss recovery remain separate integration blockers.
 
 #### Proposed current/next-pattern buffering and deferred validation

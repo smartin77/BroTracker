@@ -349,6 +349,15 @@ target_include_directories(BroTrackerSdWavTests PRIVATE tests/stubs/sd src tests
 add_test(NAME BroTrackerSdWavTests COMMAND BroTrackerSdWavTests)
 target_link_libraries(BroTrackerSdWavTests PRIVATE BroTrackerBringUp)
 
+# Developer-only BTT bridge against the real producer and singleton path pool.
+add_executable(BroTrackerBttSdSourceTests tests/test_btt_sd_source.cpp
+    tools/btt/sd_source_service.cpp tools/btt/resource_admission.cpp tools/btt/foundation.cpp
+    libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerBttSdSourceTests PRIVATE tests/stubs/sd src tests tools/btt
+    libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME BroTrackerBttSdSourceTests COMMAND BroTrackerBttSdSourceTests
+    ${CMAKE_CURRENT_BINARY_DIR}/../adapter-allocations.csv)
+
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/pattern_position.cpp
