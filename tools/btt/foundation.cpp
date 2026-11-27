@@ -279,12 +279,12 @@ namespace {
 // This sink supports a dry CRC/length pass, then exact bounded writes.
 struct Sink {
     Writer* writer; uint32_t at,crc=0xffffffffu;
-    bool bytes(const uint8_t* b,unsigned n) {
+    BTT_FLASHMEM("sink_bytes") bool bytes(const uint8_t* b,unsigned n) {
         if(writer && writer->write(at,b,n)!=n)return false;
         crc=Step(crc,b,n);at+=n;return true;
     }
 };
-Result Copy(const Reader& r,uint32_t at,uint32_t n,Workspace& w,Sink& sink) {
+BTT_FLASHMEM("copy") Result Copy(const Reader& r,uint32_t at,uint32_t n,Workspace& w,Sink& sink) {
     while(n) {
         const auto take=std::min<uint32_t>(512u,n);
         if(!Read(r,at,w.block.data(),take))return Result::Io;
@@ -293,7 +293,7 @@ Result Copy(const Reader& r,uint32_t at,uint32_t n,Workspace& w,Sink& sink) {
     }
     return Result::Ok;
 }
-Result Emit(const Document& d,const Entry& e,Workspace& w,uint32_t bpm,Sink& sink) {
+BTT_FLASHMEM("emit") Result Emit(const Document& d,const Entry& e,Workspace& w,uint32_t bpm,Sink& sink) {
     auto& r=*d.backing;
     if(!Type(e,"INST") && !(Type(e,"TUNE") && bpm))return Copy(r,e.offset,e.length,w,sink);
     Status status;auto result=Fields(r,e,w,status);if(result!=Result::Ok)return result;
@@ -313,7 +313,7 @@ Result Emit(const Document& d,const Entry& e,Workspace& w,uint32_t bpm,Sink& sin
     }
     return Result::Ok;
 }
-void Wire(const Entry& e,uint8_t* b) {
+BTT_FLASHMEM("wire") void Wire(const Entry& e,uint8_t* b) {
     std::memcpy(b,e.type,4);Put(b+4,e.id,4);Put(b+8,e.offset,4);Put(b+12,e.length,4);Put(b+16,e.crc,4);Put(b+20,e.flags,4);
 }
 }
@@ -359,7 +359,7 @@ public:
     explicit CompareWriter(const Reader& r):reader(r){}
     const void* identity() const override {return this;}
     bool resize(uint32_t n) override {return n==reader.size();}
-    unsigned write(uint32_t at,const void* p,unsigned n) override {
+    BTT_FLASHMEM("compare_write") unsigned write(uint32_t at,const void* p,unsigned n) override {
         uint8_t b[512];
         return Read(reader,at,b,n) && !std::memcmp(p,b,n)?n:0;
     }

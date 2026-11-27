@@ -144,8 +144,11 @@ Production firmware grows by 32 RAM1 static bytes (157,856 -> 157,888), with RAM
 unchanged at 166,688 and PCM storage unchanged at 143,360. Producer sizeof grows
 24 bytes (4,736 -> 4,760); linker alignment makes the static delta 32. The adapter
 itself is 28 bytes on ARM and is absent from production globals. The isolated BTT
-reservation link instead uses nine ITCM banks, a 64 KiB RAM2 arena and 128-byte
-RAM1 owner; these costs must not be reported as production firmware costs.
+reservation link initially used nine ITCM banks; later
+[cold BTT placement](FILE_FORMATS.md#cold-btt-code-placement-2026-11-27) returns it
+to eight. Its 64 KiB RAM2 arena and 128-byte RAM1 owner remain; these costs must
+not be reported as production firmware costs. The asynchronous adapter,
+admission/lease work and producer hot paths retain ITCM placement.
 See `build/btt-source-adapter/` for real-producer fake-SD tests, zero counted
 allocations (excluding fake I/O containers), ARM layout/frames/link evidence and
 lifecycle budgets. Physical SD timing, stack/heap peaks, source-change enforcement,

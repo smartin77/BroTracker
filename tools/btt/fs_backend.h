@@ -37,7 +37,7 @@ class FsBackend {
         return lease && h.isOpen() && n<=512 && at<=1048576 && n<=1048576-at &&
             h.seekSet(at) && h.write(p,n)==n && !h.getError();
     }
-    bool Resize(Handle& h,uint32_t n) noexcept {
+    BTT_FLASHMEM("fs_resize") bool Resize(Handle& h,uint32_t n) noexcept {
         Lease lease(true,ready_);
         if(!lease || !h.isOpen() || n>1048576)return false;
         if(n<=h.size())return h.truncate(n);

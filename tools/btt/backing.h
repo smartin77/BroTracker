@@ -103,7 +103,9 @@ public:
         for(const auto& s:slots_)if(s.refs || s.writer || s.state==State::Quarantine || backend_.Open(s.file))return false;
         return true;
     }
-    Code Create(Output& candidate,Token& token) noexcept {
+    // Infrequent registry mutations are cold. Reads, acquisition, reference
+    // release/close and asynchronous Sample preparation retain their placement.
+    BTT_FLASHMEM("backing_create") Code Create(Output& candidate,Token& token) noexcept {
         if(!domain_ || !next_)return Code::Capacity;
         if(candidate.pool_)return Code::Busy;
         unsigned index=0;while(index<kSlots && slots_[index].state!=State::Free)++index;
@@ -141,7 +143,7 @@ public:
     }
     const void* Identity(Token token) noexcept {return Lookup(token);}
     Code Inspect(Token token) noexcept {auto* s=Lookup(token);return s?s->last:Code::Stale;}
-    Code Discard(Token token) noexcept {
+    BTT_FLASHMEM("backing_discard") Code Discard(Token token) noexcept {
         auto* s=Lookup(token);if(!s)return Code::Stale;
         if(s->refs || s->writer)return Code::Busy;
         if(!Close(*s))return Code::Io;
@@ -157,21 +159,21 @@ public:
 private:
     // Only the unique Output lease can mutate or seal its file. In particular,
     // a caller cannot seal via a token and leave an old writer able to abort a pin.
-    unsigned Write(Token token,uint32_t at,const void* p,unsigned n) noexcept {
+    BTT_FLASHMEM("backing_write") unsigned Write(Token token,uint32_t at,const void* p,unsigned n) noexcept {
         auto* s=Lookup(token);
         if(!s || s->state!=State::Writing || !s->writer || s->poisoned)return 0;
         if(!p || n>512 || at>kMaxBytes || n>kMaxBytes-at) {s->last=Code::Invalid;s->poisoned=true;return 0;}
         if(!backend_.Write(s->file,at,p,n)) {s->last=Code::Io;s->poisoned=true;return 0;}
         s->length=std::max<uint32_t>(s->length,at+n);return n;
     }
-    Code Resize(Token token,uint32_t n) noexcept {
+    BTT_FLASHMEM("backing_resize") Code Resize(Token token,uint32_t n) noexcept {
         auto* s=Lookup(token);if(!s)return Code::Stale;
         if(s->state!=State::Writing || !s->writer || s->poisoned)return Code::Busy;
         if(n>kMaxBytes)return Code::Capacity;
         if(!backend_.Resize(s->file,n)) {s->poisoned=true;s->last=Code::Io;return Code::Io;}
         s->length=n;return Code::Ok;
     }
-    Code Seal(Token token,ReaderOwner& candidate) noexcept {
+    BTT_FLASHMEM("backing_seal") Code Seal(Token token,ReaderOwner& candidate) noexcept {
         auto* s=Lookup(token);if(!s)return Code::Stale;
         if(s->state!=State::Writing || !s->writer)return Code::Busy;
         s->writer=false;

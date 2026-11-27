@@ -1,5 +1,6 @@
 #pragma once
 // Provisional developer-only BTT schema. No production runtime integration.
+#include "code_placement.h"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -110,7 +111,10 @@ struct Pattern {
 const Entry* Find(const Document&, const char*, uint32_t);
 // All outputs are caller-owned candidates, disposable on failure. No operation
 // publishes state. Never pass active/current state as a candidate.
-Result Validate(ReaderOwner, Document& candidate, Workspace&, Limits = {});
+// Infrequent validation/inspection and stopped rewrite/save use XIP flash on
+// Teensy. Materialize/Find and shared parsing/read helpers retain ITCM placement
+// for future foreground pattern access; no playback/cache timing is implied.
+BTT_FLASHMEM("validate") Result Validate(ReaderOwner, Document& candidate, Workspace&, Limits = {});
 Result Materialize(const Document&, uint32_t id, Pattern& candidate, Workspace&, unsigned capacity=512);
 // Compact saved-data view. Opaque/unsupported field bytes remain recoverable
 // through section_offset/length and an owned backing; never a runtime projection.
@@ -121,11 +125,11 @@ struct SavedInstrument {
     bool resource_present=false;
     // Bit 0 Root, bit 1 Fine, bit 2 MIDI. Presence is independent of value.
 };
-Result InspectInstrument(const Document&,uint32_t id,SavedInstrument& candidate,Workspace&);
+BTT_FLASHMEM("inspect_instrument") Result InspectInstrument(const Document&,uint32_t id,SavedInstrument& candidate,Workspace&);
 // bpm=0 retains saved BPM. Inserts each absent Sample tuning default independently.
 // Writes only a distinct temporary backing. Caller must finish/sync/close, reopen,
 // Validate and compare before promotion; original ownership survives every failure.
-Result Rewrite(const Document&, Writer& temporary, Workspace&, uint32_t bpm=0);
+BTT_FLASHMEM("rewrite") Result Rewrite(const Document&, Writer& temporary, Workspace&, uint32_t bpm=0);
 // Abstract host transaction. finish() checks sync/close; reopen() returns owned
 // immutable candidate storage. promote() must retain the previous valid bytes on
 // every failure. This contract is tested with a fake, not a FAT implementation.
@@ -135,6 +139,6 @@ struct Store {
     virtual ReaderOwner reopen() = 0;
     virtual bool promote() = 0;
 };
-Result Save(const Document&, Writer& temporary, Store&, Document& reopened_candidate,
+BTT_FLASHMEM("save") Result Save(const Document&, Writer& temporary, Store&, Document& reopened_candidate,
             Workspace&, uint32_t bpm=0);
 }

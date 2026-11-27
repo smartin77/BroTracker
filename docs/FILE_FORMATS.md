@@ -1051,8 +1051,8 @@ not target sizes. The measured fake-source harness remains a separate experiment
 from the real-producer fixture and its shared PCM storage.
 
 Actual source and lifecycle probe compile with production Cortex-M7 hard-float
-GNU C++17 flags, exceptions/RTTI disabled, outside production targets. The isolated
-reservation link now roots the real adapter and uses **nine ITCM banks** with
+GNU C++17 flags, exceptions/RTTI disabled, outside production targets. Before the
+cold placement below, the initial adapter reservation link used **nine ITCM banks** with
 30,628 reported padding bytes (30,624 physical). This additional bank costs
 32,768 DTCM bytes. Isolated RAM1 static/gap are 158,016/71,360; RAM2 static/heap
 interval 232,224/292,064. Production stays at eight banks: RAM1 static/gap
@@ -1084,6 +1084,67 @@ quarantine retry, capacity, refill priority and repeated ownership cycles.
 Physical stack/heap peaks, namespace/media enforcement, production scheduler/
 publication and Tune Load/Save integration, prefetch, FX execution and
 FAT/power-loss recovery remain separate integration blockers.
+
+#### Cold BTT code placement (2026-11-27)
+
+`tools/btt/code_placement.h` supplies `BTT_FLASHMEM(name)`: on Teensy 4 it uses
+the core's `.flashmem*` XIP-flash convention with `noinline`, and on hosts it
+expands to nothing. Stable per-operation section names keep template COMDAT
+and concrete functions in compatible sections. Ordinary firmware does not link
+developer BTT code merely to measure it.
+
+The selected infrequent foreground operations are Validate, InspectInstrument,
+Rewrite and Save; rewrite-only Sink/Copy/Emit/Wire/CompareWriter::write helpers;
+and Backings Create/Discard/Write/Resize/Seal with its FsBackend Resize helper.
+The final map places their emitted bodies, including the FsBackend Resize
+`.isra.0` clone, in flash at `0x6000...`. `noinline` also removes duplicated
+mutation/rewrite bodies from ITCM wrappers without removing any retained function.
+Output write/resize/Finish wrappers remain in ITCM and call the flash bodies.
+
+Shared Read/Scalar/Utf8/Fields/Crc/Cells helpers, Find and Materialize stay in
+ITCM for foreground pattern access. This intentionally leaves part of the
+validation call graph in ITCM; moving an entry point does not move its callees.
+Candidate admission, source leases, the asynchronous SdSourceService and its
+producer preparation/refill work also retain their placement: they may run while
+playing. No audio callback, renderer, refill priority or producer code is changed.
+New BTT cross-region veneers occupy 32 ITCM bytes and 64 flash bytes, already
+included in the measured totals.
+
+Before/after isolated links retain the same **74 unique roots** (77 root flags
+including duplicates), identical production objects/libraries and flags, the
+128-byte RAM1 owner and 65,536-byte RAM2 arena. Every retained root is present in
+both final ELFs. Layouts and lifecycle phase sizes are unchanged.
+
+| Isolated full-BTT metric | Before | After cold placement |
+| --- | ---: | ---: |
+| ITCM text plus exception index | 264,284 | 255,996 |
+| ITCM banks | 9 | **8** |
+| Flash `.text.code` | 3,336 | 10,680 |
+| RAM1 static | 158,016 | 158,016 |
+| RAM1 local/stack link gap | 71,360 | **104,128** |
+| RAM2 static including arena | 232,224 | 232,224 |
+| RAM2 heap interval | 292,064 | 292,064 |
+
+Net ITCM reduction is **8,288 bytes**, restoring **32,768 DTCM bytes** by returning
+one bank. The eight-bank link has 6,148 reported padding bytes (6,144 physical).
+After the still-unproven 32 KiB stack and 64 KiB heap allowances, conditional
+margins are 71,360 RAM1 and 226,528 RAM2 bytes; another ITCM bank would reduce that
+RAM1 margin to 38,592. Peak proposed arena phase remains 54,427 bytes including
+its guard, leaving 11,109 of the 65,536-byte arena. EXTMEM remains zero.
+
+Production `teensy41_dev` remains separate: eight banks, RAM1 static 157,888,
+local/stack link gap 104,256, RAM2 static 166,688 and heap interval 357,600.
+Its linked code/data section bytes and hot-function placement are unchanged.
+Seven focused BTT/streaming/control suites pass; host placement expands to
+nothing. Complete diff, tests, before/after maps, disassembly, section/symbol
+comparisons, shared-input hashes and memory reports are under
+`build/btt-code-placement/`.
+
+Flash placement does not establish playback timing or final device admission.
+Physical instruction-cache/SD effects, complete stack/IRQ and heap peaks,
+source-change enforcement and production publication/Tune Load/Save integration
+remain unmeasured or separate work. Future runtime pattern prefetch must review
+the shared call graph and cache costs before extending these annotations.
 
 #### Proposed current/next-pattern buffering and deferred validation
 

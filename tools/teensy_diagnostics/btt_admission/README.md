@@ -58,6 +58,15 @@ production baseline and must not be counted twice. The isolated reservation can
 cross an ITCM bank boundary even when the production firmware does not; inspect
 both entries in memory.json before assessing RAM1 headroom.
 
+Cold BTT placement is selected per operation with `BTT_FLASHMEM(name)` in
+`tools/btt/code_placement.h`. It is empty on hosts and uses `.flashmem.btt.*` plus
+noinline on Teensy 4. Never infer helper/clone placement from an entry point:
+inspect objdump symbol sections, maps and disassembly. Shared read/materialization
+helpers and asynchronous admission/source-adapter operations remain in ITCM.
+The before/after experiment under `build/btt-code-placement/` compares all retained
+roots, identical production link inputs and both arena reservations; it returns
+the isolated link to eight banks. No runtime cache/SD timing claim follows.
+
 `placement.cpp` reserves a 64 KiB aligned `.dmabuffers` arena and 128 bytes of
 DTCM owner state. The separate `reservation.elf` roots all foundation entry
 points and these reservations against the same production objects/libraries.

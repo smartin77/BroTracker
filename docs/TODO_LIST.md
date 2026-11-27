@@ -66,6 +66,13 @@
   refill-first service, scoped cancellation and checked close/quarantine retry.
   Real fake-SD/path tests and measured ARM adapter/lifecycle budgets are saved.
   [Adapter contract](SD_SAMPLE_STREAMING.md#developer-btt-sourceservice-adapter-2026-11-27)
+* [x] Place selected cold BTT validation/rewrite/backing mutations in Teensy flash
+  with a host-neutral abstraction. Identical-root/object/reservation comparisons
+  reduce isolated ITCM by 8,288 bytes, return nine banks to eight and restore
+  32,768 DTCM bytes; production hot paths and code/data sections are unchanged.
+  Shared materialization/read helpers and asynchronous admission/adapter work
+  remain in ITCM. Cache/SD timing and stack/heap peaks remain unqualified.
+  [Placement evidence](FILE_FORMATS.md#cold-btt-code-placement-2026-11-27)
 * [ ] Integrate a production scheduler/publication and Tune Load/Save lifecycle,
   including explicit legacy-job acknowledgement and source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate

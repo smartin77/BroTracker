@@ -115,8 +115,12 @@ producer 4,760. The producer increases production RAM1 static by 32 bytes after
 linker alignment; RAM2 is unchanged. The actual adapter replaces the old 1,024-byte
 unknown allowance in lifecycle.csv. Peak proposed arena phase is 54,427 bytes
 including the 2,048-byte guard, leaving 11,109 of 65,536. The isolated full BTT
-reservation link crosses to nine ITCM banks and leaves a 71,360-byte RAM1 link gap
-before runtime stack allowances; production stays at eight banks and 104,256.
+reservation link initially crossed to nine ITCM banks. Subsequent
+[cold BTT placement](../../docs/FILE_FORMATS.md#cold-btt-code-placement-2026-11-27)
+returns it to eight and a 104,128-byte RAM1 link gap before stack allowances;
+production stays at eight banks and 104,256. Adapter/admission/lease operations
+and shared pattern-read helpers remain in ITCM; flash placement covers selected
+validation/rewrite and infrequent backing mutations only.
 These compile/link figures do not establish physical SD or runtime admission.
 Complete evidence is under `build/btt-source-adapter/`.
 
