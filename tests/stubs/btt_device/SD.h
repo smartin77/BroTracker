@@ -8,16 +8,31 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <functional>
 constexpr int O_RDONLY=0,O_WRONLY=1,O_CREAT=2,O_EXCL=4,O_RDWR=8,FILE_READ=0,FILE_WRITE=1,BUILTIN_SDCARD=254;
 namespace DeviceSd {
+// Exclude STL storage belonging to this fake from adapter allocation counts.
+inline unsigned allocation_scope=0;
+struct AllocationScope {AllocationScope(){++allocation_scope;}~AllocationScope(){--allocation_scope;}};
 struct Entry {bool directory=false;std::vector<uint8_t> bytes;unsigned opens=0;};
-inline std::map<std::string,Entry> files;
+struct FatLess {
+    bool operator()(std::string a,std::string b) const {
+        for(auto& c:a)if(c>='A' && c<='Z')c+=32;
+        for(auto& c:b)if(c>='A' && c<='Z')c+=32;
+        return a<b;
+    }
+};
+inline std::map<std::string,Entry,FatLess> files;
 inline unsigned begin_calls=0,open_calls=0,write_calls=0,created=0,removed=0;
 inline unsigned rejected_seeks=0;
 inline uint64_t rejected_offset=0,rejected_size=0;
 inline bool fail_write=false;
 inline std::string fail_write_path,fail_close_path;
 inline std::string fail_read_path,fail_sync_path,fail_remove_path;
+inline std::string fail_open_path;
+inline size_t short_write=0,short_read=0;
+inline unsigned rename_calls=0,fail_rename=0,fail_rename_second=0;
+inline std::function<void(const std::string&)> read_open_hook;
 // Optional actual SdFat failure shape: inner close shuts the file even when
 // sync fails, while FsBaseFile retains its pointer/isOpen() result on failure.
 inline bool close_failure_closes_inner=false;
@@ -34,7 +49,10 @@ public:
     bool isOpen()const{return entry_!=nullptr;}
     explicit operator bool()const{return isOpen();}
     bool open(const char* p,int flags){
+        DeviceSd::AllocationScope allocation;
         ++DeviceSd::open_calls;if(entry_ && !close())return false;path_=DeviceSd::Path(p);
+        if(flags==O_RDONLY && DeviceSd::read_open_hook)DeviceSd::read_open_hook(path_);
+        if(path_==DeviceSd::fail_open_path)return false;
         auto found=DeviceSd::files.find(path_);
         if((flags&O_EXCL) && found!=DeviceSd::files.end())return false;
         if(found==DeviceSd::files.end()){
@@ -53,8 +71,10 @@ public:
     uint32_t curPosition()const{return at_;}uint32_t position()const{return at_;}
     int available()const{return int(size()-std::min(size(),at_));}
     unsigned getError()const{return 0;}
-    int read(void* p,size_t n){if(!entry_ || path_==DeviceSd::fail_read_path)return -1;n=std::min(n,size()-std::min(size(),at_));if(n)std::memcpy(p,entry_->bytes.data()+at_,n);at_+=n;return int(n);}
+    int read(void* p,size_t n){if(!entry_ || path_==DeviceSd::fail_read_path)return -1;n=std::min(n,size()-std::min(size(),at_));if(DeviceSd::short_read && n>=DeviceSd::short_read)n=DeviceSd::short_read-1;if(n)std::memcpy(p,entry_->bytes.data()+at_,n);at_+=n;return int(n);}
     size_t write(const void* p,size_t n){++DeviceSd::write_calls;if(!entry_ || !writable_ || DeviceSd::fail_write || path_==DeviceSd::fail_write_path)return 0;
+        DeviceSd::AllocationScope allocation;
+        if(DeviceSd::short_write && n>=DeviceSd::short_write)n=DeviceSd::short_write-1;
         if(at_+n>entry_->bytes.size())entry_->bytes.resize(at_+n);std::memcpy(entry_->bytes.data()+at_,p,n);at_+=n;return n;}
     bool truncate(uint32_t n){if(!entry_ || !writable_ || n>size())return false;entry_->bytes.resize(n);at_=n;return true;}
     bool sync(){return entry_!=nullptr && path_!=DeviceSd::fail_sync_path;}
@@ -72,10 +92,18 @@ public:
 };
 using File=FsFile;
 struct DeviceFs {
-    bool exists(const char* p){return DeviceSd::files.count(DeviceSd::Path(p));}
+    bool rename(const char* from,const char* to){
+        DeviceSd::AllocationScope allocation;
+        const auto call=++DeviceSd::rename_calls;
+        if(call==DeviceSd::fail_rename || call==DeviceSd::fail_rename_second)return false;
+        auto found=DeviceSd::files.find(DeviceSd::Path(from));
+        if(found==DeviceSd::files.end() || found->second.opens || exists(to))return false;
+        auto node=DeviceSd::files.extract(found);node.key()=DeviceSd::Path(to);DeviceSd::files.insert(std::move(node));return true;
+    }
+    bool exists(const char* p){DeviceSd::AllocationScope allocation;return DeviceSd::files.count(DeviceSd::Path(p));}
     // SdFat mkdir creates the final component exclusively, even with parents=true.
     bool mkdir(const char* p,bool=true){const auto name=DeviceSd::Path(p);if(exists(p))return false;DeviceSd::files[name].directory=true;return true;}
-    bool remove(const char* p){++DeviceSd::removed;if(DeviceSd::Path(p)==DeviceSd::fail_remove_path)return false;return DeviceSd::files.erase(DeviceSd::Path(p));}
+    bool remove(const char* p){DeviceSd::AllocationScope allocation;++DeviceSd::removed;if(DeviceSd::Path(p)==DeviceSd::fail_remove_path)return false;auto found=DeviceSd::files.find(DeviceSd::Path(p));if(found==DeviceSd::files.end() || found->second.opens)return false;DeviceSd::files.erase(found);return true;}
 };
 struct DeviceSD {
     DeviceFs sdfs;

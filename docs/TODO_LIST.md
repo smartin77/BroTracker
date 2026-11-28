@@ -119,7 +119,22 @@
 * [x] Correct stopped-load member destruction order after fresh unoptimized host
   tests exposed Candidate leases calling an already-destroyed SdSourceService.
   Keep the service alive through candidate destruction; existing Debug and
-  Release stopped-load tests pass. Physical restoration/load remains pending.
+  Release stopped-load tests pass. Dedicated-card protocol LOAD subsequently
+  passed; original-state restoration was not tested.
+* [x] Implement bounded FsFile-backed BTT Save storage transaction, without a
+  serial command/UI or production integration: full saved-document/backing pin,
+  Rewrite/Save exact comparison, exclusive candidate, checked sync/close/reopen,
+  validated canonical/previous promotion, rollback and explicit recovery cleanup.
+  Debug/Release actual-adapter fault/regression tests, repeated ownership and
+  allocation counts, Teensy compile/link/layout/stack evidence are under
+  `build/btt-save-backend/`. Isolated incremental reservation is 8,256 RAM2 bytes;
+  normal production reserves nothing for this unintegrated backend.
+  [Contract](FILE_FORMATS.md#bounded-fsfile-save-backend-2026-11-28)
+* [ ] Integrate Save with the retained complete saved-document owner under
+  stopped/settled production storage gates, retaining failed handles/artifacts
+  through checked cleanup and reporting committed/backup/recovery outcomes.
+  Preserve tune identity; Save As/copy identity policy remains undecided. Add a
+  production entry point only in that separate stopped-only integration step.
 * [x] Fix production loader reuse of an existing backing directory after real
   SdFat rejected repeated mkdir. Validate/open/checked-close the namespace with
   persistent quarantine ownership; never overwrite a regular file. The corrected

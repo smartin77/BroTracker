@@ -132,7 +132,8 @@ BTT_FLASHMEM("inspect_instrument") Result InspectInstrument(const Document&,uint
 BTT_FLASHMEM("rewrite") Result Rewrite(const Document&, Writer& temporary, Workspace&, uint32_t bpm=0);
 // Abstract host transaction. finish() checks sync/close; reopen() returns owned
 // immutable candidate storage. promote() must retain the previous valid bytes on
-// every failure. This contract is tested with a fake, not a FAT implementation.
+// every failure. fs_save.h supplies the bounded FsFile adapter; the abstract
+// contract and actual adapter are both exercised with host fault injection.
 struct Store {
     virtual ~Store() = default;
     virtual bool finish() = 0;

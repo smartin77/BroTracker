@@ -6,6 +6,7 @@
 namespace btt::prototype {
 class FsBackend {
     template<class> friend class Backings;
+    friend class FsSave;
     bool ready_;
     class Lease {
         bool write_,held_;

@@ -379,6 +379,12 @@ target_include_directories(BroTrackerBttFsBackendTests PRIVATE tests/stubs/btt_d
     tests tools/btt src libraries/sd_access/src)
 add_test(NAME BroTrackerBttFsBackendTests COMMAND BroTrackerBttFsBackendTests)
 
+add_executable(BroTrackerBttFsSaveTests tests/test_main.cpp tests/test_btt_fs_save.cpp
+    tools/btt/fs_save.cpp tools/btt/foundation.cpp libraries/sd_access/src/sd_access.cpp)
+target_include_directories(BroTrackerBttFsSaveTests PRIVATE tests/stubs/btt_device tests/stubs/sd
+    tests tools/btt src libraries/sd_access/src)
+add_test(NAME BroTrackerBttFsSaveTests COMMAND BroTrackerBttFsSaveTests)
+
 add_executable(BroTrackerStartupStorageTests tests/test_main.cpp tests/test_startup_storage.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/pattern_position.cpp

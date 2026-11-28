@@ -585,6 +585,72 @@ must preserve the previous valid bytes, even if recovery must use `.previous`.
 Retained backups are reported. FAT power-loss atomicity is not promised. No SD
 load/save I/O runs while Playing or in an audio callback/ISR.
 
+#### Bounded FsFile Save backend (2026-11-28)
+
+`tools/btt/fs_save.{h,cpp}` implements the native, synchronous storage portion
+of Save. It is compiled/linked for Teensy and tested through the actual adapter
+against fake FsFile faults; it has no serial command, screen or production Save
+integration. `FsSave::Run` requires the complete accepted `Document`, its matching
+live sealed `FsBackings` token, a destination and disposable caller-owned
+`Document`/`Workspace` scratch. It pins the immutable source for the operation.
+It never serializes the runtime pattern/instrument projection, changes tune
+identity, or settles the open Save As/copy identity policy.
+
+The adapter reuses `Save`/`Rewrite`, including source-fingerprint revalidation,
+absent tuning-default insertion and exact intended-output comparison. It fully
+validates an existing canonical first, exclusively creates `<destination>.candidate`,
+checks positional writes, sync and close, then reopens, validates and compares.
+The verified read handle must close successfully before canonical -> `.previous`
+and candidate -> canonical promotion. A failed promotion attempts rollback;
+failed rollback retains exact old bytes in `.previous` and verified new bytes
+in `.candidate` for explicit recovery. Successful promotion removes only its own
+backup; failed removal reports `BackupRetained`. Existing candidate/previous
+paths block without deletion. Outcomes distinguish `Saved`, `BackupRetained`,
+`PromotionFailed`, `RollbackFailed`, `CleanupRequired`, collision, busy and other
+failure; `detail()` retains the foundation result. `promoted()` and artifact
+flags distinguish committed data from failed work, independently of cleanup.
+
+`Cleanup` retries checked close/removal or rollback of owned artifacts; it never
+deletes the sole previous valid file. Pending resources block reuse. The owner
+must retain this state and registry until `CanDestroy()` succeeds. Scratch pins
+are released before an admitted Run returns; they are not a new active document.
+There is no destructor-driven filesystem cleanup: the caller must meet that
+lifetime rule before FsFile's own library destructor can run. Failed exclusive
+open grants no deletion rights over an existing file. Ordinary failed close and
+SdFat's wrapper-open/inner-closed failure shape are both exercised.
+
+Destination paths use the conservative FAT policy from `ValidSamplePath` and
+are limited to 245 bytes so both sibling suffixes remain within 255. Traversal,
+leading slash, repeated separators, trailing space/dot and short-name `~` aliases
+are rejected. Case-insensitive component-prefix checks exclude `.btt-prototype`,
+`.btt-load` and the configured backing namespace. Because the only admitted
+sources belong to that registry, destination/source aliasing is excluded without
+another pathname pool. The sibling names share the same validated parent.
+
+The caller must establish and maintain confirmed stopped/settled transport,
+no pending publication, audition or competing storage/path mutations throughout
+Run and Cleanup. The readiness boolean attests to this precondition; it does
+not implement transport checks. Each SD action uses existing `SdAccess`
+exclusion, including source reads; an outer write lease must not enclose Run.
+No SD operations are allowed in audio callbacks or interrupts. FAT power-loss
+atomicity and runtime stack/heap/IRQ admission are not established here.
+
+Evidence: `build/btt-save-backend/REPORT.md`, Debug/Release logs, exact fault
+outcomes, actual ARM compile/link maps/layouts, stack frames and allocation audit.
+ARM state is 912 bytes; a separate comparison Document (6,192) and Workspace
+(1,136) bring isolated aligned RAM2 reservation to 8,256 bytes. Existing source
+Document/registry/pins are reused; no decoded pattern, path pool, PCM cache,
+player or whole-file buffer is added. This unintegrated backend adds no normal
+production reservation. Explicitly rooted diagnostic code adds 976 ITCM bytes
+without changing the eight-bank allocation. Repeated saves count zero adapter
+C++ allocations; fake STL allocations are recorded separately. These static
+figures are not observed hardware stack high-water or timing measurements.
+
+Next: wire this adapter into the retained full-document owner behind the existing
+stopped/settled storage gates, provide explicit recovery reporting/lifetime and
+completion handling, and only then add the separately scoped production Save
+entry point. Preserve saved tune identity until product identity policy is decided.
+
 #### Transport boundaries: requirements and current guards
 
 Confirmed device IDLE with no pending transport command satisfies the stopped
@@ -728,8 +794,9 @@ default. Valid UTF-8 paths, including invalid runtime paths/bases, remain raw.
 The `Reader` contract requires owned, immutable, seekable backing for its entire
 lifetime. `Document` retains a `ReaderOwner` pin (fixed prototype control or compatibility
 host shared pointer), never a naked filename or borrowed byte array. Implementations must guarantee immutability;
-`const` alone cannot freeze external storage. There is no production filesystem
-adapter; the isolated FsFile prototype is described below. The host test reader owns its file handle and denies write
+`const` alone cannot freeze external storage. Registry-owned FsFile backing and
+the stopped loader are described below; the separate Save adapter above remains
+unintegrated. The host test reader owns its file handle and denies write
 sharing on Windows; its POSIX test fallback assumes exclusive test ownership.
 Adapters must give all wrappers of the same backing the same identity, and the
 rewriter rejects a writer with the source identity before writing. It checks the
@@ -744,9 +811,10 @@ may leave partial temporary bytes, which are disposable. `Save` requires an
 abstract store to finish/sync/close, reopen with owned immutable backing, fully
 validate, compare exact intended rewritten bytes, then promote. The original
 document/backing remains available. The store's promotion contract retains the
-previous valid destination on failure. The fake-store test establishes software
-failure ordering only: real exclusive creation, SD leases, `.previous`/rollback,
-FAT errors and power-loss recovery remain unimplemented and unvalidated here.
+previous valid destination on failure. The original fake-store tests establish
+abstract failure ordering. The bounded FsFile Save backend above now supplies
+exclusive creation, SD leases and checked `.previous`/rollback with actual-adapter
+fault tests and target links. Physical FAT/power-loss recovery remains unvalidated.
 
 No-edit rewrites are byte-identical when Sample tuning fields are explicit,
 including explicit defaults and unsupported values. A BPM edit changes only
