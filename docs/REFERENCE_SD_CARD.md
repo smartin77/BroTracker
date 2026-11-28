@@ -222,3 +222,75 @@ The reference card is not selected because of its advertised brand or speed rati
 It is selected because its behavior has been measured on the actual BroTracker hardware.
 
 The reference benchmark therefore represents a **measured hardware baseline**, rather than a theoretical specification derived from the card's advertised capabilities.
+
+## Dedicated 32 GB card comparison (2026-11-28)
+
+The owner-supplied SanDisk 32 GB test card completed the existing isolated SD
+diagnostics on Teensy serial 17681760. The original reference card and all prior
+measurements above were preserved. This is a card/filesystem/workload comparison,
+not a new minimum-card specification or an authenticity test.
+
+| Property | Dedicated test card |
+| --- | --- |
+| Raw CID reported by SdFat | `6f0303534441424310aa001504018b00` |
+| Reported physical capacity | 61,076,480 sectors / 31,271,157,760 bytes |
+| Filesystem / cluster | FAT32 / 64 sectors = 32 KiB |
+| Data-cluster capacity | 954,086 clusters / 31,263,490,048 bytes |
+| Available before diagnostic writes | 26,074,742,784 bytes |
+| Available after native fixture creation | 25,818,857,472 bytes |
+
+No format, repartition or cluster change was performed. Existing Samples and BTT
+evidence were not targeted. PREPARE created ten native deterministic PCM16 mono
+fixtures in the existing diagnostic's dedicated namespace; all reopened PCM hash
+and frame-count references matched the independent native calculator.
+
+The command-driven baseline passed RAM/SD short-file and large-file EOF checks
+plus 2/4/8-voice simultaneous/staggered starts. The selected `low_ram` configuration
+then passed 8 KiB rings, 4 KiB reads/staging, 50% threshold, 300 seconds of requested
+149 ms ISR retriggers, and eight six-minute files to EOF. All file hashes matched;
+underruns, I/O/content errors and pool failures were zero.
+
+| Isolated low-RAM diagnostic metric | Historical exFAT reference | New FAT32 card |
+| --- | ---: | ---: |
+| Largest per-run/voice p99 upper bound | 3.220 ms | 1.080 ms |
+| Maximum seek + read | 3.551 ms | **22.563 ms** |
+| Minimum ready frames, excluding final drain | 897 / 20.340 ms | 1153 / 26.145 ms |
+| Maximum source callback | 183.172 us | 188.142 us |
+| Peak Audio Library update | 6.317% | 6.490% |
+| Eight-file EOF seek/read duty | 47.69% | 9.00% |
+| Verified complete retrigger generations | 18,056 | 16,208 |
+| Rejected stale completions | 506 | 0 |
+
+The historical headline includes a 173 ms/300 s retrigger run and extra 149 ms
+collision runs; this focused run uses the current runner's 149 ms/300 s workload.
+The new card's 22.563 ms maximum occurred during full-file EOF playback on one
+voice; lower p99/duty does not remove this larger observed tail. Zero stale
+discards means interrupted-read rejection was not observed on the new card.
+The matching six-minute EOF case alone has p99 upper bounds 3.090 / 0.970 ms,
+maximum seek/read 3.551 / 22.563 ms and callback maxima 160.405 / 164.783 us
+(old/new). These are isolated diagnostic results, separate from later production
+streaming measurements. Filesystem, cluster size, layout/occupancy, cache state
+and different exposure histories prevent attributing every change to hardware.
+
+The original DrumLoop read benchmark also passed with 4 KiB reads and ten loops:
+64 candidates, 33 valid, 31 unsupported, and 89,136,100 bytes. Supported and
+unsupported metadata manifests match the historical September 8 log; full WAV
+content hashes were not measured by that benchmark.
+
+| Original read benchmark | Historical September 8 log | New card |
+| --- | ---: | ---: |
+| Aggregate full-file throughput | 19,314 KiB/s | 21,507 KiB/s |
+| Aggregate chunked throughput | 19,311 KiB/s | 21,502 KiB/s |
+| Full-file / chunked read failures | 0 / 0 | 0 / 0 |
+
+The existing storage probe passed 1 KiB/64 KiB/1 MiB create/write/read, append,
+rename/delete and 64 KiB close/reopen correctness. Its fixed temporary paths were
+verified absent before upload and cleanup passed. **Write throughput remains
+unmeasured.** Current normal `teensy41_dev` with both reviewed BTT fixes was
+restored; board/build identity, IDLE and serial closure were verified.
+
+Evidence, raw logs, structured comparisons, image/dataset identities and limits:
+`build/sd-card-comparison/sandisk-20261128-e42d943a6c/REPORT.md`. This run does not
+establish audible quality, full-capacity authenticity, fragmentation tolerance,
+production mixed/pitched workloads or power-loss recovery. The dedicated card
+remains installed; the owner handles later card exchange.

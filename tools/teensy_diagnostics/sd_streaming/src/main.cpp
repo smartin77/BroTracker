@@ -229,6 +229,13 @@ void hardwareInfo() {
   for(unsigned i=0;i<sizeof cid;++i) Serial.printf("%02x",p[i]);
   Serial.printf(" sectors=%lu fat=%u cluster_sectors=%lu\n",disk.card()->sectorCount(),disk.fatType(),disk.sectorsPerCluster());
  }
+ // Stopped, read-only preflight facts; never part of the timed streaming path.
+ const auto freeClusters=disk.freeClusterCount();
+ Serial.printf("SPACE clusters=%lu free_clusters=%lu available_bytes=%llu\n",
+     disk.clusterCount(),freeClusters,uint64_t(freeClusters)*disk.sectorsPerCluster()*512u);
+ for(const char* path:{FixtureDir,"/BroTracker/test.bin","/BroTracker/renamed.bin",
+     "/Samples/Wav-HQ/DrumLoop"})
+  Serial.printf("PATH %s exists=%u\n",path,unsigned(disk.exists(path)));
  char shortPath[240]; snprintf(shortPath,sizeof shortPath,"%s/short.wav",FixtureDir);
  inspect(shortPath,shortAsset);
  snprintf(shortPath,sizeof shortPath,"%s/large.wav",FixtureDir); inspect(shortPath,largeAsset);

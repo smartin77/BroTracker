@@ -280,6 +280,16 @@
   pitch, longer mixed loads and injected physical I/O failure. Investigate the
   recorded SD initialization fault and the separate CDC startup receive overflow.
   [Streaming checks](SD_SAMPLE_STREAMING.md#remaining-checks)
+* [x] Run one isolated comparison on the dedicated owner-supplied SanDisk 32 GB
+  FAT32 card (2026-11-28): native deterministic fixture preparation/reopened hashes,
+  diagnostic baseline, 8 KiB-ring/4 KiB-read low_ram retriggers and full-file EOF,
+  safe storage correctness probe, and original 4 KiB/ten-loop DrumLoop benchmark
+  passed. Preserve the larger 22.563 ms observed read tail despite lower p99/duty;
+  no stale discard was observed. Write throughput remains unmeasured. Normal
+  firmware restored and IDLE verified. No production parameter or original-card
+  change; full-capacity authenticity, listening and power-loss recovery remain open.
+  [Comparison](REFERENCE_SD_CARD.md#dedicated-32-gb-card-comparison-2026-11-28)
+  Evidence: `build/sd-card-comparison/sandisk-20261128-e42d943a6c/`.
 * [ ] Measure physical transport and event timing, including Pause/Continue,
   restart at zero, simultaneous triggers and deferred NOTE OFF. Stress rapid
   cross-channel working edits, backpressure and stale recovery; distinguish

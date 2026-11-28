@@ -88,6 +88,13 @@ ownership. Existing correctly formatted/sized files are reused; conflicts are
 reported without replacement. Only a partial file exclusively created by the
 current call is removed on write failure. No writes occur during playback.
 
+Reuse checks the default supported WAV metadata and expected frame count, not
+the deterministic PCM contents or a whole-file hash. INFO computes reference
+hashes from the reopened current PCM; compare them with the independent native
+generator when establishing fixture identity. Creation checks writes and sync,
+but the existing close/remove calls do not expose checked quarantine outcomes.
+Successful reopen/hash checks do not qualify close-failure or power-loss recovery.
+
 Discovery first uses the dedicated fixture folder, then documented development
 paths if needed. It reports all selected paths, sizes, reference hashes, card CID,
 sector count, filesystem and cluster size. Missing fixtures or SD initialization
@@ -95,6 +102,14 @@ failure stops the runner. `INFO` retries failed initialization and rescans stopp
 media. A successful initialization is retained across INFO calls. Boot prepares
 storage before starting audio, then waits for commands; use PREPARE followed by
 INFO before testing a new card.
+
+Stopped INFO also reports `SPACE` (data-cluster count, free clusters and available
+bytes) and read-only `PATH` existence facts for the fixture directory, the storage
+probe's two fixed temporary paths and the original DrumLoop dataset. These calls
+are outside timed RUN work. Verify the storage probe paths are absent before
+uploading that auto-run tool: its existing cleanup removes `BroTracker/test.bin`
+and `BroTracker/renamed.bin` unconditionally. Preserve conflicts instead of
+running it over preexisting files.
 
 Raw serial command:
 `RUN voices read_bytes threshold_percent duration_ms stagger_ms retrigger_ms mode`
@@ -180,3 +195,17 @@ production integration, fragmentation, other cards and loops remain unqualified.
 Physical output capture and a fresh listening check remain pending. Full logs,
 per-voice measurements, linker maps and the actual patch are under the ignored
 `_backyard/sd_streaming/` directory.
+
+## Dedicated FAT32 comparison (2026-11-28)
+
+The selected low_ram configuration and baseline passed on the owner-supplied
+32 GB test card, CID `6f0303534441424310aa001504018b00`, FAT32/32 KiB clusters.
+All ten native fixture hashes matched the independent generator; eight full-file
+EOF hashes and 16,208 retrigger generations passed, with zero underruns,
+I/O/content errors or pool failures. Largest p99 upper bound was 1.080 ms and
+worst seek/read 22.563 ms; the latter is larger than the earlier 3.551 ms maximum.
+Zero stale discards means the read-interruption discard path was not observed.
+No tuning matrix or production parameter change was made. See
+[card comparison](../../../docs/REFERENCE_SD_CARD.md#dedicated-32-gb-card-comparison-2026-11-28)
+and `build/sd-card-comparison/sandisk-20261128-e42d943a6c/REPORT.md` for raw logs,
+matching workload caveats, storage/read benchmark results and final restoration.

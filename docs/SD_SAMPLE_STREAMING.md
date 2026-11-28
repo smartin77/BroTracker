@@ -1,5 +1,28 @@
 # Production SD sample streaming — 2026-11-07
 
+## Separate dedicated-card diagnostic comparison (2026-11-28)
+
+The existing isolated command-driven diagnostic passed its baseline and selected
+8 KiB-ring/4 KiB-read-and-staging/50% native-rate workload on the owner's dedicated
+FAT32 32 GB card, followed by the original DrumLoop read benchmark and storage
+correctness probe. This did not change production streaming parameters or repeat
+the later production mixed/pitched measurements below. Historical exFAT results
+remain unchanged.
+
+The new isolated workload had zero underruns, I/O/content errors or pool failures,
+16,208 verified retrigger generations and matching eight-file EOF hashes.
+Largest p99 upper bound was 1.080 ms; maximum seek/read was 22.563 ms, exceeding
+the older isolated reference's 3.551 ms maximum. No stale discard was observed,
+so interrupted-read rejection is not demonstrated by this new run. FAT32/32 KiB
+clusters differ from the reference's exFAT/128 KiB clusters; card/layout/cache and
+exposure differences are not controlled away. Write throughput, audible output,
+full-capacity authenticity and power-loss recovery remain unmeasured.
+
+See [the card comparison](REFERENCE_SD_CARD.md#dedicated-32-gb-card-comparison-2026-11-28)
+and `build/sd-card-comparison/sandisk-20261128-e42d943a6c/REPORT.md`. Current normal
+firmware containing the BTT lifetime and directory fixes was restored and IDLE
+verified; the original card was not used in this task.
+
 ## Stopped-only production BTT consumer (2026-11-27)
 
 The primary developer firmware now uses Candidate/SdSourceService through the
