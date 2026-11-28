@@ -1,11 +1,11 @@
 # TODO List
 
-## Current task: BTX session ownership correction (documentation complete)
+## Current task: complete accepted-BTT candidate export
 
 * [x] Review actual legacy session, startup/reconnect, cache and stopped BTT
   implementations; document corrected BTX/Teensy ownership and gaps. Evidence:
-  `build/btx-session-ownership/REPORT.md`. No runtime changes or device work.
-* [ ] **Next focused task:** add negotiated stopped-only export of the accepted
+  `build/btx-session-ownership/REPORT.md`. That review was documentation only.
+* [x] Implement negotiated stopped-only export of the accepted
   complete immutable BTT to a validated BTX-owned candidate, reusing Document/
   ReaderOwner/Validate. Bound credits/chunks, pin lifetime and request/generation
   integrity; retain the old candidate on failure. Components: `tools/btt`, shared
@@ -13,7 +13,11 @@
   Prove all patterns/order/three FX slots, unavailable/unsupported definitions and
   optional unknown bytes survive; reject stale/short/corrupt/changed-source replies.
   No restore, migration, editor unlocking or automatic session replacement yet.
-* [ ] Define/version the shared musical snapshot generation and edit-overlay
+  Actual exporter/BTX-client tests and Debug/Release regressions, normal Teensy and
+  Windows/ArkOS deliveries, production memory comparison and dedicated-card real
+  Windows BTX byte verification are recorded in `build/btt-export/REPORT.md`.
+  Candidate success remains distinct from durable current-session persistence.
+* [ ] **Next:** define/version the shared musical snapshot generation and edit-overlay
   boundary, including legacy one-pattern conversion and working versus applied
   intent. Classify mute/gains and future mixer settings explicitly; do not persist
   playback execution state or assume automatic resume.

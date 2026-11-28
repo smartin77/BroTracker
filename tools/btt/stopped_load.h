@@ -3,6 +3,7 @@
 // arbitrary input files are copied into sealed, registry-owned private backing.
 #include "fs_backend.h"
 #include "fs_save.h"
+#include "export.h"
 #include "sd_source_service.h"
 #include "bringup/instrument_commit.h"
 #include "bringup/pattern_file_store.h"
@@ -54,6 +55,8 @@ class StoppedLoad {
     } buffers_;
     bool comparing_=false;
     FsSave save_;
+    Export export_;
+    uint32_t accepted_generation_=0;
     SaveReport last_save_,transaction_;
     RecoveryReport last_recovery_;
     AdmissionScratch scratch_;
@@ -88,6 +91,13 @@ public:
     BTT_FLASHMEM("load_step") void Step(bool ready) noexcept;
     BTT_FLASHMEM("load_cancel") bool Cancel() noexcept;
     bool Busy() const noexcept {return phase_>=LoadPhase::Open && phase_<=LoadPhase::Cleanup;}
+    bool ExportActive() const noexcept {return export_.Active();}
+    void ExportDisconnect() noexcept {export_.NewConnection();}
+    BTT_FLASHMEM("load_export") const char* ExportCommand(const BroTracker::BttExportRequest& r,const char* boot,bool ready,uint32_t now,char* reply) noexcept {
+        return export_.Command(r,active_>=0?owners_[active_].backing():ReaderOwner{},accepted_generation_,
+            active_>=0?maps_[active_].whole_crc:0,boot,ready && !Busy() && !SaveRecoveryPending(),now,reply);
+    }
+    BTT_FLASHMEM("load_export_poll") bool ExportPoll(uint32_t now,bool ready,char* reply) noexcept {return export_.Poll(now,ready,reply);}
     bool RetainsTune() const noexcept {return active_>=0;}
     const char* active_path() const noexcept {return active_path_;}
     bool SaveRecoveryPending() const noexcept {return !save_.CanDestroy();}

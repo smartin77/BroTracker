@@ -1,3 +1,4 @@
+#include "ui/sdl/btt_export_mode.h"
 // BroTracker Terminal: Windows presentation/input client; Teensy is the engine.
 #include <SDL.h>
 #include <cstdio>
@@ -36,6 +37,7 @@ int ReportFailure(FILE* log, const std::string& detail, const std::string& log_p
 }
 }
 int main(int argc, char* argv[]) try {
+    if(const auto result=BttExportMode::Run(argc,argv))return *result;
     HostWarningPresentation warning_presentation(SDL_GetTicks());
     char* preference_path = SDL_GetPrefPath("BroTracker", "BroTracker Terminal");
     if (!preference_path) return ReportFailure(nullptr, std::string("No writable log location: ") + SDL_GetError(), "");

@@ -411,7 +411,7 @@ namespace
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
 #ifdef BROTRACKER_BTT_STOPPED_LOAD
-        if(advertise_snapshot) (void)QueueLine("BTBTT1 SAVECAP 1\n");
+        if(advertise_snapshot) (void)QueueLine("BTBTT1 SAVECAP 1\nBTBTT1 EXPORTCAP 1 64\n");
 #endif
         QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
@@ -588,7 +588,22 @@ namespace
             (unsigned long)SD.sdfs.card()->sectorCount(),unsigned(SD.sdfs.fatType()),(unsigned long)SD.sdfs.sectorsPerCluster());
         (void)QueueLine(reply);
     }
+    BTT_FLASHMEM("export_dispatch") bool BttExportCommand(const char* line) {
+        BttExportRequest request;
+        if(!ParseBttExportRequest(line,request))return false;
+        if(TxRoom(1,kBttExportLine)) {
+            char reply[kBttExportLine];
+            (void)QueueLine(g_btt_load.ExportCommand(request,g_identity.Facts().boot,
+                g_protocol_connected && BttIdle(),millis(),reply));
+        }
+        return true;
+    }
+    BTT_FLASHMEM("export_service") void ServiceBttExport(uint32_t now) {
+        if(TxRoom(1,kBttExportLine)) {char reply[kBttExportLine];
+            if(g_btt_load.ExportPoll(now,g_protocol_connected && BttIdle(),reply))(void)QueueLine(reply);}
+    }
     void BttCommand(const char* line) {
+        if(BttExportCommand(line))return;
         BttSaveRequest request;
         if(ParseBttSaveRequest(line,request)) {
             if(!TxRoom(2))return; // No execution unless both reply slots are available; query by ID if uncertain.
@@ -638,7 +653,7 @@ namespace
         if(before!=g_btt_load.phase())BttReply();
     }
     BttSerialDisposition BttCommandPolicy(std::string_view line) {
-        return BttSerialPolicy(line,g_btt_load.Busy(),g_btt_load.RetainsTune(),g_btt_load.SaveRecoveryPending(),BttIdle());
+        return BttSerialPolicy(line,g_btt_load.Busy(),g_btt_load.RetainsTune(),g_btt_load.SaveRecoveryPending(),BttIdle(),g_btt_load.ExportActive());
     }
 #endif
     void ClockCommand(const char* line,std::size_t count,std::uint32_t now) {
@@ -1089,6 +1104,9 @@ namespace
         {
             used = 0; overflow = false;
             g_tx.Clear();
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+            g_btt_load.ExportDisconnect();
+#endif
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
             g_preparation_report.Reset();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
@@ -1340,6 +1358,9 @@ namespace
 #endif
             else if (!std::strcmp(line,"BTTEST1 HELLO") || !std::strcmp(line,"BTTEST1 STATUS")) {
                 if (!std::strcmp(line,"BTTEST1 HELLO")) {
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+                    g_btt_load.ExportDisconnect(); // Fresh request namespace, same accepted tune lifetime.
+#endif
                     g_publication.NewSession();g_preview.NewSession();
 #ifdef BROTRACKER_PATTERN_SD_PREPARE
                     g_wall_clock.NewConnection();
@@ -1684,6 +1705,10 @@ namespace
             used = 0; overflow = false;
             break;
         }
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+        // Commands sample millis() themselves; poll after them with a fresh sample.
+        ServiceBttExport(millis());
+#endif
         FlushSerial();
 #ifdef BROTRACKER_PATTERN_PERF
         static std::uint32_t last_performance_ms=0;

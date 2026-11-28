@@ -78,7 +78,9 @@ Reuse the lossless `btt::Document`/immutable `ReaderOwner`, validation, streamed
 rewrite and checked candidate promotion. Existing pattern snapshots, instrument
 facts and the legacy BTM encoder are not a complete-tune export. Add a negotiated,
 bounded whole-document transfer with frozen musical generation, length/integrity,
-request identity, offset/credit and explicit completion/cancel/error. Pin the
+request identity, offset/credit and explicit completion/cancel/error. The first
+complete accepted-BTT export is now implemented in the section below; reverse
+transfer and session integration remain proposed. Pin the
 accepted backing throughout export; stage and validate an independent host
 candidate before promoting the internal current session. A durable session must
 own its musical bytes; an SD pathname or volatile backing token is insufficient.
@@ -193,6 +195,108 @@ are dated feasibility evidence, not proof of lifecycle admission. Preserve audio
 rings, path/source ownership, rollback and recovery lifetimes. Session envelope,
 chunk/credit size, scheduling and exact host crash-durability guarantees need
 focused design and host fault tests, not new SD benchmarks.
+
+## Complete accepted-BTT export to a BTX candidate (2026-11-28)
+
+Implemented in `teensy41_dev` and the shared real BTX client. This is **candidate
+export only**, not the internal current session, import/restore, autosave, UI
+persistence, migration, New Tune, BTT browsing or permission to edit a retained
+BTT. The ownership contract above remains the target session lifecycle.
+
+`BTBTT1 EXPORTCAP 1 64` negotiates version 1 with a fixed 64-byte payload credit.
+All lines are ASCII with LF (the host also accepts one terminal CR before LF).
+Numbers are unsigned decimal uint32 without signs/overflow; hex payload is exactly
+two lowercase digits per byte. No pathname crosses this interface.
+
+| Request | Reply / effect |
+| --- | --- |
+| `BTBTT1 EXPORT 1 R X` | `BTBTT1 EXPORTBEGIN 1 R G L C BOOT X` |
+| `BTBTT1 EXPORTNEXT 1 R G O X` | `BTBTT1 EXPORTDATA 1 R G O N K HEX X` |
+| `BTBTT1 EXPORTEND 1 R G L X` | `BTBTT1 EXPORTDONE 1 R G L C X` |
+| `BTBTT1 EXPORTCANCEL 1 R G O X` | `BTBTT1 EXPORTCANCELLED 1 R G X` |
+| Failure / timeout | `BTBTT1 EXPORTERROR 1 R reason X` |
+
+R is a nonzero increasing request ID within a connection. Reused/older BEGIN
+rejects; a fresh HELLO/disconnect resets this request namespace, not the accepted
+tune identity. HELLO is blocked while exporting. G is a boot-lifetime accepted-
+tune generation incremented only by successful real Load application ACK, not
+by the latest LOAD attempt. X is a fresh, nonzero 32-digit lowercase host random
+challenge, required and echoed on every request/reply. It correlates even repeated
+R/G values after a new connection. BOOT is the existing 32-digit boot nonce or
+explicit `unavailable`, and must match BTX's discovered device facts. No boot UUID
+is invented when those optional facts are unavailable. The pinned transfer and
+X/R/G/L/C identify this export; they do not prove restart continuity for a future
+session restore. L is the complete accepted backing length,
+32..1,048,576 bytes. C is its original acceptance whole-document CRC32. Source
+identity includes X/BOOT/G/L/C, separate from runtime slots and input filename.
+
+Each NEXT grants exactly one read/reply at the exact next offset O. N is 64 except
+for the final remainder. K is standard reflected CRC32 (0xedb88320, initial/final
+xor 0xffffffff) over these N bytes. C uses the BTT whole-file convention: omit
+header bytes 20..23. Device rolling verification must match C before END succeeds.
+BTX additionally checks strict reply framing, X/R/G/BOOT, offsets/counts/hex, chunk
+CRC, exact final length and the complete `btt::Validate` result/acceptance CRC.
+Conflicting duplicates, reordered, stale, short, malformed and substituted-source
+data fail the candidate; they cannot be combined across transfers or reconnects.
+
+The device pins the accepted `ReaderOwner` throughout export. It performs no SD
+writes and never reads the original input filename. Initialized confirmed IDLE,
+settled transport/MIDI/publication/preview/readback/audition/storage, no load/
+cleanup and no Save recovery are required. Playing/Paused reject without STOP.
+While pinned, Load/Save/recovery, HELLO/setup, transport other than explicit STOP,
+and competing pattern/waveform transfers are blocked. Safe state/fact queries
+and STOP remain available. STOP or any loss of readiness can fail export; it does
+not resume automatically. Failed new LOAD attempts do not redirect export.
+
+BTX keeps at most one credit outstanding. The command handler reserves a full TX slot
+before touching export state or reading. Each foreground command reads at most
+64 bytes and formats one <=227-byte line (including LF/NUL); the existing 6,144-byte/51-message TX
+FIFO and partial-line drain/backpressure are unchanged. No heap file buffer,
+decoded bank or callback filesystem access is added. Error/poll work is constant;
+only one chunk is consumed per accepted NEXT. Timeout is 15,000 ms between
+accepted credits, including waiting for END; a blocked TX queue can delay the
+error reply until a slot exists. Disconnect releases the pin and clears queued
+output through existing connection handling. No restart/replay is automatic.
+
+Cancellation requires matching X/R/G; G=0 is permitted only for matching-R CANCEL
+when BEGIN's reply was lost. O on CANCEL is diagnostic, since a lost DATA reply
+can leave peers at different offsets. Other identity errors cannot cancel someone
+else's pin. Failed/uncertain framing is reconciled by cancel/disconnect/timeout,
+never by silently starting a new source. END acknowledgement distinguishes a
+completed device transfer from host receipt alone.
+
+BTX streams at most one 64-byte payload per valid credit to an exclusively created
+host temporary file. Normal host-root conventions are used: Windows
+`%LOCALAPPDATA%/BroTracker/btt-candidates-v1`, or absolute `$XDG_DATA_HOME` / default
+`~/.local/share/BroTracker/btt-candidates-v1` on ArkOS. There is no new INI setting.
+Each attempt owns a fresh exclusive nonce directory/file. A worker performs checked
+flush/sync/close/reopen and full bounded BTT validation; the serial service only
+polls completion. Validation uses a Document/Workspace and <=512-byte file reads,
+not a whole-file RAM copy. The existing host Tick is still a fixed <=64 service
+passes; each pass retains framing/backpressure and processes <=2,048 received
+bytes. Filesystem latency has no asserted realtime bound; this is host-side work.
+
+Only verified EXPORTDONE installs the independently owned candidate. Its immutable
+file-backed reader remains valid after device disconnect. Previous valid candidate
+ownership remains untouched on any failure, timeout, cancellation or disconnect.
+Uncertain close/cleanup retains artifacts and reports their path/status; successful
+temporary candidates are retired on last owner release with checked cleanup.
+No session-durable flag/lineage or saved BTT is established by candidate success.
+Older firmware without capability retains its previous behavior.
+
+The shared `BringUpSerial::RequestBttExport`/candidate API is usable by both BTX
+platforms. Delivered BTX also has an explicit automation entry:
+`BroTrackerTerminal --export-btt <new-evidence-directory> <expected-board> <expected-boot>`.
+It uses that same client and normal platform transport, records raw RX and timed
+TX/RX hex events, exports a checked `exported.btt`, and closes serial on return.
+It never LOADs, saves a session/BTT, starts or stops transport. It refuses a changed
+board/boot; card identity and fixture Load are verified separately by the dedicated
+physical test workflow. This is not a user-facing BTT browser or session command.
+
+Focused evidence and delivery/physical results: `build/btt-export/REPORT.md`.
+Tests exercise the actual production exporter with the actual BTX client, full
+lossless bytes, pin/guard/failure boundaries and independent candidate lifetime.
+The corrected session lifecycle and complete reverse transfer remain deferred.
 
 ## Stopped-only developer BTT load (2026-11-27)
 

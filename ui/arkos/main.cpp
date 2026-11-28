@@ -1,3 +1,4 @@
+#include "ui/sdl/btt_export_mode.h"
 #include "volume_input.h"
 #include "tools/alsa_bridge/listening_control.h"
 /*
@@ -75,6 +76,7 @@ void WriteSdlFailure(
 
 int main(int argc, char* argv[])
 {
+    if(const auto result=BttExportMode::Run(argc,argv))return *result;
     HostWarningPresentation warning_presentation(SDL_GetTicks());
     if(argc==2 && !std::strcmp(argv[1],"--offline-diagnostic-info")) {
         std::puts("{\"id\":\"btx-offline-clicks-v2\"}"); return 0;

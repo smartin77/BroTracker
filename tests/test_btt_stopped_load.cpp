@@ -526,3 +526,327 @@ TEST_CASE(BttStoppedSave_rejects_even_valid_substitution_of_accepted_snapshot) {
     std::cout<<"production-save allocation audit: calls="<<save_calls<<" adapter="<<save_allocations
         <<" fake-STL="<<fake_save_allocations<<"\n";
 }
+
+
+#include "ui/bringup_serial.h"
+#include "bringup/btt_serial_policy.h"
+#include "temporary_directory.h"
+namespace {
+constexpr char export_boot[]="1234567890abcdef1234567890abcdef";
+BttExportRequest TestExportRequest(BttExportVerb v,uint32_t id,uint32_t g,uint32_t o) {
+    BttExportRequest r{v,id,g,o};std::strcpy(r.nonce,export_boot);return r;
+}
+struct ExportPeer final:SerialTransport {
+    Fixture& fixture;std::string rx,partial;bool healthy=true,hold=false,advertise=true,boot_available=true;
+    unsigned write_limit=7,read_limit=5,now=0,export_lines=0,backpressure=0;
+    std::string fault;bool disconnect_end=false,disconnect_last=false;std::vector<std::string> commands;
+    explicit ExportPeer(Fixture& f):fixture(f){}
+    bool Open(FILE*,const char*)override{return healthy;}
+    void Close()override{fixture.load->ExportDisconnect();rx.clear();partial.clear();}
+    bool Healthy()override{return healthy;}
+    const char* Error()const override{return "export test disconnect";}
+    int Read(char* out,unsigned capacity)override {
+        if(hold)return 0;
+        const auto n=std::min<unsigned>({capacity,read_limit,unsigned(rx.size())});
+        std::memcpy(out,rx.data(),n);rx.erase(0,n);return n;
+    }
+    int Write(const char* in,unsigned count)override {
+        if(++backpressure%4==0)return 0;
+        const auto n=std::min(count,write_limit);partial.append(in,n);
+        if(partial.find('\n')!=partial.npos){const auto line=partial.substr(0,partial.find('\n'));partial.erase(0,line.size()+1);Dispatch(line);}
+        return n;
+    }
+    void Dispatch(const std::string& line) {
+        commands.push_back(line);char reply[kBttExportLine];BttExportRequest request;
+        if(ParseBttExportRequest(line,request)) {
+            ++export_lines;
+            if(request.verb==BttExportVerb::Next && fault=="substitute")
+                for(auto& pair:DeviceSd::files)if(pair.first.find(".btt-load/")!=std::string::npos)pair.second.bytes=Tune(false,false,14501);
+            if(request.verb==BttExportVerb::Next && fault=="source-read")
+                for(const auto& pair:DeviceSd::files)if(pair.first.find(".btt-load/")!=std::string::npos)DeviceSd::fail_read_path=pair.first;
+            const auto* result=fixture.load->ExportCommand(request,boot_available?export_boot:"",fixture.control.StorageReady(),now,reply);
+            DeviceSd::fail_read_path.clear();
+            std::string response=result;
+            if((disconnect_end && request.verb==BttExportVerb::End) ||
+               (disconnect_last && request.verb==BttExportVerb::Next && request.offset+64>=fixture.load->active()->backing()->size())){healthy=false;return;}
+            if(request.verb==BttExportVerb::Begin && fault=="boot")response.replace(response.find(export_boot),32,"abcdef1234567890abcdef1234567890");
+            if((request.verb==BttExportVerb::Next && (fault=="offset" || fault=="generation")) ||
+               (request.verb==BttExportVerb::Begin && fault=="capacity")) {
+                std::array<std::string_view,10> words{};const auto count=BttExportWords(std::string_view(response).substr(0,response.size()-1),words);
+                const unsigned field=fault=="generation"?4:5;std::string changed;
+                for(unsigned i=0;i<count;++i){if(i)changed+=' ';changed+=i==field?(fault=="capacity"?"1048577":"999"):std::string(words[i]);}
+                response=changed+'\n';
+            }
+            if(request.verb==BttExportVerb::Next && !fault.empty()) {
+                if(fault=="challenge")response[response.size()-2]=response[response.size()-2]=='0'?'1':'0';
+                if(fault=="hex")response[response.find_last_of(' ')-1]='z';
+                if(fault=="crc")response[response.find_last_of(' ')-1]=response[response.find_last_of(' ')-1]=='0'?'1':'0';
+                if(fault=="duplicate")response+=response;
+                if(fault=="identity")response.replace(response.find(" 1 ")+3,1,"9");
+                if(fault=="truncated")response="BTBTT1 EXPORTDATA 1 1\n";
+            }
+            rx+=response;return;
+        }
+        if(line=="BTTEST1 HELLO" || line=="BTTEST1 STATUS") {
+            rx+="BTAUDIO1 CAP 1\nBTTEST1 STATE IDLE\nBTPATTERN1 SNAPCAP 2\nBTPATTERN1 POS 2 0 0 0 0 0 3 8\n";
+            rx+=std::string("BTDEVICE1 CAP 1\nBTDEVICE1 FACTS 1 17681760 ")+(boot_available?export_boot:"unavailable")+" initialized bridge\n";
+            if(advertise)rx+="BTBTT1 EXPORTCAP 1 64\n";
+        }else if(line=="BTAUDIO1 SET 1 default")rx+="BTAUDIO1 SELECTED 1 bridge\n";
+        else if(line=="BTTEST1 STOP")rx+="BTTEST1 STOPPED\n";
+        else {uint32_t id=0;unsigned version=0;if(ParseSnapshotRequest(line.data(),line.size(),id,version)) {
+            PatternSnapshotSender sender(fixture.load->projection(),fixture.load->tempo());CHECK(sender.Begin(id,now,version));
+            while(sender.HasData()){size_t n;const auto* p=sender.Data(n);rx.append(p,n);sender.Consume(n);}
+        }}
+    }
+};
+struct ClientFixture {
+    TemporaryTestDirectory directory;Fixture device;ExportPeer* wire;
+    std::unique_ptr<BringUpSerial> client;LocalPatternEditor editor;unsigned now=1;
+    ClientFixture(bool boot=true,bool capability=true,std::shared_ptr<BttCandidateIo> io={},FILE* log=nullptr) {
+        CHECK(device.Begin());device.Ready();device.Commit();
+        auto peer=std::make_unique<ExportPeer>(device);wire=peer.get();wire->boot_available=boot;wire->advertise=capability;client=std::make_unique<BringUpSerial>(log,std::move(peer),std::move(io));
+        Pump(400);CHECK(!client->UserActionsBlocked());CHECK(client->BttExportSupported()==capability);
+    }
+    void Pump(unsigned turns) {for(unsigned i=0;i<turns;++i){wire->now=now;client->Tick(now);client->SyncEditor(editor,now);now+=2;}}
+    void Export() {CHECK(client->RequestBttExport(now,directory.Path()));for(unsigned i=0;i<5000 && client->BttExportActive();++i)Pump(1);CHECK(!client->BttExportActive());}
+};
+std::vector<uint8_t> CandidateBytes(const btt::ReaderOwner& owner) {
+    CHECK(owner);if(!owner)return {};std::vector<uint8_t> data(owner->size());
+    for(unsigned at=0;at<data.size();at+=512){const unsigned n=std::min<unsigned>(512,data.size()-at);CHECK_EQ(owner->read(at,data.data()+at,n),n);}return data;
+}
+}
+TEST_CASE(BttExport_actual_client_complete_exact_independent_candidate_and_repeated) {
+    ClientFixture f;const auto expected=DeviceSd::files["/Tunes/test.btt"].bytes;
+    const auto created=DeviceSd::created;f.Export();CHECK(f.client->BttCandidate());
+    CHECK(CandidateBytes(f.client->BttCandidate())==expected);CHECK_EQ(DeviceSd::created,created);
+    btt::Document doc;btt::Workspace work;CHECK_EQ(btt::Validate(f.client->BttCandidate(),doc,work),btt::Result::Ok);
+    // Changing the original pathname cannot substitute for the immutable source.
+    DeviceSd::files["/Tunes/test.btt"].bytes=Tune(false,false,14600);
+    // A failed new LOAD changes attempt metadata, not the accepted export identity.
+    CHECK(f.device.load->Begin("Tunes/absent.btt",999,true));for(unsigned i=0;i<50 && f.device.load->Busy();++i)f.device.Turn();
+    f.Export();CHECK(CandidateBytes(f.client->BttCandidate())==expected);
+    const auto independent=f.client->BttCandidate();f.wire->healthy=false;f.Pump(1);
+    CHECK(CandidateBytes(independent)==expected);CHECK(!f.device.load->ExportActive());
+}
+TEST_CASE(BttExport_actual_client_rejects_malformed_corrupt_duplicate_stale_boot_and_preserves_prior) {
+    for(const auto* fault:{"hex","crc","duplicate","identity","truncated","boot","substitute","source-read","offset","generation","capacity","challenge"}) {
+        ClientFixture f;f.Export();const auto old=f.client->BttCandidate();f.wire->fault=fault;
+        f.Export();CHECK(f.client->BttCandidate().get()==old.get());CHECK(!f.device.load->ExportActive());
+        CHECK(CandidateBytes(old)==DeviceSd::files["/Tunes/test.btt"].bytes);
+    }
+}
+TEST_CASE(BttExport_guards_pin_cancel_timeout_read_failure_and_source_substitution) {
+    Fixture f;char reply[kBttExportLine];auto command=[&](BttExportRequest r,bool ready=true,unsigned now=1){std::strcpy(r.nonce,export_boot);return std::string(f.load->ExportCommand(r,export_boot,ready,now,reply));};
+    CHECK(command({BttExportVerb::Begin,1,0,0}).find("no-source")!=std::string::npos);
+    CHECK(f.Begin());f.Ready();f.Commit();const auto pins=f.load->active()->backing().use_count();
+    CHECK(command({BttExportVerb::Begin,2,0,0},false).find("not-settled")!=std::string::npos);
+    CHECK(command({BttExportVerb::Begin,3,0,0}).find("EXPORTBEGIN 1 3 1 ")!=std::string::npos);
+    CHECK_EQ(f.load->active()->backing().use_count(),pins+1);
+    CHECK(!f.load->Begin("Tunes/test.btt",303,true));CHECK_EQ(f.load->Save(1,true).status,SaveStatus::Rejected);
+    CHECK(BttSerialPolicy("BTTEST1 STOP",false,true,false,true,true)==BttSerialDisposition::Dispatch);
+    for(const auto* line:{"BTTEST1 START","BTTEST1 HELLO","BTBTT1 SAVE 1 2","BTBTT1 LOAD 303 Tunes/test.btt","BTPATTERN1 GET 2 17"})
+        CHECK(BttSerialPolicy(line,false,true,false,true,true)==BttSerialDisposition::Reject);
+    CHECK(command({BttExportVerb::Cancel,3,0,0}).find("EXPORTCANCELLED")!=std::string::npos);CHECK_EQ(f.load->active()->backing().use_count(),pins);
+    CHECK(command({BttExportVerb::Begin,4,0,0}).find("EXPORTBEGIN")!=std::string::npos);
+    CHECK(f.load->ExportPoll(kBttExportTimeout+2,true,reply));CHECK(std::string(reply).find("timeout")!=std::string::npos);
+    CHECK_EQ(f.load->active()->backing().use_count(),pins);
+    CHECK(command({BttExportVerb::Begin,5,0,0}).find("EXPORTBEGIN")!=std::string::npos);
+    for(auto& pair:DeviceSd::files)if(pair.first.find(".btt-load/")!=std::string::npos)DeviceSd::fail_read_path=pair.first;
+    CHECK(command({BttExportVerb::Next,5,1,0}).find(" read")!=std::string::npos);DeviceSd::fail_read_path.clear();
+    CHECK(!f.load->ExportActive());CHECK_EQ(f.load->active()->backing().use_count(),pins);
+    CHECK(command({BttExportVerb::Begin,6,0,0}).find("EXPORTBEGIN")!=std::string::npos);
+    CHECK(command({BttExportVerb::Next,6,1,64}).find("offset")!=std::string::npos);CHECK(!f.load->ExportActive());
+}
+TEST_CASE(BttExport_actual_client_cancel_disconnect_and_host_storage_failure_keep_previous) {
+    for(unsigned boundary:{0u,1u,2u,4u,8u,16u}) {
+        ClientFixture f;f.Export();const auto old=f.client->BttCandidate();
+        CHECK(f.client->RequestBttExport(f.now,f.directory.Path()));f.Pump(boundary);f.client->CancelBttExport();
+        for(unsigned i=0;i<5000 && f.client->BttExportActive();++i)f.Pump(1);
+        CHECK(!f.client->BttExportActive());CHECK(f.client->BttCandidate().get()==old.get());
+        CHECK(!f.device.load->ExportActive());
+        CHECK(f.client->RequestBttExport(f.now,f.directory.Path()));f.Pump(boundary);f.wire->healthy=false;f.Pump(1);
+        CHECK(!f.client->BttExportActive());CHECK(f.client->BttCandidate().get()==old.get());CHECK(!f.device.load->ExportActive());
+    }
+    ClientFixture f;f.Export();const auto old=f.client->BttCandidate();
+    const auto path=f.directory.Path()/"not-a-directory";FILE* file=std::fopen(path.string().c_str(),"wb");CHECK(file);CHECK_EQ(std::fclose(file),0);
+    CHECK(!f.client->RequestBttExport(f.now,path));CHECK(f.client->BttCandidate().get()==old.get());
+}
+TEST_CASE(BttExport_actual_client_timeout_preserves_previous_without_restart) {
+    ClientFixture f;f.Export();const auto old=f.client->BttCandidate();
+    CHECK(f.client->RequestBttExport(f.now,f.directory.Path()));f.wire->hold=true;f.Pump(100);
+    f.now+=kBttExportTimeout;f.Pump(1);f.wire->hold=false;f.Pump(500);
+    CHECK(f.client->BttCandidate().get()==old.get());CHECK(!f.client->BttExportActive());CHECK(!f.device.load->ExportActive());
+}
+
+TEST_CASE(BttExport_completion_boundaries_and_unsupported_firmware_do_not_replace_prior) {
+    for(bool final_ack:{false,true}) {
+        ClientFixture f;f.Export();const auto old=f.client->BttCandidate();
+        f.wire->disconnect_end=final_ack;f.wire->disconnect_last=!final_ack;
+        CHECK(f.client->RequestBttExport(f.now,f.directory.Path()));
+        for(unsigned i=0;i<5000 && f.client->BttExportActive();++i)f.Pump(1);
+        CHECK(!f.client->BttExportActive());CHECK(f.client->BttCandidate().get()==old.get());CHECK(!f.device.load->ExportActive());
+    }
+    ClientFixture f(true,false);CHECK(!f.client->RequestBttExport(f.now,f.directory.Path()));
+    // An unchanged legacy host connection never schedules export spontaneously.
+    CHECK(std::none_of(f.wire->commands.begin(),f.wire->commands.end(),[](const auto& line){return line.find("BTBTT1 EXPORT")==0;}));
+}
+TEST_CASE(BttExport_capacity_stale_identity_and_unsettled_poll_are_bounded) {
+    struct Huge final:btt::Reader {
+        uint32_t size()const override{return kBttExportMax+1;}const void* identity()const override{return this;}
+        unsigned read(uint32_t,void*,unsigned)const override{CHECK(false);return 0;}
+    };
+    btt::Export sender;char line[kBttExportLine];auto source=std::make_shared<Huge>();
+    CHECK(std::string(sender.Command(TestExportRequest(BttExportVerb::Begin,1,0,0),source,1,1,export_boot,true,1,line)).find("no-source")!=std::string::npos);
+    CHECK(!sender.Active());
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();
+    CHECK(std::string(f.load->ExportCommand(TestExportRequest(BttExportVerb::Begin,1,0,0),export_boot,true,1,line)).find("EXPORTBEGIN")!=std::string::npos);
+    CHECK(f.load->ExportPoll(2,false,line));CHECK(!f.load->ExportActive());
+    CHECK(std::string(f.load->ExportCommand(TestExportRequest(BttExportVerb::Begin,1,0,0),export_boot,true,3,line)).find("stale-request")!=std::string::npos);
+}
+
+TEST_CASE(BttExport_unknown_boot_uses_fresh_transfer_challenge_without_claiming_boot_identity) {
+    ClientFixture f(false);f.Export();CHECK(f.client->BttCandidate());
+    CHECK(CandidateBytes(f.client->BttCandidate())==DeviceSd::files["/Tunes/test.btt"].bytes);
+    const auto old=f.client->BttCandidate();
+    // A complete stale transfer frame with the same R/G must still fail a new
+    // challenge. Explicit new connection starts R at one on the device too.
+    f.device.load->ExportDisconnect();
+    char reply[kBttExportLine];auto r=TestExportRequest(BttExportVerb::Begin,1,0,0);
+    CHECK(std::string(f.device.load->ExportCommand(r,"",true,f.now,reply)).find("unavailable")!=std::string::npos);
+    r.verb=BttExportVerb::Next;r.nonce[0]='f';
+    CHECK(std::string(f.device.load->ExportCommand(r,"",true,f.now,reply)).find("identity")!=std::string::npos);
+    CHECK(f.device.load->ExportActive());f.device.load->ExportDisconnect();
+    CHECK(f.client->BttCandidate().get()==old.get());
+}
+
+TEST_CASE(BttExport_fresh_poll_samples_and_natural_millis_rollover_keep_timeout_correct) {
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();char reply[kBttExportLine];
+    const uint32_t before_wrap=UINT32_MAX-7;
+    auto begin=TestExportRequest(BttExportVerb::Begin,1,0,0);
+    CHECK(std::string(f.load->ExportCommand(begin,export_boot,true,before_wrap,reply)).find("EXPORTBEGIN")!=std::string::npos);
+    // The real dispatcher now polls with millis() after Command, not its older
+    // serial-loop sample. Several credits can cross millisecond boundaries.
+    for(unsigned i=0;i<3;++i){auto next=TestExportRequest(BttExportVerb::Next,1,1,i*64);
+        const uint32_t command_now=before_wrap+1+i*5;
+        CHECK(std::string(f.load->ExportCommand(next,export_boot,true,command_now,reply)).find("EXPORTDATA")!=std::string::npos);
+        CHECK(!f.load->ExportPoll(command_now+1,true,reply));CHECK(f.load->ExportActive());}
+    CHECK(f.load->ExportPoll(before_wrap+11+kBttExportTimeout,true,reply));CHECK(!f.load->ExportActive());
+}
+
+
+#include "btt_candidate_io_faults.h"
+#include <fstream>
+#include <thread>
+namespace {
+using Fault=CandidateIoFaults::Fault;
+template<class Predicate> void PumpUntil(ClientFixture& f,Predicate predicate) {
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(!predicate() && std::chrono::steady_clock::now()<deadline) {
+        // Worker scheduling, not an artificial protocol timeout, determines this
+        // wait. Freeze simulated time and yield; the worker gate provides order.
+        const auto now=f.now;f.Pump(1);f.now=now;std::this_thread::yield();
+    }
+    CHECK(predicate());if(!predicate())throw std::runtime_error("Host IO regression wait timed out");
+}
+std::set<std::filesystem::path> CandidateDirectories(const ClientFixture& f) {
+    std::set<std::filesystem::path> result;
+    for(const auto& entry:std::filesystem::directory_iterator(f.directory.Path()))if(entry.is_directory())result.insert(entry.path());
+    return result;
+}
+std::filesystem::path StartIoAttempt(ClientFixture& f) {
+    const auto before=CandidateDirectories(f);CHECK(f.client->RequestBttExport(f.now,f.directory.Path()));
+    auto after=CandidateDirectories(f);for(const auto& path:before)after.erase(path);
+    CHECK_EQ(after.size(),1u);if(after.size()!=1)throw std::runtime_error("Missing exclusive candidate directory");return *after.begin();
+}
+unsigned ExportEnds(const ClientFixture& f) {return std::count_if(f.wire->commands.begin(),f.wire->commands.end(),[](const auto& line){return line.find("BTBTT1 EXPORTEND ")==0;});}
+void CheckPrior(ClientFixture& f,const btt::ReaderOwner& old,const std::vector<uint8_t>& bytes) {
+    CHECK(f.client->BttCandidate().get()==old.get());CHECK(CandidateBytes(old)==bytes);
+}
+std::string LogContents(FILE* file) {
+    CHECK_EQ(std::fflush(file),0);CHECK_EQ(std::fseek(file,0,SEEK_SET),0);
+    std::string result;char block[512];while(const auto n=std::fread(block,1,sizeof(block),file))result.append(block,n);return result;
+}
+}
+TEST_CASE(BttHostIoFailures_preserve_prior_candidate_and_report_cleanup) {
+    for(auto fault:{Fault::ShortWrite,Fault::FlushFailure,Fault::SyncFailure,Fault::CloseFailure,Fault::ReopenFailure}) {
+        auto io=std::make_shared<CandidateIoFaults>();ClientFixture f(true,true,io);f.Export();
+        const auto old=f.client->BttCandidate();const auto bytes=CandidateBytes(old);const auto ends=ExportEnds(f);
+        const auto sentinel=f.directory.Path()/"current-session-sentinel";
+        {std::ofstream file(sentinel);file<<"recoverable-current-session";}
+        io->Arm(fault);const auto dir=StartIoAttempt(f);
+        PumpUntil(f,[&]{return !f.client->BttExportActive();});
+        CHECK_EQ(io->Hits(fault),1u);CheckPrior(f,old,bytes);CHECK_EQ(ExportEnds(f),ends);CHECK_EQ(io->Handles(),1u);
+        std::ifstream file(sentinel);std::string text;std::getline(file,text);CHECK(text=="recoverable-current-session");
+        const auto& status=f.client->BttExportStatus();
+        if(fault==Fault::ShortWrite || fault==Fault::ReopenFailure) {
+            CHECK(!std::filesystem::exists(dir));CHECK(status.find("temporary artifact cleaned")!=std::string::npos);
+            CHECK(status.find("artifact retained at "+dir.string())==std::string::npos);
+        } else {
+            CHECK(std::filesystem::exists(dir/"candidate.btt"));CHECK(status.find("artifact retained at "+dir.string())!=std::string::npos);
+            CHECK_EQ(io->Removes(),0u);
+        }
+        const char* reason=fault==Fault::ShortWrite?"write failed":fault==Fault::FlushFailure?"flush uncertain":fault==Fault::SyncFailure?"sync uncertain":fault==Fault::CloseFailure?"close uncertain":"reopen failed";
+        CHECK(status.find(reason)!=std::string::npos);
+    }
+}
+TEST_CASE(BttHostCleanupFailures_retain_artifacts_without_destructor_retry) {
+    for(auto secondary:{Fault::CloseFailure,Fault::RemoveFileFailure,Fault::RemoveDirectoryFailure}) {
+        auto io=std::make_shared<CandidateIoFaults>();ClientFixture f(true,true,io);f.Export();
+        const auto old=f.client->BttCandidate();const auto bytes=CandidateBytes(old);
+        const auto primary=secondary==Fault::CloseFailure?Fault::ShortWrite:Fault::ReopenFailure;
+        io->Arm({primary,secondary});const auto dir=StartIoAttempt(f);
+        PumpUntil(f,[&]{return !f.client->BttExportActive();});
+        CHECK_EQ(io->Hits(primary),1u);CHECK_EQ(io->Hits(secondary),1u);CheckPrior(f,old,bytes);
+        CHECK(std::filesystem::exists(dir));CHECK(std::filesystem::exists(dir/"candidate.btt")==bool(secondary!=Fault::RemoveDirectoryFailure));
+        CHECK(f.client->BttExportStatus().find("artifact retained at "+dir.string())!=std::string::npos);
+        const auto removals=io->Removes();f.Pump(10);CHECK_EQ(io->Removes(),removals);
+        f.client.reset();CHECK_EQ(io->Removes(),removals);CHECK(std::filesystem::exists(dir));CHECK(CandidateBytes(old)==bytes);
+    }
+}
+TEST_CASE(BttHostLateValidation_after_cancel_or_disconnect_never_promotes_and_keeps_diagnostics) {
+    for(unsigned action:{0u,1u,2u})for(auto fault:{Fault::None,Fault::FlushFailure,Fault::SyncFailure,Fault::CloseFailure,
+        Fault::ReopenFailure,Fault::ReaderCloseFailure,Fault::RemoveFileFailure,Fault::RemoveDirectoryFailure}) {
+        std::unique_ptr<FILE,decltype(&std::fclose)> log(std::tmpfile(),std::fclose);CHECK(log);
+        auto io=std::make_shared<CandidateIoFaults>();ClientFixture f(true,true,io,log.get());f.Export();
+        const auto old=f.client->BttCandidate();const auto bytes=CandidateBytes(old);const auto ends=ExportEnds(f);
+        io->Arm(fault,true);CandidateGateRelease release{io};const auto dir=StartIoAttempt(f);
+        PumpUntil(f,[&]{return io->Written()==bytes.size();});CHECK(io->AwaitFlush());
+        // Worker owns the file and is blocked before reporting Finish's outcome.
+        if(action==2){f.wire->healthy=false;f.Pump(1);CHECK(!f.client->BttExportActive());}
+        else {f.client->CancelBttExport();if(action==0)f.wire->hold=true;
+            else PumpUntil(f,[&]{return !f.client->BttExportActive();});}
+        io->Release();
+        const bool retained=fault!=Fault::None && fault!=Fault::ReopenFailure;
+        PumpUntil(f,[&]{const auto& status=f.client->BttExportStatus();return retained?
+            status.find("artifact retained at "+dir.string())!=std::string::npos:
+            status.find(fault==Fault::None?"late validation discarded":"Candidate reopen failed")!=std::string::npos;});
+        CheckPrior(f,old,bytes);CHECK_EQ(ExportEnds(f),ends);CHECK_EQ(io->Handles(),1u);
+        CHECK(std::filesystem::exists(dir)==retained);
+        if(retained){CHECK(io->Reported(dir.string()));CHECK(LogContents(log.get()).find(dir.string())!=std::string::npos);}
+        else CHECK(f.client->BttExportStatus().find("temporary artifact cleaned")!=std::string::npos);
+        if(fault!=Fault::None)CHECK_EQ(io->Hits(fault),1u);
+        if(fault==Fault::RemoveDirectoryFailure)CHECK(!std::filesystem::exists(dir/"candidate.btt"));
+        if(action==0) {
+            CHECK(f.client->BttExportActive());
+            PumpUntil(f,[&]{return std::any_of(f.wire->commands.begin(),f.wire->commands.end(),[](const auto& line){return line.find("BTBTT1 EXPORTCANCEL ")==0;});});
+            if(fault==Fault::CloseFailure) {
+                // A subsequent cancellation error must not overwrite the late
+                // worker's retained-artifact notice and absolute path.
+                BttExportRequest request;CHECK(ParseBttExportRequest(f.wire->commands.back(),request));
+                f.wire->rx="BTBTT1 EXPORTERROR 1 "+std::to_string(request.id)+" cancelled-late "+request.nonce+"\n";
+            }
+            f.wire->hold=false;PumpUntil(f,[&]{return !f.client->BttExportActive();});
+            if(retained)CHECK(f.client->BttExportStatus().find("artifact retained at "+dir.string())!=std::string::npos);
+        }
+        const auto removals=io->Removes();f.Pump(3);CHECK_EQ(io->Removes(),removals);CheckPrior(f,old,bytes);
+    }
+}
+TEST_CASE(BttHostValidation_destructor_drains_late_uncertainty_without_replacing_prior) {
+    auto io=std::make_shared<CandidateIoFaults>();ClientFixture f(true,true,io);f.Export();
+    auto old=f.client->BttCandidate();const auto bytes=CandidateBytes(old);
+    io->Arm(Fault::CloseFailure,true);CandidateGateRelease release{io};const auto dir=StartIoAttempt(f);
+    PumpUntil(f,[&]{return io->Written()==bytes.size();});CHECK(io->AwaitFlush());
+    f.wire->healthy=false;f.Pump(1);io->Release();f.client.reset();
+    CHECK(io->Reported("artifact retained at "+dir.string()));CHECK(std::filesystem::exists(dir/"candidate.btt"));
+    CHECK(CandidateBytes(old)==bytes);CHECK_EQ(io->Handles(),1u);old.reset();CHECK_EQ(io->Handles(),0u);
+}

@@ -10,8 +10,8 @@ BringUpSerial::BringUpSerial(FILE* log, const char* test_device)
     Log("waiting for Teensy USB CDC 16c0:048a");
 }
 
-BringUpSerial::BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport)
-    : transport_(std::move(transport)), log_(log), test_device_(nullptr) {}
+BringUpSerial::BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport, std::shared_ptr<BttCandidateIo> candidate_io)
+    : export_receiver_(std::move(candidate_io)), transport_(std::move(transport)), log_(log), test_device_(nullptr) {}
 BringUpSerial::~BringUpSerial() = default;
 
 void BringUpSerial::Log(const char* message, const char* detail)
@@ -27,6 +27,12 @@ void BringUpSerial::Log(const char* message, const char* detail)
 
 const char* BringUpSerial::LoadLabel() const {
     return load_label_;
+}
+bool BringUpSerial::RequestBttExport(uint32_t now,const std::filesystem::path& root) {
+    if(!BttExportSupported() || !device_facts_valid_ ||
+        !MidiRecoveryStopped() || TransportPending() || !FileIdle() || FilePending() || PatternListBusy() ||
+        UserActionsBlocked() || exit_requested_ || export_request_==UINT32_MAX)return false;
+    return export_receiver_.Begin(root,++export_request_,*device_facts_.boot?device_facts_.boot:"unavailable",now);
 }
 bool BringUpSerial::FileIdle() const {
     return connected_ && !PublicationBusy() && !TransportPending() &&
@@ -174,6 +180,7 @@ void BringUpSerial::MarkDefinitionUnconfirmed()
 
 void BringUpSerial::Disconnect(const char* reason)
 {
+    export_receiver_.Disconnect();export_supported_=false;
     waveform_.Disconnect();
     waveform_supported_=false;
     wall_clock_.Disconnect();clock_submission_=false;
@@ -694,6 +701,8 @@ std::optional<LivePlaybackView> BringUpSerial::PlaybackView(std::uint32_t now) c
 
 void BringUpSerial::OnLine(std::uint32_t now)
 {
+    if(!std::strcmp(line_,"BTBTT1 EXPORTCAP 1 64")){export_supported_=true;return;}
+    if(export_receiver_.Response({line_,used_},now)){Log("BTT export:",export_receiver_.Status().c_str());return;}
     if(!std::strncmp(line_,"BTCLOCK1 ",9)) {
         if(connected_) {
             if(!std::strcmp(line_,BroTracker::kWallClockCapability))wall_clock_.Advertise();
@@ -1284,6 +1293,8 @@ void BringUpSerial::SnapshotFailed(std::uint32_t now)
 
 void BringUpSerial::ServiceSerial(std::uint32_t now)
 {
+    if(export_receiver_.Tick(now))
+        BroTracker::HostLog(log_,BroTracker::HostLogLevel::Basic,"BTT export",export_receiver_.Status().c_str());
     waveform_.Tick(now,Playing());
     tempo_.Tick(now);
     mute_.Tick(now);
@@ -1318,7 +1329,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     if(tx_gains_ && tx_offset_==0 && !tx_write_attempted_ && TransportPending()) { tx_size_=0; tx_gains_=false; }
     if(clock_submission_) {
         clock_submission_=false;
-        if(tx_offset_==tx_size_ && pending_==Command::None && !TransportPending() && !exit_requested_) {
+        if(tx_offset_==tx_size_ && pending_==Command::None && !TransportPending() && !exit_requested_ && !export_receiver_.Active()) {
             if(const auto size=wall_clock_.Command(tx_,sizeof(tx_),now,BroTracker::ReadOsClock)) {
                 tx_size_=size;tx_offset_=0;
             }
@@ -1381,6 +1392,7 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
                 if (overflow_)
                 {
                     Log("RX error: overlong line discarded");
+                    if(!std::strncmp(line_,"BTBTT1 EXPORT",13))export_receiver_.Cancel();
                     // Conservatively cancel staging, but never touch applied transport,
                     // position or a previously committed snapshot.
                     if(std::strncmp(line_,"BTGAIN1",7) && std::strncmp(line_,"BTWAVE1 ",8)) {
@@ -1446,6 +1458,11 @@ void BringUpSerial::ServiceSerial(std::uint32_t now)
     midi_delay_.Tick(now);
     if (pending_ != Command::None && pending_!=Command::List && pending_!=Command::File && pending_!=Command::Storage && pending_!=Command::StorageReady && now - sent_at_ >= 6000)
     { Disconnect("command/handshake timeout; execution unconfirmed"); return; }
+    if(export_receiver_.Active() && pending_==Command::None && tx_offset_==tx_size_) {
+        if(stop_queued_){Send(Command::Stop,now);stop_queued_=false;}
+        else if(const auto n=export_receiver_.Command(tx_,sizeof(tx_),now)){tx_size_=n;tx_offset_=0;}
+        return;
+    }
     if (pending_ == Command::None && tx_offset_ == tx_size_)
     {
         if(std::strcmp(logged_midi_delay_,MidiDelayStatus())) {

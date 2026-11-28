@@ -22,7 +22,7 @@ endif()
 
 # Shared temporary host protocol and controls; platform transport linked separately.
 find_package(Threads REQUIRED)
-add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp src/ui/waveform_disk_cache.cpp)
+add_library(BroTrackerBringUp STATIC src/ui/bringup_serial.cpp src/ui/bringup_controls.cpp src/ui/host_config.cpp src/ui/host_logging.cpp src/ui/sample_waveform.cpp src/ui/waveform_disk_cache.cpp src/ui/btt_candidate.cpp tools/btt/foundation.cpp)
 target_link_libraries(BroTrackerBringUp PUBLIC Threads::Threads)
 target_include_directories(BroTrackerBringUp PUBLIC src libraries/scheduler/src)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -452,13 +452,15 @@ endif()
 
 # Foreground Teensy TX byte ring and slow-reader/backpressure invariants.
 add_executable(BroTrackerBttStoppedLoadTests tests/test_main.cpp tests/test_btt_stopped_load.cpp
-    tools/btt/stopped_load.cpp tools/btt/fs_save.cpp tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
+    tools/btt/stopped_load.cpp tools/btt/export.cpp tools/btt/fs_save.cpp tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
     libraries/sd_access/src/sd_access.cpp libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/pattern_position.cpp)
 target_include_directories(BroTrackerBttStoppedLoadTests PRIVATE tests/stubs/btt_device tests/stubs/sd
     src tests tools/btt libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(BroTrackerBttStoppedLoadTests PRIVATE BROTRACKER_PATTERN_VARIABLE_RATE
     BTT_BACKING_DIRECTORY="/BroTracker/.btt-load")
+target_sources(BroTrackerBttStoppedLoadTests PRIVATE src/ui/serial_unavailable.cpp)
+target_link_libraries(BroTrackerBttStoppedLoadTests PRIVATE BroTrackerBringUp BroTrackerCore)
 add_test(NAME BroTrackerBttStoppedLoadTests COMMAND BroTrackerBttStoppedLoadTests)
 
 add_executable(BroTrackerBttSerialPolicyTests tests/test_main.cpp tests/test_btt_serial_policy.cpp

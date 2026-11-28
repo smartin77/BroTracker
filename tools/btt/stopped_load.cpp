@@ -17,7 +17,7 @@ SaveReport StoppedLoad::Save(uint32_t id,bool ready) noexcept {
     SaveReport report;report.id=id;
     if(!id || id<last_save_.id) {report.reason="stale-request";return report;}
     if(id==last_save_.id)return last_save_; // Includes rejected requests; never re-execute.
-    const char* rejected=!ready?"not-settled":Busy()?"load-busy":SaveRecoveryPending()?"save-recovery":
+    const char* rejected=!ready?"not-settled":ExportActive()?"export-busy":Busy()?"load-busy":SaveRecoveryPending()?"save-recovery":
         !RetainsTune()?"no-retained-tune":std::strlen(active_path_)>245?"path-capacity":nullptr;
     if(rejected){report.reason=rejected;return last_save_=report;}
     // Rebuild the complete index from the active accepted immutable snapshot.
@@ -57,7 +57,7 @@ RecoveryReport StoppedLoad::Recover(uint32_t id,uint32_t target,bool ready) noex
         report.reason="request-mismatch";return report;
     }
     if(!target || target!=transaction_.id)report.reason="unknown-save";
-    else if(!ready || Busy())report.reason="not-settled";
+    else if(!ready || Busy() || ExportActive())report.reason="not-settled";
     else if(transaction_.outcome==SaveOutcome::Collision)report.reason="unowned-artifacts";
     else if(save_.Cleanup(true)){report.status=RecoveryStatus::Cleaned;report.reason="cleaned";}
     else {report.status=RecoveryStatus::Required;report.reason="recovery-required";}
@@ -69,7 +69,7 @@ bool StoppedLoad::CloseInput() noexcept {
     return lease && input_.close();
 }
 bool StoppedLoad::Begin(const char* path,uint32_t initial_pattern,bool ready) noexcept {
-    if(!ready || Busy() || SaveRecoveryPending() || !initial_pattern || !path || !ValidSamplePath(path))return false;
+    if(!ready || Busy() || ExportActive() || accepted_generation_==UINT32_MAX || SaveRecoveryPending() || !initial_pattern || !path || !ValidSamplePath(path))return false;
     // The reserved registry namespace is never an arbitrary input domain.
     // FAT names are case-insensitive; rejecting only literal spelling could
     // allow retirement of an old snapshot to remove a requested "original".
@@ -265,6 +265,7 @@ bool StoppedLoad::Complete(const PatternAppliedRequest& applied,InstrumentDefini
         for(unsigned i=0;i<bindings.count;++i)if(bindings.bindings[i].instrument==slot)availability[slot]=InstrumentAvailability::Ready;
     }
     const int previous=active_;active_=staging_;
+    ++accepted_generation_; // Only successful real ACK establishes a new lifetime.
     std::strcpy(active_path_,path_); // Only a successfully acknowledged tune owns this destination.
     definitions_.Reset(false);bindings_={};
     reason_="ok";phase_=LoadPhase::Complete;

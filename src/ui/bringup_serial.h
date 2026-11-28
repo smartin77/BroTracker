@@ -23,6 +23,7 @@
 #include "midi_health.h"
 #include "sample_waveform.h"
 #include "waveform_disk_cache.h"
+#include "btt_candidate.h"
 
 // Temporary BTTEST1 hardware-test exchange, NOT BroTracker's final protocol.
 // Shared command ordering, parser and timeouts; platform transport owns I/O.
@@ -30,11 +31,17 @@ class BringUpSerial
 {
 public:
     explicit BringUpSerial(FILE* log, const char* test_device = nullptr);
-    BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport);
+    BringUpSerial(FILE* log, std::unique_ptr<SerialTransport> transport, std::shared_ptr<BttCandidateIo> candidate_io={});
     ~BringUpSerial();
     BringUpSerial(const BringUpSerial&) = delete;
     BringUpSerial& operator=(const BringUpSerial&) = delete;
     void Tick(std::uint32_t now);
+    bool BttExportSupported()const {return connected_ && export_supported_;}
+    bool RequestBttExport(std::uint32_t now,const std::filesystem::path& root=BttCandidateReceiver::UserPath());
+    void CancelBttExport(){export_receiver_.Cancel();}
+    bool BttExportActive()const{return export_receiver_.Active();}
+    const std::string& BttExportStatus()const{return export_receiver_.Status();}
+    const btt::ReaderOwner& BttCandidate()const{return export_receiver_.Candidate();}
     void EnableWaveformDiskCache(std::uint64_t budget) {
         waveform_.EnableDiskCache(BroTracker::WaveformDiskCache::UserCachePath(),budget,log_);
     }
@@ -357,7 +364,7 @@ public:
     SdAvailability SdStatus() const {return connected_ ? sd_status_ : SdAvailability::Unknown;}
     // Unknown/legacy status is never converted into a card failure.
     bool UserActionsBlocked() const {
-        return !connected_ || SdStatus()==SdAvailability::Unavailable || !StartupPatternReady() ||
+        return export_receiver_.Active() || !connected_ || SdStatus()==SdAvailability::Unavailable || !StartupPatternReady() ||
             (!startup_selection_enabled_ && !initial_sync_ready_) || !pattern_assembler_.Snapshot() || continuity_pending_;
     }
     bool StopAvailable() const {return connected_ && SdStatus()!=SdAvailability::Unavailable;}
@@ -391,6 +398,8 @@ public:
     std::optional<LivePlaybackView> PlaybackView(std::uint32_t now) const;
 
 private:
+    BttCandidateReceiver export_receiver_;
+    bool export_supported_=false;uint32_t export_request_=0;
     bool midi_instrument_channel_supported_=false;
     unsigned identity_midi_channel_=0,define_midi_channel_=0,define_applied_channel_=0;
     bool sample_tuning_supported_=false;
