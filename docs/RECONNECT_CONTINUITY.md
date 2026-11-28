@@ -6,12 +6,52 @@ accepted audio-owner notifications. Audio and connected hardware service continu
 while Teensy remains powered. Physical USB removal can independently disrupt USB
 MIDI/audio endpoints; CDC continuity is not a guarantee of external delivery.
 
-## Current session and explicit files
+## Corrected product ownership and lifecycle
 
-`/BroTracker/current.btsession` preserves separate published and working patterns,
-with separate published/applied tempos. Unpublished edits delivered through working
-preview are session content. The current format also retains Instrument definitions,
-view and acknowledged channel mute. Gains, master volume, transport position,
+BTX must store exactly one internal current session with recoverable complete tune
+working state and UI (screen, cursor, waveform zoom and relevant view context).
+Startup automatically restores it and coordinates stopped-device musical restore;
+Teensy remains the application/realtime authority during operation. Persistence is
+independent of explicit BTT Save. BTT lives on Teensy SD, contains music only and
+shares the session musical boundary; no UI or undo history belongs in BTT. Session
+undo persistence is deferred. New Project means New Tune and replaces the one
+session; project folders, sample collection/copies and project cache are deferred.
+
+The authoritative [ownership contract](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28)
+defines the complete snapshot, save ordering, failures and migration. The existing
+device-session/readback implementation below is **legacy behavior**, not proof
+that BTX already persists its session internally. Temporary retained-BTT blocking
+of session saves is an implementation gap, not the intended product policy.
+
+Distinguish startup after a verified stopped-device restart from attachment to a
+powered Playing/Paused or independently edited device. The former coordinates
+complete session restore; the latter discovers live state without STOP/load/replay.
+Automatic host UI restore cannot authorize overwriting live music. Boot identity,
+content/generation and recovery evidence must identify the safe path. Fresh-host
+adoption versus explicit conflict resolution, stopped conflicting devices and
+standalone boot without BTX need product decisions. Preserve both recoverable
+sides pending resolution. Existing matching readback, uncertainty holds, narrow
+stopped preview recovery and STOP availability remain in force; no automatic START.
+
+Do not delete legacy session/recovery files or disable their writer before a
+versioned durable host handoff is verified. Device-only work must be discovered
+and imported/reconciled, not silently replaced by an older host session. Later
+device checkpoints can be subordinate recovery evidence, never a second current-
+session authority. Waveform cache is derived data and cannot stand in for music
+or UI persistence. Cache cleanup waits for confirmed durable lineage transition.
+
+## Current session and explicit files (legacy implementation)
+
+The current temporary BTM encoding in `/BroTracker/current.btsession` writes
+one working pattern and its BPM; on restore, published pattern and tempo are
+reconstructed from that working record. Unpublished edits delivered through
+working preview are therefore recoverable, but the earlier published baseline is
+not stored separately by the current writer. Older BTWS sessions remain readable
+and can contain separate published/working records and tempos. See
+`src/bringup/working_session.h:136-139` (current writer), `:80-82` (BTM restore)
+and `:103-118` (older BTWS decoding).
+The current BTM format also retains Instrument definitions, view and acknowledged
+channel mute. Gains, master volume, transport position,
 voice phase, host-only edits, routing, Sample PCM and external instrument state
 are outside this bounded format. See
 [file formats](FILE_FORMATS.md#working-session-separate-from-tunesprojects).

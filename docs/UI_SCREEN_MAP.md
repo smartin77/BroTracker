@@ -68,8 +68,9 @@ Closing BTX does not confirm assignment.
 - Use abstract Navigate, Select, Edit, Confirm, Back, Preview and Import actions.
   Current Left/Right and implemented Up bindings are distinguished in
   [BTX Controls](BTX_CONTROLS.md#instrument-entry). Other bindings remain
-  undecided. Screen entry reuses automatic STOP/acknowledged IDLE and successful
-  session persistence; future MIX allows playback to continue. Return preserves
+  undecided. LOAD/SAVE entry reuses automatic STOP/acknowledged IDLE and successful
+  session persistence. Current live Instrument entry uses a RAM visit without STOP
+  or entry-time save; future MIX allows playback to continue. Return preserves
   view context without automatic resume.
 - Keep view/navigation state separate from musical/project state. Merely opening
   a page, selecting a tab or browsing a directory must not change musical data.
@@ -295,6 +296,23 @@ can promise those actions. Arrangement does not redefine stored pattern length.
 
 ### 9. Project Settings
 
+Established persistence scope: New Project means **New Tune**, replacing the one
+internal BTX current session. That session automatically preserves complete musical
+working state and UI (active screen, cursor/selection, scroll/page/focus, waveform
+zoom/range and return context), independently of manual BTT Save. Session undo
+persistence is deferred. Startup restores UI and coordinates music into a verified
+restarted stopped Teensy; attaching to a running or conflicting device retains live
+authority and recovery holds. No automatic playback resume is implied.
+
+BTT resides on Teensy SD and contains only tune settings, all instrument definitions/
+references/parameters, all patterns, order and FX; no UI or undo. Session and BTT
+recover the same musical content for the corresponding persisted generation.
+LOAD/SAVE entry must wait for successful session persistence before activation;
+failed/uncertain replacement preserves the prior recoverable session. Project
+folders, sample collection/copies and project cache packaging remain deferred.
+See [the ownership contract](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28)
+for implementation proposals and open conflict/exit/migration decisions.
+
 The planned Right destination from Pattern is Project Settings. Propose New /
 Load / Save / Save As, project name, BPM, description, pattern management and
 missing-resource recovery. Load opens the single shared Load screen for modules,
@@ -317,8 +335,9 @@ Before New/Load, replacement, deletion, resizing or overwrite, propose confirmat
 that identifies affected data and offers cancel plus save/recovery where supported.
 Failed/cancelled load or save must preserve a recoverable current project; success
 must be reported only after durable completion. Missing-sample relinking must
-validate compatibility before replacing a resource. Save transactions, recovery,
-undo and SD read/write exclusivity (D0046) are backend prerequisites, not implemented
+validate compatibility before replacing a resource. Save transactions, recovery
+and SD read/write exclusivity (D0046) are backend prerequisites; persistent session
+undo is deferred. These are not implemented
 guarantees supplied by these screen names.
 
 ### 10. OPT — Settings

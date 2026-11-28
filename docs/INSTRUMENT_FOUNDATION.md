@@ -148,6 +148,15 @@ behavior is documented below.
 
 ## Session snapshot
 
+Product ownership correction (2026-11-28): the following temporary device snapshot
+is legacy implementation. BTX must retain the complete tune and UI in one internal
+session independently of explicit tune-only BTT Save on Teensy SD. Full instrument
+collection, original saved parameters and unresolved references come from the
+lossless document, never just the representable runtime slots/facts. Session view
+includes active screen/selection/return context and waveform zoom/range as features
+exist; persistent undo remains deferred. Teensy remains the live application and
+realtime authority. See [the ownership contract](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28).
+
 See [format](FILE_FORMATS.md#instrument-foundation-session-snapshot-2026-11-09).
 Legacy stopped Instrument entry requires snapshot-capable firmware; otherwise
 Pattern shows an update-required reason. Current live entry uses the RAM visit
@@ -562,6 +571,14 @@ Only the first GET on selection requests it. GET 1 remains available to older
 BTX. The live generation guard remains independent of disk identity.
 
 ### Persistent terminal waveform cache
+
+This cache is rebuildable terminal-derived data, not the authoritative current
+session or a complete musical snapshot. Its current durable lineage originates
+from the legacy Teensy save acknowledgment. Future BTX session handoff must switch
+cache identity/cleanup only after the new session is durable and reconciled;
+unknown/uncertain identities must not delete recoverable state. Preserve source
+validation, live-generation guards and current quota behavior. Project cache
+packaging, sample copying and new filesystem/benchmark work remain deferred.
 
 BTX uses `[btx] waveform_cache_mb` in executable-relative `config/config.ini`.
 The default, zero, keeps an on-disk cache for the current durable saved-session

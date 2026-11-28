@@ -1,6 +1,48 @@
 # TODO List
 
-## Current task: BTT Foundation
+## Current task: BTX session ownership correction (documentation complete)
+
+* [x] Review actual legacy session, startup/reconnect, cache and stopped BTT
+  implementations; document corrected BTX/Teensy ownership and gaps. Evidence:
+  `build/btx-session-ownership/REPORT.md`. No runtime changes or device work.
+* [ ] **Next focused task:** add negotiated stopped-only export of the accepted
+  complete immutable BTT to a validated BTX-owned candidate, reusing Document/
+  ReaderOwner/Validate. Bound credits/chunks, pin lifetime and request/generation
+  integrity; retain the old candidate on failure. Components: `tools/btt`, shared
+  bringup protocol, Teensy `pattern_bringup.cpp`, host `bringup_serial`, host tests.
+  Prove all patterns/order/three FX slots, unavailable/unsupported definitions and
+  optional unknown bytes survive; reject stale/short/corrupt/changed-source replies.
+  No restore, migration, editor unlocking or automatic session replacement yet.
+* [ ] Define/version the shared musical snapshot generation and edit-overlay
+  boundary, including legacy one-pattern conversion and working versus applied
+  intent. Classify mute/gains and future mixer settings explicitly; do not persist
+  playback execution state or assume automatic resume.
+* [ ] Add one internal BTX session store with complete musical bytes and separate
+  extensible UI state. Test atomic/recoverable promotion and write/sync/close/reopen,
+  capacity, corruption and interrupted transaction failures; preserve prior work.
+  Host location/envelope/durability primitives remain proposed. Undo is deferred.
+* [ ] Add complete stopped restore/import staging with lossless backing retention,
+  separate resource/projection admission, real application ACK and full readback.
+  Unsupported FX/missing resources must keep saved intent and show a blocked or
+  unavailable state; do not silently reduce the tune to the runtime projection.
+* [ ] Resolve fresh-host live conflict/adoption, stopped conflict, failed-exit UX
+  and standalone Teensy boot policies before automatic lifecycle wiring. Preserve
+  running/paused authority, reconnect holds, STOP and existing narrow recovery.
+* [ ] Add independent session autosave and confirmed LOAD/SAVE entry, exit and BTT
+  Save generation bookkeeping. Track pending/dirty/uncertain per store; never use
+  deferred/lost ACK as success. Test equal corresponding musical checkpoints plus
+  independent UI restore and later-edit dirtiness.
+* [ ] Add protected New Tune/BTT Load replacement and crash reconciliation across
+  device ACK/host promotion. Keep prior recoverable bytes on failure/cancellation.
+* [ ] Implement versioned legacy session/recovery import and durable ownership
+  handoff, then retire legacy long-term autosave/boot precedence. No competing
+  authority or silent device-work loss; switch waveform lineage only after commit.
+
+Authoritative scope and proposals: [session ownership](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28).
+Project directories, sample copies/collection, project cache packaging and session
+undo persistence remain deferred. No filesystem preference or new SD benchmark.
+
+## BTT Foundation implementation record and remaining work
 
 * [x] BTT Foundation ownership documentation draft: define tune ownership, external
   references and lossless preservation of unavailable resources/settings; align

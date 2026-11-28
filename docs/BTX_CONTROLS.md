@@ -229,6 +229,17 @@ synchronizes the latest edits, and closes only after session SAVE acknowledgemen
 If STOP or session SAVE fails, BTX logs the specific failure and closes automatically.
 Pattern Save remains a manual action.
 
+The preceding exit behavior describes the current legacy device-session path.
+Required target: BTX saves its one internal current session (complete recoverable
+music plus screen/cursor/waveform zoom and view context), independently of manual
+BTT Save. LOAD/SAVE activation must continue to wait for confirmed STOP/IDLE,
+settled edits and successful session persistence; failure or uncertainty retains
+the caller and prior recoverable session. BTT is tune-only on Teensy SD, without
+UI or undo history. New Project means New Tune and replaces the one session;
+session undo persistence is deferred. Failed-exit keep-open/retry versus explicit
+unsaved-exit UX is proposed, not implemented. See the
+[ownership and transaction contract](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28).
+
 Details: [Instrument editing](INSTRUMENT_FOUNDATION.md),
 [session and file rules](FILE_FORMATS.md), [reconnect recovery](RECONNECT_CONTINUITY.md),
 [tempo](LIVE_TEMPO_CONTROL.md), [mute](CHANNEL_MUTE.md),

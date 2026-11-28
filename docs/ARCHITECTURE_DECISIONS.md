@@ -1155,6 +1155,17 @@ must be deferred, bounded and batched. Evaluate work placement primarily by
 Teensy playback performance and resource use. Use terminal resources to reduce
 Teensy work wherever this preserves correctness.
 
+Persistence ownership clarification (2026-11-28): BTX internally stores exactly
+one current session containing complete recoverable musical working state and UI,
+independent of explicit BTT Save. Teensy remains the operational application and
+realtime authority. BTT is tune-only on Teensy SD, without UI or undo. Startup
+restores the session subject to live-device/reconnect recovery barriers, never
+automatic playback resume. New Project means New Tune; persistent session undo,
+project directory/sample collection and project cache packaging are deferred.
+Legacy device-session files remain recovery evidence pending an acknowledged
+migration, not the long-term session authority. See the authoritative
+[ownership contract](FILE_FORMATS.md#btx-current-session-ownership-contract-2026-11-28).
+
 ## D0042 — Instrument Module Architecture
 
 BroTracker shall use a modular instrument architecture.

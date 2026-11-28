@@ -4,7 +4,8 @@ BroTracker uses three related formats for tunes, projects and project distributi
 
 The BTT/BTP/BTM sections are a **BTT Foundation documentation draft** refining
 [D0032](ARCHITECTURE_DECISIONS.md#d0032---brotracker-file-and-container-formats).
-The ownership draft is complete; the BTT v1 proposal below awaits review.
+The corrected BTX session ownership contract below is authoritative product scope;
+the BTT v1 wire/layout proposal below still awaits review.
 The primary developer firmware has a narrow stopped-only load projection;
 see [the production transaction](#stopped-only-developer-btt-load-2026-11-27).
 Its layout and limits remain provisional; developer loading is experimental. The isolated
@@ -12,11 +13,193 @@ host validator/rewriter subset below is implemented; BTP/ZIP BTM
 details remain open. Existing working-session formats below retain their
 separately documented behavior.
 
+## BTX current-session ownership contract (2026-11-28)
+
+This product contract supersedes older statements that Teensy SD session files
+are the long-term current-session authority. It specifies required behavior;
+implementation below still uses the legacy device session and experimental BTT
+restrictions. It does not claim the new lifecycle is implemented.
+
+- BTX stores exactly **one current session internally**: recoverable musical
+  working state plus UI context. Persistence is automatic and independent of
+  explicit BTT Save. Recovery candidates/previous copies are transaction artifacts,
+  not additional selectable current sessions. Session undo persistence is deferred.
+- Teensy remains the application/realtime authority during operation, including
+  acknowledged musical application, clock, transport, audio and MIDI. Host session
+  ownership does not authorize overwriting a live device or making playback wait
+  for host storage. BTT resides on the SD card inserted in Teensy.
+- BTT contains the tune only: settings, all instrument definitions/references/
+  parameters, all patterns, order and all three FX slots. It contains no UI state
+  or undo history. Session and BTT share a musical snapshot boundary, not a file
+  encoding. After BTT Save and BTX exit succeed for the same musical generation,
+  restoring the current session or loading that BTT recovers the same persisted
+  musical content; only session additionally restores UI.
+- New Project means **New Tune** and resets/replaces the one current session.
+  Project directories, sample collection/copies and project cache packaging remain
+  deferred. No filesystem preference or new SD benchmark is part of this work.
+
+### Shared musical snapshot and UI boundary
+
+A coherent snapshot includes tune identity/name, persisted tune settings (including
+BPM), stable IDs/next-ID state, the complete instrument collection with original
+saved parameters and resource references, every pattern and its dimensions/cells/
+timing/three FX slots, complete order, and accepted unknown optional sections/TLVs.
+Unavailable resources, unused definitions and unsupported saved values remain
+recoverable. Validation failures and unknown required data are explicit barriers;
+never turn rejection into lossy acceptance. External sample PCM is referenced,
+not collected. Effective playback defaults and representable runtime slots cannot
+replace saved intent.
+
+Persisted musical settings differ from transient execution: playback position,
+voice phase, active notes, pending MIDI cleanup, queue/request IDs, connection
+source generations and wall-clock time do not define the tune. Restore is stopped;
+there is no automatic START/CONTINUE or assumption of playback-phase continuity.
+Acknowledged channel mute is recoverable session working context today. Its final
+classification as tune setting versus session-only operational context is open;
+any setting classified as tune-owned must use the same boundary in BTT and session.
+Listening volume, output route and application preferences are not implicitly tune
+settings. Gains and other future mixer settings need explicit classification.
+
+Separately, session must retain active screen/sub-screen, navigation/return stack,
+selected pattern/order/instrument and stable selection identity, row/channel/field/
+header cursor, page/tab/focus, scroll/viewport, browser directory/selection, waveform
+zoom and visible range, and other relevant view context as features exist. Clamp
+invalid coordinates without modifying music; show unavailable resources explicitly.
+Do not persist stale command confirmations, connection tokens or queued actions as
+instructions to execute on startup. Uncommitted editor/visit drafts needed to recover
+work must be retained as working intent, distinct from acknowledged device state;
+restoring UI must not implicitly Keep, Cancel, assign or send an uncertain command.
+Current four-byte SessionView is insufficient; waveform zoom controls are not yet
+implemented. This requirement does not make undo history a prerequisite.
+
+### Complete-tune acquisition and restoration (proposed implementation)
+
+Reuse the lossless `btt::Document`/immutable `ReaderOwner`, validation, streamed
+rewrite and checked candidate promotion. Existing pattern snapshots, instrument
+facts and the legacy BTM encoder are not a complete-tune export. Add a negotiated,
+bounded whole-document transfer with frozen musical generation, length/integrity,
+request identity, offset/credit and explicit completion/cancel/error. Pin the
+accepted backing throughout export; stage and validate an independent host
+candidate before promoting the internal current session. A durable session must
+own its musical bytes; an SD pathname or volatile backing token is insufficient.
+
+Restore stages complete bytes on Teensy, validates before replacement, retains
+old owners through the real application ACK and verifies complete accepted content
+before unlocking. Runtime projection/resource admission is separate from lossless
+storage acceptance. The current loader rejects selected-pattern FX and missing
+required resources; preserving full bytes does not implement FX execution or make
+those resources playable. A later stopped retained-document state or visible
+blocked restore is needed without discarding the host session. Export/import must
+not round-trip through the selected pattern or representable instrument projection.
+No new protocol verb, host storage path, envelope or durability primitive is fixed
+by this proposal. Preserve existing SD exclusivity and realtime service priority.
+
+### Startup, live attachment and reconnect
+
+BTX startup automatically reads/validates its current session and restores UI.
+For an identified restarted, stopped device, BTX coordinates restoration of the
+session's complete musical snapshot, waiting for negotiated capability, confirmed
+IDLE/readiness, full validation, application ACK and readback. Configuration
+fallback must not overwrite a recoverable BTX session. Missing/corrupt session,
+legacy recovery markers and incompatible firmware require distinct outcomes.
+
+Attaching to a powered Playing/Paused device is discovery of live authority:
+read actual state first, never STOP/load/replay a saved session merely because BTX
+started. A stopped but independently edited device can also conflict. Identifying
+a safe restart versus a conflicting live tune needs boot identity, content/
+generation and recovery evidence; IDLE or revision zero alone is insufficient.
+Whether a fresh host adopts and checkpoints a conflicting live tune or asks for
+explicit resolution is an open product decision. Preserve both recoverable sides
+until resolved; do not silently replace either. UI can be restored but must be
+validated against the device context before enabling edits.
+
+A surviving host retains the existing reconnect barriers: verified matching live
+state releases the hold without writes; advanced revisions, mismatched baseline,
+running/paused state and uncertain readbacks cannot authorize automatic overwrite.
+Existing narrow stopped working-preview recovery remains scoped to its verified
+baseline; it is not permission to replay a complete session. STOP remains available;
+no automatic playback resume. See [reconnect continuity](RECONNECT_CONTINUITY.md).
+
+### Save transactions, uncertainty and replacement
+
+The following ordering is proposed; the success/preservation rules are required.
+Track separately host-local intent, device-accepted/applied generation, session-
+durable generation and BTT-durable generation. Dirty relative to publication is
+not dirty relative to either durable store. A send/receipt/queued/deferred reply
+is not application success or durable success. A lost completion is uncertain:
+query/reconcile using transaction identity and content before retrying mutation.
+
+1. Settle or explicitly capture outstanding edits/visit intent. For a committed
+   musical checkpoint, reconcile accepted device changes and freeze one complete
+   generation; retain unsent local intent separately rather than mislabel it applied.
+2. Write a separate internal session candidate with musical bytes, UI and matching
+   generation/integrity. Finish, durably flush/close as supported, reopen/validate,
+   then promote with recoverable previous bytes. Only confirmed host-store completion
+   establishes session success. Failure retains pending/dirty intent and the prior
+   recoverable session; ambiguous artifacts block unsafe overwrite, not playback.
+3. LOAD/SAVE entry retains STOP/confirmed IDLE, settled edit/readiness barriers and
+   session saving **before activation**. Failed/uncertain session save keeps the
+   caller visible. A successful BTT Save is not a substitute for this checkpoint.
+4. Explicit BTT Save remains stopped-only on Teensy SD. Proposed combined ordering:
+   checkpoint session for frozen generation G, then verified BTT transaction for G.
+   Report each store separately. If BTT fails, session G remains recoverable; if
+   BTT commits but its reply is lost, query existing SAVEGET/recovery evidence.
+   Changes after G remain dirty. Exit checkpoints the latest generation/UI without
+   requiring an explicit BTT Save. Equality applies to the corresponding saved
+   generation; later edits legitimately make an older BTT differ.
+5. Normal exit retains acknowledged STOP and edit synchronization, then waits for
+   internal session completion. Current code logs failure and closes; future
+   keep-open/retry versus explicit exit-with-unsaved-warning behavior remains a
+   product choice. Never label failure/deferred/uncertain exit as saved, erase the
+   previous session or depend on a live-only draft surviving process termination.
+6. New Tune first protects old work, then stages a validated blank tune and fresh
+   session identity/UI defaults. Proposed durable transition record coordinates
+   device ACK and host promotion; old recovery bytes remain until both complete.
+   A failed/cancelled/uncertain operation cannot erase the previous recoverable
+   session. BTT Load needs the same protected replacement boundary. Exact crash
+   reconciliation/rollback protocol remains to be designed; two stores are not
+   made atomic by ordering alone.
+
+### Legacy transition and resource bounds
+
+Until a versioned handoff is implemented, `/BroTracker/current.btsession` and its
+candidate/previous/invalid siblings remain legacy recovery evidence. Do not remove
+or disable them in this documentation task. On first migration discover live RAM
+and validate legacy files read-only; no BTX session means import the best verified
+available working state, not a configured fixture. Legacy one-pattern state can
+seed a new lossless tune, but cannot reconstruct an earlier complete BTT. Preserve
+original bytes and report that limit. When host session, live RAM and legacy files
+differ, require reconciliation; never choose newest by FAT timestamp alone.
+
+Proposed handoff: host candidate becomes durable, device application is verified,
+then record a versioned completed migration before retiring legacy autosave/boot
+precedence. A reset at any intermediate phase must retain evidence and hold for
+reconciliation. Post-handoff device files may be explicitly labelled subordinate
+recovery checkpoints; they must not independently win startup or compete with BTX.
+Standalone Teensy boot behavior without BTX and recovery when a host store is
+unavailable remain product decisions. Do not silently discard device-only work.
+Cache lineage switches/cleanup follow confirmed durable handoff, not a proposal.
+
+Use bounded chunks and backpressure, one frozen generation and one reusable codec
+workspace rather than a second engine or decoded tune bank. Current codec limits
+are 256 entries, 32 patterns, 99 instruments, 1,024 orders and 512 cells/pattern;
+private backing is capped at 1 MiB, three slots and 512-byte accesses. A near-limit
+transfer is at least 2,048 chunks each direction at 512 bytes, before framing and
+ACK overhead. These are current implementation bounds, not fixed product limits.
+Host promotion requires room for current/candidate/previous plus UI/journal;
+Teensy import competes for existing backing slots/pins and SD space. Check capacity
+before mutation and retain old owners on exhaustion. Existing memory figures below
+are dated feasibility evidence, not proof of lifecycle admission. Preserve audio
+rings, path/source ownership, rollback and recovery lifetimes. Session envelope,
+chunk/credit size, scheduling and exact host crash-durability guarantees need
+focused design and host fault tests, not new SD benchmarks.
+
 ## Stopped-only developer BTT load (2026-11-27)
 
 `teensy41_dev` enables `BROTRACKER_BTT_STOPPED_LOAD`. This is a developer command
 against the provisional schema, with no BTX UI, song sequencing, prefetch, FX
-execution or BTT Save. Earlier isolated-foundation descriptions below describe
+execution. Ordinary stopped developer BTT Save is described separately below.
+Earlier isolated-foundation descriptions below describe
 their original measurement scope; this section defines the added production use.
 
 Send ASCII lines terminated by LF:
@@ -119,8 +302,10 @@ Foreground definitions, availability, full-tune ownership and readback synchroni
 at the matching ACK before further command/readback consumption. The old owner
 stays pinned until that point and until the producer publishes detached voices.
 
-While a BTT is retained, legacy storage/definition/edit commands and autosave are
-blocked. The production dispatcher uses a shared, fully parsed command policy;
+As a temporary implementation restriction, while a BTT is retained, legacy
+storage/definition/edit commands and autosave are blocked. This is not the product
+session policy: BTX must eventually checkpoint the complete tune independently
+of BTT Save under the ownership contract above. The production dispatcher uses a shared, fully parsed command policy;
 protocol namespace prefixes are not permission to mutate state. Safe status/fact
 queries (including DEVICE, TEMPO, MUTE, VOL, GAIN, MIDI, instrument facts, clock
 and streaming diagnostics) remain available during staging and retention. Pattern
@@ -143,7 +328,9 @@ readiness/listing) remain blocked. Reconnect never starts playback.
 The successful handoff clears the legacy saved lineage (`0 -`) in RAM,
 without touching any session/recovery file. Reboot still restores the preexisting
 legacy session, not the BTT. UI editing, retained-work recovery, BTT dirty state,
-lossless Save and returning to a legacy session without reboot remain future work.
+and returning to a legacy session without reboot remain future work. Ordinary
+lossless developer BTT Save is now implemented as described below; it does not
+establish a durable current session for the retained tune.
 
 Target memory/map/lifecycle evidence, host fake-SD tests and read-only device
 evidence belong to `build/btt-stopped-load/`. The coordinator is one static RAM2
@@ -265,10 +452,11 @@ contracts, not proof of implemented tune/project persistence.
 
 ## BTT — BroTracker Tune
 
-BTT is the lightweight tune file, named `<TuneName>.btt`. It owns:
+BTT is the tune-only file on the SD card inserted in Teensy, named
+`<TuneName>.btt`. It contains neither UI state nor undo history. It owns:
 
 - the tune name and BPM;
-- patterns;
+- all patterns, their order and all three FX slots;
 - instrument definitions and their saved parameters, including Sample Root Note
   and Fine Tune;
 - future tune-scoped settings.
@@ -1842,10 +2030,13 @@ These details shall be specified separately once the internal data model and sto
 
 ## Working session: separate from tunes/projects
 
-Teensy owns `/BroTracker/current.btsession`. Normal Windows and ArkOS session
-save/exit, automatic stopped saves and boot restore use the temporary BTM below.
-Hosts are UI clients; definitions, playback and session authority stay on Teensy.
-Startup/reconnect never replays a configured development file over a valid session.
+The following describes the **legacy implementation**, not the target ownership.
+The product contract is [BTX current-session ownership](#btx-current-session-ownership-contract-2026-11-28):
+one internal BTX session stores complete recoverable music and UI independently
+of BTT Save; Teensy remains application/realtime authority during operation.
+Legacy Teensy owns `/BroTracker/current.btsession`; normal host launch reads its
+RAM and does not seed numbered files. Preserve these files and current reconnect
+barriers until an acknowledged migration replaces legacy startup precedence.
 
 ### Temporary BTM session version 1
 
@@ -2086,6 +2277,9 @@ files require explicit recovery. `backup-retained` is not reported as clean succ
 This does not change BTDP, BTWS or any session-persistence behavior.
 
 ### Startup precedence and automatic working-session scheduling
+
+This subsection records legacy device-session behavior. The BTX ownership contract
+above supersedes its long-term startup/persistence authority; migration is pending.
 
 Production Teensy keeps the RTC in UTC. The SD callback adds the active
 terminal's current local UTC offset once when packing classic FAT calendar
