@@ -138,25 +138,27 @@ if(BROTRACKER_BUILD_WINDOWS_TERMINAL)
 endif()
 
 enable_testing()
+set(BROTRACKER_BTT_TEST_ARTIFACT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/artifacts" CACHE PATH
+    "Output root for BTT fixture/measurement tests (defaults inside this binary directory)")
 add_executable(BroTrackerBttDeviceFixtureTests tests/test_main.cpp tests/test_btt_device_fixture.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttDeviceFixtureTests PRIVATE tests tools/btt src)
 add_test(NAME BroTrackerBttDeviceFixtureTests COMMAND BroTrackerBttDeviceFixtureTests)
 add_executable(BroTrackerBttResourceTests tests/test_btt_resource_admission.cpp tools/btt/resource_admission.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttResourceTests PRIVATE tests tools/btt src)
 add_test(NAME BroTrackerBttResourceTests COMMAND BroTrackerBttResourceTests
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-resource-admission)
+    ${BROTRACKER_BTT_TEST_ARTIFACT_ROOT}/btt-resource-admission)
 add_executable(BroTrackerBttBackingTests tests/test_btt_backing.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttBackingTests PRIVATE tests tools/btt)
 add_test(NAME BroTrackerBttBackingTests COMMAND BroTrackerBttBackingTests
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-backing-prototype)
+    ${BROTRACKER_BTT_TEST_ARTIFACT_ROOT}/btt-backing-prototype)
 add_executable(BroTrackerBttFoundationTests tests/test_btt_foundation.cpp tools/btt/foundation.cpp)
 target_include_directories(BroTrackerBttFoundationTests PRIVATE tests tools/btt)
 add_test(NAME BroTrackerBttFoundationTests COMMAND BroTrackerBttFoundationTests
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-foundation)
+    ${BROTRACKER_BTT_TEST_ARTIFACT_ROOT}/btt-foundation)
 add_executable(BroTrackerBttPatternLayoutTests tests/test_btt_pattern_layout.cpp)
 target_include_directories(BroTrackerBttPatternLayoutTests PRIVATE tests src libraries/scheduler/src)
 add_test(NAME BroTrackerBttPatternLayoutTests COMMAND BroTrackerBttPatternLayoutTests
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/btt-pattern-layout)
+    ${BROTRACKER_BTT_TEST_ARTIFACT_ROOT}/btt-pattern-layout)
 # Exercise exactly the compile-time player/control selection used by the opt-in
 # firmware, without Arduino/SD or building/uploading a board image.
 add_executable(BroTrackerVariableRateBringUpTests
@@ -359,7 +361,7 @@ add_executable(BroTrackerBttSdSourceTests tests/test_btt_sd_source.cpp
 target_include_directories(BroTrackerBttSdSourceTests PRIVATE tests/stubs/sd src tests tools/btt
     libraries/sd_access/src libraries/scheduler/src ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME BroTrackerBttSdSourceTests COMMAND BroTrackerBttSdSourceTests
-    ${CMAKE_CURRENT_BINARY_DIR}/../adapter-allocations.csv)
+    ${BROTRACKER_BTT_TEST_ARTIFACT_ROOT}/btt-source-adapter/adapter-allocations.csv)
 
 add_executable(BroTrackerBttDeviceFlowTests tests/test_btt_device_flow.cpp
     tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
@@ -450,7 +452,7 @@ endif()
 
 # Foreground Teensy TX byte ring and slow-reader/backpressure invariants.
 add_executable(BroTrackerBttStoppedLoadTests tests/test_main.cpp tests/test_btt_stopped_load.cpp
-    tools/btt/stopped_load.cpp tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
+    tools/btt/stopped_load.cpp tools/btt/fs_save.cpp tools/btt/foundation.cpp tools/btt/resource_admission.cpp tools/btt/sd_source_service.cpp
     libraries/sd_access/src/sd_access.cpp libraries/scheduler/src/musical_timing.cpp
     libraries/scheduler/src/musical_tick_cursor.cpp libraries/scheduler/src/pattern_position.cpp)
 target_include_directories(BroTrackerBttStoppedLoadTests PRIVATE tests/stubs/btt_device tests/stubs/sd

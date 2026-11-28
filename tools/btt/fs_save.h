@@ -24,6 +24,7 @@ class FsSave final:private Writer,private Store,private Reader,private ReaderCon
     bool readable_=false,candidate_=false,previous_=false,promoted_=false;
     char path_[256]{},candidate_path_[266]{},previous_path_[265]{};
     SaveOutcome outcome_=SaveOutcome::Idle;
+    SaveOutcome cause_=SaveOutcome::Idle;
     Result detail_=Result::Ok;
     class Scope {
         bool held_=BroTracker::SdAccess::AcquireWrite();
@@ -58,6 +59,7 @@ public:
     BTT_FLASHMEM("fs_save_cleanup") bool Cleanup(bool stopped_settled) noexcept;
     bool CanDestroy() const noexcept {return !refs_ && !file_.isOpen() && !candidate_ && !previous_;}
     SaveOutcome outcome() const noexcept {return outcome_;}
+    SaveOutcome cause() const noexcept {return cause_;} // Before cleanup masks a promotion failure.
     Result detail() const noexcept {return detail_;}
     bool candidate_retained() const noexcept {return candidate_;}
     bool previous_retained() const noexcept {return previous_;}

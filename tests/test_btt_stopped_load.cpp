@@ -2,8 +2,25 @@
 #include "stopped_load.h"
 #include "btt_pattern_layout.h"
 #include "firmware/teensy/BroTracker/sd_wav_audition.h"
+#include "bringup/midi_output.h"
 #include <memory>
 #include <string>
+#include <cstdlib>
+#include <new>
+static bool count_save_allocations=false;
+static size_t save_allocations=0,fake_save_allocations=0,save_calls=0;
+void* operator new(size_t n) {
+    if(auto* p=std::malloc(n?n:1)) {
+        if(count_save_allocations){if(DeviceSd::allocation_scope)++fake_save_allocations;else ++save_allocations;}
+        return p;
+    }
+    throw std::bad_alloc();
+}
+void* operator new[](size_t n){return ::operator new(n);}
+void operator delete(void* p) noexcept {std::free(p);}
+void operator delete[](void* p) noexcept {std::free(p);}
+void operator delete(void* p,size_t) noexcept {std::free(p);}
+void operator delete[](void* p,size_t) noexcept {std::free(p);}
 namespace BroTracker {
 StreamInterruptGuard::StreamInterruptGuard() noexcept {mask_=FakeStreamPlatform::primask;FakeStreamPlatform::primask=1;}
 StreamInterruptGuard::~StreamInterruptGuard() noexcept {FakeStreamPlatform::primask=mask_;}
@@ -57,6 +74,8 @@ struct Fixture {
         DeviceSd::files.clear();DeviceSd::fail_write=false;DeviceSd::fail_close_path.clear();DeviceSd::fail_write_path.clear();
         DeviceSd::fail_read_path.clear();DeviceSd::fail_sync_path.clear();DeviceSd::fail_remove_path.clear();
         DeviceSd::close_failure_closes_inner=false;
+        DeviceSd::fail_open_path.clear();DeviceSd::short_read=DeviceSd::short_write=0;
+        DeviceSd::rename_calls=DeviceSd::fail_rename=DeviceSd::fail_rename_second=0;DeviceSd::read_open_hook={};
         DevelopmentWavInspection inspection;producer.Prepare(true,pcm,inspection);
         DeviceSd::files["/Samples/a.wav"].bytes=Wav();DeviceSd::files["/Tunes/test.btt"].bytes=Tune();
         old.active_rows=7;old.active_channels=8;
@@ -66,6 +85,8 @@ struct Fixture {
     ~Fixture() {
         DeviceSd::fail_write=false;DeviceSd::fail_close_path.clear();
         DeviceSd::fail_read_path.clear();DeviceSd::fail_sync_path.clear();DeviceSd::fail_remove_path.clear();
+        DeviceSd::fail_rename=DeviceSd::fail_rename_second=0;
+        if(load->SaveRecoveryPending())CHECK_EQ(load->Recover(999,load->SavedStatus(1).id,true).status,RecoveryStatus::Cleaned);
         load->Cancel();for(unsigned i=0;i<200 && load->Busy();++i)load->Step(true);
         CHECK(!load->Busy());
         CHECK_EQ(control.OutputPlayer().Configure(12500,44100,old,VariableRateSampleBindings{}),PatternPlayerStatus::Success);
@@ -74,12 +95,19 @@ struct Fixture {
         for(const auto& file:DeviceSd::files)CHECK_EQ(file.second.opens,0u);
     }
     bool Begin(uint32_t pattern=303){return load->Begin("Tunes/test.btt",pattern,control.StorageReady());}
+    SaveReport Save(uint32_t id,bool platform=true){
+        count_save_allocations=true;++save_calls;
+        const auto result=load->Save(id,platform && control.StorageReady() && !publication.Busy());
+        count_save_allocations=false;CHECK_EQ(save_allocations,0u);return result;
+    }
     void Turn(){producer.Service();load->Step(control.StorageReady());}
     void Ready(){for(unsigned i=0;i<400 && load->phase()!=LoadPhase::Ready && load->phase()!=LoadPhase::Failed;++i)Turn();CHECK_EQ(load->phase(),LoadPhase::Ready);}
     void Commit() {
-        CHECK(load->Submit(control,publication,100));CHECK_EQ(control.Snapshot().tempo,12500u);
+        const auto before=control.Snapshot().tempo;
+        const auto before_definitions=definitions.Count();
+        CHECK(load->Submit(control,publication,100));CHECK_EQ(control.Snapshot().tempo,before);
         std::int16_t out[1];control.AudioBlock(out,1,true);producer.Publish(control.OutputPlayer().MidiPlayer());
-        CHECK_EQ(definitions.Count(),0u); // Foreground tables update only at ACK consumption.
+        CHECK_EQ(definitions.Count(),before_definitions); // Foreground tables update only at ACK consumption.
         PatternAppliedRequest ack;CHECK(control.TakeApplied(ack));
         CHECK(load->Complete(ack,definitions,bindings,availability));
         CHECK(publication.Complete(ack.publication_id,ack.result==PatternPlayerStatus::Success,readback));
@@ -302,4 +330,199 @@ TEST_CASE(BttStopped_read_seal_scan_and_projection_faults_preserve_active_tune) 
         CHECK_EQ(f.load->phase(),LoadPhase::Failed);CHECK_EQ(f.load->active()->backing()->identity(),identity);
         CHECK_EQ(f.control.Snapshot().tempo,14500u);CHECK_EQ(f.definitions.Count(),2u);
     }
+}
+namespace {
+struct SavedBytes final:btt::Reader {
+    std::vector<uint8_t> bytes;
+    explicit SavedBytes(std::vector<uint8_t> b):bytes(std::move(b)){}
+    uint32_t size() const override{return bytes.size();}
+    const void* identity() const override{return this;}
+    unsigned read(uint32_t at,void* p,unsigned n)const override {
+        if(n>512 || at>bytes.size() || n>bytes.size()-at)return 0;
+        std::memcpy(p,bytes.data()+at,n);return n;
+    }
+};
+void CheckSaved(const std::vector<uint8_t>& original,const std::vector<uint8_t>& saved) {
+    btt::Document old,now;btt::Workspace work;
+    CHECK_EQ(btt::Validate(std::make_shared<SavedBytes>(original),old,work),btt::Result::Ok);
+    CHECK_EQ(btt::Validate(std::make_shared<SavedBytes>(saved),now,work),btt::Result::Ok);
+    CHECK_EQ(old.count,now.count);CHECK_EQ(old.bpm,now.bpm);CHECK_EQ(saved.size(),original.size()+20);
+    for(unsigned i=0;i<old.count;++i) {
+        const auto& a=old.entries[i];const auto& b=now.entries[i];
+        CHECK(!std::memcmp(a.type,b.type,4));CHECK_EQ(a.id,b.id);CHECK_EQ(a.flags,b.flags);
+        if(std::memcmp(a.type,"INST",4) || a.id==33) {
+            CHECK_EQ(a.length,b.length);CHECK(!std::memcmp(original.data()+a.offset,saved.data()+b.offset,a.length));
+        } else {
+            // Original complete TLVs are unchanged; only the absent default is appended.
+            CHECK_EQ(a.length+10,b.length);CHECK(!std::memcmp(original.data()+a.offset,saved.data()+b.offset,a.length));
+        }
+    }
+    btt::SavedInstrument inst;
+    CHECK_EQ(btt::InspectInstrument(now,11,inst,work),btt::Result::Ok);CHECK_EQ(inst.root,60u);CHECK_EQ(inst.fine,12u);
+    CHECK_EQ(btt::InspectInstrument(now,22,inst,work),btt::Result::Ok);CHECK_EQ(inst.root,72u);CHECK_EQ(inst.fine,0u);
+    CHECK_EQ(btt::InspectInstrument(now,33,inst,work),btt::Result::Ok);CHECK_EQ(inst.root,0u);CHECK_EQ(inst.fine,199u);
+}
+}
+TEST_CASE(BttStoppedSave_full_document_repeats_duplicates_and_original_destination) {
+    Fixture f;const auto original=DeviceSd::files["/Tunes/test.btt"].bytes;
+    const std::vector<uint8_t> legacy{4,8,3,42};
+    DeviceSd::files["/BroTracker/current.btsession"].bytes=legacy;
+    DeviceSd::files["/BroTracker/current.btsession.previous"].bytes=legacy;
+    CHECK(f.Begin());f.Ready();f.Commit();const auto* owner=f.load->active();const auto* identity=owner->backing()->identity();
+    const auto refs=owner->backing().use_count();const auto paths=ResourcePaths().UniqueCount();
+    const auto bindings=f.bindings;const auto notes=f.readback;
+    for(uint32_t id=1;id<=8;++id) {
+        CHECK_EQ(f.Save(id).status,SaveStatus::Saved);
+        CheckSaved(original,DeviceSd::files["/Tunes/test.btt"].bytes);
+        const auto writes=DeviceSd::write_calls,opens=DeviceSd::open_calls,renames=DeviceSd::rename_calls;
+        CHECK_EQ(f.Save(id,false).status,SaveStatus::Saved); // Replay even if transport is no longer settled.
+        CHECK_EQ(DeviceSd::write_calls,writes);CHECK_EQ(DeviceSd::open_calls,opens);CHECK_EQ(DeviceSd::rename_calls,renames);
+        CHECK_EQ(f.load->active(),owner);CHECK_EQ(owner->backing()->identity(),identity);CHECK_EQ(owner->backing().use_count(),refs);
+        CHECK_EQ(ResourcePaths().UniqueCount(),paths);CHECK(!std::memcmp(&f.bindings,&bindings,sizeof(bindings)));
+        CHECK(!std::memcmp(&f.readback,&notes,sizeof(notes)));CHECK_EQ(f.control.Snapshot().tempo,14500u);
+        CHECK_EQ(f.control.Snapshot().transport,PatternTransportState::Stopped);
+        uint8_t block[512];for(unsigned at=0;at<original.size();at+=512){const auto n=std::min<size_t>(512,original.size()-at);
+            CHECK_EQ(owner->backing()->read(at,block,n),n);CHECK(!std::memcmp(block,original.data()+at,n));}
+    }
+    const auto writes=DeviceSd::write_calls;CHECK_EQ(f.Save(1).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::write_calls,writes);
+    DeviceSd::files["/Tunes/failed.btt"].bytes=Tune(true);
+    CHECK(f.load->Begin("Tunes/failed.btt",303,true));for(unsigned i=0;i<300 && f.load->Busy();++i)f.Turn();
+    CHECK_EQ(f.load->phase(),LoadPhase::Failed);CHECK_EQ(std::string(f.load->active_path()),"Tunes/test.btt");
+    const auto bad=DeviceSd::files["/Tunes/failed.btt"].bytes;CHECK_EQ(f.Save(9).status,SaveStatus::Saved);
+    CHECK(DeviceSd::files["/Tunes/failed.btt"].bytes==bad);CheckSaved(original,DeviceSd::files["/Tunes/test.btt"].bytes);
+    CHECK(f.load->Begin("Tunes/failed.btt",303,true));CHECK(f.load->Cancel());for(unsigned i=0;i<50 && f.load->Busy();++i)f.Turn();
+    CHECK_EQ(f.Save(10).status,SaveStatus::Saved);CHECK_EQ(std::string(f.load->active_path()),"Tunes/test.btt");
+    // Switching the scratch union back to Pattern and then comparison is repeatable.
+    DeviceSd::files["/Tunes/new.btt"].bytes=Tune(false,false,16000);
+    CHECK(f.load->Begin("Tunes/new.btt",303,true));f.Ready();f.Commit();
+    CHECK_EQ(std::string(f.load->active_path()),"Tunes/new.btt");CHECK_EQ(f.Save(11).status,SaveStatus::Saved);
+    CHECK_EQ(f.control.Snapshot().tempo,16000u);
+    CHECK(DeviceSd::files["/BroTracker/current.btsession"].bytes==legacy);
+    CHECK(DeviceSd::files["/BroTracker/current.btsession.previous"].bytes==legacy);
+    CHECK(!SD.sdfs.exists("/BroTracker/current.btsession.candidate"));CHECK(!SD.sdfs.exists("/BroTracker/tune.btdraft"));
+}
+TEST_CASE(BttStoppedSave_guards_reject_before_io_and_cache_rejections) {
+    Fixture f;CHECK_EQ(f.Save(1).status,SaveStatus::Rejected);
+    CHECK_EQ(std::string(f.load->SavedStatus(1).reason),"no-retained-tune");
+    CHECK(f.Begin());const auto opens=DeviceSd::open_calls;
+    CHECK_EQ(f.Save(2).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,opens);
+    f.Ready();f.Commit();CHECK_EQ(f.Save(1).status,SaveStatus::Rejected);
+    uint32_t id=3;
+    for(auto transport:{PatternRequest::Start,PatternRequest::Pause,PatternRequest::Stop}) {
+        CHECK_EQ(f.control.Submit(transport),PatternRequestStatus::Accepted);
+        const auto before=DeviceSd::open_calls;CHECK_EQ(f.Save(id++).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+        std::int16_t out[1];f.control.AudioBlock(out,1,true);f.producer.Publish(f.control.OutputPlayer().MidiPlayer());
+        CHECK_EQ(f.Save(id++).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before); // ACK still pending.
+        PatternAppliedRequest ack;CHECK(f.control.TakeApplied(ack));
+        if(transport!=PatternRequest::Stop){CHECK_EQ(f.Save(id++).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);}
+    }
+    const auto before=DeviceSd::open_calls;const auto rejected=id++;
+    CHECK_EQ(f.Save(rejected,false).status,SaveStatus::Rejected);CHECK_EQ(f.Save(rejected).status,SaveStatus::Rejected);
+    CHECK_EQ(DeviceSd::open_calls,before); // Rejected ID cannot become an implicit deferred Save.
+    CHECK_EQ(f.Save(id).status,SaveStatus::Saved);CHECK_EQ(f.Save(0).status,SaveStatus::Rejected);
+}
+TEST_CASE(BttStoppedSave_real_publication_audition_and_midi_readiness_reject_before_io) {
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();uint32_t id=1;
+    CHECK(StageStoredPattern(f.publication,f.readback,14500,0));
+    auto before=DeviceSd::open_calls;CHECK_EQ(f.Save(id++).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+    f.publication.Finish();
+    SdWavAudition audition(f.producer);CHECK(audition.Request(1,"Samples/a.wav"));CHECK(audition.Busy());
+    before=DeviceSd::open_calls;
+    CHECK_EQ(f.Save(id++,!audition.Busy() && !audition.Snapshot().sample).status,SaveStatus::Rejected);
+    CHECK_EQ(DeviceSd::open_calls,before);audition.Cancel();
+    MidiOutput midi;CHECK(!midi.StorageReady(false));
+    CHECK_EQ(f.Save(id++,midi.StorageReady(false)).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+    midi.Reset();CHECK(!midi.StorageReady(true));
+    CHECK_EQ(f.Save(id++,midi.StorageReady(true)).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+    CHECK_EQ(f.control.SubmitMute(1,1),PatternRequestStatus::Accepted);
+    CHECK_EQ(f.Save(id++).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+    std::int16_t out[1];f.control.AudioBlock(out,1,true);CHECK_EQ(f.control.Snapshot().applied_mute_id,1u);
+    CHECK_EQ(f.Save(id++).status,SaveStatus::Saved);
+    CHECK_EQ(f.Save(UINT32_MAX).status,SaveStatus::Saved);
+    before=DeviceSd::open_calls;CHECK_EQ(f.Save(1).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,before);
+    CHECK_EQ(f.Save(UINT32_MAX).status,SaveStatus::Saved);CHECK_EQ(DeviceSd::open_calls,before);
+}
+TEST_CASE(BttStoppedSave_fault_recovery_keeps_failure_commit_and_active_ownership) {
+    constexpr auto candidate="/Tunes/test.btt.candidate",previous="/Tunes/test.btt.previous";
+    for(unsigned fault=0;fault<7;++fault) {
+        Fixture f;CHECK(f.Begin());f.Ready();f.Commit();const auto old=DeviceSd::files["/Tunes/test.btt"].bytes;
+        const auto* identity=f.load->active()->backing()->identity();const auto paths=ResourcePaths().UniqueCount();
+        if(fault==0)DeviceSd::fail_write_path=candidate;
+        if(fault==1)DeviceSd::fail_close_path=candidate;
+        if(fault==2 || fault==3 || fault==5)DeviceSd::fail_rename=2;
+        if(fault==3)DeviceSd::fail_rename_second=3;
+        if(fault==4)DeviceSd::fail_remove_path=previous;
+        if(fault==5)DeviceSd::fail_remove_path=candidate;
+        if(fault==6)DeviceSd::files[candidate].bytes={9,8,7};
+        const auto result=f.Save(1);CHECK_EQ(result.committed,fault==4);
+        if(fault==0 || fault==2)CHECK_EQ(result.status,SaveStatus::Failed);
+        else CHECK_EQ(result.status,fault==4?SaveStatus::BackupRetained:SaveStatus::RecoveryRequired);
+        if(fault==3){CHECK(!SD.sdfs.exists("/Tunes/test.btt"));CHECK(DeviceSd::files[previous].bytes==old);CheckSaved(old,DeviceSd::files[candidate].bytes);}
+        else if(fault==4){CheckSaved(old,DeviceSd::files["/Tunes/test.btt"].bytes);CHECK(DeviceSd::files[previous].bytes==old);}
+        else CHECK(DeviceSd::files["/Tunes/test.btt"].bytes==old);
+        if(fault==5)CHECK_EQ(result.cause,SaveOutcome::PromotionFailed);
+        CHECK_EQ(f.load->active()->backing()->identity(),identity);CHECK_EQ(ResourcePaths().UniqueCount(),paths);
+        CHECK_EQ(f.control.Snapshot().tempo,14500u);CHECK_EQ(f.definitions.Count(),2u);
+        const auto opens=DeviceSd::open_calls;CHECK_EQ(f.Save(1).status,result.status);CHECK_EQ(DeviceSd::open_calls,opens);
+        const bool pending=fault==1 || fault==3 || fault==4 || fault==5;
+        CHECK_EQ(f.load->SaveRecoveryPending(),pending);
+        if(pending) {
+            CHECK(!f.Begin());CHECK_EQ(f.Save(2).status,SaveStatus::Rejected);
+            CHECK_EQ(f.load->SavedStatus(1).status,result.status);CHECK_EQ(f.load->SavedStatus(1).committed,result.committed);
+            CHECK_EQ(f.load->Recover(1,1,false).status,RecoveryStatus::Rejected);
+            CHECK_EQ(f.load->Recover(1,1,true).status,RecoveryStatus::Rejected); // Replay, no automatic cleanup retry.
+        }
+        DeviceSd::fail_write_path.clear();DeviceSd::fail_close_path.clear();DeviceSd::fail_remove_path.clear();
+        DeviceSd::fail_rename=DeviceSd::fail_rename_second=0;
+        if(fault==6) {
+            CHECK_EQ(f.load->Recover(2,1,true).status,RecoveryStatus::Rejected);
+            CHECK(DeviceSd::files[candidate].bytes==std::vector<uint8_t>({9,8,7}));DeviceSd::files.erase(candidate);
+        } else {
+            CHECK_EQ(f.load->Recover(2,1,true).status,RecoveryStatus::Cleaned);CHECK(!f.load->SaveRecoveryPending());
+            const auto calls=DeviceSd::rename_calls;CHECK_EQ(f.load->Recover(2,1,true).status,RecoveryStatus::Cleaned);CHECK_EQ(DeviceSd::rename_calls,calls);
+            CHECK_EQ(f.load->Recover(2,999,true).status,RecoveryStatus::Rejected);
+        }
+        CHECK_EQ(f.load->SavedStatus(1).outcome,result.outcome);CHECK_EQ(f.load->SavedStatus(1).cause,result.cause);
+        CHECK_EQ(f.Save(3).status,SaveStatus::Saved);CheckSaved(old,DeviceSd::files["/Tunes/test.btt"].bytes);
+    }
+}
+TEST_CASE(BttStoppedSave_source_read_failure_releases_only_disposable_index) {
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();const auto* owner=f.load->active();
+    const auto refs=owner->backing().use_count();const auto* identity=owner->backing()->identity();
+    for(const auto& file:DeviceSd::files)if(file.first.find(".btt-load/")!=std::string::npos && file.second.opens)
+        DeviceSd::fail_read_path=file.first;
+    const auto created=DeviceSd::created,opens=DeviceSd::open_calls;
+    const auto failed=f.Save(1);CHECK_EQ(failed.status,SaveStatus::Failed);CHECK_EQ(failed.detail,btt::Result::Io);
+    CHECK_EQ(std::string(failed.reason),"source-validation");CHECK_EQ(DeviceSd::created,created);CHECK_EQ(DeviceSd::open_calls,opens);
+    CHECK_EQ(owner->backing().use_count(),refs);CHECK_EQ(owner->backing()->identity(),identity);
+    CHECK_EQ(f.control.Snapshot().tempo,14500u);CHECK(!f.load->SaveRecoveryPending());
+    DeviceSd::fail_read_path.clear();CHECK_EQ(f.Save(1).status,SaveStatus::Failed);CHECK_EQ(DeviceSd::open_calls,opens);
+    CHECK_EQ(f.Save(2).status,SaveStatus::Saved);
+}
+TEST_CASE(BttStoppedSave_retirement_cleanup_blocks_save_without_changing_confirmed_destination) {
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();
+    for(const auto& file:DeviceSd::files)if(file.first.find(".btt-load/")!=std::string::npos && file.second.opens)
+        DeviceSd::fail_close_path=file.first;
+    DeviceSd::files["/Tunes/new.btt"].bytes=Tune(false,false,16000);
+    CHECK(f.load->Begin("Tunes/new.btt",303,true));f.Ready();f.Commit();
+    CHECK_EQ(f.load->phase(),LoadPhase::Cleanup);CHECK_EQ(std::string(f.load->active_path()),"Tunes/new.btt");
+    const auto opens=DeviceSd::open_calls;CHECK_EQ(f.Save(1).status,SaveStatus::Rejected);CHECK_EQ(DeviceSd::open_calls,opens);
+    CHECK_EQ(f.control.Snapshot().tempo,16000u);
+    DeviceSd::fail_close_path.clear();for(unsigned i=0;i<100 && f.load->Busy();++i)f.Turn();
+    CHECK_EQ(f.load->phase(),LoadPhase::Complete);CHECK_EQ(f.Save(2).status,SaveStatus::Saved);
+}
+TEST_CASE(BttStoppedSave_rejects_even_valid_substitution_of_accepted_snapshot) {
+    Fixture f;CHECK(f.Begin());f.Ready();f.Commit();std::string path;
+    for(const auto& file:DeviceSd::files)if(file.first.find(".btt-load/")!=std::string::npos && file.second.opens)path=file.first;
+    CHECK(!path.empty());const auto original=DeviceSd::files[path].bytes;
+    const auto* identity=f.load->active()->backing()->identity();
+    const auto replacement=Tune(false,false,14600);CHECK_EQ(replacement.size(),original.size());
+    DeviceSd::files[path].bytes=replacement; // Deliberate registry-contract violation, with valid recomputed CRCs.
+    const auto created=DeviceSd::created;const auto result=f.Save(1);
+    CHECK_EQ(result.status,SaveStatus::Failed);CHECK_EQ(result.detail,btt::Result::Backing);
+    CHECK_EQ(DeviceSd::created,created);CHECK_EQ(f.control.Snapshot().tempo,14500u);
+    CHECK_EQ(f.load->active()->backing()->identity(),identity);
+    DeviceSd::files[path].bytes=original;CHECK_EQ(f.Save(2).status,SaveStatus::Saved);
+    std::cout<<"production-save allocation audit: calls="<<save_calls<<" adapter="<<save_allocations
+        <<" fake-STL="<<fake_save_allocations<<"\n";
 }

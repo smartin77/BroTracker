@@ -432,7 +432,8 @@ TEST_CASE(foundation_fake_store_preserves_previous_on_failure) {
 }
 }
 int main(int argc,char** argv) {
-    root=argc>1?argv[1]:"build/btt-foundation";std::filesystem::create_directories(root);
+    if(argc!=2 || !*argv[1]) {std::cerr<<"Usage: "<<argv[0]<<" <artifact-directory>\n";return 2;}
+    root=argv[1];std::filesystem::create_directories(root);
     measurements.open(root/"measurements.csv");measurements<<"operation,file_bytes,patterns,optional_bytes,backing_read_calls,logical_field_accesses,max_read,cpp_allocations\n";
     const int result=test::RunAll();
     std::ofstream memory(root/"memory.txt");

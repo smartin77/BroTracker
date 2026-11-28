@@ -252,7 +252,9 @@ TEST_CASE(resource_saved_backing_recovery_and_full_teardown_accounting) {
     measurements<<"complete_setup_and_destructor_teardown_99_definitions,"<<allocations-before<<','<<peak<<'\n';
 }
 }
-int main(int argc,char** argv){output=argc>1?argv[1]:"build/btt-resource-admission";std::filesystem::create_directories(output);
+int main(int argc,char** argv){
+    if(argc!=2 || !*argv[1]) {std::cerr<<"Usage: "<<argv[0]<<" <artifact-directory>\n";return 2;}
+    output=argv[1];std::filesystem::create_directories(output);
     measurements.open(output/"allocations.csv");measurements<<"operation,cpp_heap_allocations,simultaneous_arena_used\n";const int result=test::RunAll();
     std::ofstream memory_report(output/"host-memory.txt");memory_report<<"Host ABI only; fixture/fake disk bytes excluded.\nSavedInstrument="<<sizeof(SavedInstrument)<<"\nDefinition="<<sizeof(Definition)
         <<"\nCandidate="<<sizeof(Candidate)<<"\nTwo candidates="<<2*sizeof(Candidate)<<"\nAdmissionScratch="<<sizeof(AdmissionScratch)<<"\nSourceLease="<<sizeof(SourceLease)

@@ -410,6 +410,9 @@ namespace
         g_protocol_connected = true;
         if(advertise_snapshot) (void)QueueLine("BTAUDIO1 CAP 1\n");
         if(advertise_snapshot) (void)QueueLine("BTDEVICE1 CAP 1\n");
+#ifdef BROTRACKER_BTT_STOPPED_LOAD
+        if(advertise_snapshot) (void)QueueLine("BTBTT1 SAVECAP 1\n");
+#endif
         QueueDeviceFacts();
 #ifdef BROTRACKER_PATTERN_VARIABLE_RATE
         if(advertise_snapshot) (void)QueueLine("BTMIDI1 CAP 2\n");
@@ -562,7 +565,46 @@ namespace
             (unsigned long)g_btt_load.tempo(),g_btt_load.omitted(),unsigned(g_btt_load.RetainsTune()));
         (void)QueueLine(reply);
     }
+    void BttSaveReply(const btt::production::SaveReport& report) {
+        using S=btt::production::SaveStatus;
+        const char* status=report.status==S::Saved?"saved":report.status==S::BackupRetained?"backup-retained":
+            report.status==S::Rejected?"rejected":report.status==S::Failed?"failed":"recovery-required";
+        char reply[192];
+        const bool pending=g_btt_load.SaveRecoveryPending(); // Global owned recovery state, independent of queried ID.
+        std::snprintf(reply,sizeof(reply),"BTBTT1 SAVED 1 %lu %s %u %u %u %u %u %s\n",
+            (unsigned long)report.id,status,unsigned(report.outcome),unsigned(report.cause),unsigned(report.detail),
+            unsigned(report.committed),unsigned(pending),report.reason);
+        (void)QueueLine(reply);
+    }
+    void BttMedia() {
+        if(!BttIdle()){(void)QueueLine("BTBTT1 MEDIAERROR 1 not-settled\n");return;}
+        SdReadScope lease;cid_t cid;
+        if(!lease || !SD.sdfs.card()->readCID(&cid)){(void)QueueLine("BTBTT1 MEDIAERROR 1 io\n");return;}
+        char hex[sizeof(cid)*2+1];constexpr char digits[]="0123456789abcdef";
+        const auto* bytes=reinterpret_cast<const uint8_t*>(&cid);
+        for(unsigned i=0;i<sizeof(cid);++i){hex[2*i]=digits[bytes[i]>>4];hex[2*i+1]=digits[bytes[i]&15];}
+        hex[sizeof(cid)*2]=0;char reply[128];
+        std::snprintf(reply,sizeof(reply),"BTBTT1 MEDIA 1 %s %lu %u %lu\n",hex,
+            (unsigned long)SD.sdfs.card()->sectorCount(),unsigned(SD.sdfs.fatType()),(unsigned long)SD.sdfs.sectorsPerCluster());
+        (void)QueueLine(reply);
+    }
     void BttCommand(const char* line) {
+        BttSaveRequest request;
+        if(ParseBttSaveRequest(line,request)) {
+            if(!TxRoom(2))return; // No execution unless both reply slots are available; query by ID if uncertain.
+            if(request.action==BttSaveAction::Save)BttSaveReply(g_btt_load.Save(request.id,BttIdle()));
+            else if(request.action==BttSaveAction::Status)BttSaveReply(g_btt_load.SavedStatus(request.id));
+            else {
+                const auto report=g_btt_load.Recover(request.id,request.target,BttIdle());
+                const char* status=report.status==btt::production::RecoveryStatus::Cleaned?"cleaned":
+                    report.status==btt::production::RecoveryStatus::Rejected?"rejected":"recovery-required";
+                char reply[128];std::snprintf(reply,sizeof(reply),"BTBTT1 RECOVERED 1 %lu %lu %s %s\n",
+                    (unsigned long)report.id,(unsigned long)report.target,status,report.reason);
+                (void)QueueLine(reply);BttSaveReply(g_btt_load.SavedStatus(request.target));
+            }
+            return;
+        }
+        if(!std::strcmp(line,"BTBTT1 MEDIA 1")){BttMedia();return;}
         if(!std::strcmp(line,"BTBTT1 STATUS")){BttReply();return;}
         if(!std::strcmp(line,"BTBTT1 CANCEL")){
             if(!g_btt_load.Cancel())(void)QueueLine("BTBTT1 ERROR frozen-until-ack\n");
@@ -596,7 +638,7 @@ namespace
         if(before!=g_btt_load.phase())BttReply();
     }
     BttSerialDisposition BttCommandPolicy(std::string_view line) {
-        return BttSerialPolicy(line,g_btt_load.Busy(),g_btt_load.RetainsTune());
+        return BttSerialPolicy(line,g_btt_load.Busy(),g_btt_load.RetainsTune(),g_btt_load.SaveRecoveryPending(),BttIdle());
     }
 #endif
     void ClockCommand(const char* line,std::size_t count,std::uint32_t now) {

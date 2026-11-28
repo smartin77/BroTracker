@@ -324,7 +324,8 @@ TEST_CASE(backing_every_save_io_position_and_candidate_validation_failure) {
 }
 }
 int main(int argc,char** argv) {
-    output=argc>1?argv[1]:"build/btt-backing-prototype";std::filesystem::create_directories(output);
+    if(argc!=2 || !*argv[1]) {std::cerr<<"Usage: "<<argv[0]<<" <artifact-directory>\n";return 2;}
+    output=argv[1];std::filesystem::create_directories(output);
     metrics.open(output/"allocations.csv");metrics<<"operation,cpp_heap_allocations_including_owner_creation\n";
     const auto result=test::RunAll();
     std::ofstream report(output/"host-memory.txt");

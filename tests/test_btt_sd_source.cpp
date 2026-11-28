@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <new>
 
 static bool count_allocations=false;
@@ -197,8 +198,12 @@ TEST_CASE(real_sd_adapter_yields_to_pattern_refills_and_ticket_exhaustion_is_ter
     CHECK_EQ(f.service.Acquire("Samples/a.wav",pending),Status::GenerationExhausted);
 }
 }
-int main(int argc,char** argv){const int result=test::RunAll();std::ofstream report(argc>1?argv[1]:"build/btt-source-adapter/adapter-allocations.csv");
+int main(int argc,char** argv){
+    if(argc!=2 || !*argv[1]) {std::cerr<<"Usage: "<<argv[0]<<" <artifact-file>\n";return 2;}
+    const std::filesystem::path output=argv[1];
+    if(!output.parent_path().empty())std::filesystem::create_directories(output.parent_path());
+    const int result=test::RunAll();std::ofstream report(output);
     report<<"scope,cpp_heap_allocations\nadmission_adapter_and_real_producer_excluding_fake_sd_bookkeeping,"<<allocations<<'\n';
-    std::ofstream layout(std::string(argc>1?argv[1]:"build/btt-source-adapter/adapter-allocations.csv")+".layout.txt");
+    std::ofstream layout(output.string()+".layout.txt");
     layout<<"Host ABI, not target memory; shared PCM/path storage excluded.\nSdSourceService="<<sizeof(SdSourceService)
         <<"\nCandidate="<<sizeof(Candidate)<<"\nSourceLease="<<sizeof(SourceLease)<<"\nProducer="<<sizeof(Producer)<<'\n';return result;}

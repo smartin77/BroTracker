@@ -589,8 +589,8 @@ load/save I/O runs while Playing or in an audio callback/ISR.
 
 `tools/btt/fs_save.{h,cpp}` implements the native, synchronous storage portion
 of Save. It is compiled/linked for Teensy and tested through the actual adapter
-against fake FsFile faults; it has no serial command, screen or production Save
-integration. `FsSave::Run` requires the complete accepted `Document`, its matching
+against fake FsFile faults. The production integration below now calls this same
+backend; there is no Save UI. `FsSave::Run` requires the complete accepted `Document`, its matching
 live sealed `FsBackings` token, a destination and disposable caller-owned
 `Document`/`Workspace` scratch. It pins the immutable source for the operation.
 It never serializes the runtime pattern/instrument projection, changes tune
@@ -637,19 +637,133 @@ atomicity and runtime stack/heap/IRQ admission are not established here.
 
 Evidence: `build/btt-save-backend/REPORT.md`, Debug/Release logs, exact fault
 outcomes, actual ARM compile/link maps/layouts, stack frames and allocation audit.
-ARM state is 912 bytes; a separate comparison Document (6,192) and Workspace
+The original backend-only ARM measurement was 912 bytes; a separate comparison Document (6,192) and Workspace
 (1,136) bring isolated aligned RAM2 reservation to 8,256 bytes. Existing source
 Document/registry/pins are reused; no decoded pattern, path pool, PCM cache,
-player or whole-file buffer is added. This unintegrated backend adds no normal
-production reservation. Explicitly rooted diagnostic code adds 976 ITCM bytes
+player or whole-file buffer is added. That backend-only stage added no normal
+production reservation; current integration costs are below. Its explicitly rooted diagnostic code added 976 ITCM bytes
 without changing the eight-bank allocation. Repeated saves count zero adapter
 C++ allocations; fake STL allocations are recorded separately. These static
 figures are not observed hardware stack high-water or timing measurements.
 
-Next: wire this adapter into the retained full-document owner behind the existing
-stopped/settled storage gates, provide explicit recovery reporting/lifetime and
-completion handling, and only then add the separately scoped production Save
-entry point. Preserve saved tune identity until product identity policy is decided.
+The stopped-only integration below supersedes the backend-only integration gap.
+Preserve saved tune identity until product identity policy is decided.
+
+#### Stopped-only production ordinary BTT Save (2026-11-28)
+
+`teensy41_dev` advertises `BTBTT1 SAVECAP 1`. The developer protocol saves only
+the currently accepted full BTT to its confirmed original input path. It cannot
+save a legacy session, select a destination, perform Save As or create a copy.
+The path is copied into active ownership only on a successful publication ACK;
+failed/cancelled subsequent LOADs cannot redirect Save. Paths longer than the
+backend's 245-byte limit are rejected before I/O. Tune editing remains blocked;
+this operation does not save runtime changes the retained model cannot represent.
+
+| Request | Meaning |
+| --- | --- |
+| `BTBTT1 SAVE 1 <request>` | Ordinary Save, nonzero increasing uint32 request ID |
+| `BTBTT1 SAVEGET 1 <save-request>` | Query the latest executed transaction or latest request without I/O |
+| `BTBTT1 RECOVER 1 <request> <save-request>` | Explicit checked cleanup of that transaction's owned artifacts only |
+| `BTBTT1 MEDIA 1` | Stopped read-only CID, sector count, FAT type and cluster-size facts for physical identity checks |
+
+Save/status replies are:
+
+```text
+BTBTT1 SAVED 1 <save-request> <status> <outcome> <cause> <detail> <committed> <pending> <reason>
+```
+
+Status is `saved`, `backup-retained`, `rejected`, `failed` or `recovery-required`.
+`committed=1` explicitly distinguishes a promoted canonical, including retained
+backup, from failed work. `pending` is the current global owned Save-recovery
+state, independent of the queried request. The original result never changes
+after recovery; a resolved failure keeps its original status with pending 0.
+Outcome/cause use FsSave codes 0 Idle, 1 Saved, 2 BackupRetained, 3 Invalid,
+4 Busy, 5 Collision, 6 Failed, 7 PromotionFailed, 8 RollbackFailed,
+9 CleanupRequired. Cause retains the result before cleanup can mask a promotion
+failure. Detail uses foundation Result (0 Ok, 1 Invalid, 2 Unsupported,
+3 Capacity, 4 Io, 5 Backing); `source-validation` identifies failure before the
+backend runs. Reasons also distinguish missing retained tune, unsettled work,
+load busy, save recovery, path capacity, stale/unknown request and backend rejection.
+
+Recovery replies are `BTBTT1 RECOVERED 1 <request> <save-request>
+<cleaned|rejected|recovery-required> <reason>`, followed by the original Save report.
+Cleanup closes tracked wrappers, restores a sole previous canonical before
+removing a candidate, or removes a committed backup. It has no arbitrary path
+parameter. Collision markers were not created by this transaction: recovery
+rejects `unowned-artifacts` and never removes them. No background service retries
+Save, promotion or Save recovery.
+
+Each mutating verb has a boot-lifetime monotonic uint32 high-water mark and one
+cached reply. The latest identical request replays without executing, including
+a rejected request; older IDs reject without I/O. Recovery additionally checks
+the target ID. A separate last-executed Save report survives later rejected
+requests so its original failure and committed flag remain queryable. HELLO,
+reconnect and LOAD do not reset these ledgers. ID exhaustion requires a new boot;
+bookkeeping is not a persistent journal across reset. After an uncertain reply,
+query status/inspect evidence; do not automatically resend with a new ID or retry
+promotion. TX capacity is reserved before execution; a full queue causes no Save.
+
+Dispatch uses the existing BttIdle/storage guard: initialized audio/core,
+confirmed Stopped (IDLE), no queued transport/ACK/tempo/mute/publication/preview,
+MIDI transfers/cleanup, audition or legacy storage/readback/browser work. Paused,
+Playing and pending work reject before source reads or filesystem mutation.
+The coordinator also rejects no retained tune, LOAD/admission/retirement cleanup
+and owned Save recovery. It neither issues STOP nor defers Save. While Save owns
+recovery handles/artifacts, shared policy blocks LOAD, transport, editing and
+conflicting readback/storage, while preserving safe queries and settled HELLO/
+setup/ephemeral-lineage exchange. Legacy autosave remains blocked for a retained
+BTT, including Save/recovery; no legacy session lineage or file is established.
+
+Save rebuilds the complete validated index from the active immutable backing,
+checks it against the original acceptance CRC retained with that owner,
+then calls FsSave with BPM override 0. It preserves tune identity, every pattern,
+order/FX slot, opaque optional data and explicit unsupported settings, inserting
+only documented absent tuning defaults. The immutable active snapshot remains
+unchanged after success, so repeated Save regenerates the same intended bytes.
+No reload, audio Configure, resource-pin change or definition replacement occurs.
+The disposable document index and Workspace are reused from LOAD; a tagged union
+reuses its inactive decoded Pattern space for the comparison Document. Scratch
+pins and borrowed backend pointers are released before returning. The member
+FsSave and its owned handles/artifacts outlive explicit recovery.
+
+Actual-HEAD baseline/current Teensy map comparison: 1,248 additional RAM2 bytes
+(StoppedLoad 35,672 -> 36,928, with alignment padding absorbed), 1,024 RAM1 data bytes, and 3,808 ITCM bytes, still
+eight banks. Stack gap is 102,176 bytes; RAM2 heap interval is 320,672 bytes.
+The earlier 8,256-byte backend diagnostic reservation is not added to production.
+No new tune buffer, path pool, PCM cache or player is reserved. These are static
+compile/link measurements, not runtime heap/IRQ/stack admission or power-loss
+qualification. Debug/Release actual-coordinator and shared-policy regressions,
+maps, compiler stack frames and serial evidence are under `build/btt-stopped-save/`.
+
+Initial physical preflight: USB Teensy 17681760 matched, but the inserted card
+reported CID `56534441505053440000000a6400b900`, exFAT, rather than the recorded
+dedicated FAT32 SanDisk. The fixed-path helper refused identity before any STAGE,
+LOAD or SAVE write; current normal firmware was restored, IDLE checked and serial
+closed. After the owner's powered-off dedicated-card swap, raw CID
+`6f0303534441424310aa001504018b00`, 61,076,480 sectors, FAT32 and 64-sector clusters
+matched before any fixture write. A fresh private `BTT-save-0810fb4641/ordinary.btt`
+was exclusively staged and reopened/exported exactly. Production LOAD -> SAVE ->
+repeated Save -> reload/readback, duplicate replay, rejected Playing/Paused Save,
+failed-LOAD destination retention and stopped reconnect/ephemeral lineage passed.
+Two positively inventoried old snapshot collisions were reported and preserved;
+no uncertain LOAD or Save was retried.
+
+Independent read-only helper export matched the native expected 7,714 bytes
+(7,694-byte input plus two absent u16 tuning defaults), SHA-256
+`277cdbdd7a44cd1bf2006f3f12afbe9f7be391df4a589badd9c798b60bc2f479`.
+Host checks independently verified the envelope and every section CRC. Candidate
+and previous siblings were absent; legacy session/draft paths remained absent.
+This is byte verification through a separate device file-export helper and host
+checks, not a direct card-reader/off-card filesystem mount. The final same tested
+normal image was restored; build identity, initialized IDLE, empty loader and
+matching media were verified and serial closed. Dedicated-card protocol LOAD
+and Save passed; original-state restoration was not tested.
+No SD benchmark or historical on-card fixture was repeated/overwritten. The report
+separately records an inherited CTest-path exception: initial regression runs
+regenerated shared host outputs before subsequent runs were isolated with
+`BROTRACKER_BTT_TEST_ARTIFACT_ROOT`. Next work is the separately scoped product
+Save UI/edit lifecycle; Save As/copy identity remains undecided. Runtime resource
+admission and FAT interrupted-write/power-loss qualification remain open.
 
 #### Transport boundaries: requirements and current guards
 

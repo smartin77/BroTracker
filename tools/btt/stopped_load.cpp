@@ -2,13 +2,74 @@
 #include <cstring>
 
 namespace btt::production {
+void StoppedLoad::UsePattern() noexcept {
+    if(comparing_) {buffers_.comparison.~Document();new(&buffers_.pattern) Pattern;comparing_=false;}
+}
+void StoppedLoad::UseComparison() noexcept {
+    if(!comparing_) {buffers_.pattern.~Pattern();new(&buffers_.comparison) Document;comparing_=true;}
+}
+SaveReport StoppedLoad::SavedStatus(uint32_t id) const noexcept {
+    if(id && id==transaction_.id)return transaction_;
+    if(id && id==last_save_.id)return last_save_;
+    SaveReport report;report.id=id;report.reason="unknown-request";return report;
+}
+SaveReport StoppedLoad::Save(uint32_t id,bool ready) noexcept {
+    SaveReport report;report.id=id;
+    if(!id || id<last_save_.id) {report.reason="stale-request";return report;}
+    if(id==last_save_.id)return last_save_; // Includes rejected requests; never re-execute.
+    const char* rejected=!ready?"not-settled":Busy()?"load-busy":SaveRecoveryPending()?"save-recovery":
+        !RetainsTune()?"no-retained-tune":std::strlen(active_path_)>245?"path-capacity":nullptr;
+    if(rejected){report.reason=rejected;return last_save_=report;}
+    // Rebuild the complete index from the active accepted immutable snapshot.
+    // No runtime projection is consulted and the active owner's pins stay put.
+    ReleaseDocument();UseComparison();
+    auto validated=Validate(owners_[active_].backing(),document_,work_);
+    // Keep the original acceptance fingerprint, even though the index is
+    // rebuilt. A substituted valid document must not become a new Save source.
+    if(validated==Result::Ok && document_.whole_crc!=maps_[active_].whole_crc)validated=Result::Backing;
+    if(validated!=Result::Ok) {
+        report.status=SaveStatus::Failed;report.detail=validated;report.reason="source-validation";
+    } else {
+        report.outcome=save_.Run(document_,backings_,tokens_[active_],active_path_,buffers_.comparison,work_,true);
+        report.cause=save_.cause();report.detail=save_.detail();
+        if(report.outcome==SaveOutcome::Invalid || report.outcome==SaveOutcome::Busy) {
+            report.cause=report.outcome;report.detail=report.outcome==SaveOutcome::Invalid?Result::Backing:Result::Io;
+        }
+        report.committed=report.outcome==SaveOutcome::Saved || report.outcome==SaveOutcome::BackupRetained;
+        switch(report.outcome) {
+        case SaveOutcome::Saved:report.status=SaveStatus::Saved;report.reason="ok";break;
+        case SaveOutcome::BackupRetained:report.status=SaveStatus::BackupRetained;report.reason="backup-retained";break;
+        case SaveOutcome::Collision:case SaveOutcome::RollbackFailed:case SaveOutcome::CleanupRequired:
+            report.status=SaveStatus::RecoveryRequired;report.reason="recovery-required";break;
+        case SaveOutcome::Busy:case SaveOutcome::Invalid:
+            report.status=SaveStatus::Rejected;report.reason="backend-rejected";break;
+        default:report.status=SaveStatus::Failed;report.reason="save-failed";break;
+        }
+    }
+    ReleaseDocument(); // Immutable active backing stays unchanged even on success.
+    transaction_=last_save_=report;return report;
+}
+RecoveryReport StoppedLoad::Recover(uint32_t id,uint32_t target,bool ready) noexcept {
+    RecoveryReport report{id,target,RecoveryStatus::Rejected,"stale-request"};
+    if(!id || id<last_recovery_.id)return report;
+    if(id==last_recovery_.id) {
+        if(target==last_recovery_.target)return last_recovery_;
+        report.reason="request-mismatch";return report;
+    }
+    if(!target || target!=transaction_.id)report.reason="unknown-save";
+    else if(!ready || Busy())report.reason="not-settled";
+    else if(transaction_.outcome==SaveOutcome::Collision)report.reason="unowned-artifacts";
+    else if(save_.Cleanup(true)){report.status=RecoveryStatus::Cleaned;report.reason="cleaned";}
+    else {report.status=RecoveryStatus::Required;report.reason="recovery-required";}
+    return last_recovery_=report;
+}
 bool StoppedLoad::CloseInput() noexcept {
     if(!input_.isOpen())return true;
     LoadWriteScope lease;
     return lease && input_.close();
 }
 bool StoppedLoad::Begin(const char* path,uint32_t initial_pattern,bool ready) noexcept {
-    if(!ready || Busy() || !initial_pattern || !path || !ValidSamplePath(path))return false;
+    if(!ready || Busy() || SaveRecoveryPending() || !initial_pattern || !path || !ValidSamplePath(path))return false;
     // The reserved registry namespace is never an arbitrary input domain.
     // FAT names are case-insensitive; rejecting only literal spelling could
     // allow retirement of an old snapshot to remove a requested "original".
@@ -19,7 +80,7 @@ bool StoppedLoad::Begin(const char* path,uint32_t initial_pattern,bool ready) no
     if(!directory[prefix] && (!path[prefix] || path[prefix]=='/'))return false;
     staging_=active_==0?1:0;
     if(token_live_[staging_] || !owners_[staging_].CanDestroy() || input_.isOpen())return false;
-    definitions_.Reset(false);bindings_={};ReleaseDocument();sealed_.reset();
+    definitions_.Reset(false);bindings_={};ReleaseDocument();sealed_.reset();UsePattern();
     bytes_=offset_=publication_=omitted_=0;pattern_id_=initial_pattern;tempo_=0;
     std::strcpy(path_,path);committed_cleanup_=false;reason_="pending";phase_=LoadPhase::Open;return true;
 }
@@ -93,10 +154,11 @@ void StoppedLoad::Step(bool ready) noexcept {
         tempo_=document_.bpm;phase_=LoadPhase::Scan;return;
     }
     case LoadPhase::Scan:
-        if(owners_[staging_].Begin(document_,{pattern_id_,{}},work_,pattern_,scratch_)!=Result::Ok){Fail("initial-pattern-or-definition-scan");return;}
-        if(pattern_.rows>kRealtimePatternRowCapacity || pattern_.channels>kRealtimePatternChannelCapacity){Fail("runtime-pattern-capacity");return;}
-        for(unsigned i=0;i<pattern_.rows*pattern_.channels;++i)
-            for(unsigned slot=0;slot<3;++slot)if(pattern_.fx[i][slot]){Fail("initial-pattern-fx-unsupported");return;}
+        if(owners_[staging_].Begin(document_,{pattern_id_,{}},work_,buffers_.pattern,scratch_)!=Result::Ok){Fail("initial-pattern-or-definition-scan");return;}
+        maps_[staging_].whole_crc=document_.whole_crc;
+        if(buffers_.pattern.rows>kRealtimePatternRowCapacity || buffers_.pattern.channels>kRealtimePatternChannelCapacity){Fail("runtime-pattern-capacity");return;}
+        for(unsigned i=0;i<buffers_.pattern.rows*buffers_.pattern.channels;++i)
+            for(unsigned slot=0;slot<3;++slot)if(buffers_.pattern.fx[i][slot]){Fail("initial-pattern-fx-unsupported");return;}
         ReleaseDocument();sealed_.reset(); // Candidate retains every original byte.
         phase_=LoadPhase::Prepare;return;
     case LoadPhase::Prepare: {
@@ -132,6 +194,7 @@ void StoppedLoad::Step(bool ready) noexcept {
     }
 }
 bool StoppedLoad::Project() noexcept {
+    const auto& pattern_=buffers_.pattern;
     auto& owner=owners_[staging_];
     definitions_.Reset(false);bindings_={};omitted_=0;maps_[staging_].count=0;
     for(unsigned i=0;i<owner.count();++i) {
@@ -202,6 +265,7 @@ bool StoppedLoad::Complete(const PatternAppliedRequest& applied,InstrumentDefini
         for(unsigned i=0;i<bindings.count;++i)if(bindings.bindings[i].instrument==slot)availability[slot]=InstrumentAvailability::Ready;
     }
     const int previous=active_;active_=staging_;
+    std::strcpy(active_path_,path_); // Only a successfully acknowledged tune owns this destination.
     definitions_.Reset(false);bindings_={};
     reason_="ok";phase_=LoadPhase::Complete;
     if(previous>=0) {

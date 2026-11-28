@@ -171,7 +171,8 @@ TEST_CASE(pattern_layout_rejects_malformed_and_capacity_failures) {
 }
 }
 int main(int argc,char** argv) {
-    output=argc>1?argv[1]:"build/btt-pattern-layout";
+    if(argc!=2 || !*argv[1]) {std::cerr<<"Usage: "<<argv[0]<<" <artifact-directory>\n";return 2;}
+    output=argv[1];
     std::filesystem::create_directories(output);
     return test::RunAll();
 }

@@ -5,18 +5,24 @@
 #include "sample_waveform_protocol.h"
 #include "session_lineage.h"
 #include "wall_clock.h"
+#include "btt_save_protocol.h"
 
 namespace BroTracker {
 // Shared with the production dispatcher. A request is classified by its complete
 // grammar, never by a protocol namespace prefix. Existing handlers still own
 // readiness, identity, parameter-range and resource checks.
 enum class BttSerialCommand { Unknown, Query, PatternRead, WaveformRead, Hello,
-    Transport, AudioSetup, MidiDelaySetup, ClockSetup, LineageClaim, Load, LoadStatus, Cancel };
+    Transport, AudioSetup, MidiDelaySetup, ClockSetup, LineageClaim, Load, LoadStatus, Cancel,
+    Save, SaveStatus, Recover, Media };
 enum class BttSerialDisposition { Dispatch, Reject, EphemeralLineage };
 inline BttSerialCommand ClassifyBttSerialCommand(std::string_view line) noexcept {
     using C=BttSerialCommand;
     if(line=="BTBTT1 STATUS")return C::LoadStatus;
     if(line=="BTBTT1 CANCEL")return C::Cancel;
+    if(line=="BTBTT1 MEDIA 1")return C::Media;
+    BttSaveRequest save;
+    if(ParseBttSaveRequest(line,save))return save.action==BttSaveAction::Save?C::Save:
+        save.action==BttSaveAction::Status?C::SaveStatus:C::Recover;
     if(line=="BTTEST1 HELLO")return C::Hello;
     if(line=="BTTEST1 START" || line=="BTTEST1 STOP" || line=="BTTEST1 PAUSE" || line=="BTTEST1 CONTINUE")return C::Transport;
     for(const auto query:{"BTTEST1 STATUS","BTSTREAM1 GET","BTDEVICE1 GET 1","BTTEMPO1 GET 1",
@@ -50,12 +56,22 @@ inline BttSerialCommand ClassifyBttSerialCommand(std::string_view line) noexcept
     }
     return C::Unknown;
 }
-inline BttSerialDisposition BttSerialPolicy(std::string_view line,bool busy,bool retained) noexcept {
+inline BttSerialDisposition BttSerialPolicy(std::string_view line,bool busy,bool retained,
+    bool recovery=false,bool settled=true) noexcept {
     using D=BttSerialDisposition;using C=BttSerialCommand;
-    if(!busy && !retained)return D::Dispatch; // Ordinary dispatcher retains its full grammar.
+    if(!busy && !retained && !recovery)return D::Dispatch; // Ordinary dispatcher retains its full grammar.
     const auto command=ClassifyBttSerialCommand(line);
+    if(recovery) {
+        switch(command) {
+        case C::Query:case C::LoadStatus:case C::SaveStatus:case C::Save:case C::Recover:return D::Dispatch;
+        case C::Hello:case C::AudioSetup:case C::MidiDelaySetup:case C::ClockSetup:
+            return !busy && settled?D::Dispatch:D::Reject;
+        case C::LineageClaim:return !busy && settled?D::EphemeralLineage:D::Reject;
+        default:return D::Reject;
+        }
+    }
     switch(command) {
-    case C::Query:case C::LoadStatus:case C::Cancel:return D::Dispatch;
+    case C::Query:case C::LoadStatus:case C::Cancel:case C::Save:case C::SaveStatus:case C::Recover:case C::Media:return D::Dispatch;
     // LOAD still goes through the real stopped/admission guard. It cannot
     // overwrite a submitted owner's storage or silently stop transport.
     case C::Load:return busy?D::Reject:D::Dispatch;

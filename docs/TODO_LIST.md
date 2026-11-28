@@ -130,11 +130,27 @@
   `build/btt-save-backend/`. Isolated incremental reservation is 8,256 RAM2 bytes;
   normal production reserves nothing for this unintegrated backend.
   [Contract](FILE_FORMATS.md#bounded-fsfile-save-backend-2026-11-28)
-* [ ] Integrate Save with the retained complete saved-document owner under
-  stopped/settled production storage gates, retaining failed handles/artifacts
-  through checked cleanup and reporting committed/backup/recovery outcomes.
-  Preserve tune identity; Save As/copy identity policy remains undecided. Add a
-  production entry point only in that separate stopped-only integration step.
+* [x] Integrate ordinary BTT Save to the successful active LOAD's original path:
+  `BTBTT1 SAVE/SAVEGET/RECOVER` v1, monotonic boot-lifetime request ledgers,
+  full immutable saved data through FsSave, stopped/settled dispatch, explicit
+  owned recovery and unchanged active playback/resources/ephemeral lineage.
+  Reuse LOAD scratch; measured increments are 1,248 RAM2 / 1,024 RAM1 data /
+  3,808 ITCM bytes, with eight banks unchanged. Debug/Release coordinator,
+  backend and shared-policy regressions and actual-HEAD map builds are saved
+  under `build/btt-stopped-save/`. No BTX UI, Save As or tune editing.
+  [Protocol and lifetimes](FILE_FORMATS.md#stopped-only-production-ordinary-btt-save-2026-11-28)
+* [x] Physically verify the new ordinary Save protocol/output on the dedicated
+  FAT32 SanDisk after rejecting an initial nonmatching card without writes and
+  the owner's powered-off card swap. CID-checked fresh fixture, production
+  LOAD/Save/repeated Save/reload/readback, duplicate and Playing/Paused rejection,
+  failed-LOAD destination and ephemeral reconnect passed. Independent read-only
+  export exactly matches 7,714 native expected bytes and host CRC checks; no
+  recovery siblings or legacy session files appeared. Same current normal image,
+  initialized IDLE, empty loader and matching media verified; serial closed.
+  This is separate-helper file export, not direct card-reader byte inspection.
+  Evidence (including failed preflights): `build/btt-stopped-save/`. Save As/copy
+  identity and product UI/edit lifecycle remain separate, undecided work; runtime
+  resource admission and interrupted-write/power-loss qualification remain open.
 * [x] Fix production loader reuse of an existing backing directory after real
   SdFat rejected repeated mkdir. Validate/open/checked-close the namespace with
   persistent quarantine ownership; never overwrite a regular file. The corrected

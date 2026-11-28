@@ -86,11 +86,11 @@ SaveOutcome FsSave::Run(const Document& source,FsBackings& registry,FsBackings::
     std::strcpy(path_,destination);
     std::snprintf(candidate_path_,sizeof(candidate_path_),"%s.candidate",path_);
     std::snprintf(previous_path_,sizeof(previous_path_),"%s.previous",path_);
-    outcome_=SaveOutcome::Failed;detail_=Result::Ok;promoted_=false;
+    outcome_=cause_=SaveOutcome::Failed;detail_=Result::Ok;promoted_=false;
     bool exists;
     {
-        Scope lease;if(!lease)return outcome_=SaveOutcome::Busy;
-        if(SD.sdfs.exists(candidate_path_) || SD.sdfs.exists(previous_path_))return outcome_=SaveOutcome::Collision;
+        Scope lease;if(!lease)return cause_=outcome_=SaveOutcome::Busy;
+        if(SD.sdfs.exists(candidate_path_) || SD.sdfs.exists(previous_path_))return cause_=outcome_=SaveOutcome::Collision;
         exists=SD.sdfs.exists(path_);
     }
     const auto release=[&scratch](){scratch.backing.reset();scratch.accepted=false;};
@@ -118,6 +118,7 @@ SaveOutcome FsSave::Run(const Document& source,FsBackings& registry,FsBackings::
         scratch_=nullptr;
     }
     release();readable_=false;
+    cause_=promoted_?SaveOutcome::Saved:outcome_;
     if(outcome_==SaveOutcome::RollbackFailed)return outcome_; // Explicit recovery retry only.
     if(promoted_)outcome_=SaveOutcome::Saved;
     if(!Cleanup(ready)) {

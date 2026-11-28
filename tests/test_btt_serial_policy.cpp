@@ -111,6 +111,30 @@ TEST_CASE(BttSerial_read_queries_stay_available_during_staging_and_retention) {
         CHECK_EQ(BttSerialPolicy(line,true,false),D::Reject);
     }
 }
+TEST_CASE(BttSaveProtocol_version_identity_and_recovery_policy) {
+    BttSaveRequest request;
+    for(const auto line:{"BTBTT1 SAVE 1 7","BTBTT1 SAVEGET 1 7","BTBTT1 RECOVER 1 3 7"}) {
+        CHECK(ParseBttSaveRequest(line,request));
+        for(bool busy:{false,true})for(bool retained:{false,true})
+            CHECK_EQ(BttSerialPolicy(line,busy,retained,true,false),D::Dispatch);
+    }
+    for(const auto line:{"BTBTT1 SAVE 1 0","BTBTT1 SAVE 2 7","BTBTT1 SAVE 1 7 Tunes/other.btt",
+        "BTBTT1 SAVEGET 1 0","BTBTT1 RECOVER 1 0 7","BTBTT1 RECOVER 1 3 0",
+        "BTBTT1 SAVE 1 4294967296","BTBTT1 SAVE 1 -1","BTBTT1 SAVE 1 7 extra"}) {
+        CHECK(!ParseBttSaveRequest(line,request));CHECK_EQ(BttSerialPolicy(line,false,true,true),D::Reject);
+    }
+    for(const auto line:queries)CHECK_EQ(BttSerialPolicy(line,false,true,true),D::Dispatch);
+    for(const auto line:mutations)CHECK_EQ(BttSerialPolicy(line,false,true,true),D::Reject);
+    for(const auto line:readback)CHECK_EQ(BttSerialPolicy(line,false,true,true),D::Reject);
+    for(const auto line:{"BTBTT1 LOAD 303 Tunes/a.btt","BTBTT1 CANCEL","BTTEST1 START","BTTEST1 STOP","BTTEST1 PAUSE","BTBTT1 MEDIA 1"})
+        CHECK_EQ(BttSerialPolicy(line,false,true,true),D::Reject);
+    for(const auto line:setup) {
+        CHECK_EQ(BttSerialPolicy(line,false,true,true,true),D::Dispatch);
+        CHECK_EQ(BttSerialPolicy(line,false,true,true,false),D::Reject);
+    }
+    CHECK_EQ(BttSerialPolicy(claim,false,true,true,true),D::EphemeralLineage);
+    CHECK_EQ(BttSerialPolicy(claim,false,true,true,false),D::Reject);
+}
 TEST_CASE(BttSerial_mutations_unknown_verbs_and_prefix_lookalikes_remain_blocked) {
     for(const auto line:mutations)for(bool busy:{false,true})CHECK_EQ(BttSerialPolicy(line,busy,true),D::Reject);
     for(const auto line:{"BTTEST1 RESET","BTTEST1 HELLO extra","BTBTT1 ERASE","BTBTT1 LOAD 0 Tunes/a.btt",
