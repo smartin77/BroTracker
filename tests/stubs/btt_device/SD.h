@@ -73,7 +73,8 @@ public:
 using File=FsFile;
 struct DeviceFs {
     bool exists(const char* p){return DeviceSd::files.count(DeviceSd::Path(p));}
-    bool mkdir(const char* p,bool=true){const auto name=DeviceSd::Path(p);if(exists(p))return DeviceSd::files[name].directory;DeviceSd::files[name].directory=true;return true;}
+    // SdFat mkdir creates the final component exclusively, even with parents=true.
+    bool mkdir(const char* p,bool=true){const auto name=DeviceSd::Path(p);if(exists(p))return false;DeviceSd::files[name].directory=true;return true;}
     bool remove(const char* p){++DeviceSd::removed;if(DeviceSd::Path(p)==DeviceSd::fail_remove_path)return false;return DeviceSd::files.erase(DeviceSd::Path(p));}
 };
 struct DeviceSD {

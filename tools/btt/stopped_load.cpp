@@ -49,7 +49,14 @@ void StoppedLoad::Step(bool ready) noexcept {
     switch(phase_) {
     case LoadPhase::Open: {
         LoadWriteScope lease;if(!lease)return;
-        if(!SD.sdfs.mkdir(BTT_BACKING_DIRECTORY,true) || !input_.open(path_,O_RDONLY)) {Fail("input-open-or-namespace");return;}
+        // SdFat mkdir fails when the final directory already exists. Reuse it
+        // only after a checked directory open/close; a regular file is no namespace.
+        // Keep this handle in input_ so a failed close stays owned for Cleanup.
+        if((!SD.sdfs.exists(BTT_BACKING_DIRECTORY) && !SD.sdfs.mkdir(BTT_BACKING_DIRECTORY,true)) ||
+           !input_.open(BTT_BACKING_DIRECTORY,O_RDONLY)) {Fail("input-open-or-namespace");return;}
+        const bool directory=input_.isDirectory();
+        if(!input_.close()){Fail("namespace-close-quarantine");return;}
+        if(!directory || !input_.open(path_,O_RDONLY)) {Fail("input-open-or-namespace");return;}
         if(input_.isDirectory() || !input_.size() || input_.size()>FsBackings::kMaxBytes){Fail("input-size-capacity");return;}
         bytes_=static_cast<uint32_t>(input_.size());
         // Do not nest registry's SD write guard.

@@ -168,6 +168,47 @@ TEST_CASE(BttStopped_repeated_publication_releases_previous_snapshot) {
         CHECK_EQ(snapshots,1u);
     }
 }
+TEST_CASE(BttStopped_existing_namespace_load_and_rejection_preserve_other_files) {
+    Fixture f;
+    DeviceSd::files[BTT_BACKING_DIRECTORY].directory=true;
+    const std::string historical=std::string(BTT_BACKING_DIRECTORY)+"/historical.btt";
+    DeviceSd::files[historical].bytes={1,2,3,4};
+    CHECK(!SD.sdfs.mkdir(BTT_BACKING_DIRECTORY,true)); // Installed SdFat behavior.
+    CHECK(f.Begin());f.Ready();f.Commit();
+    DeviceSd::files["/Tunes/test.btt"].bytes=Tune(true);
+    CHECK(f.Begin());
+    for(unsigned i=0;i<400 && f.load->Busy();++i)f.Turn();
+    CHECK_EQ(f.load->phase(),LoadPhase::Failed);
+    CHECK_EQ(std::string(f.load->reason()),"initial-pattern-fx-unsupported");
+    CHECK(f.load->active());CHECK_EQ(f.control.Snapshot().tempo,14500u);
+    CHECK_EQ(f.control.Snapshot().active_rows,3u);
+    CHECK(DeviceSd::files[historical].bytes==std::vector<uint8_t>({1,2,3,4}));
+}
+TEST_CASE(BttStopped_namespace_file_and_close_quarantine_never_stage_input) {
+    {
+        Fixture f;DeviceSd::files[BTT_BACKING_DIRECTORY].bytes={9,8,7};
+        const auto creates=DeviceSd::created,removes=DeviceSd::removed;
+        CHECK(f.Begin());for(unsigned i=0;i<10 && f.load->Busy();++i)f.Turn();
+        CHECK_EQ(f.load->phase(),LoadPhase::Failed);
+        CHECK(DeviceSd::files[BTT_BACKING_DIRECTORY].bytes==std::vector<uint8_t>({9,8,7}));
+        CHECK_EQ(DeviceSd::created,creates);CHECK_EQ(DeviceSd::removed,removes);
+        CHECK_EQ(DeviceSd::files["/Tunes/test.btt"].opens,0u);
+    }
+    {
+        Fixture f;DeviceSd::files[BTT_BACKING_DIRECTORY].directory=true;
+        DeviceSd::fail_close_path=BTT_BACKING_DIRECTORY;
+        CHECK(f.Begin());f.Turn();
+        CHECK_EQ(f.load->phase(),LoadPhase::Cleanup);
+        CHECK_EQ(std::string(f.load->reason()),"namespace-close-quarantine");
+        CHECK_EQ(DeviceSd::files[BTT_BACKING_DIRECTORY].opens,1u);
+        CHECK_EQ(DeviceSd::files["/Tunes/test.btt"].opens,0u);
+        CHECK(!f.Begin());f.Turn();CHECK(f.load->Busy());
+        DeviceSd::fail_close_path.clear();f.Turn();
+        CHECK_EQ(f.load->phase(),LoadPhase::Failed);
+        CHECK_EQ(DeviceSd::files[BTT_BACKING_DIRECTORY].opens,0u);
+        CHECK_EQ(f.control.Snapshot().tempo,12500u);
+    }
+}
 TEST_CASE(BttStopped_audition_acknowledges_consumed_and_cancelled_legacy_jobs) {
     Fixture f;SdWavAudition audition(f.producer);
     CHECK(audition.Request(1,"Samples/a.wav"));

@@ -103,19 +103,31 @@
   coordinator/producer fake-SD tests, target build/maps/lifecycle figures and
   read-only device status are under `build/btt-stopped-load/`.
   [Contract and limitations](FILE_FORMATS.md#stopped-only-developer-btt-load-2026-11-27)
-* [ ] Verify production load physically after private no-FX fixture staging and
-  exact working-state/SD restoration are available. The 2026-11-27 automated
-  preflight captured checksum-verified published/working patterns, all six
-  instrument facts and unchanged IDLE/status on serial 17681760. Evidence is in
-  `build/btt-production-load-verification/`. No mounted SD workspace or complete
-  non-destructive current-session/session-file backup and restore route was
-  established. Existing Save/reboot is insufficient; do not upload a staging
-  image until that prerequisite is verified. No audio setup, upload, fixture
-  write or production LOAD was performed; the standalone diagnostic was not repeated.
+* [x] Verify stopped-only production LOAD on an owner-authorized dedicated test
+  card (2026-11-28): native sine/no-FX fixture staged/reopened/hash-verified on
+  identified FAT32 K:, safe eject, then owner-confirmed Teensy installation.
+  Real publication ACK/Complete-ok, pattern 503/BPM 137.50/notes/runtime-slot facts,
+  stopped reconnect/ephemeral lineage and invalid-FX rejection with unchanged
+  accepted tune passed. Final corrected normal firmware identity/IDLE/Empty was
+  verified. Evidence: `build/btt-production-load-verification/card-20261128-b0c00c11a2/`.
+  Reset and dedicated-card isolation replaced the original exact-state restoration
+  prerequisite; the original card was untouched. Historical 2026-11-27 blocked
+  preflight remains preserved in the parent directory. No listening, runtime
+  stack/heap/IRQ admission or power-loss recovery claim; test SD evidence retained.
+  Owner confirmed powered-off reinstallation of the original card after serial
+  closure; no further device commands were issued.
 * [x] Correct stopped-load member destruction order after fresh unoptimized host
   tests exposed Candidate leases calling an already-destroyed SdSourceService.
   Keep the service alive through candidate destruction; existing Debug and
   Release stopped-load tests pass. Physical restoration/load remains pending.
+* [x] Fix production loader reuse of an existing backing directory after real
+  SdFat rejected repeated mkdir. Validate/open/checked-close the namespace with
+  persistent quarantine ownership; never overwrite a regular file. The corrected
+  fake reproduces the old failure; 15 stopped-load cases and 14 affected CTest
+  entries pass, including foreign-file preservation and directory-close faults.
+  Corrected hardware LOAD/reconnect/invalid-FX cleanup passed. Successful snapshots
+  remain test evidence; checked in-process retirement of the final active owner
+  and post-run off-card inventory remain outside this verification.
 * [ ] Complete a production scheduler and lossless Tune Load/Save lifecycle,
   including dirty ownership/recovery and stronger source-change enforcement.
   Physical SD timing and production namespace/media policy remain separate. Validate

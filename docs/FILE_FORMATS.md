@@ -151,8 +151,9 @@ object with two Candidate owners, one validation Document, one decoded Pattern,
 one realtime projection and candidate definitions/bindings. It adds no player,
 path pool, PCM cache or current/next pattern bank. All large persistent objects
 remain off the CPU stack. Compiler stack frames and linker gaps are not measured
-runtime heap/stack/IRQ peaks. Physical load verification remains blocked until
-private fixture staging and restoration of the owner's current state are verified.
+runtime heap/stack/IRQ peaks. The original-card preflight was blocked on private
+staging and exact state restoration; the dedicated-card verification below
+supersedes that blocker for the explicitly isolated test only.
 
 The 2026-11-27 production-load preflight in
 `build/btt-production-load-verification/` discovered Teensy serial 17681760 and
@@ -175,6 +176,54 @@ destruction-order defect: Candidate source leases outlived their SdSourceService
 Declaring the service before the candidates fixes reverse-order destruction.
 The existing stopped-load suite now passes in Debug as well as Release; this
 host lifetime correction does not establish physical load/restoration success.
+
+### Dedicated-card production verification (2026-11-28)
+
+The owner authorized reset and a dedicated new 32 GB card, replacing the exact
+original-card volatile/session restoration prerequisite for this isolated run.
+The original card was not accessed. After read-only volume/disk identification,
+two native fixtures were exclusively staged in `K:\BTT-b0c00c11a2`, reopened,
+production-validated and hash-matched to host references. The healthy FAT32 volume
+has 31,263,490,048 bytes capacity; Windows exposes its USB reader identity, not a
+verified SanDisk CID. Safe flush/lock/dismount/eject passed, then the owner
+confirmed powered-off installation in Teensy serial 17681760.
+
+The first real LOAD passed, but a subsequent invalid load exposed real SdFat's
+existing-directory behavior: `mkdir` fails if its final component already exists.
+The old fake incorrectly returned success. The focused fix creates a missing
+namespace, checks that an existing path is a directory, and reuses the persistent
+input handle so a failed namespace close remains owned for checked Cleanup.
+No preexisting file is removed/overwritten. The stricter fake reproduces the
+failure; regressions cover existing directories, foreign-file preservation,
+regular-file rejection and close quarantine. All 15 stopped-load cases and 14
+affected CTest entries pass; current ordinary `teensy41_dev` builds pass.
+
+On the corrected production image, the retained earlier snapshot caused the
+expected `snapshot-create-collision-or-io` refusal before validation (BPM 0).
+The next explicit LOAD used a fresh generation and reached matching publication
+ACK 1 plus Complete/`ok`. Pattern 503 (not order-first 17) read back as 8 rows,
+8 channels, notes 60..67 and BPM 137.50. Saved sine IDs `[701,29]` correspond to
+observed runtime slots `[0,1]` under the inspected mapping; direct stable-map
+inspection is not exposed by the protocol. Both instrument slots report Ready
+Synth, with no Sample dependency. Reconnect/audio setup and an explicit lineage
+claim remained IDLE and returned `0 -`; published/working readback stayed exact.
+The private FX fixture failed as `initial-pattern-fx-unsupported`; settled Failed
+with retained=1 and unchanged six readbacks/instrument facts verifies rejection
+and coordinator cleanup, not replacement of the accepted tune.
+
+Reported streamed I/O/stale-read errors and allocation failures were zero; no
+sample voices were active. Audio block usage was current 1/peak 3, not a runtime
+heap/stack/IRQ watermark. The same corrected normal firmware was finally uploaded
+and its build identity, board identity, IDLE and Empty loader verified. No START,
+STOP, Save or automatic playback occurred. Test inputs and sealed successful
+snapshots remain on the dedicated card as evidence; reset ends volatile ownership
+but is not checked in-process retirement or a deletion proof. No uncertain
+snapshot cleanup was attempted. Original-card restoration, audible playback,
+full runtime memory admission and power-loss recovery are not established.
+After serial closure, the owner confirmed powered-off reinstallation of the
+original card; the tools issued no further device commands.
+Full serial/image/test/cleanup evidence and limits are in
+`build/btt-production-load-verification/card-20261128-b0c00c11a2/REPORT.md`.
 
 Source-verified HEAD versus stopped-load mapped `teensy41_dev` (compile/link only):
 
